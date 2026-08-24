@@ -1,23 +1,57 @@
 # serialterminal
 
-Обобщённый консольный терминал с подключаемыми transport-реализациями.
+Обобщённый консольный терминал с единым line-oriented интерфейсом и подключаемыми transport-реализациями.
 
-Сейчас реализован **Serial Port**. Архитектура отделяет терминал от транспорта, чтобы следующим шагом добавить Bluetooth без переписывания строкового ввода, логирования и reconnect.
+Сейчас реализованы:
 
-## Что уже умеет
+- **Serial Port** через `pyserial`;
+- **Bluetooth LE / Nordic UART Service (NUS)** через `bleak`.
 
-- Serial Port через `pyserial`;
-- ввод команды целой строкой: символы не уходят в устройство по одной клавише, команда отправляется только после `Enter`;
-- история команд и редактирование строки средствами `readline`, когда модуль доступен;
-- автоматический reconnect после отключения/подключения USB;
-- приоритет стабильных `/dev/serial/by-id/...`, затем `/dev/ttyUSB*` и `/dev/ttyACM*`;
-- 8N1 и настраиваемый baud rate;
-- `LF`, `CRLF` или `CR` после `Enter`;
-- лог терминальной сессии;
-- отсутствие собственного prompt, чтобы не конфликтовать с prompt прошивки;
-- best-effort режим без нежелательного reset на ESP32: безопасная последовательность DTR/RTS и отключение `HUPCL` на Linux.
+Терминал не отправляет клавиши по одной: строка редактируется локально и попадает в transport только после `Enter`.
 
-> Полностью исключить аппаратный reset при открытии порта программно можно не для каждого USB-UART/драйвера. Реализация старается не дёргать reset-линии и сохраняет подход из исходного рабочего примера.
+## Основные свойства
+
+- общий terminal core для Serial и BLE;
+- отправка целой строки только после `Enter`;
+- история и редактирование строки через `readline`, когда он доступен;
+- очередь исходящих строк: команда, набранная во время disconnect/reboot, ждёт reconnect и не теряется;
+- входящий поток сразу пишется в лог и `flush()`-ится;
+- автоматический reconnect;
+- `LF`, `CRLF` или `CR`;
+- отсутствие собственного `>` prompt.
+
+### Serial
+
+- `/dev/serial/by-id/...` имеет приоритет перед `/dev/ttyUSB*` и `/dev/ttyACM*`;
+- настраиваемый baud rate, 8N1;
+- best-effort защита ESP32 от нежелательного reset: безопасная последовательность DTR/RTS и отключение `HUPCL` на Linux.
+
+### BLE NUS
+
+Поддержаны ноды:
+
+```text
+LoRa-Pinger
+LoRa-Repeater
+```
+
+Поведение перенесено из `tools/nus_terminal.py`:
+
+- виден только один Pinger/Repeater → он выбирается автоматически;
+- видны оба → терминал спрашивает `P` или `R`;
+- после выбора target фиксируется по имени;
+- после reboot/disconnect reconnect идёт только к выбранному target;
+- другая LoRa-нода не используется как fallback;
+- BLE RX логируется в `nus-pinger-YYYYMMDD-HHMMSS.log` или `nus-repeater-YYYYMMDD-HHMMSS.log`;
+- лог flush'ится сразу, поэтому строки перед reboot, включая `FATAL`, остаются на диске.
+
+Для текущих прошивок Pinger/Repeater можно отправлять:
+
+```text
+LF   full logging
+LC   compact logging
+L    current logging mode
+```
 
 ## Структура
 
@@ -28,14 +62,17 @@ serialterminal/
 │   ├── terminal.py
 │   └── transports/
 │       ├── base.py
-│       └── serial.py
+│       ├── serial.py
+│       └── ble_nus.py
+├── tools/
+│   └── nus_terminal.py
 ├── tests/
 ├── serialterm.py
 ├── pyproject.toml
 └── .github/workflows/ci.yml
 ```
 
-`Transport` — общий byte-stream интерфейс. `SerialTransport` — его первая реализация. Bluetooth будет добавлен отдельным transport-модулем.
+`Transport` — общий byte-stream интерфейс. `SerialTransport` и `BleNusTransport` реализуют его независимо от terminal UI.
 
 ## Установка для разработки
 
@@ -43,68 +80,48 @@ serialterminal/
 git clone https://github.com/dreamworkerln/serialterminal.git
 cd serialterminal
 git switch dev
+
 python3 -m venv .venv
 source .venv/bin/activate
 pip install -e .
 ```
 
-Для Debian / Ubuntu также можно установить системный `pyserial`:
+Для BLE:
 
 ```bash
-sudo apt update
-sudo apt install python3-serial
+pip install -e '.[ble]'
 ```
 
-## Запуск
+Для разработки с pytest:
 
-После `pip install -e .`:
+```bash
+pip install -e '.[dev]'
+```
+
+## Serial Port
+
+Старый CLI полностью сохранён:
 
 ```bash
 serialterminal
+serialterminal /dev/ttyUSB0
+serialterminal -b 9600 /dev/ttyUSB0
+serialterminal --list
 ```
 
-или совместимым именем:
+Можно писать transport явно:
 
 ```bash
-serialterm
+serialterminal serial
+serialterminal serial /dev/ttyUSB0
+serialterminal serial -b 115200 /dev/ttyUSB0
 ```
 
 Без установки пакета:
 
 ```bash
 python3 serialterm.py
-```
-
-По умолчанию: `115200`, 8N1, окончание строки `LF`.
-
-### Автопоиск Serial Port
-
-```bash
-serialterminal
-```
-
-### Список устройств
-
-```bash
-serialterminal --list
-```
-
-### Явный порт
-
-```bash
-serialterminal /dev/serial/by-id/usb-1a86_USB_Serial-if00-port0
-```
-
-или:
-
-```bash
-serialterminal /dev/ttyUSB0
-```
-
-### Baud rate
-
-```bash
-serialterminal -b 9600 /dev/ttyUSB0
+python3 serialterm.py serial /dev/ttyUSB0
 ```
 
 ### Окончание строки
@@ -115,49 +132,92 @@ serialterminal --eol crlf
 serialterminal --eol cr
 ```
 
-## Строковый ввод
+## Bluetooth NUS
 
-Терминал использует обычный line-oriented ввод: набираемая команда редактируется локально, а в transport попадает один пакет только после `Enter`.
+Автовыбор/выбор между двумя видимыми нодами:
 
-То есть ввод:
-
-```text
-status<Enter>
+```bash
+serialterminal ble
 ```
 
-передаёт в Serial Port:
+Сразу зафиксировать Pinger:
 
-```text
-status\n
+```bash
+serialterminal ble pinger
 ```
 
-а не `s`, затем `t`, затем `a` и т.д.
+Сразу зафиксировать Repeater:
+
+```bash
+serialterminal ble repeater
+```
+
+Короткие варианты тоже принимаются:
+
+```bash
+serialterminal ble p
+serialterminal ble r
+```
+
+Старый путь запуска сохранён как compatibility wrapper:
+
+```bash
+python3 tools/nus_terminal.py
+python3 tools/nus_terminal.py pinger
+python3 tools/nus_terminal.py repeater
+```
+
+По умолчанию BLE использует `LF`. Изменить можно так:
+
+```bash
+serialterminal ble repeater --eol crlf
+```
+
+Свой файл лога:
+
+```bash
+serialterminal ble repeater --log repeater-debug.log
+```
+
+## Reconnect и очередь команд
+
+Ввод пользователя отделён от передачи.
+
+Например, если во время reboot Repeater набрать:
+
+```text
+LC<Enter>
+L<Enter>
+```
+
+обе полные строки остаются в исходящей очереди. После восстановления выбранного BLE target они отправятся в том же порядке. К Pinger терминал при этом не переключится.
+
+То же правило действует для Serial: временное исчезновение USB-порта не превращает ввод в per-key передачу и не выбрасывает уже введённую строку.
 
 ## ESP32 / DTR / RTS
 
-ESP32 DevKit часто использует DTR/RTS для auto-reset и входа в bootloader. При открытии порта некоторые драйверы и serial-библиотеки могут кратковременно менять эти линии.
+`SerialTransport` старается не генерировать reset при открытии порта:
 
-`SerialTransport` перед `open()` задаёт безопасное промежуточное состояние, после открытия деактивирует DTR/RTS и на Linux отключает `HUPCL`. Это сделано специально для уменьшения вероятности нежелательного reset.
+1. перед `open()` задаётся безопасное промежуточное состояние DTR/RTS;
+2. после открытия обе линии деактивируются;
+3. на Linux отключается `HUPCL`.
+
+Это best-effort: поведение конкретного USB-UART и драйвера всё равно может отличаться.
 
 ## Права доступа Linux
 
-Если появляется `Permission denied`:
+При `Permission denied` для Serial:
 
 ```bash
 sudo usermod -aG dialout "$USER"
 ```
 
-Затем нужно перелогиниться.
+После этого нужно перелогиниться.
 
 ## Тесты
 
 ```bash
-pip install -e . pytest
+pip install -e '.[dev]'
 pytest -q
+python3 -m compileall -q src tools
 ```
-
-CI запускает compile-check и тесты на каждый push/PR.
-
-## Следующий transport
-
-Следующий этап — Bluetooth. Он должен реализовать тот же `Transport` (`connect`, `disconnect`, `read`, `write`, `is_connected`, `description`), после чего общий терминал останется без изменений.
