@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import queue
 import sys
 import threading
 import time
@@ -36,6 +37,7 @@ class TerminalSession:
         self.stop_event = threading.Event()
         self.connected_event = threading.Event()
         self.output_lock = threading.Lock()
+        self.outgoing: queue.Queue[str] = queue.Queue()
 
         self.log_file = self.log_path.open("a", encoding="utf-8", buffering=1)
         stamp = datetime.now().astimezone().strftime("%Y-%m-%d %H:%M:%S %z")
@@ -86,7 +88,6 @@ class TerminalSession:
                 if data:
                     self.write_output(data.decode("utf-8", errors="replace"))
             except (TransportError, OSError):
-                # Treat transport I/O failure as disconnect and reconnect.
                 if self.stop_event.is_set():
                     break
                 old = self.transport.description
@@ -94,26 +95,51 @@ class TerminalSession:
                 self.write_output(f"\n[disconnected: {old}]\n\n")
                 time.sleep(0.3)
 
-    def send_line(self, line: str) -> bool:
-        if not self.transport.is_connected:
-            self.write_output("[not connected]\n")
-            return False
+    def _write_line(self, line: str) -> None:
+        self.transport.write(encode_line(line, self.line_ending))
 
-        try:
-            self.transport.write(encode_line(line, self.line_ending))
-            return True
-        except (TransportError, OSError):
-            self._disconnect()
-            self.write_output("\n[send failed; reconnecting]\n")
+    def tx_loop(self) -> None:
+        """Send complete input lines in order, retaining them across reconnects."""
+        while not self.stop_event.is_set():
+            try:
+                line = self.outgoing.get(timeout=0.1)
+            except queue.Empty:
+                continue
+
+            try:
+                while not self.stop_event.is_set():
+                    if not self.connected_event.wait(timeout=0.1):
+                        continue
+
+                    try:
+                        self._write_line(line)
+                        break
+                    except (TransportError, OSError):
+                        # Keep `line` as the current item. It will be retried
+                        # after rx_loop reconnects to the same transport target.
+                        self._disconnect()
+                        self.write_output("\n[send failed; reconnecting]\n")
+                        time.sleep(self.reconnect_delay)
+            finally:
+                self.outgoing.task_done()
+
+    def send_line(self, line: str) -> bool:
+        """Queue one complete line; it is never split into per-key writes."""
+        if self.stop_event.is_set():
             return False
+        self.outgoing.put(line)
+        return True
 
     def run(self) -> None:
         rx = threading.Thread(target=self.rx_loop, daemon=True)
+        tx = threading.Thread(target=self.tx_loop, daemon=True)
         rx.start()
+        tx.start()
 
         self.write_output("serialterminal\n")
         self.write_output("Ctrl-C to exit\n")
         self.write_output("Commands are sent only after Enter.\n")
+        self.write_output("Typed commands are retained across reconnects.\n")
         self.write_output(f"Log: {self.log_path}\n\n")
 
         try:
@@ -130,6 +156,7 @@ class TerminalSession:
         finally:
             self.stop_event.set()
             rx.join(timeout=1.0)
+            tx.join(timeout=1.0)
             self._disconnect()
             with self.output_lock:
                 self.log_file.flush()
