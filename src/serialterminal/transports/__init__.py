@@ -1,3 +1,3 @@
-from .base import Transport, TransportError
+from .base import ReceivedChunk, Transport, TransportError
 
-__all__ = ["Transport", "TransportError"]
+__all__ = ["ReceivedChunk", "Transport", "TransportError"]
