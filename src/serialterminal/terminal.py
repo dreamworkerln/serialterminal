@@ -90,8 +90,14 @@ class TerminalSession:
             self.log_file.flush()
 
             if self._received_visible(chunk.stream):
+                # Do not flush stdout for every transport chunk. BLE firmware
+                # intentionally emits notifications in small MTU-safe pieces.
+                # prompt_toolkit.patch_stdout buffers those pieces until a
+                # newline so it can redraw the input prompt exactly once. An
+                # explicit flush here forced every 20-byte notification through
+                # the redraw path and made copied/displayed lines look repeated
+                # and interleaved even though the BLE payload was correct.
                 sys.stdout.write(text)
-                sys.stdout.flush()
 
     def log_input(self, line: str) -> None:
         with self.output_lock:
