@@ -4,12 +4,15 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "serialterminal"
-version = "0.2.0"
-description = "Line-oriented terminal with Serial Port and BLE transports"
+version = "0.3.0"
+description = "Line-oriented terminal with sticky USB/BLE device selection and NUS stream views"
 readme = "README.md"
 requires-python = ">=3.10"
 license = {file = "LICENSE"}
-dependencies = ["pyserial>=3.5"]
+dependencies = [
+    "pyserial>=3.5",
+    "prompt-toolkit>=3.0",
+]
 
 [project.optional-dependencies]
 ble = ["bleak>=0.22"]
