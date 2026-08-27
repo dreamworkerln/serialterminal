@@ -1,78 +1,188 @@
 # serialterminal
 
-Обобщённый консольный терминал с единым line-oriented интерфейсом и подключаемыми transport-реализациями.
+Обобщённый line-oriented терминал для USB Serial и Bluetooth LE / Nordic UART Service (NUS).
 
-Сейчас реализованы:
+Терминал редактирует строку локально и отправляет её в устройство только после `Enter`. Исходящие строки переживают временный disconnect/reboot и отправляются после reconnect к **тому же выбранному устройству**.
 
-- **Serial Port** через `pyserial`;
-- **Bluetooth LE / Nordic UART Service (NUS)** через `bleak`.
+## Текущее поведение
 
-Терминал не отправляет клавиши по одной: строка редактируется локально и попадает в transport только после `Enter`.
+Поддержаны:
 
-## Основные свойства
+- USB Serial через `pyserial`;
+- BLE NUS через `bleak`;
+- единый terminal core;
+- numbered device chooser;
+- sticky reconnect к выбранному physical target;
+- отдельные BLE views `CHAT`, `TELEMETRY`, `BOTH` для Chatter;
+- immediate `Ctrl+C` exit;
+- локальные control hotkeys с префиксом `Ctrl+T`;
+- лог с немедленным `flush()`;
+- `LF`, `CRLF` или `CR`.
 
-- общий terminal core для Serial и BLE;
-- отправка целой строки только после `Enter`;
-- история и редактирование строки через `readline`, когда он доступен;
-- очередь исходящих строк: команда, набранная во время disconnect/reboot, ждёт reconnect и не теряется;
-- входящий поток сразу пишется в лог и `flush()`-ится;
-- автоматический reconnect;
-- `LF`, `CRLF` или `CR`;
-- отсутствие собственного `>` prompt.
+## Запуск и выбор устройства
 
-### Serial
+Обычный запуск теперь делает unified discovery:
 
-- `/dev/serial/by-id/...` имеет приоритет перед `/dev/ttyUSB*` и `/dev/ttyACM*`;
-- настраиваемый baud rate, 8N1;
-- best-effort защита ESP32 от нежелательного reset: безопасная последовательность DTR/RTS и отключение `HUPCL` на Linux.
-
-### BLE NUS
-
-Поддержаны ноды:
-
-```text
-LoRa-Pinger
-LoRa-Repeater
+```bash
+serialterminal
 ```
 
-Поведение перенесено из `tools/nus_terminal.py`:
+Ищутся одновременно:
 
-- виден только один Pinger/Repeater → он выбирается автоматически;
-- видны оба → терминал спрашивает `P` или `R`;
-- после выбора target фиксируется по имени;
-- после reboot/disconnect reconnect идёт только к выбранному target;
-- другая LoRa-нода не используется как fallback;
-- BLE RX логируется в `nus-pinger-YYYYMMDD-HHMMSS.log` или `nus-repeater-YYYYMMDD-HHMMSS.log`;
-- лог flush'ится сразу, поэтому строки перед reboot, включая `FATAL`, остаются на диске.
+- доступные USB serial devices;
+- BLE devices с advertised name `LoRa-*` (если установлен BLE extra).
 
-Для текущих прошивок Pinger/Repeater можно отправлять:
+Правило выбора:
 
 ```text
-LF   full logging
-LC   compact logging
-L    current logging mode
+0 devices
+    -> продолжать scan/wait
+
+1 device
+    -> autoconnect
+    -> lock target
+
+2+ devices
+    -> никакого autoconnect
+    -> numbered menu
 ```
 
-## Структура
+Пример:
 
 ```text
-serialterminal/
-├── src/serialterminal/
-│   ├── cli.py
-│   ├── terminal.py
-│   └── transports/
-│       ├── base.py
-│       ├── serial.py
-│       └── ble_nus.py
-├── tools/
-│   └── nus_terminal.py
-├── tests/
-├── serialterm.py
-├── pyproject.toml
-└── .github/workflows/ci.yml
+Detected devices:
+  1. USB  USB JTAG/serial debug unit
+     /dev/serial/by-id/usb-Espressif_...  VID:PID=303A:1001  serial=...
+  2. BLE  LoRa-Chatter-72E0
+     AA:BB:CC:11:22:33
+  3. BLE  LoRa-Chatter-A193
+     DD:EE:FF:44:55:66
+Connect to [1-3]:
 ```
 
-`Transport` — общий byte-stream интерфейс. `SerialTransport` и `BleNusTransport` реализуют его независимо от terminal UI.
+После выбора target фиксируется на всю текущую terminal session. Если он исчез:
+
+```text
+[disconnected: ...]
+[waiting for selected device...]
+```
+
+другое видимое устройство **не используется как fallback**. Reconnect продолжает искать только выбранную identity. Сменить target можно только явно через `Ctrl+T d`.
+
+### Sticky USB identity
+
+При наличии `/dev/serial/by-id/...` используется именно этот стабильный путь. Если `by-id` отсутствует, terminal старается привязаться по USB serial number + VID/PID, затем по USB location + VID/PID. Только последний fallback — конкретный tty path.
+
+Поэтому выбранный ESP32, который после reboot переехал с `/dev/ttyACM0` на `/dev/ttyACM1`, не должен автоматически заменяться другим первым портом.
+
+### Sticky BLE identity
+
+После initial selection BLE target фиксируется по BLE address, а advertised name используется для отображения. Reconnect сканирует только выбранный address и не перепрыгивает на другую `LoRa-*` ноду.
+
+## Hotkeys
+
+```text
+Ctrl+C         quit immediately
+
+Ctrl+T 1       CHAT view
+Ctrl+T 2       TELEMETRY view
+Ctrl+T 3       BOTH views
+Ctrl+T d       device chooser
+Ctrl+T i       connection/status
+Ctrl+T ?       help
+```
+
+`Ctrl+T` hotkeys — локальные команды terminal. Они никогда не отправляются в устройство.
+
+`Ctrl+T d` временно disconnect'ит текущий target, сканирует доступные устройства и показывает numbered menu. `Enter` отменяет смену и reconnect'ит прежний target. `Ctrl+C` даже внутри menu немедленно завершает программу.
+
+## Chatter BLE streams
+
+Chatter использует один NUS service и три characteristics:
+
+```text
+INPUT
+6E400002-B5A3-F393-E0A9-E50E24DCCA9E
+
+CHAT notify
+6E400003-B5A3-F393-E0A9-E50E24DCCA9E
+
+TELEMETRY notify
+6E400004-B5A3-F393-E0A9-E50E24DCCA9E
+```
+
+При BLE connect terminal всегда подписывается на `0003 CHAT` и best-effort также на `0004 TELEMETRY`. Старые Echo firmware, у которых существует только стандартный NUS TX `0003`, продолжают работать.
+
+Переключение `Ctrl+T 1/2/3` — это **локальный display filter**, а не BLE disconnect/reconnect:
+
+```text
+BLE connection
+    +-- 0003 CHAT ---------+
+    +-- 0004 TELEMETRY ----+--> local view: CHAT / TELEMETRY / BOTH
+```
+
+Оба потока продолжают приниматься и записываться в session log, даже если один из них сейчас скрыт с экрана.
+
+USB Serial физически является одним combined stream, поэтому на USB `Ctrl+T 1/2/3` не может разделить CHAT и TELEMETRY; terminal сообщает, что filtering доступен только для BLE.
+
+## Явные transport modes
+
+Unified mode:
+
+```bash
+serialterminal
+serialterminal auto
+serialterminal auto --scan-seconds 5
+```
+
+Serial-only:
+
+```bash
+serialterminal serial
+serialterminal serial /dev/ttyUSB0
+serialterminal serial -b 9600 /dev/ttyUSB0
+serialterminal serial --list
+```
+
+Старый explicit serial path по-прежнему работает:
+
+```bash
+serialterminal /dev/ttyUSB0
+serialterminal -b 9600 /dev/ttyUSB0
+```
+
+BLE-only:
+
+```bash
+serialterminal ble
+serialterminal ble pinger
+serialterminal ble repeater
+serialterminal ble LoRa-Chatter-72E0
+```
+
+`p`/`r` aliases сохранены.
+
+Compatibility wrapper также сохранён:
+
+```bash
+python3 tools/nus_terminal.py
+python3 tools/nus_terminal.py pinger
+python3 tools/nus_terminal.py repeater
+```
+
+## Reconnect и очередь команд
+
+Terminal input отделён от transport I/O. Если выбранная нода reboot'ится, уже набранные полные строки остаются в исходящей очереди и отправляются после восстановления **этого же locked target**.
+
+Никакая клавиша не передаётся per-key; обычный текст уходит только после `Enter`.
+
+## ESP32 / DTR / RTS
+
+`SerialTransport` сохраняет best-effort no-reset последовательность:
+
+1. перед `open()` выставляется безопасное промежуточное DTR/RTS состояние;
+2. после открытия обе линии deassert;
+3. на Linux отключается `HUPCL`.
 
 ## Установка для разработки
 
@@ -86,138 +196,16 @@ source .venv/bin/activate
 pip install -e .
 ```
 
-Для BLE:
+BLE support:
 
 ```bash
 pip install -e '.[ble]'
 ```
 
-Для разработки с pytest:
-
-```bash
-pip install -e '.[dev]'
-```
-
-## Serial Port
-
-Старый CLI полностью сохранён:
-
-```bash
-serialterminal
-serialterminal /dev/ttyUSB0
-serialterminal -b 9600 /dev/ttyUSB0
-serialterminal --list
-```
-
-Можно писать transport явно:
-
-```bash
-serialterminal serial
-serialterminal serial /dev/ttyUSB0
-serialterminal serial -b 115200 /dev/ttyUSB0
-```
-
-Без установки пакета:
-
-```bash
-python3 serialterm.py
-python3 serialterm.py serial /dev/ttyUSB0
-```
-
-### Окончание строки
-
-```bash
-serialterminal --eol lf
-serialterminal --eol crlf
-serialterminal --eol cr
-```
-
-## Bluetooth NUS
-
-Автовыбор/выбор между двумя видимыми нодами:
-
-```bash
-serialterminal ble
-```
-
-Сразу зафиксировать Pinger:
-
-```bash
-serialterminal ble pinger
-```
-
-Сразу зафиксировать Repeater:
-
-```bash
-serialterminal ble repeater
-```
-
-Короткие варианты тоже принимаются:
-
-```bash
-serialterminal ble p
-serialterminal ble r
-```
-
-Старый путь запуска сохранён как compatibility wrapper:
-
-```bash
-python3 tools/nus_terminal.py
-python3 tools/nus_terminal.py pinger
-python3 tools/nus_terminal.py repeater
-```
-
-По умолчанию BLE использует `LF`. Изменить можно так:
-
-```bash
-serialterminal ble repeater --eol crlf
-```
-
-Свой файл лога:
-
-```bash
-serialterminal ble repeater --log repeater-debug.log
-```
-
-## Reconnect и очередь команд
-
-Ввод пользователя отделён от передачи.
-
-Например, если во время reboot Repeater набрать:
-
-```text
-LC<Enter>
-L<Enter>
-```
-
-обе полные строки остаются в исходящей очереди. После восстановления выбранного BLE target они отправятся в том же порядке. К Pinger терминал при этом не переключится.
-
-То же правило действует для Serial: временное исчезновение USB-порта не превращает ввод в per-key передачу и не выбрасывает уже введённую строку.
-
-## ESP32 / DTR / RTS
-
-`SerialTransport` старается не генерировать reset при открытии порта:
-
-1. перед `open()` задаётся безопасное промежуточное состояние DTR/RTS;
-2. после открытия обе линии деактивируются;
-3. на Linux отключается `HUPCL`.
-
-Это best-effort: поведение конкретного USB-UART и драйвера всё равно может отличаться.
-
-## Права доступа Linux
-
-При `Permission denied` для Serial:
-
-```bash
-sudo usermod -aG dialout "$USER"
-```
-
-После этого нужно перелогиниться.
-
-## Тесты
+Tests:
 
 ```bash
 pip install -e '.[dev]'
 pytest -q
-python3 -m compileall -q src tools
+python3 -m compileall -q src tools serialterm.py
 ```
