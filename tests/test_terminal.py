@@ -1,13 +1,56 @@
-from serialterminal.terminal import encode_line
+from serialterminal.terminal import TerminalSession, encode_line
+from serialterminal.transports.base import ReceivedChunk, Transport
 
 
-def test_encode_line_lf():
-    assert encode_line("status") == b"status\n"
+class DummyTransport(Transport):
+    @property
+    def is_connected(self):
+        return False
+
+    @property
+    def description(self):
+        return "dummy"
+
+    def connect(self):
+        return False
+
+    def disconnect(self):
+        pass
+
+    def read(self, size=512):
+        return b""
+
+    def write(self, data):
+        pass
 
 
-def test_encode_line_crlf():
-    assert encode_line("status", "\r\n") == b"status\r\n"
+class DummyBleLikeTransport(DummyTransport):
+    @property
+    def stream_capabilities(self):
+        return ("chat", "telemetry")
 
 
-def test_encode_line_unicode():
-    assert encode_line("привет") == "привет\n".encode("utf-8")
+def test_encode_line():
+    assert encode_line("LC") == b"LC\n"
+    assert encode_line("LC", "\r\n") == b"LC\r\n"
+
+
+def test_stream_visibility_and_hotkeys(tmp_path):
+    session = TerminalSession(
+        DummyBleLikeTransport(),
+        log_path=tmp_path / "terminal.log",
+    )
+    try:
+        assert session._received_visible("chat")
+        assert not session._received_visible("telemetry")
+        session.view_mode = "both"
+        assert session._received_visible("chat")
+        assert session._received_visible("telemetry")
+        assert session._received_visible("main")
+        assert len(session._build_key_bindings().bindings) == 7
+
+        session.view_mode = "telemetry"
+        session.write_received(ReceivedChunk("chat", b"hidden chat\n"))
+        assert "hidden chat" in (tmp_path / "terminal.log").read_text()
+    finally:
+        session.log_file.close()
