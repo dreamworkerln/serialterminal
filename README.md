@@ -1,138 +1,150 @@
 # serialterminal
 
-Обобщённый line-oriented терминал для USB Serial и Bluetooth LE / Nordic UART Service (NUS).
+Обобщённый line-oriented терминал для USB Serial, Bluetooth LE / Nordic UART Service (NUS) и Classic Bluetooth Serial Port Profile (SPP/RFCOMM).
 
-Терминал редактирует строку локально и отправляет её в устройство только после `Enter`. Исходящие строки переживают временный disconnect/reboot и отправляются после reconnect к **тому же выбранному устройству**.
+Терминал редактирует строку локально и отправляет её в устройство только после `Enter`. Исходящие строки переживают временный disconnect/reboot и отправляются после reconnect к **тому же выбранному физическому устройству**.
 
-## Текущее поведение
-
-Поддержаны:
+## Что поддержано
 
 - USB Serial через `pyserial`;
 - BLE NUS через `bleak`;
-- единый terminal core;
-- numbered device chooser;
-- sticky reconnect к выбранному physical target;
-- отдельные BLE views `CHAT`, `TELEMETRY`, `BOTH` для Chatter;
-- immediate `Ctrl+C` exit;
-- локальные control hotkeys с префиксом `Ctrl+T`;
+- Classic Bluetooth SPP/RFCOMM на Linux через BlueZ + Python Bluetooth sockets;
+- unified device chooser;
+- sticky reconnect по стабильной identity;
+- отдельные BLE streams `CHAT`, `TELEMETRY`, `BOTH`;
+- локальные hotkeys `Ctrl+T ...`;
+- capability cache для найденных NUS/SPP устройств;
+- отдельный aggressive Bluetooth scanner/prober;
 - лог с немедленным `flush()`;
-- `LF`, `CRLF` или `CR`.
+- `LF`, `CRLF` или `CR` после `Enter`.
 
-## Запуск и выбор устройства
-
-Обычный запуск теперь делает unified discovery:
+## Обычный режим: безопасный discovery
 
 ```bash
 serialterminal
 ```
 
-Ищутся одновременно:
+Обычный режим **не подключается подряд ко всем неизвестным Bluetooth-устройствам**. В chooser попадают:
 
-- доступные USB serial devices;
-- BLE devices с advertised name `LoRa-*` (если установлен BLE extra).
+- USB Serial;
+- project BLE с именем `LoRa-*` как trusted hint;
+- BLE, рекламирующие NUS service UUID;
+- BLE с ранее подтверждённым scanner'ом NUS;
+- Classic Bluetooth устройства с ранее подтверждённым scanner'ом SPP.
+
+Неизвестный BLE по умолчанию скрыт. Это задаётся константой в коде:
+
+```python
+SHOW_ALL_BLE_DEVICES = False
+```
+
+Runtime-команды для переключения этого режима пока нет.
 
 Правило выбора:
 
 ```text
-0 devices
-    -> продолжать scan/wait
-
-1 device
-    -> autoconnect
-    -> lock target
-
-2+ devices
-    -> никакого autoconnect
-    -> numbered menu
+0 devices  -> scan/wait
+1 device   -> autoconnect + lock target
+2+ devices -> numbered menu
 ```
 
-Пример:
+После выбора reconnect идёт только к той же physical identity. Другой доступный target не используется как fallback. Сменить устройство можно через `Ctrl+T d`.
 
-```text
-Detected devices:
-  1. USB  USB JTAG/serial debug unit
-     /dev/serial/by-id/usb-Espressif_...  VID:PID=303A:1001  serial=...
-  2. BLE  LoRa-Chatter-72E0
-     AA:BB:CC:11:22:33
-  3. BLE  LoRa-Chatter-A193
-     DD:EE:FF:44:55:66
-Connect to [1-3]:
+## Bluetooth scanner / capability probe
+
+Scanner — отдельный агрессивный режим. Он намеренно смотрит **все** найденные Bluetooth-устройства и пытается определить terminal capability.
+
+Интерактивное меню:
+
+```bash
+serialterminal scan
 ```
 
-После выбора target фиксируется на всю текущую terminal session. Если он исчез:
-
 ```text
-[disconnected: ...]
-[waiting for selected device...]
+Bluetooth scanner
+  1. Probe all BLE devices for NUS
+  2. Probe Classic Bluetooth devices for SPP
+  3. Probe all Bluetooth
+Scan [1-3]:
 ```
 
-другое видимое устройство **не используется как fallback**. Reconnect продолжает искать только выбранную identity. Сменить target можно только явно через `Ctrl+T d`.
+Без меню:
 
-### Sticky USB identity
-
-При наличии `/dev/serial/by-id/...` используется именно этот стабильный путь. Если `by-id` отсутствует, terminal старается привязаться по USB serial number + VID/PID, затем по USB location + VID/PID. Только последний fallback — конкретный tty path.
-
-Поэтому выбранный ESP32, который после reboot переехал с `/dev/ttyACM0` на `/dev/ttyACM1`, не должен автоматически заменяться другим первым портом.
-
-### Sticky BLE identity
-
-После initial selection BLE target фиксируется по BLE address, а advertised name используется для отображения. Reconnect сканирует только выбранный address и не перепрыгивает на другую `LoRa-*` ноду.
-
-## Hotkeys
-
-```text
-Ctrl+C         quit immediately
-
-Ctrl+T 1       CHAT view
-Ctrl+T 2       TELEMETRY view
-Ctrl+T 3       BOTH views
-Ctrl+T d       device chooser
-Ctrl+T i       connection/status
-Ctrl+T ?       help
+```bash
+serialterminal scan ble
+serialterminal scan spp
+serialterminal scan all
 ```
 
-`Ctrl+T` hotkeys — локальные команды terminal. Они никогда не отправляются в устройство.
+Дополнительно:
 
-`Ctrl+T d` временно disconnect'ит текущий target, сканирует доступные устройства и показывает numbered menu. `Enter` отменяет смену и reconnect'ит прежний target. `Ctrl+C` даже внутри menu немедленно завершает программу.
+```bash
+serialterminal scan all --scan-seconds 8 --probe-timeout 10
+serialterminal scan spp --no-rfcomm-test
+```
 
-## Chatter BLE streams
+### BLE probe
 
-Chatter использует один NUS service и три characteristics:
+Для каждого BLE device scanner подключается, делает GATT service discovery и ищет:
 
 ```text
-INPUT
+NUS service
+6E400001-B5A3-F393-E0A9-E50E24DCCA9E
+
+INPUT / RX
 6E400002-B5A3-F393-E0A9-E50E24DCCA9E
 
-CHAT notify
+CHAT / TX
 6E400003-B5A3-F393-E0A9-E50E24DCCA9E
 
-TELEMETRY notify
+TELEMETRY (optional)
 6E400004-B5A3-F393-E0A9-E50E24DCCA9E
 ```
 
-При BLE connect terminal всегда подписывается на `0003 CHAT` и best-effort также на `0004 TELEMETRY`. Старые Echo firmware, у которых существует только стандартный NUS TX `0003`, продолжают работать.
+Практическая граница совместимости терминала — наличие RX `0002` и CHAT/TX `0003`. `0004` помечается отдельно как telemetry capability.
 
-Переключение `Ctrl+T 1/2/3` — это **локальный display filter**, а не BLE disconnect/reconnect:
+Ошибки подключения/timeout записываются как `UNKNOWN`, а не как `NO`.
 
-```text
-BLE connection
-    +-- 0003 CHAT ---------+
-    +-- 0004 TELEMETRY ----+--> local view: CHAT / TELEMETRY / BOTH
+### Classic Bluetooth SPP probe
+
+Scanner сначала делает BR/EDR discovery через BlueZ (`bluetoothctl`, fallback `hcitool`), затем для каждой ноды делает SDP browse через `sdptool` и ищет Serial Port Profile / UUID `0x1101` и RFCOMM channel.
+
+Если SPP найден, по умолчанию scanner также пытается кратко открыть RFCOMM connection. Неудачный connect test **не отменяет** подтверждённый по SDP SPP capability — например, устройство может требовать pairing/PIN.
+
+Для отключения connect test:
+
+```bash
+serialterminal scan spp --no-rfcomm-test
 ```
 
-Оба потока продолжают приниматься и записываться в session log, даже если один из них сейчас скрыт с экрана.
+## Capability cache
 
-USB Serial физически является одним combined stream, поэтому на USB `Ctrl+T 1/2/3` не может разделить CHAT и TELEMETRY; terminal сообщает, что filtering доступен только для BLE.
+Результаты scanner сохраняются в:
+
+```text
+~/.cache/serialterminal/devices.json
+```
+
+или под `$XDG_CACHE_HOME`, если он задан.
+
+Для тестов/отладки путь можно переопределить:
+
+```bash
+SERIALTERMINAL_CACHE_FILE=/tmp/serialterminal-devices.json serialterminal scan all
+```
+
+Cache хранит `YES / NO / UNKNOWN`, время probe, имя/address, NUS streams и RFCOMM channel. Обычный chooser использует только **подтверждённые** capabilities.
+
+Именно поэтому устройство с произвольным именем вроде `Nordic_UART` или `ESP32-Terminal` после успешного NUS probe начинает появляться в обычном `serialterminal` независимо от префикса `LoRa-`.
 
 ## Явные transport modes
 
-Unified mode:
+Unified:
 
 ```bash
 serialterminal
 serialterminal auto
-serialterminal auto --scan-seconds 5
+serialterminal --list
 ```
 
 Serial-only:
@@ -144,25 +156,25 @@ serialterminal serial -b 9600 /dev/ttyUSB0
 serialterminal serial --list
 ```
 
-Старый explicit serial path по-прежнему работает:
-
-```bash
-serialterminal /dev/ttyUSB0
-serialterminal -b 9600 /dev/ttyUSB0
-```
-
-BLE-only:
+BLE NUS-only:
 
 ```bash
 serialterminal ble
 serialterminal ble pinger
 serialterminal ble repeater
 serialterminal ble LoRa-Chatter-72E0
+serialterminal ble Nordic_UART
 ```
 
-`p`/`r` aliases сохранены.
+`p` / `r` aliases сохранены; произвольное значение воспринимается как точное advertised name.
 
-Compatibility wrapper также сохранён:
+SPP-only (показывает подтверждённые scanner'ом SPP targets):
+
+```bash
+serialterminal spp
+```
+
+Compatibility wrapper NUS также сохранён:
 
 ```bash
 python3 tools/nus_terminal.py
@@ -170,19 +182,72 @@ python3 tools/nus_terminal.py pinger
 python3 tools/nus_terminal.py repeater
 ```
 
+## Sticky identity
+
+### USB
+
+Приоритет identity:
+
+```text
+/dev/serial/by-id/...
+-> VID/PID + USB serial number
+-> VID/PID + USB location
+-> concrete tty path
+```
+
+### BLE NUS
+
+После выбора target фиксируется по BLE address. Advertised name используется для отображения и explicit name filter.
+
+### Bluetooth SPP
+
+SPP target фиксируется по Bluetooth address + подтверждённому RFCOMM channel. Reconnect открывает RFCOMM только к этому address.
+
+## Hotkeys
+
+```text
+Ctrl+C         quit immediately
+Ctrl+T 1       CHAT view
+Ctrl+T 2       TELEMETRY view
+Ctrl+T 3       BOTH views
+Ctrl+T d       device chooser
+Ctrl+T i       connection/status
+Ctrl+T ?       help
+```
+
+Hotkeys локальные и никогда не отправляются в устройство.
+
+USB Serial и Bluetooth SPP имеют один физический stream `main`, поэтому CHAT/TELEMETRY filtering для них не применяется. BLE Chatter может иметь два независимых notify streams; оба всегда пишутся в log, даже если один скрыт на экране.
+
 ## Reconnect и очередь команд
 
-Terminal input отделён от transport I/O. Если выбранная нода reboot'ится, уже набранные полные строки остаются в исходящей очереди и отправляются после восстановления **этого же locked target**.
-
-Никакая клавиша не передаётся per-key; обычный текст уходит только после `Enter`.
+Input отделён от transport I/O. Полная строка попадает в TX queue только после `Enter`. Если target reboot'ится во время отправки, текущая строка остаётся в очереди и будет повторно отправлена после reconnect к тому же locked target.
 
 ## ESP32 / DTR / RTS
 
 `SerialTransport` сохраняет best-effort no-reset последовательность:
 
-1. перед `open()` выставляется безопасное промежуточное DTR/RTS состояние;
-2. после открытия обе линии deassert;
-3. на Linux отключается `HUPCL`.
+1. безопасное промежуточное DTR/RTS перед `open()`;
+2. deassert обеих линий после открытия;
+3. отключение `HUPCL` на Linux.
+
+## Зависимости
+
+Python:
+
+```text
+pyserial
+prompt-toolkit
+bleak        # для BLE
+```
+
+Для Classic Bluetooth scanner/SPP на Linux нужны BlueZ tools (`bluetoothctl`, `sdptool`; `hcitool` используется только как legacy fallback). RFCOMM transport использует встроенный Python `socket.AF_BLUETOOTH / BTPROTO_RFCOMM`.
+
+Debian/Ubuntu:
+
+```bash
+sudo apt install bluez
+```
 
 ## Установка для разработки
 
@@ -193,19 +258,20 @@ git switch dev
 
 python3 -m venv .venv
 source .venv/bin/activate
-pip install -e .
+pip install -e '.[ble,dev]'
 ```
 
-BLE support:
+На старой системе можно поставить зависимости отдельно и запускать исходники без editable install:
 
 ```bash
-pip install -e '.[ble]'
+pip install pyserial prompt-toolkit bleak pytest
+PYTHONPATH=src python3 -m serialterminal
+PYTHONPATH=src python3 -m serialterminal scan
 ```
 
 Tests:
 
 ```bash
-pip install -e '.[dev]'
 pytest -q
 python3 -m compileall -q src tools serialterm.py
 ```
