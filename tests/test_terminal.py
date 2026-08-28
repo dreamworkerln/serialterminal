@@ -48,7 +48,7 @@ def test_stream_visibility_and_hotkeys(tmp_path):
         assert session._received_visible("chat")
         assert session._received_visible("telemetry")
         assert session._received_visible("main")
-        assert len(session._build_key_bindings().bindings) == 7
+        assert len(session._build_key_bindings().bindings) == 8
 
         session.view_mode = "telemetry"
         session.write_received(ReceivedChunk("chat", b"hidden chat\n"))
