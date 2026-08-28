@@ -12,6 +12,7 @@ class Dev:
 
 class Scanner:
     devices = []
+    find_calls = []
 
     @staticmethod
     async def discover(timeout=3.0, **kwargs):
@@ -19,6 +20,15 @@ class Scanner:
             # Exercise compatibility path for older Bleak.
             raise TypeError("return_adv not supported")
         return list(Scanner.devices)
+
+    @staticmethod
+    async def find_device_by_address(address, timeout=10.0):
+        Scanner.find_calls.append(address)
+        wanted = address.lower()
+        for device in Scanner.devices:
+            if device.address.lower() == wanted:
+                return device
+        return None
 
 
 class Char:
@@ -33,7 +43,10 @@ class Service:
 
 
 class Client:
+    last_device = None
+
     def __init__(self, device, timeout=8.0):
+        Client.last_device = device
         self.device = device
         self.services = [
             Service(
@@ -85,14 +98,46 @@ def test_default_visibility_known_advertised_and_cached(
     }
 
 
-def test_probe_nus(monkeypatch):
+def test_probe_nus_resolves_device_fresh(monkeypatch):
+    stale = Dev("Any", "AA:05")
+    fresh = Dev("Any", "AA:05")
+    Scanner.devices = [fresh]
+    Scanner.find_calls = []
+    Client.last_device = None
+
     monkeypatch.setattr(ble_nus, "BleakScanner", Scanner)
     monkeypatch.setattr(ble_nus, "BleakClient", Client)
     item = ble_discovery.BleDiscoveryItem(
         ble_nus.BleDeviceIdentity("Any", "AA:05"),
-        raw_device=Dev("Any", "AA:05"),
+        raw_device=stale,
     )
+
     result = ble_discovery.probe_ble_nus(item, 0.1)
+
+    assert Scanner.find_calls == ["AA:05"]
+    assert Client.last_device is fresh
+    assert Client.last_device is not stale
     assert result.nus is True
     assert result.chat is True
     assert result.telemetry is True
+
+
+def test_probe_missing_device_is_unknown_without_stale_bluez_path(monkeypatch):
+    Scanner.devices = []
+    Scanner.find_calls = []
+    Client.last_device = None
+
+    monkeypatch.setattr(ble_nus, "BleakScanner", Scanner)
+    monkeypatch.setattr(ble_nus, "BleakClient", Client)
+    item = ble_discovery.BleDiscoveryItem(
+        ble_nus.BleDeviceIdentity("Gone", "AA:06"),
+        raw_device=Dev("Gone", "AA:06"),
+    )
+
+    result = ble_discovery.probe_ble_nus(item, 0.1)
+
+    assert result.status == "unknown"
+    assert result.nus is None
+    assert result.error == "device AA:06 is not visible now"
+    assert "dev_" not in result.error
+    assert Client.last_device is None
