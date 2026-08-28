@@ -23,13 +23,18 @@ class PortInfo:
         self.location = location
 
 
-def test_usb_discovery_ignores_legacy_ttys(monkeypatch):
+def test_serial_discovery_hides_empty_ttys_but_keeps_identified_uart(monkeypatch):
     monkeypatch.setattr(
         serial_transport.list_ports,
         "comports",
         lambda: [
             PortInfo("/dev/ttyS0"),
             PortInfo("/dev/ttyS31"),
+            PortInfo(
+                "/dev/ttyS5",
+                description="16550A UART",
+                hwid="PNP0501",
+            ),
             PortInfo("/dev/ttyUSB0"),
             PortInfo("/dev/ttyACM0"),
             PortInfo(
@@ -43,13 +48,18 @@ def test_usb_discovery_ignores_legacy_ttys(monkeypatch):
     monkeypatch.setattr(serial_transport.glob, "glob", lambda pattern: [])
 
     found = serial_transport.discover_serial_devices()
-    paths = {device.path for device in found}
+    by_path = {device.path: device for device in found}
 
-    assert "/dev/ttyS0" not in paths
-    assert "/dev/ttyS31" not in paths
-    assert "/dev/ttyUSB0" in paths
-    assert "/dev/ttyACM0" in paths
-    assert "/dev/cu.usbmodem-test" in paths
+    assert "/dev/ttyS0" not in by_path
+    assert "/dev/ttyS31" not in by_path
+    assert "/dev/ttyS5" in by_path
+    assert by_path["/dev/ttyS5"].is_usb is False
+    assert "/dev/ttyUSB0" in by_path
+    assert by_path["/dev/ttyUSB0"].is_usb is True
+    assert "/dev/ttyACM0" in by_path
+    assert by_path["/dev/ttyACM0"].is_usb is True
+    assert "/dev/cu.usbmodem-test" in by_path
+    assert by_path["/dev/cu.usbmodem-test"].is_usb is True
 
 
 def test_sticky_serial_identity_does_not_fall_back(monkeypatch):
