@@ -181,3 +181,40 @@ def run_scanner(
     )
     print(f"Capability cache: {default_cache_path()}")
     return total
+
+
+def choose_scan_mode(*, allow_cancel: bool = True) -> str | None:
+    """Interactive scanner menu used by the terminal hotkey."""
+    print("Bluetooth scanner")
+    print("  1. Probe all BLE devices for NUS")
+    print("  2. Probe Classic Bluetooth devices for SPP")
+    print("  3. Probe all Bluetooth")
+    if allow_cancel:
+        print("  Enter. Back to terminal")
+
+    mapping = {
+        "1": "ble",
+        "ble": "ble",
+        "2": "spp",
+        "spp": "spp",
+        "3": "all",
+        "all": "all",
+    }
+
+    while True:
+        prompt = "Scan [1-3, Enter=back]: " if allow_cancel else "Scan [1-3]: "
+        answer = input(prompt).strip().lower()
+        if allow_cancel and answer == "":
+            return None
+        if answer in mapping:
+            return mapping[answer]
+        print("Please enter 1, 2 or 3.")
+
+
+def run_interactive_scanner() -> ScannerSummary | None:
+    """Run the scanner menu from an already running serialterminal session."""
+    mode = choose_scan_mode(allow_cancel=True)
+    if mode is None:
+        print("Scanner cancelled.")
+        return None
+    return run_scanner(mode)
