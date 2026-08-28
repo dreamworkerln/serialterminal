@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import codecs
 from dataclasses import dataclass
 import queue
 import sys
@@ -48,7 +49,9 @@ class TerminalSession:
         self.connection_paused = threading.Event()
         self.output_lock = threading.Lock()
         self.transport_lock = threading.Lock()
+        self.decode_lock = threading.Lock()
         self.outgoing: queue.Queue[str] = queue.Queue()
+        self._received_decoders = {}
 
         # BLE starts in compact CHAT view. Plain Serial uses stream `main`, which
         # is always visible because USB firmware output is physically combined.
@@ -78,11 +81,28 @@ class TerminalSession:
             return True
         return stream == self.view_mode
 
+    def _decode_received(self, stream: str, data: bytes) -> str:
+        """Decode one logical stream without breaking UTF-8 at chunk boundaries."""
+        with self.decode_lock:
+            decoder = self._received_decoders.get(stream)
+            if decoder is None:
+                decoder = codecs.getincrementaldecoder("utf-8")(errors="replace")
+                self._received_decoders[stream] = decoder
+            return decoder.decode(data, final=False)
+
+    def _reset_received_decoders(self) -> None:
+        """Discard incomplete characters when a transport connection changes."""
+        with self.decode_lock:
+            self._received_decoders.clear()
+
     def write_received(self, chunk: ReceivedChunk) -> None:
         if not chunk.data:
             return
 
-        text = chunk.data.decode("utf-8", errors="replace")
+        text = self._decode_received(chunk.stream, chunk.data)
+        if not text:
+            return
+
         with self.output_lock:
             # Always retain both BLE streams in the transcript, even when one is
             # hidden from the current screen view.
@@ -116,6 +136,9 @@ class TerminalSession:
             transport.disconnect()
             return False
 
+        # A reconnect is a new byte-stream boundary. Never let a partial UTF-8
+        # sequence from the old link combine with bytes from the new link.
+        self._reset_received_decoders()
         self.connected_event.set()
         self.write_output(f"\n[connected: {transport.description}]\n\n")
         return True
@@ -123,6 +146,7 @@ class TerminalSession:
     def _disconnect(self) -> None:
         self.connected_event.clear()
         self._current_transport().disconnect()
+        self._reset_received_decoders()
 
     def rx_loop(self) -> None:
         waiting_printed = False
@@ -153,6 +177,7 @@ class TerminalSession:
                 old = transport.description
                 self.connected_event.clear()
                 transport.disconnect()
+                self._reset_received_decoders()
                 self.write_output(f"\n[disconnected: {old}]\n\n")
                 time.sleep(0.3)
 
@@ -266,6 +291,7 @@ class TerminalSession:
         self.connection_paused.set()
         self.connected_event.clear()
         old_transport.disconnect()
+        self._reset_received_decoders()
 
         try:
             new_transport = self.device_chooser()
