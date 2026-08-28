@@ -53,8 +53,8 @@ class TerminalSession:
         self.outgoing: queue.Queue[str] = queue.Queue()
         self._received_decoders = {}
 
-        # BLE starts in compact CHAT view. Plain Serial uses stream `main`, which
-        # is always visible because USB firmware output is physically combined.
+        # BLE starts in compact CHAT view. Plain Serial/SPP use stream `main`,
+        # which is always visible because their output is physically combined.
         self.view_mode = "chat"
 
         self.log_file = self.log_path.open("a", encoding="utf-8", buffering=1)
@@ -104,8 +104,8 @@ class TerminalSession:
             return
 
         with self.output_lock:
-            # Always retain both BLE streams in the transcript, even when one is
-            # hidden from the current screen view.
+            # Always retain all logical streams in the transcript, even when
+            # one is hidden from the current screen view.
             self.log_file.write(text)
             self.log_file.flush()
 
@@ -113,10 +113,7 @@ class TerminalSession:
                 # Do not flush stdout for every transport chunk. BLE firmware
                 # intentionally emits notifications in small MTU-safe pieces.
                 # prompt_toolkit.patch_stdout buffers those pieces until a
-                # newline so it can redraw the input prompt exactly once. An
-                # explicit flush here forced every 20-byte notification through
-                # the redraw path and made copied/displayed lines look repeated
-                # and interleaved even though the BLE payload was correct.
+                # newline so it can redraw the input prompt exactly once.
                 sys.stdout.write(text)
 
     def log_input(self, line: str) -> None:
@@ -233,6 +230,7 @@ class TerminalSession:
         add_control("2", "telemetry")
         add_control("3", "both")
         add_control("d", "device")
+        add_control("s", "scanner")
         add_control("i", "info")
         add_control("?", "help")
 
@@ -248,7 +246,7 @@ class TerminalSession:
 
         if capabilities == {"main"}:
             self.write_output(
-                "\n[stream: USB/Serial is physically combined; "
+                "\n[stream: USB/Serial/SPP is physically combined; "
                 "CHAT/TELEMETRY filtering is BLE-only]\n\n"
             )
             return
@@ -277,6 +275,7 @@ class TerminalSession:
             "  Ctrl+T 2     TELEMETRY view\n"
             "  Ctrl+T 3     BOTH views\n"
             "  Ctrl+T d     device chooser\n"
+            "  Ctrl+T s     Bluetooth capability scanner\n"
             "  Ctrl+T i     connection/status\n"
             "  Ctrl+T ?     this help\n"
             "\n"
@@ -318,12 +317,40 @@ class TerminalSession:
 
         self.connection_paused.clear()
 
+    def _run_bluetooth_scanner(self) -> None:
+        """Temporarily release the active target and run the interactive prober."""
+        transport = self._current_transport()
+        self.connection_paused.set()
+        self.connected_event.clear()
+        transport.disconnect()
+        self._reset_received_decoders()
+
+        self.write_output(
+            "\n[Bluetooth scanner: current connection paused]\n"
+            "[the same locked target will be retried when scanner exits]\n\n"
+        )
+
+        try:
+            from .bluetooth_scanner import run_interactive_scanner
+
+            run_interactive_scanner()
+        except KeyboardInterrupt:
+            raise
+        except Exception as exc:
+            self.write_output(f"\n[Bluetooth scanner failed: {exc}]\n\n")
+        finally:
+            self.connection_paused.clear()
+            self.write_output("\n[Bluetooth scanner closed; reconnecting target]\n\n")
+
     def _handle_control(self, action: str) -> None:
         if action in {"chat", "telemetry", "both"}:
             self._set_view_mode(action)
             return
         if action == "device":
             self._change_device()
+            return
+        if action == "scanner":
+            self._run_bluetooth_scanner()
             return
         if action == "info":
             self._print_status()
