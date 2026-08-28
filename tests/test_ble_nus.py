@@ -42,14 +42,17 @@ def _install_fake_ble(monkeypatch):
 
     class FakeClient:
         last = None
+        instances = []
 
         def __init__(self, device, disconnected_callback=None, timeout=10.0):
             self.device = device
             self.disconnected_callback = disconnected_callback
             self.is_connected = False
             self.notify = {}
+            self.stop_calls = []
             self.writes = []
             FakeClient.last = self
+            FakeClient.instances.append(self)
 
         async def connect(self):
             self.is_connected = True
@@ -57,10 +60,20 @@ def _install_fake_ble(monkeypatch):
         async def start_notify(self, uuid, callback):
             self.notify[uuid] = callback
 
+        async def stop_notify(self, uuid):
+            self.stop_calls.append(uuid)
+            self.notify.pop(uuid, None)
+
         async def write_gatt_char(self, _uuid, data, response=False):
             self.writes.append(bytes(data))
 
         async def disconnect(self):
+            was_connected = self.is_connected
+            self.is_connected = False
+            if was_connected and self.disconnected_callback is not None:
+                self.disconnected_callback(self)
+
+        def remote_disconnect(self):
             self.is_connected = False
             if self.disconnected_callback is not None:
                 self.disconnected_callback(self)
@@ -126,5 +139,74 @@ def test_ble_transport_streams_and_sticky_reconnect(monkeypatch):
         FakeScanner.devices = [selected, other]
         assert transport.connect()
         assert FakeClient.last.device.address == "AA:01"
+    finally:
+        transport.close()
+
+
+def test_power_cycle_reconnect_ignores_stale_ble_callbacks(monkeypatch):
+    FakeDevice, FakeScanner, FakeClient = _install_fake_ble(monkeypatch)
+    selected = FakeDevice("LoRa-Chatter-72E0", "AA:01")
+    FakeScanner.devices = [selected]
+
+    transport = ble_nus.BleNusTransport(
+        BleDeviceIdentity(selected.name, selected.address),
+        scan_timeout=0.05,
+        connect_timeout=0.05,
+    )
+    try:
+        assert transport.connect()
+        first = FakeClient.last
+        first_chat = first.notify[NUS_CHAT_TX_UUID]
+        first_telemetry = first.notify[NUS_TELEMETRY_TX_UUID]
+
+        # Reproduce the real failure shape: the peripheral disappears without
+        # serialterminal being closed, so Bleak reports a remote disconnect.
+        first.remote_disconnect()
+        assert not transport.is_connected
+
+        # Even before normal cleanup runs, callbacks from the dead connection
+        # must no longer be allowed to enqueue bytes.
+        first_chat(None, bytearray(b"stale-before-reconnect\n"))
+        first_telemetry(None, bytearray(b"stale-before-reconnect\n"))
+
+        # TerminalSession does this after read_chunk notices the disconnect.
+        transport.disconnect()
+        assert set(first.stop_calls) == {
+            NUS_CHAT_TX_UUID,
+            NUS_TELEMETRY_TX_UUID,
+        }
+
+        assert transport.connect()
+        second = FakeClient.last
+        assert second is not first
+        assert transport.is_connected
+
+        # Model a backend retaining the old notify registrations across the
+        # reconnect. These callbacks must be ignored instead of producing the
+        # observed 2x/3x copies after successive board power cycles.
+        first_chat(None, bytearray(b"stale-chat\n"))
+        first_telemetry(None, bytearray(b"stale-telemetry\n"))
+
+        # A delayed disconnect callback from the old BleakClient must also not
+        # clear the state of the current connection.
+        first.disconnected_callback(first)
+        assert transport.is_connected
+
+        second.notify[NUS_CHAT_TX_UUID](None, bytearray(b"fresh-chat\n"))
+        second.notify[NUS_TELEMETRY_TX_UUID](
+            None,
+            bytearray(b"fresh-telemetry\n"),
+        )
+
+        first_chunk = transport.read_chunk(512)
+        second_chunk = transport.read_chunk(512)
+        assert (first_chunk.stream, first_chunk.data) == (
+            "chat",
+            b"fresh-chat\n",
+        )
+        assert (second_chunk.stream, second_chunk.data) == (
+            "telemetry",
+            b"fresh-telemetry\n",
+        )
     finally:
         transport.close()

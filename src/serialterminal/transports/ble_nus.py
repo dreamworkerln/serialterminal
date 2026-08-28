@@ -142,6 +142,13 @@ class BleNusTransport(Transport):
         self._address: str | None = self.target_address
         self._telemetry_available = False
 
+        # Some BLE backends can keep an old notification callback alive across
+        # an unexpected disconnect/reconnect. Give every connection a unique
+        # generation so stale callbacks cannot enqueue duplicate bytes into the
+        # new session even if the backend invokes them again later.
+        self._connection_generation = 0
+        self._active_generation: int | None = None
+
         self._rx_queue: queue.Queue[ReceivedChunk] = queue.Queue()
 
         self._loop_ready = threading.Event()
@@ -200,20 +207,42 @@ class BleNusTransport(Transport):
             raise TransportError("BLE event loop is not running")
         return asyncio.run_coroutine_threadsafe(coroutine, loop)
 
-    def _on_disconnect(self, client) -> None:
-        self._connected.clear()
-        self._telemetry_available = False
+    def _on_disconnect(self, client, generation: int) -> None:
+        # A delayed disconnect callback from an older BleakClient must not tear
+        # down a newer connection. Keep the old client reference until normal
+        # cleanup gets a chance to retire its notify subscriptions explicitly.
         with self._state_lock:
-            if self._client is client:
-                self._client = None
+            if self._client is not client or self._active_generation != generation:
+                return
+            self._active_generation = None
+            self._connected.clear()
+            self._telemetry_available = False
 
-    def _on_chat_notify(self, _characteristic, data: bytearray) -> None:
-        if data:
-            self._rx_queue.put(ReceivedChunk("chat", bytes(data)))
+    def _queue_notify(self, generation: int, stream: str, data: bytearray) -> None:
+        if not data:
+            return
 
-    def _on_telemetry_notify(self, _characteristic, data: bytearray) -> None:
-        if data:
-            self._rx_queue.put(ReceivedChunk("telemetry", bytes(data)))
+        with self._state_lock:
+            if self._active_generation != generation:
+                return
+
+        self._rx_queue.put(ReceivedChunk(stream, bytes(data)))
+
+    def _on_chat_notify(
+        self,
+        generation: int,
+        _characteristic,
+        data: bytearray,
+    ) -> None:
+        self._queue_notify(generation, "chat", data)
+
+    def _on_telemetry_notify(
+        self,
+        generation: int,
+        _characteristic,
+        data: bytearray,
+    ) -> None:
+        self._queue_notify(generation, "telemetry", data)
 
     async def _find_target_device(self) -> Any | None:
         devices = await _scan_raw_devices(self.scan_timeout)
@@ -233,36 +262,81 @@ class BleNusTransport(Transport):
         ]
         return matches[0] if len(matches) == 1 else None
 
+    async def _cleanup_client_async(self, client: Any) -> None:
+        # stop_notify() is best-effort because an abrupt peripheral power loss
+        # means the GATT link may already be gone. The generation guard above is
+        # still the correctness boundary if the backend retains a stale callback.
+        for uuid in (NUS_CHAT_TX_UUID, NUS_TELEMETRY_TX_UUID):
+            try:
+                await client.stop_notify(uuid)
+            except Exception:
+                pass
+
+        try:
+            await client.disconnect()
+        except Exception:
+            pass
+
     async def _connect_async(self) -> bool:
         if self._connected.is_set():
             return True
+
+        # An unexpected remote disconnect leaves the previous BleakClient here
+        # deliberately so it can be retired before a replacement is created.
+        with self._state_lock:
+            stale_client = self._client
+        if stale_client is not None:
+            await self._disconnect_async()
 
         device = await self._find_target_device()
         if device is None:
             return False
 
+        with self._state_lock:
+            self._connection_generation += 1
+            generation = self._connection_generation
+            self._active_generation = generation
+
         client = BleakClient(
             device,
-            disconnected_callback=self._on_disconnect,
+            disconnected_callback=(
+                lambda disconnected_client, generation=generation:
+                    self._on_disconnect(disconnected_client, generation)
+            ),
             timeout=self.connect_timeout,
+        )
+
+        with self._state_lock:
+            self._client = client
+
+        chat_callback = (
+            lambda characteristic, data, generation=generation:
+                self._on_chat_notify(generation, characteristic, data)
+        )
+        telemetry_callback = (
+            lambda characteristic, data, generation=generation:
+                self._on_telemetry_notify(generation, characteristic, data)
         )
 
         try:
             await client.connect()
-            await client.start_notify(NUS_CHAT_TX_UUID, self._on_chat_notify)
+            await client.start_notify(NUS_CHAT_TX_UUID, chat_callback)
         except Exception:
-            try:
-                await client.disconnect()
-            except Exception:
-                pass
+            await self._cleanup_client_async(client)
+            with self._state_lock:
+                if self._client is client:
+                    self._client = None
+                if self._active_generation == generation:
+                    self._active_generation = None
             self._connected.clear()
+            self._telemetry_available = False
             return False
 
         telemetry_available = False
         try:
             await client.start_notify(
                 NUS_TELEMETRY_TX_UUID,
-                self._on_telemetry_notify,
+                telemetry_callback,
             )
             telemetry_available = True
         except Exception:
@@ -271,15 +345,31 @@ class BleNusTransport(Transport):
             telemetry_available = False
 
         with self._state_lock:
-            self._client = client
-            self._address = getattr(device, "address", None)
-            if self.target_address is None and self._address:
-                # Legacy name-only construction becomes sticky after first
-                # unambiguous connection.
-                self.target_address = str(self._address)
+            connection_is_current = (
+                self._client is client
+                and self._active_generation == generation
+                and bool(getattr(client, "is_connected", True))
+            )
+            if connection_is_current:
+                self._address = getattr(device, "address", None)
+                if self.target_address is None and self._address:
+                    # Legacy name-only construction becomes sticky after first
+                    # unambiguous connection.
+                    self.target_address = str(self._address)
+                self._telemetry_available = telemetry_available
+                self._connected.set()
 
-        self._telemetry_available = telemetry_available
-        self._connected.set()
+        if not connection_is_current:
+            await self._cleanup_client_async(client)
+            with self._state_lock:
+                if self._client is client:
+                    self._client = None
+                if self._active_generation == generation:
+                    self._active_generation = None
+            self._connected.clear()
+            self._telemetry_available = False
+            return False
+
         return True
 
     def connect(self) -> bool:
@@ -302,20 +392,21 @@ class BleNusTransport(Transport):
         with self._state_lock:
             client = self._client
             self._client = None
+            self._active_generation = None
 
         self._connected.clear()
         self._telemetry_available = False
 
         if client is not None:
-            try:
-                await client.disconnect()
-            except Exception:
-                pass
+            await self._cleanup_client_async(client)
 
     def disconnect(self) -> None:
         if self._loop is None or not self._loop.is_running():
             self._connected.clear()
             self._telemetry_available = False
+            with self._state_lock:
+                self._client = None
+                self._active_generation = None
             return
 
         try:
@@ -324,6 +415,9 @@ class BleNusTransport(Transport):
         except Exception:
             self._connected.clear()
             self._telemetry_available = False
+            with self._state_lock:
+                self._client = None
+                self._active_generation = None
 
     def close(self) -> None:
         self.disconnect()
