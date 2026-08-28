@@ -24,6 +24,9 @@ SHOW_ALL_BLE_DEVICES = False
 class BleDiscoveryItem:
     identity: BleDeviceIdentity
     advertised_services: tuple[str, ...] = ()
+    # Kept only as discovery metadata/debug context. Capability probing must not
+    # connect through this object because BlueZ can retire its D-Bus object path
+    # while the scanner is sequentially probing other devices.
     raw_device: Any = field(default=None, compare=False, repr=False)
 
 
@@ -163,16 +166,59 @@ def _collect_gatt_uuids(services: Any) -> tuple[set[str], set[str]]:
     return service_uuids, characteristic_uuids
 
 
+async def _find_fresh_device_by_address(
+    address: str,
+    timeout: float,
+) -> Any | None:
+    """Resolve a fresh BLEDevice so BlueZ D-Bus paths cannot go stale."""
+    scanner = ble_nus.BleakScanner
+    finder = getattr(scanner, "find_device_by_address", None)
+
+    if finder is not None:
+        try:
+            return await finder(address, timeout=timeout)
+        except TypeError:
+            # Compatibility with Bleak variants exposing a narrower signature.
+            return await finder(address)
+
+    # Older Bleak fallback: perform a fresh discovery and match the address.
+    devices = await scanner.discover(timeout=timeout)
+    wanted = address.lower()
+    for device in devices:
+        candidate = getattr(device, "address", None)
+        if candidate and str(candidate).lower() == wanted:
+            return device
+    return None
+
+
 async def _probe_ble_nus_async(
     item: BleDiscoveryItem,
     timeout: float,
 ) -> BleProbeResult:
     """Actively connect and inspect GATT capabilities of one BLE device."""
     ble_nus._require_bleak()
-    client = ble_nus.BleakClient(
-        item.raw_device or item.identity.address,
-        timeout=timeout,
-    )
+
+    try:
+        # Never reuse the BLEDevice captured by the initial all-device scan.
+        # On BlueZ its /org/bluez/hciX/dev_XX_... object can disappear while
+        # earlier scanner entries are being probed. Resolve the MAC immediately
+        # before connecting so Bleak gets a current D-Bus object path.
+        fresh_device = await _find_fresh_device_by_address(
+            item.identity.address,
+            timeout,
+        )
+        if fresh_device is None:
+            return BleProbeResult(
+                "unknown",
+                None,
+                None,
+                None,
+                f"device {item.identity.address} is not visible now",
+            )
+    except Exception as exc:
+        return BleProbeResult("unknown", None, None, None, str(exc))
+
+    client = ble_nus.BleakClient(fresh_device, timeout=timeout)
 
     try:
         await client.connect()
