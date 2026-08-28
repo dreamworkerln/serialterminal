@@ -27,6 +27,18 @@ class SerialDeviceIdentity:
     def label(self) -> str:
         return self.description or os.path.basename(self.path) or self.path
 
+    @property
+    def is_usb(self) -> bool:
+        path = self.path
+        if path.startswith("/dev/serial/by-id/"):
+            return True
+        if path.startswith(("/dev/ttyUSB", "/dev/ttyACM")):
+            return True
+        if self.vid is not None and self.pid is not None:
+            return True
+        hwid = str(self.hwid or "").upper()
+        return "USB" in hwid or "VID:PID" in hwid
+
 
 def _stable_serial_key(
     preferred_path: str,
@@ -49,8 +61,13 @@ def _stable_serial_key(
     return f"serial-path:{real_path}"
 
 
-def _looks_like_usb_serial_info(info: object) -> bool:
-    """Return True for ports that plausibly represent USB serial hardware."""
+def _meaningful_port_text(value: object) -> bool:
+    text = str(value or "").strip()
+    return bool(text and text.lower() not in {"n/a", "unknown", "none"})
+
+
+def _looks_like_useful_serial_info(info: object) -> bool:
+    """Hide empty ttyS placeholders while retaining real serial hardware."""
     device = str(getattr(info, "device", "") or "")
     if not device:
         return False
@@ -67,21 +84,30 @@ def _looks_like_usb_serial_info(info: object) -> bool:
     if vid is not None and pid is not None:
         return True
 
-    hwid = str(getattr(info, "hwid", "") or "").upper()
-    if "USB" in hwid or "VID:PID" in hwid:
+    hwid = str(getattr(info, "hwid", "") or "")
+    hwid_upper = hwid.upper()
+    if "USB" in hwid_upper or "VID:PID" in hwid_upper:
         return True
 
-    # In particular, ignore kernel-created legacy UART placeholders such as
-    # /dev/ttyS0..31. They are not USB devices and otherwise flood the chooser.
-    return False
+    # Linux commonly exposes /dev/ttyS0..31 even when most entries are only
+    # unpopulated 8250 placeholders. pyserial reports those as n/a / n/a.
+    # Keep a ttyS port if udev/pyserial can identify it (for example PNP0501),
+    # but do not flood the chooser with anonymous placeholders.
+    if device.startswith("/dev/ttyS"):
+        description = getattr(info, "description", "")
+        return _meaningful_port_text(description) or _meaningful_port_text(hwid)
+
+    # Other serial classes (ttyAMA, ttyTHS, platform UARTs, etc.) can be useful
+    # even when they are not USB. Preserve pyserial's discovery for those.
+    return True
 
 
 def discover_serial_devices() -> list[SerialDeviceIdentity]:
-    """Discover USB serial devices with stable `/dev/serial/by-id` paths first."""
+    """Discover useful serial devices with stable `/dev/serial/by-id` paths first."""
     infos = [
         info
         for info in list_ports.comports()
-        if _looks_like_usb_serial_info(info)
+        if _looks_like_useful_serial_info(info)
     ]
     info_by_real: dict[str, object] = {}
 
