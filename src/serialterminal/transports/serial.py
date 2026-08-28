@@ -49,9 +49,40 @@ def _stable_serial_key(
     return f"serial-path:{real_path}"
 
 
+def _looks_like_usb_serial_info(info: object) -> bool:
+    """Return True for ports that plausibly represent USB serial hardware."""
+    device = str(getattr(info, "device", "") or "")
+    if not device:
+        return False
+
+    # On non-POSIX platforms list_ports is the portable source of truth.
+    if os.name != "posix":
+        return True
+
+    if device.startswith(("/dev/ttyUSB", "/dev/ttyACM")):
+        return True
+
+    vid = getattr(info, "vid", None)
+    pid = getattr(info, "pid", None)
+    if vid is not None and pid is not None:
+        return True
+
+    hwid = str(getattr(info, "hwid", "") or "").upper()
+    if "USB" in hwid or "VID:PID" in hwid:
+        return True
+
+    # In particular, ignore kernel-created legacy UART placeholders such as
+    # /dev/ttyS0..31. They are not USB devices and otherwise flood the chooser.
+    return False
+
+
 def discover_serial_devices() -> list[SerialDeviceIdentity]:
     """Discover USB serial devices with stable `/dev/serial/by-id` paths first."""
-    infos = list(list_ports.comports())
+    infos = [
+        info
+        for info in list_ports.comports()
+        if _looks_like_usb_serial_info(info)
+    ]
     info_by_real: dict[str, object] = {}
 
     for info in infos:
