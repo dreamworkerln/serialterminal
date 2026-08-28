@@ -229,6 +229,54 @@ which bluetoothctl
 which sdptool
 ```
 
+## Диагностика Bluetooth disconnect на Linux
+
+Если BLE/SPP начинает периодически disconnect/reconnect, полезно сначала посмотреть причину на уровне HCI/BlueZ, отдельно от `serialterminal`.
+
+Короткая грепалка для `btmon`, которая показывает только события disconnect и несколько строк причины:
+
+```bash
+sudo btmon \
+  | grep --line-buffered -Ei -A 6 \
+      'Disconnect Complete|Device Disconnected'
+```
+
+Например, такой вывод:
+
+```text
+> HCI Event: Disconnect Complete
+    Status: Success (0x00)
+    Reason: Connection Timeout (0x08)
+@ MGMT Event: Device Disconnected
+    Reason: Connection timeout (0x01)
+```
+
+означает, что Bluetooth controller сообщил о link/supervision timeout. Это уже ниже уровня Python/Bleak и само по себе не означает, что disconnect инициировал `serialterminal`.
+
+На Debian/Ubuntu/Linux Mint при повторяющихся Bluetooth timeout первым делом рекомендуется обновить BlueZ и firmware-пакеты системы, затем перезагрузиться и повторить тот же тест:
+
+```bash
+sudo apt update
+sudo apt install --only-upgrade bluez linux-firmware
+sudo reboot
+```
+
+Проверить установленные версии можно так:
+
+```bash
+dpkg -l bluez linux-firmware | grep '^ii'
+uname -r
+```
+
+Если timeout сохраняется на старом Ubuntu 22.04-based stack, имеет смысл также проверить более новое поддерживаемое ядро/HWE. Для Ubuntu 22.04:
+
+```bash
+sudo apt install linux-generic-hwe-22.04
+sudo reboot
+```
+
+После каждого изменения лучше менять только одну переменную и снова смотреть `btmon`, чтобы отличить проблему приложения от BlueZ/kernel/firmware/controller или RF-условий.
+
 ## Дополнительные CLI режимы
 
 Они существуют для диагностики и автоматизации, но для обычной работы не нужны:
