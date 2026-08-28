@@ -86,3 +86,77 @@ def test_received_ble_chunks_do_not_force_stdout_flush(tmp_path, monkeypatch):
         assert fake_stdout.flush_count == 0
     finally:
         session.log_file.close()
+
+
+def test_received_utf8_survives_ble_notification_boundary(tmp_path, monkeypatch):
+    class FakeStdout:
+        def __init__(self):
+            self.writes = []
+
+        def write(self, text):
+            self.writes.append(text)
+            return len(text)
+
+        def flush(self):
+            pass
+
+    fake_stdout = FakeStdout()
+    monkeypatch.setattr(terminal_module.sys, "stdout", fake_stdout)
+
+    session = TerminalSession(
+        DummyBleLikeTransport(),
+        log_path=tmp_path / "terminal.log",
+    )
+    try:
+        text = "[ME] апршщдзжзжзхэ\n"
+        encoded = text.encode("utf-8")
+
+        # Split after only the first byte of a two-byte Cyrillic code point,
+        # matching an arbitrary BLE notification/MTU boundary.
+        prefix = "[ME] апршщдз".encode("utf-8")
+        cut = len(prefix) + 1
+        session.write_received(ReceivedChunk("chat", encoded[:cut]))
+        session.write_received(ReceivedChunk("chat", encoded[cut:]))
+
+        rendered = "".join(fake_stdout.writes)
+        assert rendered == text
+        assert "�" not in rendered
+
+        transcript = (tmp_path / "terminal.log").read_text()
+        assert text in transcript
+        assert "�" not in transcript
+    finally:
+        session.log_file.close()
+
+
+def test_utf8_decoder_state_is_separate_per_ble_stream(tmp_path, monkeypatch):
+    class FakeStdout:
+        def __init__(self):
+            self.writes = []
+
+        def write(self, text):
+            self.writes.append(text)
+            return len(text)
+
+        def flush(self):
+            pass
+
+    fake_stdout = FakeStdout()
+    monkeypatch.setattr(terminal_module.sys, "stdout", fake_stdout)
+
+    session = TerminalSession(
+        DummyBleLikeTransport(),
+        log_path=tmp_path / "terminal.log",
+    )
+    try:
+        session.view_mode = "both"
+        letter = "ж".encode("utf-8")
+
+        session.write_received(ReceivedChunk("chat", letter[:1]))
+        session.write_received(ReceivedChunk("telemetry", b"T\n"))
+        session.write_received(ReceivedChunk("chat", letter[1:] + b"\n"))
+
+        assert "".join(fake_stdout.writes) == "T\nж\n"
+        assert "�" not in "".join(fake_stdout.writes)
+    finally:
+        session.log_file.close()
