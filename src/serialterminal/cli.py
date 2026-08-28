@@ -54,11 +54,12 @@ class DeviceSelector:
                 if item.location:
                     meta.append(f"location={item.location}")
 
+                port_kind = "USB" if item.is_usb else "SERIAL"
                 candidates.append(
                     DeviceCandidate(
                         kind="serial",
                         key=item.key,
-                        label=f"USB  {item.label}",
+                        label=f"{port_kind}  {item.label}",
                         detail="  ".join(meta),
                         identity=item,
                     )
@@ -196,7 +197,7 @@ class DeviceSelector:
         """Wait for a target. Multiple visible devices require a menu."""
         while True:
             if self.scope == "auto":
-                print("Scanning USB/BLE/SPP devices...")
+                print("Scanning Serial/BLE/SPP devices...")
             elif self.scope == "ble":
                 print("Scanning BLE devices...")
             elif self.scope == "spp":
@@ -204,7 +205,7 @@ class DeviceSelector:
                     "Scanning cached/confirmed Bluetooth SPP devices..."
                 )
             else:
-                print("Scanning USB serial devices...")
+                print("Scanning serial devices...")
 
             candidates = self.discover()
             if name_filter is not None:
@@ -363,7 +364,7 @@ def _auto_parser(prog: str) -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(
         prog=prog,
         description=(
-            "Unified USB/BLE/SPP terminal. One visible device "
+            "Unified Serial/BLE/SPP terminal. One visible device "
             "auto-connects; multiple devices require numbered selection."
         ),
     )
@@ -589,7 +590,7 @@ def _run_auto(argv: list[str], prog: str) -> int:
     if args.list:
         candidates = selector.discover()
         if not candidates:
-            print("No supported USB/BLE/SPP devices found.")
+            print("No supported Serial/BLE/SPP devices found.")
             return 1
         selector._print_menu(candidates)
         return 0
