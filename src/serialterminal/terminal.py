@@ -19,9 +19,9 @@ from .transports.base import ReceivedChunk, Transport, TransportError
 
 CHATTER_ECHO_TOGGLE = "\x14e"
 CHATTER_OUTPUT_MODE_COMMANDS = {
-    "chat": "\x141",
-    "telemetry": "\x142",
-    "both": "\x143",
+    "output_chat": "\x141",
+    "output_telemetry": "\x142",
+    "output_both": "\x143",
 }
 
 
@@ -234,12 +234,20 @@ class TerminalSession:
                     )
                 )
 
+        # Local terminal view. These never send bytes to the device.
         add_control("1", "chat")
         add_control("2", "telemetry")
         add_control("3", "both")
+
+        # Chatter device controls. The user-facing keys are independent from
+        # the stable raw Chatter opcodes (0x14 + '1'/'2'/'3').
+        add_control("c", "output_chat")
+        add_control("t", "output_telemetry")
+        add_control("b", "output_both")
+        add_control("e", "echo")
+
         add_control("d", "device")
         add_control("s", "scanner")
-        add_control("e", "echo")
         add_control("i", "info")
         add_control("?", "help")
 
@@ -263,8 +271,16 @@ class TerminalSession:
         )
 
     def _set_view_mode(self, mode: str) -> None:
+        transport = self._current_transport()
+        if set(transport.stream_capabilities) == {"main"}:
+            self.write_output(
+                "\n[view: USB/Serial/SPP is physically combined; "
+                "use Ctrl+T c/t/b to change Chatter device output]\n\n"
+            )
+            return
+
         self.view_mode = mode
-        self.write_output(f"\n[view/output: {mode.upper()}]\n\n")
+        self.write_output(f"\n[view: {mode.upper()}]\n\n")
 
     def _print_status(self) -> None:
         transport = self._current_transport()
@@ -283,12 +299,15 @@ class TerminalSession:
         self.write_output(
             "\n[hotkeys]\n"
             "  Ctrl+C       quit immediately\n"
-            "  Ctrl+T 1     CHAT view + Chatter CHAT output\n"
-            "  Ctrl+T 2     TELEMETRY view + Chatter TELEMETRY output\n"
-            "  Ctrl+T 3     BOTH views + Chatter BOTH output\n"
+            "  Ctrl+T 1     local CHAT view (BLE)\n"
+            "  Ctrl+T 2     local TELEMETRY view (BLE)\n"
+            "  Ctrl+T 3     local BOTH view (BLE)\n"
+            "  Ctrl+T c     Chatter device output: CHAT\n"
+            "  Ctrl+T t     Chatter device output: TELEMETRY\n"
+            "  Ctrl+T b     Chatter device output: BOTH\n"
+            "  Ctrl+T e     Chatter echo mode toggle\n"
             "  Ctrl+T d     device chooser\n"
             "  Ctrl+T s     Bluetooth capability scanner\n"
-            "  Ctrl+T e     Chatter echo mode toggle\n"
             "  Ctrl+T i     connection/status\n"
             "  Ctrl+T ?     this help\n"
             "\n"
@@ -356,9 +375,13 @@ class TerminalSession:
             self.write_output("\n[Bluetooth scanner closed; reconnecting target]\n\n")
 
     def _handle_control(self, action: str) -> None:
-        if action in CHATTER_OUTPUT_MODE_COMMANDS:
+        if action in {"chat", "telemetry", "both"}:
             self._set_view_mode(action)
+            return
+        if action in CHATTER_OUTPUT_MODE_COMMANDS:
             self.send_line(CHATTER_OUTPUT_MODE_COMMANDS[action])
+            mode = action.removeprefix("output_").upper()
+            self.write_output(f"\n[Chatter output {mode} queued]\n\n")
             return
         if action == "device":
             self._change_device()
