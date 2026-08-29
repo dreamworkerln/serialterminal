@@ -57,6 +57,41 @@ def test_stream_visibility_and_hotkeys(tmp_path):
         session.log_file.close()
 
 
+def test_chat_prompt_erases_committed_console_echo(tmp_path, monkeypatch):
+    captured = {}
+
+    class FakePromptSession:
+        def __init__(self, **kwargs):
+            captured.update(kwargs)
+
+    monkeypatch.setattr(terminal_module, "PromptSession", FakePromptSession)
+
+    session = TerminalSession(
+        DummyBleLikeTransport(),
+        log_path=tmp_path / "terminal.log",
+    )
+    try:
+        prompt = session._make_prompt_session()
+        assert isinstance(prompt, FakePromptSession)
+        assert captured["erase_when_done"] is True
+        assert captured["key_bindings"] is not None
+    finally:
+        session.log_file.close()
+
+
+def test_input_is_still_retained_in_transcript(tmp_path):
+    log_path = tmp_path / "terminal.log"
+    session = TerminalSession(
+        DummyBleLikeTransport(),
+        log_path=log_path,
+    )
+    try:
+        session.log_input("hello over radio")
+        assert "hello over radio\n" in log_path.read_text()
+    finally:
+        session.log_file.close()
+
+
 def test_received_ble_chunks_do_not_force_stdout_flush(tmp_path, monkeypatch):
     class FakeStdout:
         def __init__(self):
