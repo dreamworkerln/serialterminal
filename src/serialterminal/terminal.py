@@ -240,6 +240,19 @@ class TerminalSession:
 
         return bindings
 
+    def _make_prompt_session(self) -> PromptSession:
+        """Create the interactive chat prompt without committed local echo.
+
+        Text remains visible while the user edits it. After Enter (or a local
+        Ctrl+T action) prompt_toolkit removes that rendered prompt from the
+        terminal and the next prompt is drawn normally. Menus use ordinary
+        input() outside this PromptSession and keep their normal terminal echo.
+        """
+        return PromptSession(
+            key_bindings=self._build_key_bindings(),
+            erase_when_done=True,
+        )
+
     def _set_view_mode(self, mode: str) -> None:
         transport = self._current_transport()
         capabilities = set(transport.stream_capabilities)
@@ -372,7 +385,7 @@ class TerminalSession:
         self.write_output("Typed commands are retained across reconnects.\n")
         self.write_output(f"Log: {self.log_path}\n\n")
 
-        prompt = PromptSession(key_bindings=self._build_key_bindings())
+        prompt = self._make_prompt_session()
         buffered_line = ""
 
         try:
@@ -390,6 +403,8 @@ class TerminalSession:
 
                     buffered_line = ""
                     line = result
+                    # Keep the full transcript even though the accepted prompt
+                    # is erased from the interactive console.
                     self.log_input(line)
                     self.send_line(line)
         except KeyboardInterrupt:
