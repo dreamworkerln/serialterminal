@@ -53,7 +53,7 @@ def test_stream_visibility_and_hotkeys(tmp_path):
         assert session._received_visible("chat")
         assert session._received_visible("telemetry")
         assert session._received_visible("main")
-        assert len(session._build_key_bindings().bindings) == 9
+        assert len(session._build_key_bindings().bindings) == 12
 
         session.view_mode = "telemetry"
         session.write_received(ReceivedChunk("chat", b"hidden chat\n"))
@@ -62,7 +62,7 @@ def test_stream_visibility_and_hotkeys(tmp_path):
         session.log_file.close()
 
 
-def test_output_mode_hotkeys_queue_matching_chatter_commands(tmp_path):
+def test_view_hotkeys_do_not_queue_chatter_commands(tmp_path):
     session = TerminalSession(
         DummyBleLikeTransport(),
         log_path=tmp_path / "terminal.log",
@@ -71,7 +71,22 @@ def test_output_mode_hotkeys_queue_matching_chatter_commands(tmp_path):
         for mode in ("chat", "telemetry", "both"):
             session._handle_control(mode)
             assert session.view_mode == mode
-            assert session.outgoing.get_nowait() == CHATTER_OUTPUT_MODE_COMMANDS[mode]
+            assert session.outgoing.empty()
+    finally:
+        session.log_file.close()
+
+
+def test_device_output_hotkeys_queue_matching_chatter_commands(tmp_path):
+    session = TerminalSession(
+        DummyBleLikeTransport(),
+        log_path=tmp_path / "terminal.log",
+    )
+    try:
+        session.view_mode = "chat"
+        for action in ("output_chat", "output_telemetry", "output_both"):
+            session._handle_control(action)
+            assert session.view_mode == "chat"
+            assert session.outgoing.get_nowait() == CHATTER_OUTPUT_MODE_COMMANDS[action]
     finally:
         session.log_file.close()
 
