@@ -1,5 +1,5 @@
 import serialterminal.terminal as terminal_module
-from serialterminal.terminal import TerminalSession, encode_line
+from serialterminal.terminal import CHATTER_ECHO_TOGGLE, TerminalSession, encode_line
 from serialterminal.transports.base import ReceivedChunk, Transport
 
 
@@ -48,11 +48,24 @@ def test_stream_visibility_and_hotkeys(tmp_path):
         assert session._received_visible("chat")
         assert session._received_visible("telemetry")
         assert session._received_visible("main")
-        assert len(session._build_key_bindings().bindings) == 8
+        assert len(session._build_key_bindings().bindings) == 9
 
         session.view_mode = "telemetry"
         session.write_received(ReceivedChunk("chat", b"hidden chat\n"))
         assert "hidden chat" in (tmp_path / "terminal.log").read_text()
+    finally:
+        session.log_file.close()
+
+
+def test_echo_hotkey_queues_chatter_control_sequence(tmp_path):
+    session = TerminalSession(
+        DummyBleLikeTransport(),
+        log_path=tmp_path / "terminal.log",
+    )
+    try:
+        session._handle_control("echo")
+        assert session.outgoing.get_nowait() == CHATTER_ECHO_TOGGLE
+        assert "Chatter echo toggle queued" in (tmp_path / "terminal.log").read_text()
     finally:
         session.log_file.close()
 
