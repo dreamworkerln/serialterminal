@@ -36,7 +36,8 @@ serialterminal.log
 - sticky reconnect по стабильной identity;
 - отдельные BLE streams `CHAT`, `TELEMETRY`, `BOTH`;
 - локальные hotkeys `Ctrl+T ...`;
-- Chatter output-mode control через `Ctrl+T 1/2/3` независимо от USB/BLE/SPP transport;
+- отдельное управление локальным BLE view через `Ctrl+T 1/2/3`;
+- отдельное управление Chatter firmware output через `Ctrl+T c/t/b`;
 - Chatter echo-mode toggle через `Ctrl+T e` независимо от USB/BLE/SPP transport;
 - capability cache для найденных NUS/SPP устройств;
 - aggressive Bluetooth scanner/prober из самого терминала;
@@ -81,30 +82,50 @@ Runtime-переключателя этого флага пока нет.
 
 ```text
 Ctrl+C         quit immediately
-Ctrl+T 1       CHAT view + Chatter CHAT output
-Ctrl+T 2       TELEMETRY view + Chatter TELEMETRY output
-Ctrl+T 3       BOTH views + Chatter BOTH output
+
+Ctrl+T 1       local CHAT view (BLE only)
+Ctrl+T 2       local TELEMETRY view (BLE only)
+Ctrl+T 3       local BOTH view (BLE only)
+
+Ctrl+T c       Chatter device output: CHAT
+Ctrl+T t       Chatter device output: TELEMETRY
+Ctrl+T b       Chatter device output: BOTH
+Ctrl+T e       Chatter echo mode toggle
+
 Ctrl+T d       device chooser
 Ctrl+T s       Bluetooth capability scanner
-Ctrl+T e       Chatter echo mode toggle
 Ctrl+T i       connection/status
 Ctrl+T ?       help
 ```
 
-`Ctrl+T d/s/i/?` — чисто локальные команды `serialterminal`; они никогда не отправляются устройству.
+### VIEW и DEVICE OUTPUT — разные вещи
 
-Для Chatter четыре hotkey являются одновременно локальными UI-действиями и firmware-командами:
+`Ctrl+T 1/2/3` — **только локальный view терминала**. Они ничего не отправляют Chatter-нode.
+
+Для BLE это позволяет, например, оставить firmware в `BOTH`, показывать на экране только CHAT, но продолжать получать TELEMETRY в отдельном notify stream и сохранять её в `serialterminal.log`.
 
 ```text
-Ctrl+T 1 -> локальный CHAT view      + bytes 14 31
-Ctrl+T 2 -> локальный TELEMETRY view + bytes 14 32
-Ctrl+T 3 -> локальный BOTH view      + bytes 14 33
-Ctrl+T e ->                            bytes 14 65
+Ctrl+T 1 -> показать только BLE CHAT
+Ctrl+T 2 -> показать только BLE TELEMETRY
+Ctrl+T 3 -> показать оба BLE stream
 ```
 
-Служебные байты идут через ту же reconnect-safe TX queue, что и обычные строки. Поэтому одинаковое управление работает через USB Serial, BLE NUS и Bluetooth SPP. Добавляемый терминалом line ending после control bytes для Chatter безвреден.
+USB Serial и Bluetooth SPP физически имеют один stream `main`, поэтому локально разделить его на CHAT/TELEMETRY нельзя. На этих transports `Ctrl+T 1/2/3` не могут отфильтровать уже смешанный поток; для реального отключения одного типа вывода используются device-команды `Ctrl+T c/t/b`.
 
-В Chatter `1/2/3` меняют уже **сам firmware output**, а не только экранный фильтр терминала. Это особенно важно для USB Serial/SPP, где физически есть один stream `main`: ненужная TELEMETRY действительно перестаёт выводиться нодой в режиме CHAT.
+`Ctrl+T c/t/b/e` — **команды самой Chatter-ноды**. Они отправляются через ту же reconnect-safe TX queue, что и обычные строки, поэтому одинаково работают через USB Serial, BLE NUS и Bluetooth SPP.
+
+Human-facing hotkeys `c/t/b` специально отделены от стабильных raw Chatter opcodes. На проводе сейчас остаются:
+
+```text
+Ctrl+T c -> bytes 14 31 -> Chatter OUTPUT_CHAT
+Ctrl+T t -> bytes 14 32 -> Chatter OUTPUT_TELEMETRY
+Ctrl+T b -> bytes 14 33 -> Chatter OUTPUT_BOTH
+Ctrl+T e -> bytes 14 65 -> Chatter ECHO toggle
+```
+
+То есть `serialterminal` не меняет firmware command ABI: он только даёт более понятные отдельные hotkeys для device output.
+
+`Ctrl+T d/s/i/?` остаются полностью локальными командами `serialterminal` и никогда не отправляются устройству.
 
 Chatter сам сообщает применённое состояние (`[SYS] OUTPUT ...`, telemetry `OUTPUT MODE ...`, `[SYS] ECHO MODE ON/OFF`), поэтому terminal не пытается угадывать состояние ноды.
 
@@ -119,7 +140,7 @@ BOTH       14 33
 ECHO       14 65
 ```
 
-То есть Android-клавиатуре вообще не нужна физическая клавиша Ctrl: macro посылает те же байты, которые `serialterminal` формирует из `Ctrl+T ...`.
+Android-клавиатуре физическая клавиша Ctrl не нужна: macro посылает непосредственно те же control bytes, которые ожидает Chatter firmware.
 
 ## Bluetooth scanner
 
@@ -207,24 +228,26 @@ SPP target фиксируется по Bluetooth address + подтверждё�
 
 ## BLE streams
 
-BLE Chatter может иметь два независимых notify streams:
+BLE Chatter имеет два независимых notify streams:
 
 ```text
 CHAT       0003
 TELEMETRY  0004
 ```
 
-`serialterminal` по-прежнему умеет фильтровать их локально по `view_mode`, но для нового Chatter `Ctrl+T 1/2/3` дополнительно переключает генерацию stream на самой ноде.
+Если Chatter firmware оставлена в режиме `BOTH`, `serialterminal` получает оба. Локальный `Ctrl+T 1/2/3` меняет только то, что видно на экране; скрытый BLE stream всё равно сохраняется в transcript.
 
-USB Serial и Bluetooth SPP имеют один физический stream `main`; локально разделить его на CHAT/TELEMETRY невозможно, поэтому firmware-side output mode как раз даёт настоящее переключение и для этих transports.
+Если же отправить device-команду `Ctrl+T c` или `Ctrl+T t`, соответствующий второй stream перестаёт генерироваться уже на самой ноде и, естественно, больше не попадёт ни на экран, ни в log.
+
+USB Serial и Bluetooth SPP имеют один физический stream `main`. Там локальный view не может разложить смешанные bytes обратно по типам, поэтому для настоящего CHAT-only или TELEMETRY-only режима используются `Ctrl+T c/t/b`.
 
 ## Reconnect и очередь команд
 
 Input отделён от transport I/O. Полная строка попадает в TX queue только после `Enter`. Если target reboot'ится во время отправки, текущая строка остаётся в очереди и будет повторно отправлена после reconnect к тому же locked target.
 
-Chatter control hotkeys `Ctrl+T 1/2/3/e` используют ту же очередь, поэтому сама команда не теряется только из-за краткого disconnect между нажатием hotkey и фактической отправкой.
+Chatter device controls `Ctrl+T c/t/b/e` используют ту же очередь. Локальные view-команды `Ctrl+T 1/2/3` в outgoing queue не попадают.
 
-Важно: output/echo mode живёт в RAM самой Chatter-ноды и после reboot возвращается к firmware default (`BOTH`, echo OFF). `serialterminal` пока не переотправляет последний режим автоматически после каждого reconnect; hotkey можно нажать снова после reboot.
+Важно: output/echo mode живёт в RAM самой Chatter-ноды и после reboot возвращается к firmware default (`BOTH`, echo OFF). `serialterminal` пока не переотправляет последний device mode автоматически после каждого reconnect; при необходимости hotkey можно нажать снова после reboot.
 
 ## ESP32 / DTR / RTS
 
@@ -329,7 +352,7 @@ python3 serialterminal.py scan
 python3 serialterminal.py
 ```
 
-и затем hotkeys `Ctrl+T 1/2/3/e/d/s/i/?`.
+и затем hotkeys `Ctrl+T 1/2/3`, `Ctrl+T c/t/b/e`, `Ctrl+T d/s/i/?`.
 
 ## Разработка
 
