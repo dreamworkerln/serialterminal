@@ -1,5 +1,10 @@
 import serialterminal.terminal as terminal_module
-from serialterminal.terminal import CHATTER_ECHO_TOGGLE, TerminalSession, encode_line
+from serialterminal.terminal import (
+    CHATTER_ECHO_TOGGLE,
+    CHATTER_OUTPUT_MODE_COMMANDS,
+    TerminalSession,
+    encode_line,
+)
 from serialterminal.transports.base import ReceivedChunk, Transport
 
 
@@ -53,6 +58,20 @@ def test_stream_visibility_and_hotkeys(tmp_path):
         session.view_mode = "telemetry"
         session.write_received(ReceivedChunk("chat", b"hidden chat\n"))
         assert "hidden chat" in (tmp_path / "terminal.log").read_text()
+    finally:
+        session.log_file.close()
+
+
+def test_output_mode_hotkeys_queue_matching_chatter_commands(tmp_path):
+    session = TerminalSession(
+        DummyBleLikeTransport(),
+        log_path=tmp_path / "terminal.log",
+    )
+    try:
+        for mode in ("chat", "telemetry", "both"):
+            session._handle_control(mode)
+            assert session.view_mode == mode
+            assert session.outgoing.get_nowait() == CHATTER_OUTPUT_MODE_COMMANDS[mode]
     finally:
         session.log_file.close()
 
