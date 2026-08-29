@@ -142,6 +142,8 @@ ECHO       14 65
 
 Android-клавиатуре физическая клавиша Ctrl не нужна: macro посылает непосредственно те же control bytes, которые ожидает Chatter firmware.
 
+Новый `dev_chat` использует стандартный NUS TX `0003` как compatibility/primary output. Если клиент не подписан на дополнительный `0004`, telemetry автоматически идёт в `0003`. Поэтому обычный NUS Android-клиент видит все три device mode через один стандартный stream.
+
 ## Bluetooth scanner
 
 Scanner запускается **из уже работающего терминала**:
@@ -174,14 +176,14 @@ NUS service
 INPUT / RX
 6E400002-B5A3-F393-E0A9-E50E24DCCA9E
 
-CHAT / TX
+PRIMARY / standard NUS TX
 6E400003-B5A3-F393-E0A9-E50E24DCCA9E
 
-TELEMETRY (optional)
+DEDICATED TELEMETRY (optional)
 6E400004-B5A3-F393-E0A9-E50E24DCCA9E
 ```
 
-Практическая граница совместимости терминала — наличие RX `0002` и CHAT/TX `0003`. `0004` помечается отдельно как telemetry capability.
+Практическая граница совместимости терминала — наличие RX `0002` и standard TX `0003`. `0004` помечается отдельно как telemetry capability.
 
 Ошибки подключения/timeout записываются как `UNKNOWN`, а не как `NO`.
 
@@ -228,16 +230,25 @@ SPP target фиксируется по Bluetooth address + подтверждё�
 
 ## BLE streams
 
-BLE Chatter имеет два независимых notify streams:
+Chatter BLE routing теперь выглядит так:
 
 ```text
-CHAT       0003
-TELEMETRY  0004
+0003  PRIMARY / standard NUS TX
+0004  DEDICATED TELEMETRY
 ```
 
-Если Chatter firmware оставлена в режиме `BOTH`, `serialterminal` получает оба. Локальный `Ctrl+T 1/2/3` меняет только то, что видно на экране; скрытый BLE stream всё равно сохраняется в transcript.
+`serialterminal` при подключении подписывается сначала на `0003`, затем на `0004`. Если подписка на `0004` успешна, Chatter видит её через CCCD и оставляет логические потоки раздельными:
 
-Если же отправить device-команду `Ctrl+T c` или `Ctrl+T t`, соответствующий второй stream перестаёт генерироваться уже на самой ноде и, естественно, больше не попадёт ни на экран, ни в log.
+```text
+CHAT       -> 0003
+TELEMETRY  -> 0004
+```
+
+Поэтому в firmware mode `BOTH` `serialterminal` получает оба stream без дублей. Локальный `Ctrl+T 1/2/3` меняет только то, что видно на экране; скрытый BLE stream всё равно сохраняется в transcript.
+
+Если `0004` отсутствует или клиент на него не подписался, Chatter отправляет TELEMETRY через `0003` как fallback. Это нужно обычным NUS-клиентам, включая Android terminal, которые работают только со стандартной парой RX/TX.
+
+Если отправить device-команду `Ctrl+T c` или `Ctrl+T t`, соответствующий логический producer перестаёт генерироваться уже на самой ноде и, естественно, больше не попадёт ни на экран, ни в log.
 
 USB Serial и Bluetooth SPP имеют один физический stream `main`. Там локальный view не может разложить смешанные bytes обратно по типам, поэтому для настоящего CHAT-only или TELEMETRY-only режима используются `Ctrl+T c/t/b`.
 
