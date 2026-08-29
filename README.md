@@ -36,6 +36,7 @@ serialterminal.log
 - sticky reconnect по стабильной identity;
 - отдельные BLE streams `CHAT`, `TELEMETRY`, `BOTH`;
 - локальные hotkeys `Ctrl+T ...`;
+- Chatter echo-mode toggle через `Ctrl+T e` независимо от USB/BLE/SPP transport;
 - capability cache для найденных NUS/SPP устройств;
 - aggressive Bluetooth scanner/prober из самого терминала;
 - лог с немедленным `flush()`;
@@ -84,11 +85,12 @@ Ctrl+T 2       TELEMETRY view
 Ctrl+T 3       BOTH views
 Ctrl+T d       device chooser
 Ctrl+T s       Bluetooth capability scanner
+Ctrl+T e       Chatter echo mode toggle
 Ctrl+T i       connection/status
 Ctrl+T ?       help
 ```
 
-Hotkeys локальные и никогда не отправляются в устройство.
+Обычные hotkeys полностью локальные и не отправляются в устройство. `Ctrl+T e` — намеренное исключение для Chatter: terminal преобразует его в служебную последовательность `0x14, 'e'` и ставит её в ту же reconnect-safe TX queue, что и обычные строки. Поэтому один и тот же hotkey работает через USB Serial, BLE NUS и Bluetooth SPP. Chatter отвечает собственным `[SYS] ECHO MODE ON/OFF`, поэтому terminal сам состояние echo не угадывает.
 
 ## Bluetooth scanner
 
@@ -190,6 +192,8 @@ TELEMETRY  0004
 ## Reconnect и очередь команд
 
 Input отделён от transport I/O. Полная строка попадает в TX queue только после `Enter`. Если target reboot'ится во время отправки, текущая строка остаётся в очереди и будет повторно отправлена после reconnect к тому же locked target.
+
+`Ctrl+T e` использует ту же очередь, поэтому echo-toggle также не теряется только из-за краткого disconnect между нажатием hotkey и фактической отправкой.
 
 ## ESP32 / DTR / RTS
 
@@ -294,7 +298,7 @@ python3 serialterminal.py scan
 python3 serialterminal.py
 ```
 
-и затем локальные hotkeys, включая `Ctrl+T s`.
+и затем локальные hotkeys, включая `Ctrl+T e` и `Ctrl+T s`.
 
 ## Разработка
 
