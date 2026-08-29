@@ -17,6 +17,9 @@ from prompt_toolkit.patch_stdout import patch_stdout
 from .transports.base import ReceivedChunk, Transport, TransportError
 
 
+CHATTER_ECHO_TOGGLE = "\x14e"
+
+
 def encode_line(line: str, line_ending: str = "\n") -> bytes:
     return (line + line_ending).encode("utf-8")
 
@@ -231,6 +234,7 @@ class TerminalSession:
         add_control("3", "both")
         add_control("d", "device")
         add_control("s", "scanner")
+        add_control("e", "echo")
         add_control("i", "info")
         add_control("?", "help")
 
@@ -289,6 +293,7 @@ class TerminalSession:
             "  Ctrl+T 3     BOTH views\n"
             "  Ctrl+T d     device chooser\n"
             "  Ctrl+T s     Bluetooth capability scanner\n"
+            "  Ctrl+T e     Chatter echo mode toggle\n"
             "  Ctrl+T i     connection/status\n"
             "  Ctrl+T ?     this help\n"
             "\n"
@@ -364,6 +369,13 @@ class TerminalSession:
             return
         if action == "scanner":
             self._run_bluetooth_scanner()
+            return
+        if action == "echo":
+            # Chatter currently expects raw Ctrl+T,e. Send those bytes through
+            # the normal reconnect-safe line queue, so the same hotkey works on
+            # USB Serial, BLE NUS and Bluetooth SPP transports.
+            self.send_line(CHATTER_ECHO_TOGGLE)
+            self.write_output("\n[Chatter echo toggle queued]\n\n")
             return
         if action == "info":
             self._print_status()
