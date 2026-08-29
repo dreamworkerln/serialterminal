@@ -18,6 +18,11 @@ from .transports.base import ReceivedChunk, Transport, TransportError
 
 
 CHATTER_ECHO_TOGGLE = "\x14e"
+CHATTER_OUTPUT_MODE_COMMANDS = {
+    "chat": "\x141",
+    "telemetry": "\x142",
+    "both": "\x143",
+}
 
 
 def encode_line(line: str, line_ending: str = "\n") -> bytes:
@@ -258,18 +263,8 @@ class TerminalSession:
         )
 
     def _set_view_mode(self, mode: str) -> None:
-        transport = self._current_transport()
-        capabilities = set(transport.stream_capabilities)
-
-        if capabilities == {"main"}:
-            self.write_output(
-                "\n[stream: USB/Serial/SPP is physically combined; "
-                "CHAT/TELEMETRY filtering is BLE-only]\n\n"
-            )
-            return
-
         self.view_mode = mode
-        self.write_output(f"\n[view: {mode.upper()}]\n\n")
+        self.write_output(f"\n[view/output: {mode.upper()}]\n\n")
 
     def _print_status(self) -> None:
         transport = self._current_transport()
@@ -288,9 +283,9 @@ class TerminalSession:
         self.write_output(
             "\n[hotkeys]\n"
             "  Ctrl+C       quit immediately\n"
-            "  Ctrl+T 1     CHAT view\n"
-            "  Ctrl+T 2     TELEMETRY view\n"
-            "  Ctrl+T 3     BOTH views\n"
+            "  Ctrl+T 1     CHAT view + Chatter CHAT output\n"
+            "  Ctrl+T 2     TELEMETRY view + Chatter TELEMETRY output\n"
+            "  Ctrl+T 3     BOTH views + Chatter BOTH output\n"
             "  Ctrl+T d     device chooser\n"
             "  Ctrl+T s     Bluetooth capability scanner\n"
             "  Ctrl+T e     Chatter echo mode toggle\n"
@@ -361,8 +356,9 @@ class TerminalSession:
             self.write_output("\n[Bluetooth scanner closed; reconnecting target]\n\n")
 
     def _handle_control(self, action: str) -> None:
-        if action in {"chat", "telemetry", "both"}:
+        if action in CHATTER_OUTPUT_MODE_COMMANDS:
             self._set_view_mode(action)
+            self.send_line(CHATTER_OUTPUT_MODE_COMMANDS[action])
             return
         if action == "device":
             self._change_device()
@@ -371,9 +367,9 @@ class TerminalSession:
             self._run_bluetooth_scanner()
             return
         if action == "echo":
-            # Chatter currently expects raw Ctrl+T,e. Send those bytes through
-            # the normal reconnect-safe line queue, so the same hotkey works on
-            # USB Serial, BLE NUS and Bluetooth SPP transports.
+            # Chatter expects raw Ctrl+T,e. Send those bytes through the normal
+            # reconnect-safe line queue, so the same hotkey works on USB Serial,
+            # BLE NUS and Bluetooth SPP transports.
             self.send_line(CHATTER_ECHO_TOGGLE)
             self.write_output("\n[Chatter echo toggle queued]\n\n")
             return
