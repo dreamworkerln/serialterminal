@@ -24,7 +24,6 @@ CHATTER_OUTPUT_MODE_COMMANDS = {
     "output_both": "\x143",
 }
 CHATTER_HELP_COMMAND = "/help"
-CHATTER_HELP_END_MARKER = "[SYS] HELP END"
 
 
 def encode_line(line: str, line_ending: str = "\n") -> bytes:
@@ -60,11 +59,8 @@ class TerminalSession:
         self.output_lock = threading.Lock()
         self.transport_lock = threading.Lock()
         self.decode_lock = threading.Lock()
-        self.help_lock = threading.Lock()
         self.outgoing: queue.Queue[str] = queue.Queue()
         self._received_decoders = {}
-        self._controller_help_pending = threading.Event()
-        self._controller_help_tail = ""
 
         # BLE starts in compact CHAT view. Plain Serial/SPP use stream `main`,
         # which is always visible because their output is physically combined.
@@ -108,29 +104,6 @@ class TerminalSession:
         with self.decode_lock:
             self._received_decoders.clear()
 
-    def _start_controller_help_wait(self) -> None:
-        with self.help_lock:
-            self._controller_help_tail = ""
-            self._controller_help_pending.set()
-
-    def _observe_controller_help(self, text: str) -> bool:
-        if not self._controller_help_pending.is_set():
-            return False
-
-        with self.help_lock:
-            if not self._controller_help_pending.is_set():
-                return False
-
-            combined = self._controller_help_tail + text
-            if CHATTER_HELP_END_MARKER in combined:
-                self._controller_help_tail = ""
-                self._controller_help_pending.clear()
-                return True
-
-            keep = max(0, len(CHATTER_HELP_END_MARKER) - 1)
-            self._controller_help_tail = combined[-keep:] if keep else ""
-            return False
-
     def write_received(self, chunk: ReceivedChunk) -> None:
         if not chunk.data:
             return
@@ -139,29 +112,18 @@ class TerminalSession:
         if not text:
             return
 
-        # Chatter SYSTEM output uses the primary BLE stream. While waiting for
-        # /help, keep that response visible even if the local view is TELEMETRY.
-        force_help_visible = (
-            self._controller_help_pending.is_set()
-            and chunk.stream in {"chat", "main"}
-        )
-        help_complete = self._observe_controller_help(text)
-
         with self.output_lock:
             # Always retain all logical streams in the transcript, even when
             # one is hidden from the current screen view.
             self.log_file.write(text)
             self.log_file.flush()
 
-            if force_help_visible or self._received_visible(chunk.stream):
+            if self._received_visible(chunk.stream):
                 # Do not flush stdout for every transport chunk. BLE firmware
                 # intentionally emits notifications in small MTU-safe pieces.
                 # prompt_toolkit.patch_stdout buffers those pieces until a
                 # newline so it can redraw the input prompt exactly once.
                 sys.stdout.write(text)
-
-        if help_complete:
-            self._print_hotkey_help()
 
     def log_input(self, line: str) -> None:
         with self.output_lock:
@@ -257,8 +219,6 @@ class TerminalSession:
         """Queue one complete line; it is never split into per-key writes."""
         if self.stop_event.is_set():
             return False
-        if line.strip() == CHATTER_HELP_COMMAND:
-            self._start_controller_help_wait()
         self.outgoing.put(line)
         return True
 
@@ -350,9 +310,17 @@ class TerminalSession:
             "  Ctrl+T d     device chooser\n"
             "  Ctrl+T s     Bluetooth capability scanner\n"
             "  Ctrl+T i     connection/status\n"
-            "  Ctrl+T ?     local hotkey help\n"
+            "  Ctrl+T ?     full help (this list + Chatter /help)\n"
             "\n"
         )
+
+    def _show_full_help(self) -> None:
+        # Local controls are useful immediately, even if the controller is
+        # disconnected. Then request the controller-owned part through the
+        # ordinary reconnect-safe line queue.
+        self._print_hotkey_help()
+        if not self.send_line(CHATTER_HELP_COMMAND):
+            self.write_output("[Chatter help request was not queued]\n\n")
 
     def _change_device(self) -> None:
         if self.device_chooser is None:
@@ -441,7 +409,7 @@ class TerminalSession:
             self._print_status()
             return
         if action == "help":
-            self._print_hotkey_help()
+            self._show_full_help()
             return
 
     def run(self) -> None:
@@ -451,11 +419,9 @@ class TerminalSession:
         tx.start()
 
         self.write_output("serialterminal\n")
-        self.write_output("Ctrl-C to exit immediately.\n")
-        self.write_output("Ctrl-T ? for local hotkeys.\n")
-        self.write_output("Type /help for Chatter help + local hotkeys.\n")
-        self.write_output("Commands are sent only after Enter.\n")
-        self.write_output("Typed commands are retained across reconnects.\n")
+        self.write_output("Type /help or press Ctrl+T ? for full help.\n")
+        self.write_output("Ctrl+C exits immediately.\n")
+        self.write_output("Commands are sent only after Enter and survive reconnects.\n")
         self.write_output(f"Log: {self.log_path}\n\n")
 
         prompt = self._make_prompt_session()
@@ -479,7 +445,10 @@ class TerminalSession:
                     # Keep the full transcript even though the accepted prompt
                     # is erased from the interactive console.
                     self.log_input(line)
-                    self.send_line(line)
+                    if line.strip() == CHATTER_HELP_COMMAND:
+                        self._show_full_help()
+                    else:
+                        self.send_line(line)
         except KeyboardInterrupt:
             self.write_output("\n[exit]\n")
         finally:
