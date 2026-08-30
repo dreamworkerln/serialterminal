@@ -63,6 +63,50 @@ def test_stream_visibility_and_hotkeys(tmp_path):
         session.log_file.close()
 
 
+def test_system_lines_bypass_local_telemetry_view(tmp_path, monkeypatch):
+    class FakeStdout:
+        def __init__(self):
+            self.writes = []
+
+        def write(self, text):
+            self.writes.append(text)
+            return len(text)
+
+        def flush(self):
+            pass
+
+    fake_stdout = FakeStdout()
+    monkeypatch.setattr(terminal_module.sys, "stdout", fake_stdout)
+
+    log_path = tmp_path / "terminal.log"
+    session = TerminalSession(DummyBleLikeTransport(), log_path=log_path)
+    try:
+        session.view_mode = "telemetry"
+
+        # The SYSTEM prefix may itself be split across arbitrary BLE notify
+        # chunks. Ordinary CHAT lines around it must remain hidden.
+        session.write_received(ReceivedChunk("chat", b"> hidden\n[SY"))
+        assert "".join(fake_stdout.writes) == ""
+
+        session.write_received(
+            ReceivedChunk(
+                "chat",
+                b"S] RADIO FATAL init (-2), rebooting\n< hidden too\n",
+            )
+        )
+
+        assert "".join(fake_stdout.writes) == (
+            "[SYS] RADIO FATAL init (-2), rebooting\n"
+        )
+
+        transcript = log_path.read_text()
+        assert "> hidden\n" in transcript
+        assert "< hidden too\n" in transcript
+        assert "[SYS] RADIO FATAL init (-2), rebooting\n" in transcript
+    finally:
+        session.log_file.close()
+
+
 def test_view_hotkeys_do_not_queue_chatter_commands(tmp_path):
     session = TerminalSession(
         DummyBleLikeTransport(),
