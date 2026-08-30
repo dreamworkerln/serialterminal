@@ -24,6 +24,7 @@ CHATTER_OUTPUT_MODE_COMMANDS = {
     "output_both": "\x143",
 }
 CHATTER_HELP_COMMAND = "/help"
+CHATTER_SYSTEM_PREFIX = "[SYS]"
 
 
 def encode_line(line: str, line_ending: str = "\n") -> bytes:
@@ -61,6 +62,7 @@ class TerminalSession:
         self.decode_lock = threading.Lock()
         self.outgoing: queue.Queue[str] = queue.Queue()
         self._received_decoders = {}
+        self._hidden_chat_line_buffer = ""
 
         # BLE starts in compact CHAT view. Plain Serial/SPP use stream `main`,
         # which is always visible because their output is physically combined.
@@ -103,6 +105,25 @@ class TerminalSession:
         """Discard incomplete characters when a transport connection changes."""
         with self.decode_lock:
             self._received_decoders.clear()
+            self._hidden_chat_line_buffer = ""
+
+    def _hidden_chat_system_text(self, stream: str, text: str) -> str:
+        """Return complete [SYS] lines from a CHAT stream hidden by local view."""
+        if stream != "chat" or not text:
+            return ""
+
+        with self.decode_lock:
+            combined = self._hidden_chat_line_buffer + text
+            lines = combined.splitlines(keepends=True)
+
+            if lines and not lines[-1].endswith(("\n", "\r")):
+                self._hidden_chat_line_buffer = lines.pop()
+            else:
+                self._hidden_chat_line_buffer = ""
+
+        return "".join(
+            line for line in lines if line.startswith(CHATTER_SYSTEM_PREFIX)
+        )
 
     def write_received(self, chunk: ReceivedChunk) -> None:
         if not chunk.data:
@@ -112,18 +133,26 @@ class TerminalSession:
         if not text:
             return
 
+        if self._received_visible(chunk.stream):
+            visible_text = text
+        else:
+            # SYSTEM is intentionally higher priority than the local VIEW
+            # filter. Firmware sends it on BLE primary/chat; inspect complete
+            # lines so arbitrary BLE notification boundaries are harmless.
+            visible_text = self._hidden_chat_system_text(chunk.stream, text)
+
         with self.output_lock:
             # Always retain all logical streams in the transcript, even when
             # one is hidden from the current screen view.
             self.log_file.write(text)
             self.log_file.flush()
 
-            if self._received_visible(chunk.stream):
+            if visible_text:
                 # Do not flush stdout for every transport chunk. BLE firmware
                 # intentionally emits notifications in small MTU-safe pieces.
                 # prompt_toolkit.patch_stdout buffers those pieces until a
                 # newline so it can redraw the input prompt exactly once.
-                sys.stdout.write(text)
+                sys.stdout.write(visible_text)
 
     def log_input(self, line: str) -> None:
         with self.output_lock:
@@ -279,6 +308,10 @@ class TerminalSession:
                 "use Ctrl+T c/t/b to change Chatter device output]\n\n"
             )
             return
+
+        with self.decode_lock:
+            # Do not carry a partial line across a local visibility change.
+            self._hidden_chat_line_buffer = ""
 
         self.view_mode = mode
         self.write_output(f"\n[view: {mode.upper()}]\n\n")
