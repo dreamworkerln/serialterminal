@@ -139,6 +139,35 @@ def test_input_is_still_retained_in_transcript(tmp_path):
         session.log_file.close()
 
 
+def test_scanner_keeps_terminal_reconnect_paused(tmp_path, monkeypatch):
+    from serialterminal import bluetooth_scanner
+
+    observed = []
+    session = TerminalSession(
+        DummyBleLikeTransport(),
+        log_path=tmp_path / "terminal.log",
+    )
+
+    def fake_scanner():
+        observed.append(session.connection_paused.is_set())
+        observed.append(session.connected_event.is_set())
+
+    monkeypatch.setattr(
+        bluetooth_scanner,
+        "run_interactive_scanner",
+        fake_scanner,
+    )
+
+    try:
+        session.connected_event.set()
+        session._run_bluetooth_scanner()
+        assert observed == [True, False]
+        assert not session.connection_paused.is_set()
+        assert not session.connected_event.is_set()
+    finally:
+        session.log_file.close()
+
+
 def test_received_ble_chunks_do_not_force_stdout_flush(tmp_path, monkeypatch):
     class FakeStdout:
         def __init__(self):
