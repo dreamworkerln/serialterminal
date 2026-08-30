@@ -1,6 +1,8 @@
 import serialterminal.terminal as terminal_module
 from serialterminal.terminal import (
     CHATTER_ECHO_TOGGLE,
+    CHATTER_HELP_COMMAND,
+    CHATTER_HELP_END_MARKER,
     CHATTER_OUTPUT_MODE_COMMANDS,
     TerminalSession,
     encode_line,
@@ -100,6 +102,88 @@ def test_echo_hotkey_queues_chatter_control_sequence(tmp_path):
         session._handle_control("echo")
         assert session.outgoing.get_nowait() == CHATTER_ECHO_TOGGLE
         assert "Chatter echo toggle queued" in (tmp_path / "terminal.log").read_text()
+    finally:
+        session.log_file.close()
+
+
+def test_chatter_help_appends_local_hotkeys_after_controller_marker(
+    tmp_path,
+    monkeypatch,
+):
+    class FakeStdout:
+        def __init__(self):
+            self.writes = []
+
+        def write(self, text):
+            self.writes.append(text)
+            return len(text)
+
+        def flush(self):
+            pass
+
+    fake_stdout = FakeStdout()
+    monkeypatch.setattr(terminal_module.sys, "stdout", fake_stdout)
+
+    log_path = tmp_path / "terminal.log"
+    session = TerminalSession(DummyBleLikeTransport(), log_path=log_path)
+    try:
+        session.view_mode = "telemetry"
+        assert session.send_line(CHATTER_HELP_COMMAND)
+        assert session.outgoing.get_nowait() == CHATTER_HELP_COMMAND
+
+        # Controller SYSTEM output arrives on BLE primary/chat. /help keeps it
+        # visible even while the local terminal view is TELEMETRY.
+        session.write_received(
+            ReceivedChunk("chat", b"[SYS] CHATTER HELP\n[SYS] HELP E")
+        )
+        assert "CHATTER HELP" in "".join(fake_stdout.writes)
+        assert "serialterminal hotkeys" not in "".join(fake_stdout.writes)
+
+        # Marker may cross the BLE notification boundary.
+        session.write_received(ReceivedChunk("chat", b"ND\n"))
+
+        rendered = "".join(fake_stdout.writes)
+        assert CHATTER_HELP_END_MARKER in rendered
+        assert "[serialterminal hotkeys]" in rendered
+        assert rendered.index(CHATTER_HELP_END_MARKER) < rendered.index(
+            "[serialterminal hotkeys]"
+        )
+
+        transcript = log_path.read_text()
+        assert transcript.index(CHATTER_HELP_END_MARKER) < transcript.index(
+            "[serialterminal hotkeys]"
+        )
+    finally:
+        session.log_file.close()
+
+
+def test_controller_help_marker_alone_does_not_print_local_hotkeys(
+    tmp_path,
+    monkeypatch,
+):
+    class FakeStdout:
+        def __init__(self):
+            self.writes = []
+
+        def write(self, text):
+            self.writes.append(text)
+            return len(text)
+
+        def flush(self):
+            pass
+
+    fake_stdout = FakeStdout()
+    monkeypatch.setattr(terminal_module.sys, "stdout", fake_stdout)
+
+    session = TerminalSession(
+        DummyBleLikeTransport(),
+        log_path=tmp_path / "terminal.log",
+    )
+    try:
+        session.write_received(
+            ReceivedChunk("chat", (CHATTER_HELP_END_MARKER + "\n").encode())
+        )
+        assert "[serialterminal hotkeys]" not in "".join(fake_stdout.writes)
     finally:
         session.log_file.close()
 
