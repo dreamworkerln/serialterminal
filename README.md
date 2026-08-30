@@ -27,6 +27,14 @@ serialterminal.log
 
 Внутренние `src/serialterminal/...` модули — только устройство проекта. Для обычной работы их руками запускать не требуется.
 
+После запуска терминал сразу напоминает:
+
+```text
+Type /help or press Ctrl+T ? for full help.
+```
+
+Оба способа эквивалентны: сначала `serialterminal` печатает свои hotkeys, затем отправляет контроллеру обычную строку `/help` через reconnect-safe очередь.
+
 ## Что поддержано
 
 - USB Serial через `pyserial`;
@@ -36,6 +44,7 @@ serialterminal.log
 - sticky reconnect по стабильной identity;
 - отдельные BLE streams `CHAT`, `TELEMETRY`, `BOTH`;
 - локальные hotkeys `Ctrl+T ...`;
+- полный help через `/help` или `Ctrl+T ?`;
 - отдельное управление локальным BLE view через `Ctrl+T 1/2/3`;
 - отдельное управление Chatter firmware output через `Ctrl+T c/t/b`;
 - Chatter echo-mode toggle через `Ctrl+T e` независимо от USB/BLE/SPP transport;
@@ -95,8 +104,27 @@ Ctrl+T e       Chatter echo mode toggle
 Ctrl+T d       device chooser
 Ctrl+T s       Bluetooth capability scanner
 Ctrl+T i       connection/status
-Ctrl+T ?       help
+Ctrl+T ?       full help (local hotkeys + Chatter /help)
 ```
+
+### Полный help
+
+Два пользовательских способа полностью эквивалентны:
+
+```text
+/help
+Ctrl+T ?
+```
+
+Порядок вывода намеренно такой:
+
+```text
+1. serialterminal печатает свои hotkeys локально
+2. serialterminal ставит /help в обычную TX queue
+3. Chatter controller печатает свою часть help
+```
+
+Никакого специального end-marker или отдельного help-протокола между Python и firmware нет. `/help` — обычная текстовая локальная команда Chatter.
 
 ### VIEW и DEVICE OUTPUT — разные вещи
 
@@ -125,7 +153,7 @@ Ctrl+T e -> bytes 14 65 -> Chatter ECHO toggle
 
 То есть `serialterminal` не меняет firmware command ABI: он только даёт более понятные отдельные hotkeys для device output.
 
-`Ctrl+T d/s/i/?` остаются полностью локальными командами `serialterminal` и никогда не отправляются устройству.
+`Ctrl+T d/s/i` остаются полностью локальными командами `serialterminal`. `Ctrl+T ?` сначала печатает local hotkeys, а затем отправляет Chatter обычную `/help`.
 
 Chatter сам сообщает применённое состояние (`[SYS] OUTPUT ...`, telemetry `OUTPUT MODE ...`, `[SYS] ECHO MODE ON/OFF`), поэтому terminal не пытается угадывать состояние ноды.
 
@@ -256,7 +284,7 @@ USB Serial и Bluetooth SPP имеют один физический stream `mai
 
 Input отделён от transport I/O. Полная строка попадает в TX queue только после `Enter`. Если target reboot'ится во время отправки, текущая строка остаётся в очереди и будет повторно отправлена после reconnect к тому же locked target.
 
-Chatter device controls `Ctrl+T c/t/b/e` используют ту же очередь. Локальные view-команды `Ctrl+T 1/2/3` в outgoing queue не попадают.
+Chatter device controls `Ctrl+T c/t/b/e` и controller-часть полного help (`/help`) используют ту же очередь. Локальные view-команды `Ctrl+T 1/2/3` в outgoing queue не попадают.
 
 Важно: output/echo mode живёт в RAM самой Chatter-ноды и после reboot возвращается к firmware default (`BOTH`, echo OFF). `serialterminal` пока не переотправляет последний device mode автоматически после каждого reconnect; при необходимости hotkey можно нажать снова после reboot.
 
@@ -363,7 +391,7 @@ python3 serialterminal.py scan
 python3 serialterminal.py
 ```
 
-и затем hotkeys `Ctrl+T 1/2/3`, `Ctrl+T c/t/b/e`, `Ctrl+T d/s/i/?`.
+и затем hotkeys `Ctrl+T 1/2/3`, `Ctrl+T c/t/b/e`, `Ctrl+T d/s/i/?` или `/help`.
 
 ## Разработка
 
