@@ -65,6 +65,44 @@ def test_spp_probe_unknown_on_sdptool_failure(monkeypatch):
     assert result.spp is None
 
 
+def test_classic_discovery_uses_only_bredr_scan_output(monkeypatch):
+    calls = []
+    monkeypatch.setattr(
+        bluetooth_spp.shutil,
+        "which",
+        lambda name: "/usr/bin/bluetoothctl" if name == "bluetoothctl" else None,
+    )
+
+    def fake_run(command, timeout):
+        calls.append(command)
+        if command[-2:] == ["scan", "bredr"]:
+            return subprocess.CompletedProcess(
+                command,
+                0,
+                "[NEW] Device 80:99:E7:D4:71:8C WH-1000XM5\n",
+            )
+        if command[-1:] == ["devices"]:
+            # This mixed BlueZ list must never be consulted for Classic scan.
+            return subprocess.CompletedProcess(
+                command,
+                0,
+                "Device 44:1B:F6:8D:B7:A9 LoRa-Chatter-1B44\n",
+            )
+        raise AssertionError(f"unexpected command: {command}")
+
+    monkeypatch.setattr(bluetooth_spp, "_run", fake_run)
+
+    found = bluetooth_spp.discover_classic_devices(0.01)
+
+    assert found == [
+        bluetooth_spp.ClassicDevice(
+            "WH-1000XM5",
+            "80:99:E7:D4:71:8C",
+        )
+    ]
+    assert all(command[-1:] != ["devices"] for command in calls)
+
+
 def test_default_spp_discovery_uses_only_confirmed_cache(
     tmp_path,
     monkeypatch,
