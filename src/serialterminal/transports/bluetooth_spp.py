@@ -78,7 +78,6 @@ def _run(
 
 def discover_classic_devices(timeout: float = 5.0) -> list[ClassicDevice]:
     """Discover BR/EDR devices using BlueZ, with legacy hcitool fallback."""
-    outputs: list[str] = []
     bluetoothctl = shutil.which("bluetoothctl")
 
     if bluetoothctl:
@@ -94,19 +93,14 @@ def discover_classic_devices(timeout: float = 5.0) -> list[ClassicDevice]:
                 ],
                 timeout + 3.0,
             )
-            outputs.append(scan.stdout)
+            # Only trust the explicit BR/EDR inquiry output here. A plain
+            # `bluetoothctl devices` list mixes LE-only and Classic devices and
+            # made BLE targets such as LoRa-Chatter get pointless SDP probes.
+            devices = _parse_devices(scan.stdout)
+            if devices:
+                return devices
         except (OSError, subprocess.TimeoutExpired):
             pass
-
-        try:
-            listed = _run([bluetoothctl, "devices"], 3.0)
-            outputs.append(listed.stdout)
-        except (OSError, subprocess.TimeoutExpired):
-            pass
-
-        devices = _parse_devices("\n".join(outputs))
-        if devices:
-            return devices
 
     hcitool = shutil.which("hcitool")
     if hcitool:
