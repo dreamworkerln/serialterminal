@@ -2,8 +2,9 @@ from __future__ import annotations
 
 import asyncio
 from dataclasses import dataclass
+import sys
 
-from .ble_discovery import probe_ble_nus, scan_all_ble_devices
+from .ble_discovery import probe_ble_nus_async, scan_all_ble_devices
 from .device_cache import default_cache_path, update_cached_device
 from .transports.bluetooth_spp import (
     discover_classic_devices,
@@ -28,13 +29,14 @@ def _yn(value: bool | None) -> str:
     return "UNKNOWN"
 
 
-def scan_ble(
+async def _scan_ble_async(
     *,
     scan_seconds: float = 5.0,
     probe_timeout: float = 8.0,
 ) -> ScannerSummary:
+    """Scan and probe every BLE candidate on one asyncio/BlueZ event loop."""
     print(f"Scanning all BLE devices for {scan_seconds:g}s...")
-    items = asyncio.run(scan_all_ble_devices(scan_seconds))
+    items = await scan_all_ble_devices(scan_seconds)
     confirmed = 0
     unknown = 0
 
@@ -44,7 +46,7 @@ def scan_ble(
             f"[{index}/{len(items)}] BLE  "
             f"{identity.name}  {identity.address}"
         )
-        result = probe_ble_nus(item, probe_timeout)
+        result = await probe_ble_nus_async(item, probe_timeout)
         print(
             f"      NUS={_yn(result.nus)}  "
             f"CHAT={_yn(result.chat)}  "
@@ -78,6 +80,22 @@ def scan_ble(
         ble_total=len(items),
         ble_nus=confirmed,
         unknown=unknown,
+    )
+
+
+def scan_ble(
+    *,
+    scan_seconds: float = 5.0,
+    probe_timeout: float = 8.0,
+) -> ScannerSummary:
+    # One event loop for discovery + every GATT probe. Repeated asyncio.run()
+    # around individual Bleak clients can close the dbus-fast transport while
+    # callbacks are still pending and surface "Future exception...BrokenPipe".
+    return asyncio.run(
+        _scan_ble_async(
+            scan_seconds=scan_seconds,
+            probe_timeout=probe_timeout,
+        )
     )
 
 
@@ -202,6 +220,10 @@ def choose_scan_mode(*, allow_cancel: bool = True) -> str | None:
     }
 
     while True:
+        # When called from TerminalSession, stdout is still wrapped by
+        # prompt_toolkit.patch_stdout(). Flush the menu before ordinary input()
+        # writes its prompt, otherwise the input prompt can appear above menu.
+        sys.stdout.flush()
         prompt = "Scan [1-3, Enter=back]: " if allow_cancel else "Scan [1-3]: "
         answer = input(prompt).strip().lower()
         if allow_cancel and answer == "":
