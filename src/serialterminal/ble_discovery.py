@@ -191,7 +191,7 @@ async def _find_fresh_device_by_address(
     return None
 
 
-async def _probe_ble_nus_async(
+async def probe_ble_nus_async(
     item: BleDiscoveryItem,
     timeout: float,
 ) -> BleProbeResult:
@@ -245,10 +245,20 @@ async def _probe_ble_nus_async(
             await client.disconnect()
         except Exception:
             pass
+        # Let Bleak/dbus-fast drain disconnect callbacks before the next probe.
+        # This is especially important when many devices are probed sequentially
+        # on BlueZ: all probes share one asyncio loop instead of closing a loop
+        # while D-Bus write callbacks are still pending.
+        await asyncio.sleep(0)
+
+
+# Backward-compatible private name for code/tests that may have imported it.
+_probe_ble_nus_async = probe_ble_nus_async
 
 
 def probe_ble_nus(
     item: BleDiscoveryItem,
     timeout: float = 8.0,
 ) -> BleProbeResult:
-    return asyncio.run(_probe_ble_nus_async(item, timeout))
+    """Synchronous compatibility wrapper for one-off probes."""
+    return asyncio.run(probe_ble_nus_async(item, timeout))
