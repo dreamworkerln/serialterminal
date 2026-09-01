@@ -64,9 +64,12 @@ class TerminalSession:
         self._received_decoders = {}
         self._hidden_chat_line_buffer = ""
 
-        # BLE starts in compact CHAT view. Plain Serial/SPP use stream `main`,
-        # which is always visible because their output is physically combined.
-        self.view_mode = "chat"
+        # BLE defaults to BOTH so Chatter /chat /tele /both has the same
+        # user-visible meaning as in a standard Android NUS terminal. The
+        # Ctrl+T 1/2/3 view remains an optional local display filter.
+        # Plain Serial/SPP use stream `main`, which is always visible because
+        # their output is physically combined.
+        self.view_mode = "both"
 
         self.log_file = self.log_path.open("a", encoding="utf-8", buffering=1)
         stamp = datetime.now().astimezone().strftime("%Y-%m-%d %H:%M:%S %z")
@@ -332,6 +335,8 @@ class TerminalSession:
     def _print_hotkey_help(self) -> None:
         self.write_output(
             "\n[serialterminal hotkeys]\n"
+            "  VIEW default: BOTH; Ctrl+T 1/2/3 are local display filters only\n"
+            "  /chat /tele /both /echo are sent unchanged to Chatter\n"
             "  Ctrl+C       quit immediately\n"
             "  Ctrl+T 1     local CHAT view (BLE)\n"
             "  Ctrl+T 2     local TELEMETRY view (BLE)\n"
