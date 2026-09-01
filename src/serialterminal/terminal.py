@@ -18,6 +18,7 @@ from .transports.base import ReceivedChunk, Transport, TransportError
 
 
 CHATTER_ECHO_TOGGLE = "\x14e"
+CHATTER_ECHO_COMMAND = "/echo"
 CHATTER_OUTPUT_MODE_COMMANDS = {
     "output_chat": "\x141",
     "output_telemetry": "\x142",
@@ -340,6 +341,7 @@ class TerminalSession:
             "  Ctrl+T t     Chatter device output: TELEMETRY\n"
             "  Ctrl+T b     Chatter device output: BOTH\n"
             "  Ctrl+T e     Chatter echo mode toggle\n"
+            "  /echo        Chatter echo mode toggle (same as Ctrl+T e)\n"
             "  Ctrl+T d     device chooser\n"
             "  Ctrl+T s     Bluetooth capability scanner\n"
             "  Ctrl+T i     connection/status\n"
@@ -445,6 +447,16 @@ class TerminalSession:
             self._show_full_help()
             return
 
+    def _handle_typed_command(self, line: str) -> bool:
+        command = line.strip()
+        if command == CHATTER_HELP_COMMAND:
+            self._show_full_help()
+            return True
+        if command == CHATTER_ECHO_COMMAND:
+            self._handle_control("echo")
+            return True
+        return False
+
     def run(self) -> None:
         rx = threading.Thread(target=self.rx_loop, daemon=True)
         tx = threading.Thread(target=self.tx_loop, daemon=True)
@@ -478,9 +490,7 @@ class TerminalSession:
                     # Keep the full transcript even though the accepted prompt
                     # is erased from the interactive console.
                     self.log_input(line)
-                    if line.strip() == CHATTER_HELP_COMMAND:
-                        self._show_full_help()
-                    else:
+                    if not self._handle_typed_command(line):
                         self.send_line(line)
         except KeyboardInterrupt:
             self.write_output("\n[exit]\n")
