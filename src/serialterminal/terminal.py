@@ -427,8 +427,6 @@ class TerminalSession:
             return
         if action in CHATTER_OUTPUT_MODE_COMMANDS:
             self.send_line(CHATTER_OUTPUT_MODE_COMMANDS[action])
-            mode = action.removeprefix("output_").upper()
-            self.write_output(f"\n[Chatter output {mode} queued]\n\n")
             return
         if action == "device":
             self._change_device()
@@ -439,9 +437,9 @@ class TerminalSession:
         if action == "echo":
             # Chatter expects raw Ctrl+T,e. Send those bytes through the normal
             # reconnect-safe line queue, so the same hotkey works on USB Serial,
-            # BLE NUS and Bluetooth SPP transports.
+            # BLE NUS and Bluetooth SPP transports. Controller [SYS] output is
+            # the authoritative confirmation that the command was applied.
             self.send_line(CHATTER_ECHO_TOGGLE)
-            self.write_output("\n[Chatter echo toggle queued]\n\n")
             return
         if action == "info":
             self._print_status()
