@@ -129,6 +129,10 @@ def test_device_output_hotkeys_queue_matching_chatter_commands(tmp_path):
             session._handle_control(action)
             assert session.view_mode == "chat"
             assert session.outgoing.get_nowait() == CHATTER_OUTPUT_MODE_COMMANDS[action]
+
+        transcript = (tmp_path / "terminal.log").read_text()
+        assert "Chatter output" not in transcript
+        assert "queued" not in transcript
     finally:
         session.log_file.close()
 
@@ -141,7 +145,8 @@ def test_echo_hotkey_queues_chatter_control_sequence(tmp_path):
     try:
         session._handle_control("echo")
         assert session.outgoing.get_nowait() == CHATTER_ECHO_TOGGLE
-        assert "Chatter echo toggle queued" in (tmp_path / "terminal.log").read_text()
+        transcript = (tmp_path / "terminal.log").read_text()
+        assert "Chatter echo toggle queued" not in transcript
     finally:
         session.log_file.close()
 
