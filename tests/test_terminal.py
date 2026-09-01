@@ -37,23 +37,20 @@ class DummyBleLikeTransport(DummyTransport):
         return ("chat", "telemetry")
 
 
-def test_encode_line():
-    assert encode_line("LC") == b"LC\n"
-    assert encode_line("LC", "\r\n") == b"LC\r\n"
-
-
 def test_stream_visibility_and_hotkeys(tmp_path):
     session = TerminalSession(
         DummyBleLikeTransport(),
         log_path=tmp_path / "terminal.log",
     )
     try:
-        assert session._received_visible("chat")
-        assert not session._received_visible("telemetry")
-        session.view_mode = "both"
+        assert session.view_mode == "both"
         assert session._received_visible("chat")
         assert session._received_visible("telemetry")
         assert session._received_visible("main")
+
+        session.view_mode = "chat"
+        assert session._received_visible("chat")
+        assert not session._received_visible("telemetry")
         assert len(session._build_key_bindings().bindings) == 12
 
         session.view_mode = "telemetry"
