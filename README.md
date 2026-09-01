@@ -43,11 +43,12 @@ Type /help or press Ctrl+T ? for full help.
 - unified device chooser;
 - sticky reconnect по стабильной identity;
 - отдельные BLE streams `CHAT`, `TELEMETRY`, `BOTH`;
+- BLE local view по умолчанию `BOTH`, чтобы device-команды имели тот же видимый результат, что и в обычном Android NUS terminal;
 - локальные hotkeys `Ctrl+T ...`;
 - полный help через `/help` или `Ctrl+T ?`;
 - отдельное управление локальным BLE view через `Ctrl+T 1/2/3`;
-- отдельное управление Chatter firmware output через `Ctrl+T c/t/b`;
-- Chatter echo-mode toggle через `Ctrl+T e` независимо от USB/BLE/SPP transport;
+- отдельное управление Chatter firmware output через `/chat`, `/tele`, `/both` или `Ctrl+T c/t/b`;
+- Chatter echo-mode toggle через `/echo` или `Ctrl+T e` независимо от USB/BLE/SPP transport;
 - capability cache для найденных NUS/SPP устройств;
 - aggressive Bluetooth scanner/prober из самого терминала;
 - лог с немедленным `flush()`;
@@ -89,6 +90,8 @@ Runtime-переключателя этого флага пока нет.
 
 ## Hotkeys
 
+По умолчанию BLE local view = `BOTH`. Поэтому без дополнительных действий видны и CHAT (`0003`), и TELEMETRY (`0004`), если сама нода их генерирует.
+
 ```text
 Ctrl+C         quit immediately
 
@@ -105,6 +108,16 @@ Ctrl+T d       device chooser
 Ctrl+T s       Bluetooth capability scanner
 Ctrl+T i       connection/status
 Ctrl+T ?       full help (local hotkeys + Chatter /help)
+```
+
+Канонические human-readable команды Chatter отправляются `serialterminal` как обычные строки, без локального преобразования в raw controls:
+
+```text
+/help
+/chat
+/tele
+/both
+/echo
 ```
 
 ### Полный help
@@ -128,9 +141,9 @@ Ctrl+T ?
 
 ### VIEW и DEVICE OUTPUT — разные вещи
 
-`Ctrl+T 1/2/3` — **только локальный view терминала**. Они ничего не отправляют Chatter-нode.
+`Ctrl+T 1/2/3` — **только локальный view терминала**. Они ничего не отправляют Chatter-нode. По умолчанию этот view установлен в `BOTH`, поэтому обычному пользователю не требуется менять его для `/chat`, `/tele` или `/both`.
 
-Для BLE это позволяет, например, оставить firmware в `BOTH`, показывать на экране только CHAT, но продолжать получать TELEMETRY в отдельном notify stream и сохранять её в `serialterminal.log`.
+Для BLE это позволяет, например, оставить firmware в `BOTH`, вручную выбрать `Ctrl+T 1` и показывать на экране только CHAT, но продолжать получать TELEMETRY в отдельном notify stream и сохранять её в `serialterminal.log`.
 
 ```text
 Ctrl+T 1 -> показать только BLE CHAT
@@ -138,11 +151,11 @@ Ctrl+T 2 -> показать только BLE TELEMETRY
 Ctrl+T 3 -> показать оба BLE stream
 ```
 
-USB Serial и Bluetooth SPP физически имеют один stream `main`, поэтому локально разделить его на CHAT/TELEMETRY нельзя. На этих transports `Ctrl+T 1/2/3` не могут отфильтровать уже смешанный поток; для реального отключения одного типа вывода используются device-команды `Ctrl+T c/t/b`.
+USB Serial и Bluetooth SPP физически имеют один stream `main`, поэтому локально разделить его на CHAT/TELEMETRY нельзя. На этих transports `Ctrl+T 1/2/3` не могут отфильтровать уже смешанный поток; для реального отключения одного типа вывода используются device-команды `/chat`, `/tele`, `/both` или raw-hotkeys `Ctrl+T c/t/b`.
 
-`Ctrl+T c/t/b/e` — **команды самой Chatter-ноды**. Они отправляются через ту же reconnect-safe TX queue, что и обычные строки, поэтому одинаково работают через USB Serial, BLE NUS и Bluetooth SPP.
+`/chat`, `/tele`, `/both`, `/echo` и `Ctrl+T c/t/b/e` управляют **самой Chatter-нодой**. Текстовые команды уходят контроллеру неизменёнными; hotkeys используют стабильный raw ABI. Оба варианта проходят через reconnect-safe TX queue и одинаково работают через USB Serial, BLE NUS и Bluetooth SPP.
 
-Human-facing hotkeys `c/t/b` специально отделены от стабильных raw Chatter opcodes. На проводе сейчас остаются:
+На проводе для hotkeys остаются:
 
 ```text
 Ctrl+T c -> bytes 14 31 -> Chatter OUTPUT_CHAT
@@ -151,15 +164,23 @@ Ctrl+T b -> bytes 14 33 -> Chatter OUTPUT_BOTH
 Ctrl+T e -> bytes 14 65 -> Chatter ECHO toggle
 ```
 
-То есть `serialterminal` не меняет firmware command ABI: он только даёт более понятные отдельные hotkeys для device output.
-
 `Ctrl+T d/s/i` остаются полностью локальными командами `serialterminal`. `Ctrl+T ?` сначала печатает local hotkeys, а затем отправляет Chatter обычную `/help`.
 
 Chatter сам сообщает применённое состояние (`[SYS] OUTPUT ...`, telemetry `OUTPUT MODE ...`, `[SYS] ECHO MODE ON/OFF`), поэтому terminal не пытается угадывать состояние ноды.
 
 ### Те же команды в Android
 
-Для Android Serial Bluetooth Terminal от Kai Morich удобно создать HEX macro-кнопки:
+В Android Serial Bluetooth Terminal можно вводить тот же human-readable набор:
+
+```text
+/help
+/chat
+/tele
+/both
+/echo
+```
+
+Для macro-кнопок удобно также использовать стабильный HEX ABI:
 
 ```text
 CHAT       14 31
@@ -272,21 +293,21 @@ CHAT       -> 0003
 TELEMETRY  -> 0004
 ```
 
-Поэтому в firmware mode `BOTH` `serialterminal` получает оба stream без дублей. Локальный `Ctrl+T 1/2/3` меняет только то, что видно на экране; скрытый BLE stream всё равно сохраняется в transcript.
+Поэтому в firmware mode `BOTH` `serialterminal` получает оба stream без дублей. Local view по умолчанию тоже `BOTH`, так что оба stream сразу видны на экране. `Ctrl+T 1/2/3` остаётся дополнительным локальным фильтром; скрытый BLE stream всё равно сохраняется в transcript.
 
 Если `0004` отсутствует или клиент на него не подписался, Chatter отправляет TELEMETRY через `0003` как fallback. Это нужно обычным NUS-клиентам, включая Android terminal, которые работают только со стандартной парой RX/TX.
 
-Если отправить device-команду `Ctrl+T c` или `Ctrl+T t`, соответствующий логический producer перестаёт генерироваться уже на самой ноде и, естественно, больше не попадёт ни на экран, ни в log.
+Если отправить device-команду `/chat` или `/tele` (либо raw-hotkey `Ctrl+T c/t`), соответствующий логический producer перестаёт генерироваться уже на самой ноде и, естественно, больше не попадёт ни на экран, ни в log.
 
-USB Serial и Bluetooth SPP имеют один физический stream `main`. Там локальный view не может разложить смешанные bytes обратно по типам, поэтому для настоящего CHAT-only или TELEMETRY-only режима используются `Ctrl+T c/t/b`.
+USB Serial и Bluetooth SPP имеют один физический stream `main`. Там локальный view не может разложить смешанные bytes обратно по типам, поэтому для настоящего CHAT-only или TELEMETRY-only режима используются `/chat`, `/tele`, `/both` либо `Ctrl+T c/t/b`.
 
 ## Reconnect и очередь команд
 
 Input отделён от transport I/O. Полная строка попадает в TX queue только после `Enter`. Если target reboot'ится во время отправки, текущая строка остаётся в очереди и будет повторно отправлена после reconnect к тому же locked target.
 
-Chatter device controls `Ctrl+T c/t/b/e` и controller-часть полного help (`/help`) используют ту же очередь. Локальные view-команды `Ctrl+T 1/2/3` в outgoing queue не попадают.
+Chatter text commands `/chat /tele /both /echo`, raw device controls `Ctrl+T c/t/b/e` и controller-часть полного help (`/help`) используют ту же очередь. Локальные view-команды `Ctrl+T 1/2/3` в outgoing queue не попадают.
 
-Важно: output/echo mode живёт в RAM самой Chatter-ноды и после reboot возвращается к firmware default (`BOTH`, echo OFF). `serialterminal` пока не переотправляет последний device mode автоматически после каждого reconnect; при необходимости hotkey можно нажать снова после reboot.
+Важно: output/echo mode живёт в RAM самой Chatter-ноды и после reboot возвращается к firmware default (`BOTH`, echo OFF). `serialterminal` пока не переотправляет последний device mode автоматически после каждого reconnect; при необходимости команду можно отправить снова после reboot.
 
 ## ESP32 / DTR / RTS
 
@@ -356,54 +377,4 @@ sudo btmon \
 sudo apt update
 sudo apt install --only-upgrade bluez linux-firmware
 sudo reboot
-```
-
-Проверить установленные версии можно так:
-
-```bash
-dpkg -l bluez linux-firmware | grep '^ii'
-uname -r
-```
-
-Если timeout сохраняется на старом Ubuntu 22.04-based stack, имеет смысл также проверить более новое поддерживаемое ядро/HWE. Для Ubuntu 22.04:
-
-```bash
-sudo apt install linux-generic-hwe-22.04
-sudo reboot
-```
-
-После каждого изменения лучше менять только одну переменную и снова смотреть `btmon`, чтобы отличить проблему приложения от BlueZ/kernel/firmware/controller или RF-условий.
-
-## Дополнительные CLI режимы
-
-Они существуют для диагностики и автоматизации, но для обычной работы не нужны:
-
-```bash
-python3 serialterminal.py serial
-python3 serialterminal.py ble
-python3 serialterminal.py spp
-python3 serialterminal.py scan
-```
-
-Основной сценарий остаётся:
-
-```bash
-python3 serialterminal.py
-```
-
-и затем hotkeys `Ctrl+T 1/2/3`, `Ctrl+T c/t/b/e`, `Ctrl+T d/s/i/?` или `/help`.
-
-## Разработка
-
-```bash
-git clone https://github.com/dreamworkerln/serialterminal.git
-cd serialterminal
-git switch dev
-```
-
-Tests:
-
-```bash
-pytest -q
-python3 -m compileall -q src tools serialterminal.py
 ```
