@@ -277,21 +277,15 @@ class BleNusTransport(Transport):
         except Exception:
             pass
 
-    async def _connect_async(self) -> bool:
-        if self._connected.is_set():
-            return True
-
-        # An unexpected remote disconnect leaves the previous BleakClient here
-        # deliberately so it can be retired before a replacement is created.
+    def _has_client(self) -> bool:
         with self._state_lock:
-            stale_client = self._client
-        if stale_client is not None:
+            return self._client is not None
+
+    async def _retire_stale_client_async(self) -> None:
+        if self._has_client():
             await self._disconnect_async()
 
-        device = await self._find_target_device()
-        if device is None:
-            return False
-
+    def _begin_connection(self, device: Any) -> tuple[Any, int]:
         with self._state_lock:
             self._connection_generation += 1
             generation = self._connection_generation
@@ -308,67 +302,109 @@ class BleNusTransport(Transport):
 
         with self._state_lock:
             self._client = client
+        return client, generation
 
-        chat_callback = (
+    def _chat_notify_callback(self, generation: int):
+        return (
             lambda characteristic, data, generation=generation:
                 self._on_chat_notify(generation, characteristic, data)
         )
-        telemetry_callback = (
+
+    def _telemetry_notify_callback(self, generation: int):
+        return (
             lambda characteristic, data, generation=generation:
                 self._on_telemetry_notify(generation, characteristic, data)
         )
 
+    async def _connect_primary_async(self, client: Any, generation: int) -> bool:
         try:
             await client.connect()
-            await client.start_notify(NUS_CHAT_TX_UUID, chat_callback)
+            await client.start_notify(
+                NUS_CHAT_TX_UUID,
+                self._chat_notify_callback(generation),
+            )
+            return True
         except Exception:
-            await self._cleanup_client_async(client)
-            with self._state_lock:
-                if self._client is client:
-                    self._client = None
-                if self._active_generation == generation:
-                    self._active_generation = None
-            self._connected.clear()
-            self._telemetry_available = False
             return False
 
-        telemetry_available = False
+    async def _enable_telemetry_async(self, client: Any, generation: int) -> bool:
         try:
             await client.start_notify(
                 NUS_TELEMETRY_TX_UUID,
-                telemetry_callback,
+                self._telemetry_notify_callback(generation),
             )
-            telemetry_available = True
+            return True
         except Exception:
             # Echo-era firmware only exposes standard NUS TX (0003). That is
             # still a valid connection; only Chatter telemetry view is absent.
-            telemetry_available = False
+            return False
 
+    def _publish_connected_state(
+        self,
+        device: Any,
+        client: Any,
+        generation: int,
+        telemetry_available: bool,
+    ) -> bool:
         with self._state_lock:
-            connection_is_current = (
-                self._client is client
-                and self._active_generation == generation
-                and bool(getattr(client, "is_connected", True))
-            )
-            if connection_is_current:
-                self._address = getattr(device, "address", None)
-                if self.target_address is None and self._address:
-                    # Legacy name-only construction becomes sticky after first
-                    # unambiguous connection.
-                    self.target_address = str(self._address)
-                self._telemetry_available = telemetry_available
-                self._connected.set()
+            if self._client is not client:
+                return False
+            if self._active_generation != generation:
+                return False
+            if not bool(getattr(client, "is_connected", True)):
+                return False
 
-        if not connection_is_current:
-            await self._cleanup_client_async(client)
-            with self._state_lock:
-                if self._client is client:
-                    self._client = None
-                if self._active_generation == generation:
-                    self._active_generation = None
+            self._address = getattr(device, "address", None)
+            if self.target_address is None and self._address:
+                # Legacy name-only construction becomes sticky after first
+                # unambiguous connection.
+                self.target_address = str(self._address)
+            self._telemetry_available = telemetry_available
+            self._connected.set()
+            return True
+
+    def _clear_connection_if_current(self, client: Any, generation: int) -> None:
+        with self._state_lock:
+            current = (
+                self._client is client
+                or self._active_generation == generation
+            )
+            if self._client is client:
+                self._client = None
+            if self._active_generation == generation:
+                self._active_generation = None
+
+        if current:
             self._connected.clear()
             self._telemetry_available = False
+
+    async def _fail_connection_async(self, client: Any, generation: int) -> bool:
+        await self._cleanup_client_async(client)
+        self._clear_connection_if_current(client, generation)
+        return False
+
+    async def _connect_async(self) -> bool:
+        if self._connected.is_set():
+            return True
+
+        await self._retire_stale_client_async()
+
+        device = await self._find_target_device()
+        if device is None:
             return False
+
+        client, generation = self._begin_connection(device)
+        if not await self._connect_primary_async(client, generation):
+            return await self._fail_connection_async(client, generation)
+
+        telemetry_available = await self._enable_telemetry_async(client, generation)
+        if not self._publish_connected_state(
+            device,
+            client,
+            generation,
+            telemetry_available,
+        ):
+            return await self._fail_connection_async(client, generation)
 
         return True
 
