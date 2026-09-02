@@ -41,79 +41,89 @@ class DeviceSelector:
         self.baud = baud
         self.scan_seconds = scan_seconds
 
+    @staticmethod
+    def _serial_candidate(item: SerialDeviceIdentity) -> DeviceCandidate:
+        meta: list[str] = [item.path]
+        if item.vid is not None and item.pid is not None:
+            meta.append(f"VID:PID={item.vid:04X}:{item.pid:04X}")
+        if item.serial_number:
+            meta.append(f"serial={item.serial_number}")
+        if item.location:
+            meta.append(f"location={item.location}")
+
+        port_kind = "USB" if item.is_usb else "SERIAL"
+        return DeviceCandidate(
+            kind="serial",
+            key=item.key,
+            label=f"{port_kind}  {item.label}",
+            detail="  ".join(meta),
+            identity=item,
+        )
+
+    def _discover_serial_candidates(self) -> list[DeviceCandidate]:
+        return [
+            self._serial_candidate(item)
+            for item in discover_serial_devices()
+        ]
+
+    def _discover_ble_candidates(self) -> list[DeviceCandidate]:
+        try:
+            from .ble_discovery import discover_terminal_ble_devices
+
+            return [
+                DeviceCandidate(
+                    kind="ble",
+                    key=item.key,
+                    label=f"BLE  {item.name}",
+                    detail=item.address,
+                    identity=item,
+                )
+                for item in discover_terminal_ble_devices(self.scan_seconds)
+            ]
+        except TransportError:
+            if self.scope == "ble":
+                raise
+            return []
+
+    def _discover_spp_candidates(self) -> list[DeviceCandidate]:
+        try:
+            from .transports.bluetooth_spp import discover_spp_devices
+
+            return [
+                DeviceCandidate(
+                    kind="spp",
+                    key=item.key,
+                    label=f"SPP  {item.name}",
+                    detail=f"{item.address}  RFCOMM channel={item.channel}",
+                    identity=item,
+                )
+                for item in discover_spp_devices(self.scan_seconds)
+            ]
+        except TransportError:
+            if self.scope == "spp":
+                raise
+            return []
+
+    @staticmethod
+    def _candidate_sort_key(candidate: DeviceCandidate) -> tuple[int, str, str]:
+        kind_order = {"serial": 0, "ble": 1, "spp": 2}
+        return (
+            kind_order.get(candidate.kind, 99),
+            candidate.label.lower(),
+            candidate.detail.lower(),
+        )
+
     def discover(self) -> list[DeviceCandidate]:
         candidates: list[DeviceCandidate] = []
 
         if self.scope in {"auto", "serial"}:
-            for item in discover_serial_devices():
-                meta: list[str] = [item.path]
-                if item.vid is not None and item.pid is not None:
-                    meta.append(f"VID:PID={item.vid:04X}:{item.pid:04X}")
-                if item.serial_number:
-                    meta.append(f"serial={item.serial_number}")
-                if item.location:
-                    meta.append(f"location={item.location}")
-
-                port_kind = "USB" if item.is_usb else "SERIAL"
-                candidates.append(
-                    DeviceCandidate(
-                        kind="serial",
-                        key=item.key,
-                        label=f"{port_kind}  {item.label}",
-                        detail="  ".join(meta),
-                        identity=item,
-                    )
-                )
-
+            candidates.extend(self._discover_serial_candidates())
         if self.scope in {"auto", "ble"}:
-            try:
-                from .ble_discovery import discover_terminal_ble_devices
-
-                for item in discover_terminal_ble_devices(
-                    self.scan_seconds
-                ):
-                    candidates.append(
-                        DeviceCandidate(
-                            kind="ble",
-                            key=item.key,
-                            label=f"BLE  {item.name}",
-                            detail=item.address,
-                            identity=item,
-                        )
-                    )
-            except TransportError:
-                if self.scope == "ble":
-                    raise
-
+            candidates.extend(self._discover_ble_candidates())
         if self.scope in {"auto", "spp"}:
-            try:
-                from .transports.bluetooth_spp import discover_spp_devices
+            candidates.extend(self._discover_spp_candidates())
 
-                for item in discover_spp_devices(self.scan_seconds):
-                    candidates.append(
-                        DeviceCandidate(
-                            kind="spp",
-                            key=item.key,
-                            label=f"SPP  {item.name}",
-                            detail=(
-                                f"{item.address}  "
-                                f"RFCOMM channel={item.channel}"
-                            ),
-                            identity=item,
-                        )
-                    )
-            except TransportError:
-                if self.scope == "spp":
-                    raise
-
-        kind_order = {"serial": 0, "ble": 1, "spp": 2}
-        candidates.sort(
-            key=lambda item: (
-                kind_order.get(item.kind, 99),
-                item.label.lower(),
-                item.detail.lower(),
-            )
-        )
+        candidates.sort(key=self._candidate_sort_key)
         return candidates
 
     def make_transport(self, candidate: DeviceCandidate) -> Transport:
@@ -196,6 +206,33 @@ class DeviceSelector:
         finally:
             termios.tcsetattr(fd, termios.TCSADRAIN, previous)
 
+    def _read_menu_answer(
+        self,
+        prompt_text: str,
+        candidate_count: int,
+        allow_cancel: bool,
+    ) -> str:
+        if candidate_count < 10:
+            return self._read_single_key_choice(
+                prompt_text,
+                candidate_count,
+                allow_cancel,
+            )
+        return input(prompt_text).strip()
+
+    @staticmethod
+    def _parse_candidate_index(answer: str, candidate_count: int) -> int | None:
+        try:
+            index = int(answer)
+        except ValueError:
+            print("Please enter a device number.")
+            return None
+
+        if not 1 <= index <= candidate_count:
+            print("Device number is out of range.")
+            return None
+        return index - 1
+
     def choose_from(
         self,
         candidates: list[DeviceCandidate],
@@ -215,31 +252,19 @@ class DeviceSelector:
         self._print_menu(candidates)
         cancel_hint = ", Enter=cancel" if allow_cancel else ""
         prompt_text = f"Connect to [1-{len(candidates)}{cancel_hint}]: "
-        immediate_choice = len(candidates) < 10
 
         while True:
-            if immediate_choice:
-                answer = self._read_single_key_choice(
-                    prompt_text,
-                    len(candidates),
-                    allow_cancel,
-                )
-            else:
-                answer = input(prompt_text).strip()
-
+            answer = self._read_menu_answer(
+                prompt_text,
+                len(candidates),
+                allow_cancel,
+            )
             if allow_cancel and answer == "":
                 return None
 
-            try:
-                index = int(answer)
-            except ValueError:
-                print("Please enter a device number.")
-                continue
-
-            if 1 <= index <= len(candidates):
-                return candidates[index - 1]
-
-            print("Device number is out of range.")
+            index = self._parse_candidate_index(answer, len(candidates))
+            if index is not None:
+                return candidates[index]
 
     def choose_initial(
         self,
