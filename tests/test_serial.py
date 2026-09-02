@@ -110,6 +110,45 @@ def test_serial_discovery_hides_empty_ttys_but_keeps_identified_uart(monkeypatch
     assert by_path["/dev/cu.usbmodem-test"].is_usb is True
 
 
+def test_serial_discovery_prefers_by_id_and_deduplicates_alias(monkeypatch):
+    alias = "/dev/serial/by-id/usb-controller"
+    device = "/dev/ttyUSB0"
+    monkeypatch.setattr(
+        serial_transport.list_ports,
+        "comports",
+        lambda: [
+            PortInfo(
+                device,
+                description="USB Controller",
+                vid=0x1A86,
+                pid=0x55D3,
+                serial_number="ABC",
+            )
+        ],
+    )
+
+    def fake_glob(pattern):
+        if pattern == "/dev/serial/by-id/*":
+            return [alias]
+        if pattern == "/dev/ttyUSB*":
+            return [device]
+        return []
+
+    monkeypatch.setattr(serial_transport.glob, "glob", fake_glob)
+    monkeypatch.setattr(
+        serial_transport.os.path,
+        "realpath",
+        lambda path: device if path in {alias, device} else path,
+    )
+
+    found = serial_transport.discover_serial_devices()
+
+    assert len(found) == 1
+    assert found[0].path == alias
+    assert found[0].key == f"serial-by-id:{alias}"
+    assert found[0].serial_number == "ABC"
+
+
 def test_sticky_serial_identity_does_not_fall_back(monkeypatch):
     selected = SerialDeviceIdentity(
         key="serial-usb:303a:1001:ABC",

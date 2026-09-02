@@ -66,6 +66,22 @@ def _meaningful_port_text(value: object) -> bool:
     return bool(text and text.lower() not in {"n/a", "unknown", "none"})
 
 
+def _has_usb_port_metadata(info: object) -> bool:
+    vid = getattr(info, "vid", None)
+    pid = getattr(info, "pid", None)
+    if vid is not None and pid is not None:
+        return True
+
+    hwid = str(getattr(info, "hwid", "") or "").upper()
+    return "USB" in hwid or "VID:PID" in hwid
+
+
+def _identified_ttys(info: object) -> bool:
+    return _meaningful_port_text(
+        getattr(info, "description", "")
+    ) or _meaningful_port_text(getattr(info, "hwid", ""))
+
+
 def _looks_like_useful_serial_info(info: object) -> bool:
     """Hide empty ttyS placeholders while retaining real serial hardware."""
     device = str(getattr(info, "device", "") or "")
@@ -79,105 +95,137 @@ def _looks_like_useful_serial_info(info: object) -> bool:
     if device.startswith(("/dev/ttyUSB", "/dev/ttyACM")):
         return True
 
-    vid = getattr(info, "vid", None)
-    pid = getattr(info, "pid", None)
-    if vid is not None and pid is not None:
-        return True
-
-    hwid = str(getattr(info, "hwid", "") or "")
-    hwid_upper = hwid.upper()
-    if "USB" in hwid_upper or "VID:PID" in hwid_upper:
+    if _has_usb_port_metadata(info):
         return True
 
     # Linux commonly exposes /dev/ttyS0..31 even when most entries are only
-    # unpopulated 8250 placeholders. pyserial reports those as n/a / n/a.
-    # Keep a ttyS port if udev/pyserial can identify it (for example PNP0501),
-    # but do not flood the chooser with anonymous placeholders.
+    # unpopulated 8250 placeholders. Keep a ttyS port only when pyserial/udev
+    # can identify it (for example PNP0501).
     if device.startswith("/dev/ttyS"):
-        description = getattr(info, "description", "")
-        return _meaningful_port_text(description) or _meaningful_port_text(hwid)
+        return _identified_ttys(info)
 
     # Other serial classes (ttyAMA, ttyTHS, platform UARTs, etc.) can be useful
     # even when they are not USB. Preserve pyserial's discovery for those.
     return True
 
 
-def discover_serial_devices() -> list[SerialDeviceIdentity]:
-    """Discover useful serial devices with stable `/dev/serial/by-id` paths first."""
-    infos = [
+def _useful_port_infos() -> list[object]:
+    return [
         info
         for info in list_ports.comports()
         if _looks_like_useful_serial_info(info)
     ]
-    info_by_real: dict[str, object] = {}
 
+
+def _port_info_by_real_path(infos: list[object]) -> dict[str, object]:
+    result: dict[str, object] = {}
     for info in infos:
         device = getattr(info, "device", None)
         if device:
-            info_by_real.setdefault(os.path.realpath(device), info)
+            result.setdefault(os.path.realpath(device), info)
+    return result
 
-    by_id_by_real: dict[str, list[str]] = {}
+
+def _by_id_paths_by_real_path() -> dict[str, list[str]]:
+    result: dict[str, list[str]] = {}
     for path in sorted(glob.glob("/dev/serial/by-id/*")):
-        by_id_by_real.setdefault(os.path.realpath(path), []).append(path)
+        result.setdefault(os.path.realpath(path), []).append(path)
+    return result
 
-    candidate_paths: list[str] = []
-    candidate_paths.extend(path for paths in by_id_by_real.values() for path in paths)
-    candidate_paths.extend(
-        getattr(info, "device", "") for info in infos if getattr(info, "device", "")
+
+def _candidate_serial_paths(
+    infos: list[object],
+    by_id_by_real: dict[str, list[str]],
+) -> list[str]:
+    paths = [path for aliases in by_id_by_real.values() for path in aliases]
+    paths.extend(
+        getattr(info, "device", "")
+        for info in infos
+        if getattr(info, "device", "")
     )
-    candidate_paths.extend(sorted(glob.glob("/dev/ttyUSB*")))
-    candidate_paths.extend(sorted(glob.glob("/dev/ttyACM*")))
+    paths.extend(sorted(glob.glob("/dev/ttyUSB*")))
+    paths.extend(sorted(glob.glob("/dev/ttyACM*")))
+    return paths
 
-    real_paths: list[str] = []
-    seen_real: set[str] = set()
-    for path in candidate_paths:
+
+def _unique_real_paths(paths: list[str]) -> list[str]:
+    result: list[str] = []
+    seen: set[str] = set()
+    for path in paths:
         real = os.path.realpath(path)
-        if real in seen_real:
+        if real in seen:
             continue
-        seen_real.add(real)
-        real_paths.append(real)
+        seen.add(real)
+        result.append(real)
+    return result
 
-    devices: list[SerialDeviceIdentity] = []
-    for real in real_paths:
-        info = info_by_real.get(real)
-        by_id_paths = by_id_by_real.get(real, [])
-        preferred_path = by_id_paths[0] if by_id_paths else (
-            getattr(info, "device", None) if info is not None else None
-        )
-        if not preferred_path:
-            preferred_path = real
 
-        vid = getattr(info, "vid", None) if info is not None else None
-        pid = getattr(info, "pid", None) if info is not None else None
-        serial_number = (
-            getattr(info, "serial_number", None) if info is not None else None
-        )
-        location = getattr(info, "location", None) if info is not None else None
-        description = getattr(info, "description", "") if info is not None else ""
-        hwid = getattr(info, "hwid", "") if info is not None else ""
+def _preferred_serial_path(
+    real_path: str,
+    info: object | None,
+    by_id_paths: list[str],
+) -> str:
+    if by_id_paths:
+        return by_id_paths[0]
+    if info is not None:
+        device = getattr(info, "device", None)
+        if device:
+            return str(device)
+    return real_path
 
-        devices.append(
-            SerialDeviceIdentity(
-                key=_stable_serial_key(
-                    preferred_path,
-                    real,
-                    vid=vid,
-                    pid=pid,
-                    serial_number=serial_number,
-                    location=location,
-                ),
-                path=preferred_path,
-                description=description or "",
-                hwid=hwid or "",
-                vid=vid,
-                pid=pid,
-                serial_number=serial_number,
-                location=location,
-            )
-        )
 
-    # Stable order: by-id paths naturally win because they were discovered first.
-    return devices
+def _serial_identity_from_real_path(
+    real_path: str,
+    info_by_real: dict[str, object],
+    by_id_by_real: dict[str, list[str]],
+) -> SerialDeviceIdentity:
+    info = info_by_real.get(real_path)
+    preferred_path = _preferred_serial_path(
+        real_path,
+        info,
+        by_id_by_real.get(real_path, []),
+    )
+
+    vid = getattr(info, "vid", None) if info is not None else None
+    pid = getattr(info, "pid", None) if info is not None else None
+    serial_number = (
+        getattr(info, "serial_number", None) if info is not None else None
+    )
+    location = getattr(info, "location", None) if info is not None else None
+    description = getattr(info, "description", "") if info is not None else ""
+    hwid = getattr(info, "hwid", "") if info is not None else ""
+
+    return SerialDeviceIdentity(
+        key=_stable_serial_key(
+            preferred_path,
+            real_path,
+            vid=vid,
+            pid=pid,
+            serial_number=serial_number,
+            location=location,
+        ),
+        path=preferred_path,
+        description=description or "",
+        hwid=hwid or "",
+        vid=vid,
+        pid=pid,
+        serial_number=serial_number,
+        location=location,
+    )
+
+
+def discover_serial_devices() -> list[SerialDeviceIdentity]:
+    """Discover useful serial devices with stable `/dev/serial/by-id` paths first."""
+    infos = _useful_port_infos()
+    info_by_real = _port_info_by_real_path(infos)
+    by_id_by_real = _by_id_paths_by_real_path()
+    candidate_paths = _candidate_serial_paths(infos, by_id_by_real)
+    real_paths = _unique_real_paths(candidate_paths)
+
+    return [
+        _serial_identity_from_real_path(real, info_by_real, by_id_by_real)
+        for real in real_paths
+    ]
 
 
 def find_ports() -> list[str]:
