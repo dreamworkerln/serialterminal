@@ -16,6 +16,7 @@ from prompt_toolkit.patch_stdout import patch_stdout
 
 from .presentation import PresentationTracker, recognized_chatter_command
 from .transports.base import ReceivedChunk, Transport, TransportError
+from .transports.serial import SerialTransport
 
 
 CHATTER_ECHO_TOGGLE = "\x14e"
@@ -25,6 +26,7 @@ CHATTER_OUTPUT_MODE_COMMANDS = {
     "output_both": "\x143",
 }
 CHATTER_HELP_COMMAND = "/help"
+CHATTER_ID_COMMAND = "/id"
 CHATTER_SYSTEM_PREFIX = "[SYS]"
 
 
@@ -159,16 +161,12 @@ class TerminalSession:
         lines = self._complete_received_lines(chunk.stream, text)
 
         with self.output_lock:
-            # Keep the raw decoded transport stream in the transcript. Accepted
-            # local input was already logged independently by log_input().
             self.log_file.write(text)
             self.log_file.flush()
 
             for line in lines:
                 reveal = self._presentation.consume_firmware_line(line)
                 if reveal is not None:
-                    # A plain line means only "submitted locally". Never add a
-                    # synthetic RF marker and never duplicate it in the log.
                     sys.stdout.write(reveal + "\n")
 
                 if self._received_line_visible(chunk.stream, line):
@@ -200,8 +198,16 @@ class TerminalSession:
             transport.disconnect()
             return False
 
-        # A reconnect is a new byte-stream boundary. Never let a partial UTF-8
-        # sequence from the old link combine with bytes from the new link.
+        # USB/serial does not expose the Chatter BLE name during device selection.
+        # Ask the controller for its canonical node identity before opening the
+        # reconnect-safe user TX gate so queued user lines cannot overtake /id.
+        if isinstance(transport, SerialTransport):
+            try:
+                transport.write(encode_line(CHATTER_ID_COMMAND, self.line_ending))
+            except (TransportError, OSError):
+                transport.disconnect()
+                return False
+
         self._reset_received_decoders()
         self.connected_event.set()
         self.write_output(f"\n[connected: {transport.description}]\n\n")
@@ -268,8 +274,6 @@ class TerminalSession:
                         self._presentation.mark_sent(line)
                         break
                     except (TransportError, OSError):
-                        # Keep `line` as the current item. It will be retried
-                        # after reconnect to the currently locked target.
                         self._disconnect()
                         self.write_output("\n[send failed; reconnecting]\n")
                         time.sleep(self.reconnect_delay)
@@ -325,18 +329,13 @@ class TerminalSession:
                     )
                 )
 
-        # Local terminal view. These never send bytes to the device.
         add_control("1", "chat")
         add_control("2", "telemetry")
         add_control("3", "both")
-
-        # Chatter device controls. The user-facing keys are independent from
-        # the stable raw Chatter opcodes (0x14 + '1'/'2'/'3').
         add_control("c", "output_chat")
         add_control("t", "output_telemetry")
         add_control("b", "output_both")
         add_control("e", "echo")
-
         add_control("d", "device")
         add_control("s", "scanner")
         add_control("i", "info")
@@ -349,13 +348,6 @@ class TerminalSession:
         return bindings
 
     def _make_prompt_session(self) -> PromptSession:
-        """Create the interactive chat prompt without committed local echo.
-
-        Text remains visible while the user edits it. After Enter (or a local
-        Ctrl+T action) prompt_toolkit removes that rendered prompt from the
-        terminal and the next prompt is drawn normally. Menus use ordinary
-        input() outside this PromptSession and keep their normal terminal echo.
-        """
         return PromptSession(
             key_bindings=self._build_key_bindings(),
             erase_when_done=True,
@@ -371,7 +363,6 @@ class TerminalSession:
             return
 
         with self.decode_lock:
-            # Do not carry a partial line across a local visibility change.
             self._hidden_chat_line_buffer = ""
             self._received_line_buffers.clear()
 
@@ -396,6 +387,7 @@ class TerminalSession:
             "\n[serialterminal hotkeys]\n"
             "  VIEW default: BOTH; Ctrl+T 1/2/3 are local display filters only\n"
             "  /chat /tele /both /echo /reboot are sent unchanged to Chatter\n"
+            "  /id requests the canonical Chatter node identity\n"
             "  /help shows this list and requests Chatter /help\n"
             "  Ctrl+C       quit immediately\n"
             "  Ctrl+T 1     local CHAT view (BLE)\n"
@@ -413,9 +405,6 @@ class TerminalSession:
         )
 
     def _show_full_help(self) -> None:
-        # Local controls are useful immediately, even if the controller is
-        # disconnected. Then request the controller-owned part through the
-        # ordinary reconnect-safe line queue.
         self._print_hotkey_help()
         if not self.send_line(CHATTER_HELP_COMMAND):
             self.write_output("[Chatter help request was not queued]\n\n")
@@ -435,7 +424,6 @@ class TerminalSession:
         try:
             new_transport = self.device_chooser()
         except KeyboardInterrupt:
-            # Ctrl+C must remain a hard exit even while the numbered menu is up.
             raise
         except Exception as exc:
             self.write_output(f"\n[device chooser failed: {exc}]\n\n")
@@ -458,7 +446,6 @@ class TerminalSession:
         self.connection_paused.clear()
 
     def _run_bluetooth_scanner(self) -> None:
-        """Temporarily release the active target and run the interactive prober."""
         transport = self._current_transport()
         self.connection_paused.set()
         self.connected_event.clear()
@@ -497,10 +484,6 @@ class TerminalSession:
             self._run_bluetooth_scanner()
             return
         if action == "echo":
-            # Chatter expects raw Ctrl+T,e. Send those bytes through the normal
-            # reconnect-safe line queue, so the same hotkey works on USB Serial,
-            # BLE NUS and Bluetooth SPP transports. Controller [SYS] output is
-            # the authoritative confirmation that the command was applied.
             self.send_line(CHATTER_ECHO_TOGGLE)
             return
         if action == "info":

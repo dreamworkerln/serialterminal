@@ -35,7 +35,8 @@ Type /help or press Ctrl+T ? for full help.
 - BLE local view по умолчанию BOTH;
 - локальные hotkeys `Ctrl+T ...`;
 - локальное line editing через `prompt_toolkit`, включая Backspace/Delete и Unicode;
-- Chatter device commands `/chat`, `/tele`, `/both`, `/echo`, `/reboot`;
+- Chatter device commands `/help`, `/id`, `/chat`, `/tele`, `/both`, `/echo`, `/reboot`;
+- автоматический `/id` после USB Serial connect/reconnect;
 - Chatter output/echo raw hotkeys `Ctrl+T c/t/b/e`;
 - pending presentation для USER/ECHO: `>` остаётся только firmware-owned подтверждением успешного RF TX;
 - полный help через `/help` или `Ctrl+T ?`;
@@ -111,6 +112,7 @@ Human-readable команды отправляются контроллеру о
 
 ```text
 /help     show Chatter help
+/id       show canonical node identity
 /chat     device output CHAT
 /tele     device output TELEMETRY
 /both     device output BOTH
@@ -118,7 +120,19 @@ Human-readable команды отправляются контроллеру о
 /reboot   reboot ESP32 controller
 ```
 
-При классификации команды `serialterminal` использует ту же boundary-normalization, что и текущий Chatter firmware: ASCII control/space + DEL по краям игнорируются только для command matching. Поэтому, например, строка `  /reboot  ` распознаётся как команда. Если после такого trim строка не совпала с известной командой, она остаётся обычным payload и отправляется **в исходном виде**.
+Canonical identity Chatter имеет вид:
+
+```text
+[SYS] CHATTER NODE LoRa-Chatter-XXXX
+```
+
+Это то же имя, которое нода рекламирует по BLE. `serialterminal` не строит собственный node ID.
+
+После успешного `SerialTransport.connect()` terminal автоматически отправляет `/id` **до** открытия reconnect-safe user TX gate. Поэтому накопленная USER/command очередь не может обогнать identity request. Это делается на каждом USB Serial connect/reconnect.
+
+BLE NUS и Bluetooth SPP не получают автоматический `/id`: при выборе BLE имя ноды уже видно пользователю, а лишний host-side запрос не нужен. Явный `/id` при этом работает через любой transport.
+
+При классификации команды `serialterminal` использует ту же boundary-normalization, что и текущий Chatter firmware: ASCII control/space + DEL по краям игнорируются только для command matching. Поэтому, например, строка `  /id  ` распознаётся как команда. Если после такого trim строка не совпала с известной командой, она остаётся обычным payload и отправляется **в исходном виде**.
 
 `/reboot` намеренно text-only: для него нет нового raw `0x14` opcode и нет отдельного hotkey.
 
@@ -206,6 +220,7 @@ Commands при этом не занимают presentation queue.
 
 ```text
 HELP       /help
+ID         /id
 CHAT       /chat       or HEX 14 31
 TELEMETRY  /tele       or HEX 14 32
 BOTH       /both       or HEX 14 33
@@ -256,14 +271,16 @@ Input отделён от transport I/O. Полная строка попада�
 
 Если target disconnect/reboot происходит во время отправки, текущий transport-queue element удерживается и повторяется после reconnect к тому же locked target.
 
-Это относится и к:
+Reconnect-safe queue относится к:
 
 ```text
-/chat /tele /both /echo /reboot
+/id /chat /tele /both /echo /reboot
 /help controller request
 raw Ctrl+T c/t/b/e controls
 ordinary USER/ECHO text
 ```
+
+Автоматический Serial `/id` не кладётся в эту очередь: он отправляется непосредственно после успешного connect и до `connected_event`, чтобы queued user input не мог его обогнать.
 
 Локальные view-команды `Ctrl+T 1/2/3` в outgoing queue не попадают.
 
@@ -316,6 +333,8 @@ USB priority:
 -> concrete tty path
 ```
 
+Это transport identity, используемая для reconnect. Chatter node identity (`LoRa-Chatter-XXXX`) — отдельная controller-owned capability, получаемая через `/id`.
+
 BLE target фиксируется по BLE address. SPP target — по Bluetooth address + подтверждённому RFCOMM channel.
 
 ## ESP32 / DTR / RTS
@@ -326,6 +345,8 @@ BLE target фиксируется по BLE address. SPP target — по Bluetoot
 2. deassert обеих линий после открытия;
 3. отключение `HUPCL` на Linux.
 
+USB Serial RX/TX остаются full-duplex: blocking read не держит общий mutex с write.
+
 ## Tests / CI
 
 CI на каждый push/PR выполняет:
@@ -335,7 +356,14 @@ python -m compileall -q src serialterminal.py tools
 pytest -q
 ```
 
-TX-presentation implementation покрыта unit/integration тестами: command trim, USER/ECHO success, rejection, interleaved telemetry, BLE chunk boundaries, duplicate payloads и disconnect semantics.
+Покрыты command trim, `/id`, auto-ID только на Serial, отсутствие auto-ID на Bluetooth transport, USER/ECHO presentation, rejection, interleaved telemetry, BLE chunk boundaries, duplicate payloads, disconnect semantics и full-duplex Serial regression.
+
+Текущий identity implementation tree:
+
+```text
+compileall PASS
+60 passed
+```
 
 ## Зависимости
 

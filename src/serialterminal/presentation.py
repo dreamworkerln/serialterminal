@@ -8,6 +8,7 @@ import threading
 CHATTER_TEXT_COMMANDS = frozenset(
     {
         "/help",
+        "/id",
         "/chat",
         "/tele",
         "/both",
