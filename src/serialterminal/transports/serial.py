@@ -286,6 +286,9 @@ class SerialTransport(Transport):
             return False
 
     def disconnect(self) -> None:
+        # read()/write() keep this lock for the complete pyserial operation.
+        # Waiting for their bounded timeout is preferable to closing `ser.fd`
+        # underneath an active os.read/os.write call.
         with self._lock:
             ser = self._serial
             self._serial = None
@@ -297,26 +300,29 @@ class SerialTransport(Transport):
                 pass
 
     def read(self, size: int = 512) -> bytes:
+        # Keep the transport lock across the blocking read. Ctrl+T d/scanner
+        # intentionally disconnect from another thread; without this boundary
+        # pyserial can observe fd=None in the middle of Serial.read().
         with self._lock:
             ser = self._serial
+            if ser is None or not ser.is_open:
+                raise TransportError("serial device is not connected")
 
-        if ser is None or not ser.is_open:
-            raise TransportError("serial device is not connected")
-
-        try:
-            return ser.read(size)
-        except (SerialException, OSError) as exc:
-            raise TransportError(str(exc)) from exc
+            try:
+                return ser.read(size)
+            except (SerialException, OSError) as exc:
+                raise TransportError(str(exc)) from exc
 
     def write(self, data: bytes) -> None:
+        # The same lifetime rule applies to TX: disconnect cannot close the
+        # descriptor between Serial.write() and flush().
         with self._lock:
             ser = self._serial
+            if ser is None or not ser.is_open:
+                raise TransportError("serial device is not connected")
 
-        if ser is None or not ser.is_open:
-            raise TransportError("serial device is not connected")
-
-        try:
-            ser.write(data)
-            ser.flush()
-        except (SerialException, OSError) as exc:
-            raise TransportError(str(exc)) from exc
+            try:
+                ser.write(data)
+                ser.flush()
+            except (SerialException, OSError) as exc:
+                raise TransportError(str(exc)) from exc
