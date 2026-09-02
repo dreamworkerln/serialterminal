@@ -1,3 +1,5 @@
+import threading
+
 from serialterminal.transports import serial as serial_transport
 from serialterminal.transports.serial import SerialDeviceIdentity, SerialTransport
 
@@ -21,6 +23,52 @@ class PortInfo:
         self.pid = pid
         self.serial_number = serial_number
         self.location = location
+
+
+class BlockingSerial:
+    def __init__(self):
+        self.is_open = True
+        self.started = threading.Event()
+        self.release = threading.Event()
+        self.closed = threading.Event()
+        self.flushed = threading.Event()
+
+    def read(self, size):
+        self.started.set()
+        assert self.release.wait(timeout=1.0)
+        assert not self.closed.is_set()
+        return b"ok"[:size]
+
+    def write(self, data):
+        self.started.set()
+        assert self.release.wait(timeout=1.0)
+        assert not self.closed.is_set()
+        return len(data)
+
+    def flush(self):
+        assert not self.closed.is_set()
+        self.flushed.set()
+
+    def close(self):
+        self.is_open = False
+        self.closed.set()
+
+
+def _install_fake_serial(transport, fake_serial):
+    with transport._lock:
+        transport._serial = fake_serial
+
+
+def _disconnect_in_thread(transport):
+    done = threading.Event()
+
+    def run():
+        transport.disconnect()
+        done.set()
+
+    thread = threading.Thread(target=run)
+    thread.start()
+    return thread, done
 
 
 def test_serial_discovery_hides_empty_ttys_but_keeps_identified_uart(monkeypatch):
@@ -99,3 +147,52 @@ def test_sticky_serial_identity_does_not_fall_back(monkeypatch):
         lambda: [other, selected_after_reboot],
     )
     assert transport._choose_device() == "/dev/ttyACM7"
+
+
+def test_disconnect_waits_for_active_serial_read():
+    transport = SerialTransport(device="/dev/fake")
+    fake = BlockingSerial()
+    _install_fake_serial(transport, fake)
+    result = {}
+
+    reader = threading.Thread(
+        target=lambda: result.setdefault("data", transport.read(2))
+    )
+    reader.start()
+    assert fake.started.wait(timeout=1.0)
+
+    disconnector, disconnect_done = _disconnect_in_thread(transport)
+    assert not disconnect_done.wait(timeout=0.05)
+    assert not fake.closed.is_set()
+
+    fake.release.set()
+    reader.join(timeout=1.0)
+    disconnector.join(timeout=1.0)
+
+    assert result["data"] == b"ok"
+    assert disconnect_done.is_set()
+    assert fake.closed.is_set()
+    assert not transport.is_connected
+
+
+def test_disconnect_waits_for_active_serial_write_and_flush():
+    transport = SerialTransport(device="/dev/fake")
+    fake = BlockingSerial()
+    _install_fake_serial(transport, fake)
+
+    writer = threading.Thread(target=lambda: transport.write(b"hello"))
+    writer.start()
+    assert fake.started.wait(timeout=1.0)
+
+    disconnector, disconnect_done = _disconnect_in_thread(transport)
+    assert not disconnect_done.wait(timeout=0.05)
+    assert not fake.closed.is_set()
+
+    fake.release.set()
+    writer.join(timeout=1.0)
+    disconnector.join(timeout=1.0)
+
+    assert fake.flushed.is_set()
+    assert disconnect_done.is_set()
+    assert fake.closed.is_set()
+    assert not transport.is_connected
