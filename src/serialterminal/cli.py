@@ -152,6 +152,50 @@ class DeviceSelector:
             print(f"  {index}. {candidate.label}")
             print(f"     {candidate.detail}")
 
+    @staticmethod
+    def _read_single_key_choice(
+        prompt_text: str,
+        candidate_count: int,
+        allow_cancel: bool,
+    ) -> str:
+        """Read a 1..9 menu choice immediately on an interactive POSIX TTY."""
+        if not sys.stdin.isatty():
+            return input(prompt_text).strip()
+
+        try:
+            import termios
+            import tty
+        except ImportError:
+            return input(prompt_text).strip()
+
+        valid_keys = {str(index) for index in range(1, candidate_count + 1)}
+        fd = sys.stdin.fileno()
+        previous = termios.tcgetattr(fd)
+        print(prompt_text, end="", flush=True)
+
+        try:
+            tty.setcbreak(fd)
+            while True:
+                key = sys.stdin.read(1)
+
+                if key in valid_keys:
+                    print(key)
+                    return key
+
+                if key in {"\r", "\n"}:
+                    if allow_cancel:
+                        print()
+                        return ""
+                    print("\a", end="", flush=True)
+                    continue
+
+                if key == "\x03":
+                    raise KeyboardInterrupt
+
+                print("\a", end="", flush=True)
+        finally:
+            termios.tcsetattr(fd, termios.TCSADRAIN, previous)
+
     def choose_from(
         self,
         candidates: list[DeviceCandidate],
@@ -170,11 +214,18 @@ class DeviceSelector:
 
         self._print_menu(candidates)
         cancel_hint = ", Enter=cancel" if allow_cancel else ""
+        prompt_text = f"Connect to [1-{len(candidates)}{cancel_hint}]: "
+        immediate_choice = len(candidates) < 10
 
         while True:
-            answer = input(
-                f"Connect to [1-{len(candidates)}{cancel_hint}]: "
-            ).strip()
+            if immediate_choice:
+                answer = self._read_single_key_choice(
+                    prompt_text,
+                    len(candidates),
+                    allow_cancel,
+                )
+            else:
+                answer = input(prompt_text).strip()
 
             if allow_cancel and answer == "":
                 return None
