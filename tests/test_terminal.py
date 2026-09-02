@@ -181,6 +181,7 @@ def test_help_hotkey_is_equivalent_to_full_help(tmp_path):
         assert session.outgoing.get_nowait() == CHATTER_HELP_COMMAND
         transcript = (tmp_path / "terminal.log").read_text()
         assert "[serialterminal hotkeys]" in transcript
+        assert "/chat /tele /both /echo /reboot" in transcript
         assert "full help (this list + Chatter /help)" in transcript
     finally:
         session.log_file.close()

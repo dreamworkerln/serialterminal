@@ -1,39 +1,28 @@
 # serialterminal
 
-Обобщённый line-oriented терминал для USB Serial, Bluetooth LE / Nordic UART Service (NUS) и Classic Bluetooth Serial Port Profile (SPP/RFCOMM).
+Обобщённый line-oriented терминал для USB Serial, Bluetooth LE / Nordic UART Service (NUS) и Classic Bluetooth SPP/RFCOMM.
 
-Терминал редактирует строку локально и отправляет её в устройство только после `Enter`. Исходящие строки переживают временный disconnect/reboot и отправляются после reconnect к **тому же выбранному физическому устройству**.
+`serialterminal` редактирует строку локально и отправляет её устройству только после `Enter`. Исходящие строки переживают временный disconnect/reboot и отправляются после reconnect к тому же выбранному физическому устройству.
 
-## Обычный запуск
-
-Основной пользовательский вход один:
+## Запуск
 
 ```bash
 python3 serialterminal.py
 ```
 
-По умолчанию session log:
+Session log по умолчанию:
 
 ```text
 serialterminal.log
 ```
 
-То есть имя launcher и основного log теперь одинаковое по базе:
-
-```text
-serialterminal.py
-serialterminal.log
-```
-
-Внутренние `src/serialterminal/...` модули — только устройство проекта. Для обычной работы их руками запускать не требуется.
-
-После запуска терминал сразу напоминает:
+После запуска:
 
 ```text
 Type /help or press Ctrl+T ? for full help.
 ```
 
-Оба способа эквивалентны: сначала `serialterminal` печатает свои hotkeys, затем отправляет контроллеру обычную строку `/help` через reconnect-safe очередь.
+Оба способа печатают локальные hotkeys `serialterminal`, затем ставят обычную Chatter-команду `/help` в reconnect-safe TX queue.
 
 ## Что поддержано
 
@@ -41,28 +30,22 @@ Type /help or press Ctrl+T ? for full help.
 - BLE NUS через `bleak`;
 - Classic Bluetooth SPP/RFCOMM на Linux через BlueZ + Python Bluetooth sockets;
 - unified device chooser;
-- sticky reconnect по стабильной identity;
-- отдельные BLE streams `CHAT`, `TELEMETRY`, `BOTH`;
-- BLE local view по умолчанию `BOTH`, чтобы device-команды имели тот же видимый результат, что и в обычном Android NUS terminal;
+- sticky reconnect по стабильной physical identity;
+- отдельные BLE streams CHAT/TELEMETRY;
+- BLE local view по умолчанию BOTH;
 - локальные hotkeys `Ctrl+T ...`;
+- локальное line editing через `prompt_toolkit`, включая Backspace/Delete и Unicode;
+- Chatter device commands `/chat`, `/tele`, `/both`, `/echo`, `/reboot`;
+- Chatter output/echo raw hotkeys `Ctrl+T c/t/b/e`;
 - полный help через `/help` или `Ctrl+T ?`;
-- отдельное управление локальным BLE view через `Ctrl+T 1/2/3`;
-- отдельное управление Chatter firmware output через `/chat`, `/tele`, `/both` или `Ctrl+T c/t/b`;
-- Chatter echo-mode toggle через `/echo` или `Ctrl+T e` независимо от USB/BLE/SPP transport;
 - capability cache для найденных NUS/SPP устройств;
-- aggressive Bluetooth scanner/prober из самого терминала;
-- лог с немедленным `flush()`;
+- Bluetooth scanner/prober;
+- transcript с немедленным `flush()`;
 - `LF`, `CRLF` или `CR` после `Enter`.
 
-## Обычный discovery
+## Discovery и reconnect
 
-После запуска:
-
-```bash
-python3 serialterminal.py
-```
-
-обычный режим **не подключается подряд ко всем неизвестным Bluetooth-устройствам**. В chooser попадают:
+Обычный запуск не подключается подряд ко всем неизвестным Bluetooth-устройствам. В chooser попадают:
 
 - USB Serial;
 - project BLE с именем `LoRa-*` как trusted hint;
@@ -70,15 +53,13 @@ python3 serialterminal.py
 - BLE с ранее подтверждённым scanner'ом NUS;
 - Classic Bluetooth устройства с ранее подтверждённым scanner'ом SPP.
 
-Неизвестный BLE по умолчанию скрыт. Это задаётся константой в коде:
+Неизвестный BLE по умолчанию скрыт:
 
 ```python
 SHOW_ALL_BLE_DEVICES = False
 ```
 
-Runtime-переключателя этого флага пока нет.
-
-Правило выбора:
+Выбор:
 
 ```text
 0 devices  -> scan/wait
@@ -86,11 +67,11 @@ Runtime-переключателя этого флага пока нет.
 2+ devices -> numbered menu
 ```
 
-После выбора reconnect идёт только к той же physical identity. Другой доступный target не используется как fallback. Сменить устройство можно через `Ctrl+T d`.
+После выбора reconnect идёт только к той же physical identity. Сменить target можно через `Ctrl+T d`.
 
 ## Hotkeys
 
-По умолчанию BLE local view = `BOTH`. Поэтому без дополнительных действий видны и CHAT (`0003`), и TELEMETRY (`0004`), если сама нода их генерирует.
+По умолчанию BLE local view = `BOTH`.
 
 ```text
 Ctrl+C         quit immediately
@@ -110,52 +91,9 @@ Ctrl+T i       connection/status
 Ctrl+T ?       full help (local hotkeys + Chatter /help)
 ```
 
-Канонические human-readable команды Chatter отправляются `serialterminal` как обычные строки, без локального преобразования в raw controls:
+`Ctrl+T 1/2/3` — только локальный BLE display filter. Они не отправляют команды ноде. На USB Serial/SPP физически существует один stream `main`, поэтому уже смешанный CHAT/TELEMETRY ими разделить нельзя.
 
-```text
-/help
-/chat
-/tele
-/both
-/echo
-```
-
-### Полный help
-
-Два пользовательских способа полностью эквивалентны:
-
-```text
-/help
-Ctrl+T ?
-```
-
-Порядок вывода намеренно такой:
-
-```text
-1. serialterminal печатает свои hotkeys локально
-2. serialterminal ставит /help в обычную TX queue
-3. Chatter controller печатает свою часть help
-```
-
-Никакого специального end-marker или отдельного help-протокола между Python и firmware нет. `/help` — обычная текстовая локальная команда Chatter.
-
-### VIEW и DEVICE OUTPUT — разные вещи
-
-`Ctrl+T 1/2/3` — **только локальный view терминала**. Они ничего не отправляют Chatter-нode. По умолчанию этот view установлен в `BOTH`, поэтому обычному пользователю не требуется менять его для `/chat`, `/tele` или `/both`.
-
-Для BLE это позволяет, например, оставить firmware в `BOTH`, вручную выбрать `Ctrl+T 1` и показывать на экране только CHAT, но продолжать получать TELEMETRY в отдельном notify stream и сохранять её в `serialterminal.log`.
-
-```text
-Ctrl+T 1 -> показать только BLE CHAT
-Ctrl+T 2 -> показать только BLE TELEMETRY
-Ctrl+T 3 -> показать оба BLE stream
-```
-
-USB Serial и Bluetooth SPP физически имеют один stream `main`, поэтому локально разделить его на CHAT/TELEMETRY нельзя. На этих transports `Ctrl+T 1/2/3` не могут отфильтровать уже смешанный поток; для реального отключения одного типа вывода используются device-команды `/chat`, `/tele`, `/both` или raw-hotkeys `Ctrl+T c/t/b`.
-
-`/chat`, `/tele`, `/both`, `/echo` и `Ctrl+T c/t/b/e` управляют **самой Chatter-нодой**. Текстовые команды уходят контроллеру неизменёнными; hotkeys используют стабильный raw ABI. Оба варианта проходят через reconnect-safe TX queue и одинаково работают через USB Serial, BLE NUS и Bluetooth SPP.
-
-На проводе для hotkeys остаются:
+`Ctrl+T c/t/b/e` управляют самой Chatter-нодой через стабильный raw ABI:
 
 ```text
 Ctrl+T c -> bytes 14 31 -> Chatter OUTPUT_CHAT
@@ -164,44 +102,105 @@ Ctrl+T b -> bytes 14 33 -> Chatter OUTPUT_BOTH
 Ctrl+T e -> bytes 14 65 -> Chatter ECHO toggle
 ```
 
-`Ctrl+T d/s/i` остаются полностью локальными командами `serialterminal`. `Ctrl+T ?` сначала печатает local hotkeys, а затем отправляет Chatter обычную `/help`.
+`Ctrl+T d/s/i` полностью локальны. `Ctrl+T ?` сначала печатает local help, затем отправляет Chatter `/help`.
 
-Chatter сам сообщает применённое состояние (`[SYS] OUTPUT ...`, telemetry `OUTPUT MODE ...`, `[SYS] ECHO MODE ON/OFF`), поэтому terminal не пытается угадывать состояние ноды.
+## Канонические Chatter-команды
 
-### Те же команды в Android
-
-В Android Serial Bluetooth Terminal можно вводить тот же human-readable набор:
+Human-readable команды отправляются контроллеру обычными строками, без локального преобразования:
 
 ```text
-/help
-/chat
-/tele
-/both
-/echo
+/help     show Chatter help
+/chat     device output CHAT
+/tele     device output TELEMETRY
+/both     device output BOTH
+/echo     toggle diagnostic echo mode
+/reboot   reboot ESP32 controller
 ```
 
-Для macro-кнопок удобно также использовать стабильный HEX ABI:
+`/reboot` намеренно **text-only**: для него нет нового raw `0x14` opcode и нет отдельного hotkey в `serialterminal`.
+
+`/help` — единственная команда, которую `serialterminal` дополнительно интерпретирует локально: он печатает свои hotkeys и затем всё равно отправляет обычный `/help` контроллеру.
+
+Остальные команды, включая `/reboot`, идут через ту же reconnect-safe очередь после `Enter`.
+
+## Android / Kai Morich
+
+В Android Serial Bluetooth Terminal можно использовать тот же набор:
 
 ```text
-CHAT       14 31
-TELEMETRY  14 32
-BOTH       14 33
-ECHO       14 65
+HELP       /help
+CHAT       /chat       or HEX 14 31
+TELEMETRY  /tele       or HEX 14 32
+BOTH       /both       or HEX 14 33
+ECHO       /echo       or HEX 14 65
+REBOOT     /reboot
 ```
 
-Android-клавиатуре физическая клавиша Ctrl не нужна: macro посылает непосредственно те же control bytes, которые ожидает Chatter firmware.
+Raw controls не требуют newline. Text commands выполняются после Enter/newline.
 
-Новый `dev_chat` использует стандартный NUS TX `0003` как compatibility/primary output. Если клиент не подписан на дополнительный `0004`, telemetry автоматически идёт в `0003`. Поэтому обычный NUS Android-клиент видит все три device mode через один стандартный stream.
+## BLE NUS streams
+
+Chatter BLE layout:
+
+```text
+NUS service             6E400001-B5A3-F393-E0A9-E50E24DCCA9E
+INPUT / RX               6E400002-B5A3-F393-E0A9-E50E24DCCA9E
+PRIMARY / standard TX    6E400003-B5A3-F393-E0A9-E50E24DCCA9E
+DEDICATED TELEMETRY      6E400004-B5A3-F393-E0A9-E50E24DCCA9E
+```
+
+`serialterminal` подписывается на `0003`, затем на `0004` при наличии. При текущем Chatter routing:
+
+```text
+CHAT/SYSTEM -> 0003
+TELEMETRY   -> 0004 when subscribed
+               otherwise 0003 fallback
+```
+
+Local view скрывает stream только на экране; полученные данные всё равно сохраняются в transcript.
+
+Текущая локальная VIEW-модель `Ctrl+T 1/2/3` ещё существует. Её будущая очистка/замена отслеживается отдельно в Chatter telemetry TODO и не является частью синхронизации команд `/reboot`.
+
+## Line editing и отправка
+
+Interactive input работает через `prompt_toolkit.PromptSession`.
+
+До Enter пользователь редактирует локальную Unicode-строку. Backspace/Delete не отправляются устройству как отдельные bytes. После Enter в transport уходит одна complete line:
+
+```text
+edited text + configured line ending
+```
+
+Это отличается от byte-stream terminal вроде `pio device monitor`, где управляющие клавиши могут физически попасть в UART. Chatter firmware поэтому дополнительно имеет собственный input sanitizer.
+
+## Reconnect и очередь команд
+
+Input отделён от transport I/O. Полная строка попадает в TX queue только после `Enter`.
+
+Если target disconnect/reboot происходит во время отправки, текущий элемент очереди удерживается и повторяется после reconnect к тому же locked target.
+
+Это относится и к:
+
+```text
+/chat /tele /both /echo /reboot
+/help controller request
+raw Ctrl+T c/t/b/e controls
+ordinary USER/ECHO text
+```
+
+Локальные view-команды `Ctrl+T 1/2/3` в outgoing queue не попадают.
+
+Важно: output/echo mode хранится в RAM Chatter и после reboot возвращается к firmware defaults. `serialterminal` не переотправляет последний device mode автоматически после reconnect.
 
 ## Bluetooth scanner
 
-Scanner запускается **из уже работающего терминала**:
+Запуск:
 
 ```text
 Ctrl+T s
 ```
 
-Появится меню:
+Меню:
 
 ```text
 Bluetooth scanner
@@ -209,58 +208,29 @@ Bluetooth scanner
   2. Probe Classic Bluetooth devices for SPP
   3. Probe all Bluetooth
   Enter. Back to terminal
-Scan [1-3, Enter=back]:
 ```
 
-На время scanner текущий transport отключается и reconnect ставится на паузу. После выхода scanner терминал снова пытается подключиться к **тому же sticky target**. Набранная, но ещё не отправленная строка сохраняется в prompt.
+На время scanner текущий transport отключается и reconnect ставится на паузу. После выхода терминал снова пытается подключиться к тому же sticky target. Набранная, но ещё не отправленная строка сохраняется.
 
-### BLE probe
+BLE scanner ищет NUS RX `0002`, primary TX `0003` и отдельно отмечает optional telemetry `0004`.
 
-Для каждого BLE device scanner подключается, делает GATT service discovery и ищет:
-
-```text
-NUS service
-6E400001-B5A3-F393-E0A9-E50E24DCCA9E
-
-INPUT / RX
-6E400002-B5A3-F393-E0A9-E50E24DCCA9E
-
-PRIMARY / standard NUS TX
-6E400003-B5A3-F393-E0A9-E50E24DCCA9E
-
-DEDICATED TELEMETRY (optional)
-6E400004-B5A3-F393-E0A9-E50E24DCCA9E
-```
-
-Практическая граница совместимости терминала — наличие RX `0002` и standard TX `0003`. `0004` помечается отдельно как telemetry capability.
-
-Ошибки подключения/timeout записываются как `UNKNOWN`, а не как `NO`.
-
-### Classic Bluetooth SPP probe
-
-Scanner делает BR/EDR discovery через BlueZ (`bluetoothctl`, fallback `hcitool`), затем SDP browse через `sdptool` и ищет Serial Port Profile / UUID `0x1101` и RFCOMM channel.
-
-Если SPP найден, scanner также пытается кратко открыть RFCOMM connection. Неудачный connect test **не отменяет** подтверждённый по SDP SPP capability: устройство может требовать pairing/PIN.
+Classic scanner делает BR/EDR discovery через BlueZ (`bluetoothctl`, fallback `hcitool`), SDP browse через `sdptool` и ищет Serial Port Profile / UUID `0x1101` и RFCOMM channel.
 
 ## Capability cache
 
-Результаты scanner сохраняются в:
+Scanner сохраняет результаты в:
 
 ```text
 ~/.cache/serialterminal/devices.json
 ```
 
-или под `$XDG_CACHE_HOME`, если он задан.
+или под `$XDG_CACHE_HOME`.
 
-Cache хранит `YES / NO / UNKNOWN`, время probe, имя/address, NUS streams и RFCOMM channel. Обычный chooser использует только подтверждённые capabilities.
-
-Поэтому устройство с произвольным именем вроде `Nordic_UART` или `ESP32-Terminal` после успешного NUS probe начинает появляться в обычном `python3 serialterminal.py` независимо от префикса `LoRa-`.
+Cache хранит capability state, время probe, имя/address, NUS streams и RFCOMM channel. Обычный chooser использует подтверждённые capabilities.
 
 ## Sticky identity
 
-### USB
-
-Приоритет identity:
+USB priority:
 
 ```text
 /dev/serial/by-id/...
@@ -269,45 +239,7 @@ Cache хранит `YES / NO / UNKNOWN`, время probe, имя/address, NUS s
 -> concrete tty path
 ```
 
-### BLE NUS
-
-После выбора target фиксируется по BLE address.
-
-### Bluetooth SPP
-
-SPP target фиксируется по Bluetooth address + подтверждённому RFCOMM channel.
-
-## BLE streams
-
-Chatter BLE routing теперь выглядит так:
-
-```text
-0003  PRIMARY / standard NUS TX
-0004  DEDICATED TELEMETRY
-```
-
-`serialterminal` при подключении подписывается сначала на `0003`, затем на `0004`. Если подписка на `0004` успешна, Chatter видит её через CCCD и оставляет логические потоки раздельными:
-
-```text
-CHAT       -> 0003
-TELEMETRY  -> 0004
-```
-
-Поэтому в firmware mode `BOTH` `serialterminal` получает оба stream без дублей. Local view по умолчанию тоже `BOTH`, так что оба stream сразу видны на экране. `Ctrl+T 1/2/3` остаётся дополнительным локальным фильтром; скрытый BLE stream всё равно сохраняется в transcript.
-
-Если `0004` отсутствует или клиент на него не подписался, Chatter отправляет TELEMETRY через `0003` как fallback. Это нужно обычным NUS-клиентам, включая Android terminal, которые работают только со стандартной парой RX/TX.
-
-Если отправить device-команду `/chat` или `/tele` (либо raw-hotkey `Ctrl+T c/t`), соответствующий логический producer перестаёт генерироваться уже на самой ноде и, естественно, больше не попадёт ни на экран, ни в log.
-
-USB Serial и Bluetooth SPP имеют один физический stream `main`. Там локальный view не может разложить смешанные bytes обратно по типам, поэтому для настоящего CHAT-only или TELEMETRY-only режима используются `/chat`, `/tele`, `/both` либо `Ctrl+T c/t/b`.
-
-## Reconnect и очередь команд
-
-Input отделён от transport I/O. Полная строка попадает в TX queue только после `Enter`. Если target reboot'ится во время отправки, текущая строка остаётся в очереди и будет повторно отправлена после reconnect к тому же locked target.
-
-Chatter text commands `/chat /tele /both /echo`, raw device controls `Ctrl+T c/t/b/e` и controller-часть полного help (`/help`) используют ту же очередь. Локальные view-команды `Ctrl+T 1/2/3` в outgoing queue не попадают.
-
-Важно: output/echo mode живёт в RAM самой Chatter-ноды и после reboot возвращается к firmware default (`BOTH`, echo OFF). `serialterminal` пока не переотправляет последний device mode автоматически после каждого reconnect; при необходимости команду можно отправить снова после reboot.
+BLE target фиксируется по BLE address. SPP target — по Bluetooth address + подтверждённому RFCOMM channel.
 
 ## ESP32 / DTR / RTS
 
@@ -324,17 +256,17 @@ Python:
 ```text
 pyserial
 prompt-toolkit
-bleak        # для BLE
+bleak        # BLE
 ```
 
-На старом Linux можно поставить их отдельно, без editable install:
+Установка:
 
 ```bash
 pip install pyserial prompt-toolkit bleak
 python3 serialterminal.py
 ```
 
-Для Classic Bluetooth scanner/SPP нужны BlueZ tools:
+Для Classic Bluetooth scanner/SPP:
 
 ```bash
 sudo apt install bluez
@@ -349,9 +281,7 @@ which sdptool
 
 ## Диагностика Bluetooth disconnect на Linux
 
-Если BLE/SPP начинает периодически disconnect/reconnect, полезно сначала посмотреть причину на уровне HCI/BlueZ, отдельно от `serialterminal`.
-
-Короткая грепалка для `btmon`, которая показывает только события disconnect и несколько строк причины:
+Для link-level причин полезен `btmon`:
 
 ```bash
 sudo btmon \
@@ -359,19 +289,9 @@ sudo btmon \
       'Disconnect Complete|Device Disconnected'
 ```
 
-Например, такой вывод:
+Например `Reason: Connection Timeout` означает HCI/link supervision timeout и сам по себе не доказывает, что disconnect инициировал Python/Bleak.
 
-```text
-> HCI Event: Disconnect Complete
-    Status: Success (0x00)
-    Reason: Connection Timeout (0x08)
-@ MGMT Event: Device Disconnected
-    Reason: Connection timeout (0x01)
-```
-
-означает, что Bluetooth controller сообщил о link/supervision timeout. Это уже ниже уровня Python/Bleak и само по себе не означает, что disconnect инициировал `serialterminal`.
-
-На Debian/Ubuntu/Linux Mint при повторяющихся Bluetooth timeout первым делом рекомендуется обновить BlueZ и firmware-пакеты системы, затем перезагрузиться и повторить тот же тест:
+При повторяющихся timeout на Debian/Ubuntu/Linux Mint:
 
 ```bash
 sudo apt update

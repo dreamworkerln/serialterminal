@@ -336,7 +336,8 @@ class TerminalSession:
         self.write_output(
             "\n[serialterminal hotkeys]\n"
             "  VIEW default: BOTH; Ctrl+T 1/2/3 are local display filters only\n"
-            "  /chat /tele /both /echo are sent unchanged to Chatter\n"
+            "  /chat /tele /both /echo /reboot are sent unchanged to Chatter\n"
+            "  /help shows this list and requests Chatter /help\n"
             "  Ctrl+C       quit immediately\n"
             "  Ctrl+T 1     local CHAT view (BLE)\n"
             "  Ctrl+T 2     local TELEMETRY view (BLE)\n"
