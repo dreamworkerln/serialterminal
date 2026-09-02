@@ -37,6 +37,7 @@ Type /help or press Ctrl+T ? for full help.
 - локальное line editing через `prompt_toolkit`, включая Backspace/Delete и Unicode;
 - Chatter device commands `/chat`, `/tele`, `/both`, `/echo`, `/reboot`;
 - Chatter output/echo raw hotkeys `Ctrl+T c/t/b/e`;
+- pending presentation для USER/ECHO: `>` остаётся только firmware-owned подтверждением успешного RF TX;
 - полный help через `/help` или `Ctrl+T ?`;
 - capability cache для найденных NUS/SPP устройств;
 - Bluetooth scanner/prober;
@@ -106,7 +107,7 @@ Ctrl+T e -> bytes 14 65 -> Chatter ECHO toggle
 
 ## Канонические Chatter-команды
 
-Human-readable команды отправляются контроллеру обычными строками, без локального преобразования:
+Human-readable команды отправляются контроллеру обычными строками:
 
 ```text
 /help     show Chatter help
@@ -117,11 +118,87 @@ Human-readable команды отправляются контроллеру о
 /reboot   reboot ESP32 controller
 ```
 
-`/reboot` намеренно **text-only**: для него нет нового raw `0x14` opcode и нет отдельного hotkey в `serialterminal`.
+При классификации команды `serialterminal` использует ту же boundary-normalization, что и текущий Chatter firmware: ASCII control/space + DEL по краям игнорируются только для command matching. Поэтому, например, строка `  /reboot  ` распознаётся как команда. Если после такого trim строка не совпала с известной командой, она остаётся обычным payload и отправляется **в исходном виде**.
 
-`/help` — единственная команда, которую `serialterminal` дополнительно интерпретирует локально: он печатает свои hotkeys и затем всё равно отправляет обычный `/help` контроллеру.
+`/reboot` намеренно text-only: для него нет нового raw `0x14` opcode и нет отдельного hotkey.
 
-Остальные команды, включая `/reboot`, идут через ту же reconnect-safe очередь после `Enter`.
+`/help` дополнительно интерпретируется локально: terminal печатает свои hotkeys и отправляет canonical `/help` контроллеру. Остальные команды идут через обычную reconnect-safe очередь в том виде, как их ввёл пользователь.
+
+## TX presentation: кто имеет право печатать `>`
+
+`serialterminal` никогда не синтезирует RF marker.
+
+```text
+> hello
+> [ECHO TX] hello
+```
+
+эти строки принадлежат Chatter firmware. На совместимой firmware они появляются только после подтверждённого TX и успешного возврата радио в RX.
+
+Interactive payload после `Enter` сначала хранится как pending presentation и сразу записывается в transcript, но не дублируется на экране.
+
+Успешный USER:
+
+```text
+> hello
+```
+
+Успешный ECHO request:
+
+```text
+> [ECHO TX] hello
+```
+
+Payload появляется на экране один раз — в firmware-owned success line.
+
+Если firmware отвергает payload до успешного RF TX, terminal сначала показывает исходный submit как plain local line, затем оставляет firmware failure неизменённым:
+
+```text
+hello
+[SYS] RADIO UNAVAILABLE, message not sent
+```
+
+или:
+
+```text
+hello
+[ECHO] RADIO UNAVAILABLE
+```
+
+Plain `hello` означает только «это было отправлено пользователем в controller», а не RF success.
+
+Никакого ANSI cursor-rewrite/history editing нет. TELEMETRY или peer RX могут появляться между Enter и firmware outcome; уже выведенные строки не переписываются.
+
+Полученные transport chunks сначала собираются до complete line для presentation matching. Raw decoded chunks при этом сразу сохраняются в transcript.
+
+Если связь пропала после transport write, но до firmware outcome, sent-but-unresolved payload раскрывается как plain local line. Payload, который ещё не был физически записан в transport, остаётся pending и может быть отправлен обычным reconnect retry.
+
+## Очереди
+
+Есть три разных понятия, их нельзя смешивать:
+
+```text
+serialterminal outgoing transport queue
+    queue.Queue() без maxsize
+    reconnect-safe, практически unbounded
+
+serialterminal pending presentation queue
+    limit = 4 payload
+    отдельна от transport queue
+
+Chatter firmware InputEvent queue
+    depth = 4
+```
+
+Presentation limit намеренно совпадает с текущей firmware input queue depth и защищает UI от бесконечного числа неразрешённых submit. Если четыре payload уже ждут outcome, следующий payload локально показывается как plain line и **не отправляется**:
+
+```text
+[serialterminal] pending presentation queue full; line not sent
+```
+
+Commands при этом не занимают presentation queue.
+
+Оставшийся protocol/UI edge: firmware telemetry `INPUT QUEUE FULL dropped=N` сообщает cumulative drop count, но не identity конкретной строки. `serialterminal` не пытается угадывать соответствие такой потери эвристикой. Если это станет практически важным, нужен отдельный явно спроектированный host-facing outcome, а не cursor trick.
 
 ## Android / Kai Morich
 
@@ -157,9 +234,9 @@ TELEMETRY   -> 0004 when subscribed
                otherwise 0003 fallback
 ```
 
-Local view скрывает stream только на экране; полученные данные всё равно сохраняются в transcript.
+Local view скрывает stream только на экране; полученные данные всё равно сохраняются в transcript и участвуют во внутреннем presentation matching.
 
-Текущая локальная VIEW-модель `Ctrl+T 1/2/3` ещё существует. Её будущая очистка/замена отслеживается отдельно в Chatter telemetry TODO и не является частью синхронизации команд `/reboot`.
+Текущая локальная VIEW-модель `Ctrl+T 1/2/3` ещё существует. Её будущая очистка/замена отслеживается отдельно в Chatter telemetry TODO.
 
 ## Line editing и отправка
 
@@ -173,11 +250,11 @@ edited text + configured line ending
 
 Это отличается от byte-stream terminal вроде `pio device monitor`, где управляющие клавиши могут физически попасть в UART. Chatter firmware поэтому дополнительно имеет собственный input sanitizer.
 
-## Reconnect и очередь команд
+## Reconnect и transport queue
 
 Input отделён от transport I/O. Полная строка попадает в TX queue только после `Enter`.
 
-Если target disconnect/reboot происходит во время отправки, текущий элемент очереди удерживается и повторяется после reconnect к тому же locked target.
+Если target disconnect/reboot происходит во время отправки, текущий transport-queue element удерживается и повторяется после reconnect к тому же locked target.
 
 Это относится и к:
 
@@ -248,6 +325,17 @@ BLE target фиксируется по BLE address. SPP target — по Bluetoot
 1. безопасное промежуточное DTR/RTS перед `open()`;
 2. deassert обеих линий после открытия;
 3. отключение `HUPCL` на Linux.
+
+## Tests / CI
+
+CI на каждый push/PR выполняет:
+
+```text
+python -m compileall -q src serialterminal.py tools
+pytest -q
+```
+
+TX-presentation implementation покрыта unit/integration тестами: command trim, USER/ECHO success, rejection, interleaved telemetry, BLE chunk boundaries, duplicate payloads и disconnect semantics.
 
 ## Зависимости
 

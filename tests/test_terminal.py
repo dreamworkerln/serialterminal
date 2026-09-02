@@ -37,6 +37,19 @@ class DummyBleLikeTransport(DummyTransport):
         return ("chat", "telemetry")
 
 
+class FakeStdout:
+    def __init__(self):
+        self.writes = []
+        self.flush_count = 0
+
+    def write(self, text):
+        self.writes.append(text)
+        return len(text)
+
+    def flush(self):
+        self.flush_count += 1
+
+
 def test_stream_visibility_and_hotkeys(tmp_path):
     session = TerminalSession(
         DummyBleLikeTransport(),
@@ -61,17 +74,6 @@ def test_stream_visibility_and_hotkeys(tmp_path):
 
 
 def test_system_lines_bypass_local_telemetry_view(tmp_path, monkeypatch):
-    class FakeStdout:
-        def __init__(self):
-            self.writes = []
-
-        def write(self, text):
-            self.writes.append(text)
-            return len(text)
-
-        def flush(self):
-            pass
-
     fake_stdout = FakeStdout()
     monkeypatch.setattr(terminal_module.sys, "stdout", fake_stdout)
 
@@ -251,19 +253,7 @@ def test_scanner_keeps_terminal_reconnect_paused(tmp_path, monkeypatch):
         session.log_file.close()
 
 
-def test_received_ble_chunks_do_not_force_stdout_flush(tmp_path, monkeypatch):
-    class FakeStdout:
-        def __init__(self):
-            self.writes = []
-            self.flush_count = 0
-
-        def write(self, text):
-            self.writes.append(text)
-            return len(text)
-
-        def flush(self):
-            self.flush_count += 1
-
+def test_received_ble_chunks_are_committed_as_complete_lines(tmp_path, monkeypatch):
     fake_stdout = FakeStdout()
     monkeypatch.setattr(terminal_module.sys, "stdout", fake_stdout)
 
@@ -274,26 +264,17 @@ def test_received_ble_chunks_do_not_force_stdout_flush(tmp_path, monkeypatch):
     try:
         session.view_mode = "both"
         session.write_received(ReceivedChunk("telemetry", b"TX HEARTBEAT seq=18"))
+        assert fake_stdout.writes == []
+
         session.write_received(ReceivedChunk("telemetry", b" frame=12B\n"))
 
-        assert fake_stdout.writes == ["TX HEARTBEAT seq=18", " frame=12B\n"]
+        assert fake_stdout.writes == ["TX HEARTBEAT seq=18 frame=12B\n"]
         assert fake_stdout.flush_count == 0
     finally:
         session.log_file.close()
 
 
 def test_received_utf8_survives_ble_notification_boundary(tmp_path, monkeypatch):
-    class FakeStdout:
-        def __init__(self):
-            self.writes = []
-
-        def write(self, text):
-            self.writes.append(text)
-            return len(text)
-
-        def flush(self):
-            pass
-
     fake_stdout = FakeStdout()
     monkeypatch.setattr(terminal_module.sys, "stdout", fake_stdout)
 
@@ -324,17 +305,6 @@ def test_received_utf8_survives_ble_notification_boundary(tmp_path, monkeypatch)
 
 
 def test_utf8_decoder_state_is_separate_per_ble_stream(tmp_path, monkeypatch):
-    class FakeStdout:
-        def __init__(self):
-            self.writes = []
-
-        def write(self, text):
-            self.writes.append(text)
-            return len(text)
-
-        def flush(self):
-            pass
-
     fake_stdout = FakeStdout()
     monkeypatch.setattr(terminal_module.sys, "stdout", fake_stdout)
 
@@ -352,5 +322,153 @@ def test_utf8_decoder_state_is_separate_per_ble_stream(tmp_path, monkeypatch):
 
         assert "".join(fake_stdout.writes) == "T\nж\n"
         assert "�" not in "".join(fake_stdout.writes)
+    finally:
+        session.log_file.close()
+
+
+def test_trimmed_command_is_visible_and_queued_unchanged(tmp_path, monkeypatch):
+    fake_stdout = FakeStdout()
+    monkeypatch.setattr(terminal_module.sys, "stdout", fake_stdout)
+
+    session = TerminalSession(DummyBleLikeTransport(), log_path=tmp_path / "terminal.log")
+    try:
+        session._submit_interactive_line("  /reboot  ")
+
+        assert "".join(fake_stdout.writes) == "  /reboot  \n"
+        assert session.outgoing.get_nowait() == "  /reboot  "
+        assert session._presentation.pending_count() == 0
+        assert "  /reboot  \n" in (tmp_path / "terminal.log").read_text()
+    finally:
+        session.log_file.close()
+
+
+def test_unknown_command_like_text_remains_original_pending_payload(tmp_path, monkeypatch):
+    fake_stdout = FakeStdout()
+    monkeypatch.setattr(terminal_module.sys, "stdout", fake_stdout)
+
+    session = TerminalSession(DummyBleLikeTransport(), log_path=tmp_path / "terminal.log")
+    try:
+        line = "  /echo x  "
+        session._submit_interactive_line(line)
+
+        assert fake_stdout.writes == []
+        assert session.outgoing.get_nowait() == line
+        assert session._presentation.pending_count() == 1
+        assert line + "\n" in (tmp_path / "terminal.log").read_text()
+    finally:
+        session.log_file.close()
+
+
+def test_successful_payload_appears_once_as_firmware_marker(tmp_path, monkeypatch):
+    fake_stdout = FakeStdout()
+    monkeypatch.setattr(terminal_module.sys, "stdout", fake_stdout)
+
+    log_path = tmp_path / "terminal.log"
+    session = TerminalSession(DummyBleLikeTransport(), log_path=log_path)
+    try:
+        session._submit_interactive_line("hello")
+        assert fake_stdout.writes == []
+        assert session.outgoing.get_nowait() == "hello"
+        session._presentation.mark_sent("hello")
+
+        session.write_received(ReceivedChunk("chat", b"> hello\n"))
+
+        assert "".join(fake_stdout.writes) == "> hello\n"
+        assert session._presentation.pending_count() == 0
+        transcript = log_path.read_text()
+        assert transcript.count("hello\n") == 2
+    finally:
+        session.log_file.close()
+
+
+def test_rejected_payload_is_revealed_plain_before_firmware_failure(tmp_path, monkeypatch):
+    fake_stdout = FakeStdout()
+    monkeypatch.setattr(terminal_module.sys, "stdout", fake_stdout)
+
+    log_path = tmp_path / "terminal.log"
+    session = TerminalSession(DummyBleLikeTransport(), log_path=log_path)
+    try:
+        session._submit_interactive_line("hello")
+        assert session.outgoing.get_nowait() == "hello"
+        session._presentation.mark_sent("hello")
+
+        session.write_received(
+            ReceivedChunk(
+                "chat",
+                b"[SYS] RADIO UNAVAILABLE, message not sent\n",
+            )
+        )
+
+        assert "".join(fake_stdout.writes) == (
+            "hello\n[SYS] RADIO UNAVAILABLE, message not sent\n"
+        )
+        assert session._presentation.pending_count() == 0
+        transcript = log_path.read_text()
+        assert transcript.count("hello\n") == 1
+        assert "[SYS] RADIO UNAVAILABLE, message not sent\n" in transcript
+    finally:
+        session.log_file.close()
+
+
+def test_split_rejection_waits_for_complete_line_then_reveals_payload(tmp_path, monkeypatch):
+    fake_stdout = FakeStdout()
+    monkeypatch.setattr(terminal_module.sys, "stdout", fake_stdout)
+
+    session = TerminalSession(DummyBleLikeTransport(), log_path=tmp_path / "terminal.log")
+    try:
+        session._submit_interactive_line("hello")
+        assert session.outgoing.get_nowait() == "hello"
+        session._presentation.mark_sent("hello")
+
+        session.write_received(ReceivedChunk("chat", b"[SYS] RADIO UNAV"))
+        assert fake_stdout.writes == []
+
+        session.write_received(
+            ReceivedChunk("chat", b"AILABLE, message not sent\n")
+        )
+        assert "".join(fake_stdout.writes) == (
+            "hello\n[SYS] RADIO UNAVAILABLE, message not sent\n"
+        )
+    finally:
+        session.log_file.close()
+
+
+def test_interleaved_telemetry_does_not_duplicate_pending_payload(tmp_path, monkeypatch):
+    fake_stdout = FakeStdout()
+    monkeypatch.setattr(terminal_module.sys, "stdout", fake_stdout)
+
+    session = TerminalSession(DummyBleLikeTransport(), log_path=tmp_path / "terminal.log")
+    try:
+        session._submit_interactive_line("hello")
+        assert session.outgoing.get_nowait() == "hello"
+        session._presentation.mark_sent("hello")
+
+        session.write_received(ReceivedChunk("telemetry", b"TX USER seq=7 OK\n"))
+        session.write_received(ReceivedChunk("chat", b"> hello\n"))
+
+        assert "".join(fake_stdout.writes) == (
+            "TX USER seq=7 OK\n> hello\n"
+        )
+        assert session._presentation.pending_count() == 0
+    finally:
+        session.log_file.close()
+
+
+def test_disconnect_reveals_sent_pending_payload_without_relogging(tmp_path, monkeypatch):
+    fake_stdout = FakeStdout()
+    monkeypatch.setattr(terminal_module.sys, "stdout", fake_stdout)
+
+    log_path = tmp_path / "terminal.log"
+    session = TerminalSession(DummyBleLikeTransport(), log_path=log_path)
+    try:
+        session._submit_interactive_line("hello")
+        assert session.outgoing.get_nowait() == "hello"
+        session._presentation.mark_sent("hello")
+
+        session._reveal_sent_presentations()
+
+        assert "".join(fake_stdout.writes) == "hello\n"
+        assert session._presentation.pending_count() == 0
+        assert log_path.read_text().count("hello\n") == 1
     finally:
         session.log_file.close()
