@@ -14,6 +14,7 @@ from prompt_toolkit import PromptSession
 from prompt_toolkit.key_binding import KeyBindings
 from prompt_toolkit.patch_stdout import patch_stdout
 
+from .presentation import PresentationTracker, recognized_chatter_command
 from .transports.base import ReceivedChunk, Transport, TransportError
 
 
@@ -61,7 +62,9 @@ class TerminalSession:
         self.transport_lock = threading.Lock()
         self.decode_lock = threading.Lock()
         self.outgoing: queue.Queue[str] = queue.Queue()
+        self._presentation = PresentationTracker()
         self._received_decoders = {}
+        self._received_line_buffers = {}
         self._hidden_chat_line_buffer = ""
 
         # BLE defaults to BOTH so Chatter /chat /tele /both has the same
@@ -88,6 +91,12 @@ class TerminalSession:
             self.log_file.write(text)
             self.log_file.flush()
 
+    def _write_console_only(self, text: str) -> None:
+        """Write local presentation text without duplicating the transcript."""
+        with self.output_lock:
+            sys.stdout.write(text)
+            sys.stdout.flush()
+
     def _received_visible(self, stream: str) -> bool:
         if stream == "main":
             return True
@@ -104,29 +113,40 @@ class TerminalSession:
                 self._received_decoders[stream] = decoder
             return decoder.decode(data, final=False)
 
-    def _reset_received_decoders(self) -> None:
-        """Discard incomplete characters when a transport connection changes."""
+    def _complete_received_lines(self, stream: str, text: str) -> list[str]:
+        """Return complete decoded lines while retaining one partial tail per stream."""
         with self.decode_lock:
-            self._received_decoders.clear()
-            self._hidden_chat_line_buffer = ""
-
-    def _hidden_chat_system_text(self, stream: str, text: str) -> str:
-        """Return complete [SYS] lines from a CHAT stream hidden by local view."""
-        if stream != "chat" or not text:
-            return ""
-
-        with self.decode_lock:
-            combined = self._hidden_chat_line_buffer + text
+            combined = self._received_line_buffers.get(stream, "") + text
             lines = combined.splitlines(keepends=True)
 
             if lines and not lines[-1].endswith(("\n", "\r")):
-                self._hidden_chat_line_buffer = lines.pop()
+                self._received_line_buffers[stream] = lines.pop()
             else:
-                self._hidden_chat_line_buffer = ""
+                self._received_line_buffers[stream] = ""
 
+            return lines
+
+    def _reset_received_decoders(self) -> None:
+        """Discard incomplete characters/lines when a transport connection changes."""
+        with self.decode_lock:
+            self._received_decoders.clear()
+            self._received_line_buffers.clear()
+            self._hidden_chat_line_buffer = ""
+
+    def _hidden_chat_system_text(self, stream: str, text: str) -> str:
+        """Compatibility helper for complete [SYS] lines from a hidden CHAT stream."""
+        if stream != "chat" or not text:
+            return ""
         return "".join(
-            line for line in lines if line.startswith(CHATTER_SYSTEM_PREFIX)
+            line
+            for line in text.splitlines(keepends=True)
+            if line.startswith(CHATTER_SYSTEM_PREFIX)
         )
+
+    def _received_line_visible(self, stream: str, line: str) -> bool:
+        if self._received_visible(stream):
+            return True
+        return stream == "chat" and line.startswith(CHATTER_SYSTEM_PREFIX)
 
     def write_received(self, chunk: ReceivedChunk) -> None:
         if not chunk.data:
@@ -136,31 +156,37 @@ class TerminalSession:
         if not text:
             return
 
-        if self._received_visible(chunk.stream):
-            visible_text = text
-        else:
-            # SYSTEM is intentionally higher priority than the local VIEW
-            # filter. Firmware sends it on BLE primary/chat; inspect complete
-            # lines so arbitrary BLE notification boundaries are harmless.
-            visible_text = self._hidden_chat_system_text(chunk.stream, text)
+        lines = self._complete_received_lines(chunk.stream, text)
 
         with self.output_lock:
-            # Always retain all logical streams in the transcript, even when
-            # one is hidden from the current screen view.
+            # Keep the raw decoded transport stream in the transcript. Accepted
+            # local input was already logged independently by log_input().
             self.log_file.write(text)
             self.log_file.flush()
 
-            if visible_text:
-                # Do not flush stdout for every transport chunk. BLE firmware
-                # intentionally emits notifications in small MTU-safe pieces.
-                # prompt_toolkit.patch_stdout buffers those pieces until a
-                # newline so it can redraw the input prompt exactly once.
-                sys.stdout.write(visible_text)
+            for line in lines:
+                reveal = self._presentation.consume_firmware_line(line)
+                if reveal is not None:
+                    # A plain line means only "submitted locally". Never add a
+                    # synthetic RF marker and never duplicate it in the log.
+                    sys.stdout.write(reveal + "\n")
+
+                if self._received_line_visible(chunk.stream, line):
+                    sys.stdout.write(line)
 
     def log_input(self, line: str) -> None:
         with self.output_lock:
             self.log_file.write(line + "\n")
             self.log_file.flush()
+
+    def _reveal_sent_presentations(self) -> None:
+        reveal = self._presentation.consume_sent_on_disconnect()
+        if not reveal:
+            return
+        with self.output_lock:
+            for line in reveal:
+                sys.stdout.write(line + "\n")
+            sys.stdout.flush()
 
     def _connect(self) -> bool:
         if self.connection_paused.is_set():
@@ -184,6 +210,7 @@ class TerminalSession:
     def _disconnect(self) -> None:
         self.connected_event.clear()
         self._current_transport().disconnect()
+        self._reveal_sent_presentations()
         self._reset_received_decoders()
 
     def rx_loop(self) -> None:
@@ -215,6 +242,7 @@ class TerminalSession:
                 old = transport.description
                 self.connected_event.clear()
                 transport.disconnect()
+                self._reveal_sent_presentations()
                 self._reset_received_decoders()
                 self.write_output(f"\n[disconnected: {old}]\n\n")
                 time.sleep(0.3)
@@ -237,6 +265,7 @@ class TerminalSession:
 
                     try:
                         self._write_line(line)
+                        self._presentation.mark_sent(line)
                         break
                     except (TransportError, OSError):
                         # Keep `line` as the current item. It will be retried
@@ -253,6 +282,35 @@ class TerminalSession:
             return False
         self.outgoing.put(line)
         return True
+
+    def _submit_interactive_line(self, line: str) -> None:
+        """Log one accepted line and choose command or pending-payload presentation."""
+        self.log_input(line)
+
+        command = recognized_chatter_command(line)
+        if command is not None:
+            self._write_console_only(line + "\n")
+            if command == CHATTER_HELP_COMMAND:
+                self._show_full_help()
+            elif not self.send_line(line):
+                self.write_output("[Chatter command was not queued]\n")
+            return
+
+        if line == "":
+            self.send_line(line)
+            return
+
+        if not self._presentation.submit_payload(line):
+            self._write_console_only(line + "\n")
+            self.write_output(
+                "[serialterminal] pending presentation queue full; line not sent\n"
+            )
+            return
+
+        if not self.send_line(line):
+            self._presentation.cancel_unsent_payload(line)
+            self._write_console_only(line + "\n")
+            self.write_output("[serialterminal] line was not queued\n")
 
     def _build_key_bindings(self) -> KeyBindings:
         bindings = KeyBindings()
@@ -315,6 +373,7 @@ class TerminalSession:
         with self.decode_lock:
             # Do not carry a partial line across a local visibility change.
             self._hidden_chat_line_buffer = ""
+            self._received_line_buffers.clear()
 
         self.view_mode = mode
         self.write_output(f"\n[view: {mode.upper()}]\n\n")
@@ -336,7 +395,8 @@ class TerminalSession:
         self.write_output(
             "\n[serialterminal hotkeys]\n"
             "  VIEW default: BOTH; Ctrl+T 1/2/3 are local display filters only\n"
-            "  /chat /tele /both /echo are sent unchanged to Chatter\n"
+            "  /chat /tele /both /echo /reboot are sent unchanged to Chatter\n"
+            "  /help shows this list and requests Chatter /help\n"
             "  Ctrl+C       quit immediately\n"
             "  Ctrl+T 1     local CHAT view (BLE)\n"
             "  Ctrl+T 2     local TELEMETRY view (BLE)\n"
@@ -369,6 +429,7 @@ class TerminalSession:
         self.connection_paused.set()
         self.connected_event.clear()
         old_transport.disconnect()
+        self._reveal_sent_presentations()
         self._reset_received_decoders()
 
         try:
@@ -402,6 +463,7 @@ class TerminalSession:
         self.connection_paused.set()
         self.connected_event.clear()
         transport.disconnect()
+        self._reveal_sent_presentations()
         self._reset_received_decoders()
 
         self.write_output(
@@ -477,19 +539,13 @@ class TerminalSession:
                         continue
 
                     buffered_line = ""
-                    line = result
-                    # Keep the full transcript even though the accepted prompt
-                    # is erased from the interactive console.
-                    self.log_input(line)
-                    if line.strip() == CHATTER_HELP_COMMAND:
-                        self._show_full_help()
-                    else:
-                        self.send_line(line)
+                    self._submit_interactive_line(result)
         except KeyboardInterrupt:
             self.write_output("\n[exit]\n")
         finally:
             self.stop_event.set()
             self.connection_paused.clear()
+            self._reveal_sent_presentations()
             rx.join(timeout=1.0)
             tx.join(timeout=1.0)
             current = self._current_transport()
