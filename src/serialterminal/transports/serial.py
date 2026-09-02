@@ -88,7 +88,6 @@ def _looks_like_useful_serial_info(info: object) -> bool:
     if not device:
         return False
 
-    # On non-POSIX platforms list_ports is the portable source of truth.
     if os.name != "posix":
         return True
 
@@ -98,14 +97,9 @@ def _looks_like_useful_serial_info(info: object) -> bool:
     if _has_usb_port_metadata(info):
         return True
 
-    # Linux commonly exposes /dev/ttyS0..31 even when most entries are only
-    # unpopulated 8250 placeholders. Keep a ttyS port only when pyserial/udev
-    # can identify it (for example PNP0501).
     if device.startswith("/dev/ttyS"):
         return _identified_ttys(info)
 
-    # Other serial classes (ttyAMA, ttyTHS, platform UARTs, etc.) can be useful
-    # even when they are not USB. Preserve pyserial's discovery for those.
     return True
 
 
@@ -234,7 +228,7 @@ def find_ports() -> list[str]:
 
 
 class SerialTransport(Transport):
-    """Serial transport with sticky reconnect and ESP32-friendly control lines."""
+    """Full-duplex serial transport with sticky reconnect."""
 
     def __init__(
         self,
@@ -250,7 +244,16 @@ class SerialTransport(Transport):
         self.baud = baud
         self.last_device: str | None = None
         self._serial: serial.Serial | None = None
+
+        # `_lock` protects only connection state. It must never be held across
+        # blocking pyserial read/write calls or RX would serialize TX.
         self._lock = threading.Lock()
+        self._state_changed = threading.Condition(self._lock)
+        self._lifecycle_lock = threading.Lock()
+        self._read_lock = threading.Lock()
+        self._write_lock = threading.Lock()
+        self._active_reads = 0
+        self._active_writes = 0
 
     @property
     def is_connected(self) -> bool:
@@ -300,77 +303,113 @@ class SerialTransport(Transport):
             pass
 
     def connect(self) -> bool:
-        device = self._choose_device()
-        if not device:
-            return False
+        with self._lifecycle_lock:
+            if self.is_connected:
+                return True
 
-        try:
-            ser = serial.Serial()
-            ser.port = device
-            ser.baudrate = self.baud
-            ser.bytesize = serial.EIGHTBITS
-            ser.parity = serial.PARITY_NONE
-            ser.stopbits = serial.STOPBITS_ONE
-            ser.timeout = 0.20
-            ser.write_timeout = 1.0
-            ser.rtscts = False
-            ser.dsrdtr = False
-            ser.xonxoff = False
+            device = self._choose_device()
+            if not device:
+                return False
 
-            # Best-effort no-reset sequence for ESP32-style auto-reset circuits.
-            ser.dtr = True
-            ser.rts = False
-            ser.open()
-            ser.dtr = False
-            ser.rts = False
+            try:
+                ser = serial.Serial()
+                ser.port = device
+                ser.baudrate = self.baud
+                ser.bytesize = serial.EIGHTBITS
+                ser.parity = serial.PARITY_NONE
+                ser.stopbits = serial.STOPBITS_ONE
+                ser.timeout = 0.20
+                ser.write_timeout = 1.0
+                ser.rtscts = False
+                ser.dsrdtr = False
+                ser.xonxoff = False
 
-            self._disable_hupcl(ser)
+                # Best-effort no-reset sequence for ESP32-style auto-reset circuits.
+                ser.dtr = True
+                ser.rts = False
+                ser.open()
+                ser.dtr = False
+                ser.rts = False
 
-            with self._lock:
-                self._serial = ser
-            self.last_device = device
-            return True
-        except (SerialException, OSError):
-            return False
+                self._disable_hupcl(ser)
+
+                with self._state_changed:
+                    self._serial = ser
+                    self._state_changed.notify_all()
+                self.last_device = device
+                return True
+            except (SerialException, OSError):
+                return False
 
     def disconnect(self) -> None:
-        # read()/write() keep this lock for the complete pyserial operation.
-        # Waiting for their bounded timeout is preferable to closing `ser.fd`
-        # underneath an active os.read/os.write call.
-        with self._lock:
-            ser = self._serial
-            self._serial = None
+        with self._lifecycle_lock:
+            with self._state_changed:
+                ser = self._serial
+                self._serial = None
+                self._state_changed.notify_all()
 
-        if ser is not None:
+            if ser is None:
+                return
+
+            # Wake a blocking RX read when pyserial/platform supports it. Do
+            # not cancel a write: reconnect-safe TX code should see the write
+            # complete or fail naturally instead of silently truncating it.
+            cancel_read = getattr(ser, "cancel_read", None)
+            if callable(cancel_read):
+                try:
+                    cancel_read()
+                except Exception:
+                    pass
+
+            with self._state_changed:
+                while self._active_reads > 0 or self._active_writes > 0:
+                    self._state_changed.wait(timeout=0.05)
+
             try:
                 ser.close()
             except Exception:
                 pass
 
-    def read(self, size: int = 512) -> bytes:
-        # Keep the transport lock across the blocking read. Ctrl+T d/scanner
-        # intentionally disconnect from another thread; without this boundary
-        # pyserial can observe fd=None in the middle of Serial.read().
-        with self._lock:
+    def _begin_io(self, *, is_read: bool) -> serial.Serial:
+        with self._state_changed:
             ser = self._serial
             if ser is None or not ser.is_open:
                 raise TransportError("serial device is not connected")
 
+            if is_read:
+                self._active_reads += 1
+            else:
+                self._active_writes += 1
+            return ser
+
+    def _end_io(self, *, is_read: bool) -> None:
+        with self._state_changed:
+            if is_read:
+                self._active_reads -= 1
+            else:
+                self._active_writes -= 1
+            self._state_changed.notify_all()
+
+    def read(self, size: int = 512) -> bytes:
+        # Serialize only multiple readers. A writer runs concurrently with this
+        # blocking read, preserving the serial link's full-duplex behavior.
+        with self._read_lock:
+            ser = self._begin_io(is_read=True)
             try:
                 return ser.read(size)
             except (SerialException, OSError) as exc:
                 raise TransportError(str(exc)) from exc
+            finally:
+                self._end_io(is_read=True)
 
     def write(self, data: bytes) -> None:
-        # The same lifetime rule applies to TX: disconnect cannot close the
-        # descriptor between Serial.write() and flush().
-        with self._lock:
-            ser = self._serial
-            if ser is None or not ser.is_open:
-                raise TransportError("serial device is not connected")
-
+        # Serialize writes with each other, but never with RX.
+        with self._write_lock:
+            ser = self._begin_io(is_read=False)
             try:
                 ser.write(data)
                 ser.flush()
             except (SerialException, OSError) as exc:
                 raise TransportError(str(exc)) from exc
+            finally:
+                self._end_io(is_read=False)

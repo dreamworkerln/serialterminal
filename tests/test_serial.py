@@ -54,6 +54,33 @@ class BlockingSerial:
         self.closed.set()
 
 
+class FullDuplexSerial:
+    def __init__(self):
+        self.is_open = True
+        self.read_started = threading.Event()
+        self.release_read = threading.Event()
+        self.write_finished = threading.Event()
+        self.closed = threading.Event()
+
+    def read(self, size):
+        self.read_started.set()
+        assert self.release_read.wait(timeout=1.0)
+        assert not self.closed.is_set()
+        return b"rx"[:size]
+
+    def write(self, data):
+        assert not self.closed.is_set()
+        self.write_finished.set()
+        return len(data)
+
+    def flush(self):
+        assert not self.closed.is_set()
+
+    def close(self):
+        self.is_open = False
+        self.closed.set()
+
+
 def _install_fake_serial(transport, fake_serial):
     with transport._lock:
         transport._serial = fake_serial
@@ -186,6 +213,35 @@ def test_sticky_serial_identity_does_not_fall_back(monkeypatch):
         lambda: [other, selected_after_reboot],
     )
     assert transport._choose_device() == "/dev/ttyACM7"
+
+
+def test_serial_read_does_not_block_concurrent_write():
+    transport = SerialTransport(device="/dev/fake")
+    fake = FullDuplexSerial()
+    _install_fake_serial(transport, fake)
+    result = {}
+
+    reader = threading.Thread(
+        target=lambda: result.setdefault("data", transport.read(2))
+    )
+    reader.start()
+    assert fake.read_started.wait(timeout=1.0)
+
+    writer = threading.Thread(target=lambda: transport.write(b"hello"))
+    writer.start()
+
+    # TX must finish while RX is still intentionally blocked. The old shared
+    # transport mutex failed exactly here and imposed up to the RX timeout on TX.
+    assert fake.write_finished.wait(timeout=0.1)
+    assert reader.is_alive()
+
+    writer.join(timeout=1.0)
+    assert not writer.is_alive()
+
+    fake.release_read.set()
+    reader.join(timeout=1.0)
+    assert not reader.is_alive()
+    assert result["data"] == b"rx"
 
 
 def test_disconnect_waits_for_active_serial_read():
