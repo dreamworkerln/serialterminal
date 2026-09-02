@@ -43,6 +43,7 @@ def _install_fake_ble(monkeypatch):
     class FakeClient:
         last = None
         instances = []
+        fail_notify_uuids = set()
 
         def __init__(self, device, disconnected_callback=None, timeout=10.0):
             self.device = device
@@ -58,6 +59,8 @@ def _install_fake_ble(monkeypatch):
             self.is_connected = True
 
         async def start_notify(self, uuid, callback):
+            if uuid in FakeClient.fail_notify_uuids:
+                raise RuntimeError(f"notify unavailable: {uuid}")
             self.notify[uuid] = callback
 
         async def stop_notify(self, uuid):
@@ -139,6 +142,27 @@ def test_ble_transport_streams_and_sticky_reconnect(monkeypatch):
         FakeScanner.devices = [selected, other]
         assert transport.connect()
         assert FakeClient.last.device.address == "AA:01"
+    finally:
+        transport.close()
+
+
+def test_ble_connect_keeps_primary_when_telemetry_notify_is_missing(monkeypatch):
+    FakeDevice, FakeScanner, FakeClient = _install_fake_ble(monkeypatch)
+    selected = FakeDevice("LoRa-Echo", "AA:01")
+    FakeScanner.devices = [selected]
+    FakeClient.fail_notify_uuids = {NUS_TELEMETRY_TX_UUID}
+
+    transport = ble_nus.BleNusTransport(
+        BleDeviceIdentity(selected.name, selected.address),
+        scan_timeout=0.05,
+        connect_timeout=0.05,
+    )
+    try:
+        assert transport.connect()
+        assert transport.is_connected
+        assert not transport.telemetry_available
+        assert NUS_CHAT_TX_UUID in FakeClient.last.notify
+        assert NUS_TELEMETRY_TX_UUID not in FakeClient.last.notify
     finally:
         transport.close()
 
