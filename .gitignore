@@ -10,3 +10,4 @@ serialterminal.log
 .ruff_cache/
 build/
 dist/
+*.log
