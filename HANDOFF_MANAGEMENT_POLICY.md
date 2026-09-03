@@ -150,21 +150,24 @@ SOURCE answers:    what code actually exists now?
 
 Обычный recovery начинается не с угадывания последнего snapshot filename и не со случайного старого note.
 
+Перед чтением handoff state reader должен сначала прочитать применимые repository/workstream operating instructions, например root/nearest `AGENTS.md`, если такой файл существует. Handoff snapshot/index фиксируют recovery state, но **не заменяют** постоянные operating rules репозитория или подпроекта.
+
 Рекомендуемый порядок:
 
 ```text
-1. CONTEXT.md, if present and relevant
-2. HANDOFF_INDEX.md
-3. latest verified HANDOFF_NNN.md named by the index
-4. project-specific knowledge-base policy, if present
-5. relevant long-lived notes/research/evidence referenced by snapshot/index
-6. refetch and inspect actual source revisions named by snapshot/context
-7. inspect external repositories/dependencies only when they are part of recorded state
+1. applicable repository/workstream operating instructions (for example AGENTS.md), if present
+2. CONTEXT.md, if present and relevant
+3. HANDOFF_INDEX.md
+4. latest verified HANDOFF_NNN.md named by the index
+5. project-specific knowledge-base policy, if present
+6. relevant long-lived notes/research/evidence referenced by snapshot/index
+7. refetch and inspect actual source revisions named by snapshot/context
+8. inspect external repositories/dependencies only when they are part of recorded state
 ```
 
-`HANDOFF_MANAGEMENT_POLICY.md` нужно читать перед созданием/изменением handoff infrastructure и при сомнении о recovery semantics. Для обычного восстановления рабочего состояния достаточно следовать `HANDOFF_INDEX.md` и latest snapshot.
+`HANDOFF_MANAGEMENT_POLICY.md` нужно читать перед созданием/изменением handoff infrastructure и при сомнении о recovery semantics. Для обычного восстановления рабочего состояния сначала применяются repository/workstream operating instructions, затем `HANDOFF_INDEX.md` и latest snapshot по указанному recovery order.
 
-Если `CONTEXT.md` отсутствует, recovery просто начинается с `HANDOFF_INDEX.md`.
+Если repository/workstream operating instructions отсутствуют, recovery начинается с `CONTEXT.md`, если он есть и релевантен, иначе с `HANDOFF_INDEX.md`.
 
 Если `CONTEXT.md` старее latest published snapshot и явно описывает уже завершённую операцию, latest verified snapshot/index имеют приоритет.
 
@@ -770,11 +773,12 @@ Open work:
 This file is the mutable stable recovery entry point.
 
 ## Recovery order
-1. CONTEXT.md, if present and relevant
-2. HANDOFF_INDEX.md
-3. latest snapshot named below
-4. project-specific knowledge policy / long-lived notes
-5. refetch actual source checkpoints
+1. applicable repository/workstream operating instructions (for example AGENTS.md), if present
+2. CONTEXT.md, if present and relevant
+3. HANDOFF_INDEX.md
+4. latest snapshot named below
+5. project-specific knowledge policy / long-lived notes
+6. refetch actual source checkpoints
 
 ## Snapshot rules
 - HANDOFF_NNN.md snapshots are append-only after publication.
@@ -860,7 +864,7 @@ Transfer / promotion boundary: <description or none>
 This snapshot becomes immutable after publication through HANDOFF_INDEX.md.
 
 ## 1. Recovery / authority
-<roles, source authority, refetch rule>
+<roles, source authority, refetch rule, applicable operating-instructions pointer such as AGENTS.md>
 
 ## 2. Material changes since previous snapshot
 - ...
@@ -905,20 +909,21 @@ Sections that do not apply may be omitted, but provenance, implementation/valida
 
 При автоматизированном handoff агент должен:
 
-1. refetch relevant source heads immediately before snapshot creation;
-2. inspect `HANDOFF_INDEX.md` and existing snapshots to determine next unused number;
-3. never guess the latest snapshot solely from memory;
-4. never overwrite an already published snapshot;
-5. record full exact revisions for all material source roles;
-6. create snapshot before changing index;
-7. read back the created snapshot from authoritative storage;
-8. verify required provenance and recovery sections;
-9. only then advance `HANDOFF_INDEX.md`;
-10. read back the updated index;
-11. never claim build/test/hardware validation that was not actually performed;
-12. keep production/source modifications separate from handoff-only changes unless explicitly requested;
-13. preserve project-specific branch/repository authority boundaries;
-14. prefer incomplete-but-truthful state over invented certainty.
+1. read and follow applicable repository/workstream operating instructions (for example root/nearest `AGENTS.md`), if present;
+2. refetch relevant source heads immediately before snapshot creation;
+3. inspect `HANDOFF_INDEX.md` and existing snapshots to determine next unused number;
+4. never guess the latest snapshot solely from memory;
+5. never overwrite an already published snapshot;
+6. record full exact revisions for all material source roles;
+7. create snapshot before changing index;
+8. read back the created snapshot from authoritative storage;
+9. verify required provenance and recovery sections;
+10. only then advance `HANDOFF_INDEX.md`;
+11. read back the updated index;
+12. never claim build/test/hardware validation that was not actually performed;
+13. keep production/source modifications separate from handoff-only changes unless explicitly requested;
+14. preserve project-specific branch/repository authority boundaries;
+15. prefer incomplete-but-truthful state over invented certainty.
 
 Если нужный exact source state нельзя подтвердить, snapshot должен явно сказать, что он не подтверждён, а не подставлять guessed SHA/state.
 
@@ -949,7 +954,8 @@ source
 Коротко:
 
 ```text
-refetch
+read operating instructions
+→ refetch
 → snapshot exact state
 → read/verify snapshot
 → advance index
