@@ -109,7 +109,7 @@ The active project-specific LoRa-Chatter node skill is [.agents/skills/node-agen
 
 Keep this node skill in the `serialterminal` repository so it remains available independently of which branch or worktree of `lora-sack-protocol` is currently selected. It contains class-level Chatter commands, LoRa/echo/reboot behavior, radio diagnostics, reusable fault/recovery guidance, and node-level acceptance rules. It must not store concrete node IDs, MAC/BLE addresses, USB device paths, current measurements, current lab topology, or other instance-specific run state. It must use the generic SerialTerminal API through `AGENT_API.md`/the SerialTerminal skill rather than redefining that API.
 
-[NODE_SKILL_LEARNING_POLICY.md](NODE_SKILL_LEARNING_POLICY.md) defines how hardware observations are collected and how a reviewer may promote reusable knowledge into the node skill. Local executor agents should report anomalies and collect evidence, but must not automatically rewrite the node skill from a single hardware run unless the task explicitly assigns them the reviewer role.
+For hardware interaction tasks, follow [NODE_OBSERVATION_RECORDING_POLICY.md](NODE_OBSERVATION_RECORDING_POLICY.md) for recording run-specific evidence in the separate observation worktree/branch.
 
 For every source-code change, explicitly review both `AGENT_API.md` and `.agents/skills/serialterminal-agent/SKILL.md` for consistency with the changed generic SerialTerminal behavior.
 
