@@ -1,4 +1,5 @@
 import asyncio
+from types import SimpleNamespace
 
 from serialterminal import ble_discovery, bluetooth_scanner
 from serialterminal.transports.ble_nus import BleDeviceIdentity
@@ -51,7 +52,24 @@ def test_ble_scanner_uses_one_asyncio_loop(monkeypatch):
     assert loops[0] is loops[1]
 
 
-def test_scanner_menu_flushes_before_input(monkeypatch):
+def test_scanner_numeric_keybindings_exit_immediately():
+    bindings = bluetooth_scanner._scan_key_bindings()
+
+    for key in ("1", "2", "3"):
+        matches = bindings.get_bindings_for_keys((key,))
+        assert matches
+
+        results = []
+        event = SimpleNamespace(
+            app=SimpleNamespace(
+                exit=lambda result=None: results.append(result),
+            )
+        )
+        matches[-1].handler(event)
+        assert results == [key]
+
+
+def test_scanner_menu_flushes_before_prompt(monkeypatch):
     class FakeStdout:
         def __init__(self):
             self.text = []
@@ -66,7 +84,11 @@ def test_scanner_menu_flushes_before_input(monkeypatch):
 
     fake_stdout = FakeStdout()
     monkeypatch.setattr(bluetooth_scanner.sys, "stdout", fake_stdout)
-    monkeypatch.setattr("builtins.input", lambda prompt: "3")
+    monkeypatch.setattr(
+        bluetooth_scanner,
+        "_read_scan_answer",
+        lambda prompt: "3",
+    )
 
     assert bluetooth_scanner.choose_scan_mode() == "all"
     assert fake_stdout.flush_count >= 1

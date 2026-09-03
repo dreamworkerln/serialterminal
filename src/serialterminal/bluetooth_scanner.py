@@ -4,6 +4,9 @@ import asyncio
 from dataclasses import dataclass
 import sys
 
+from prompt_toolkit import PromptSession
+from prompt_toolkit.key_binding import KeyBindings
+
 from .ble_discovery import probe_ble_nus_async, scan_all_ble_devices
 from .device_cache import default_cache_path, update_cached_device
 from .transports.bluetooth_spp import (
@@ -201,6 +204,29 @@ def run_scanner(
     return total
 
 
+def _scan_key_bindings() -> KeyBindings:
+    """Return scanner-menu bindings where numeric choices act immediately."""
+    bindings = KeyBindings()
+
+    def add_choice(key: str) -> None:
+        @bindings.add(key, eager=True)
+        def _select(event) -> None:
+            event.app.exit(result=key)
+
+    for key in ("1", "2", "3"):
+        add_choice(key)
+
+    return bindings
+
+
+def _read_scan_answer(prompt: str) -> str:
+    session = PromptSession(
+        key_bindings=_scan_key_bindings(),
+        erase_when_done=True,
+    )
+    return session.prompt(prompt)
+
+
 def choose_scan_mode(*, allow_cancel: bool = True) -> str | None:
     """Interactive scanner menu used by the terminal hotkey."""
     print("Bluetooth scanner")
@@ -220,12 +246,12 @@ def choose_scan_mode(*, allow_cancel: bool = True) -> str | None:
     }
 
     while True:
-        # When called from TerminalSession, stdout is still wrapped by
-        # prompt_toolkit.patch_stdout(). Flush the menu before ordinary input()
-        # writes its prompt, otherwise the input prompt can appear above menu.
+        # TerminalSession keeps stdout wrapped by prompt_toolkit.patch_stdout().
+        # Flush the menu before opening the nested scanner prompt. Numeric
+        # choices use eager bindings and therefore do not require Enter.
         sys.stdout.flush()
         prompt = "Scan [1-3, Enter=back]: " if allow_cancel else "Scan [1-3]: "
-        answer = input(prompt).strip().lower()
+        answer = _read_scan_answer(prompt).strip().lower()
         if allow_cancel and answer == "":
             return None
         if answer in mapping:
