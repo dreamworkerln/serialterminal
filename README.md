@@ -58,7 +58,7 @@ Agent mode запускается без TUI:
 python3 serialterminal.py agent
 ```
 
-stdin и stdout используются как request/response JSON Lines. Один request всегда даёт один machine-readable JSON response. Основные операции:
+stdin и stdout используются как request/response JSON Lines. Один request всегда даёт один machine-readable JSON response. `wait_events` может оставаться pending, пока agent принимает следующие команды, поэтому ответы сопоставляются по `id` и могут приходить не в порядке запросов. Основные операции:
 
 ```text
 discover
@@ -68,6 +68,7 @@ list_sessions
 send_line
 send_bytes
 events
+wait_events
 close
 ```
 
@@ -77,11 +78,11 @@ close
 {"id":1,"op":"discover","scope":"auto"}
 {"id":2,"op":"open","device_key":"ble-address:44:1b:f6:8d:b7:a9"}
 {"id":3,"op":"send_line","session":"s1","text":"/id"}
-{"id":4,"op":"events","session":"s1","after_seq":0,"timeout_ms":5000}
+{"id":4,"op":"wait_events","cursors":{"s1":0},"timeout_ms":5000,"kinds":["rx"]}
 {"id":5,"op":"close","session":"s1"}
 ```
 
-Receive/wait использует монотонный `seq` cursor и retained event buffer, а не эмуляцию человека внутри prompt/TUI. RX events сохраняют transport stream tag (`main`, `chat`, `telemetry`) и byte-accurate `data_b64`; `text` — дополнительное incremental UTF-8 представление.
+Receive/wait использует монотонный `seq` cursor и retained event buffer, а не эмуляцию человека внутри prompt/TUI. RX events сохраняют transport stream tag (`main`, `chat`, `telemetry`) и byte-accurate `data_b64`; `text` — дополнительное incremental UTF-8 представление. `wait_events` принимает cursor отдельно для каждой watched session, может ждать одну или несколько session одним long-poll и не блокирует обработку следующих обычных JSONL-команд.
 
 `send_line` и `send_bytes` используют одну reconnect-safe ordered TX queue. `tx_state=written` означает только успешное завершение существующего transport `write()`, а не LoRa delivery/peer acceptance.
 
@@ -100,7 +101,7 @@ Agent process также создаёт один отдельный log в `logs
 [ERROR]
 ```
 
-Полный контракт и примеры: `AGENT_API.md`.
+Полный контракт, cursor semantics, concurrent `wait_events`, out-of-order response rules и ошибки: `AGENT_API.md`.
 
 LoRa/Chatter-specific Node A/Node B, fault/recovery и hardware acceptance scenarios намеренно не зашиты в `serialterminal`; они должны жить в Codex skills проекта `lora-sack-protocol` и пользоваться этим generic interface.
 
