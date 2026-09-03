@@ -7,7 +7,7 @@ import time
 from typing import Any
 
 from .runlog import default_log_path
-from .startup_controls import read_initial_control
+from .startup_controls import InitialControlReader
 from .terminal import TerminalSession
 from .transports.base import Transport, TransportError
 from .transports.serial import (
@@ -138,8 +138,8 @@ class DeviceSelector:
         except Exception as exc:
             print(f"\n[Bluetooth scanner failed: {exc}]\n")
 
-    def _handle_initial_control(self, timeout: float) -> bool:
-        if read_initial_control(timeout) != "scanner":
+    def _handle_initial_control(self, control: str | None) -> bool:
+        if control != "scanner":
             return False
         self._run_initial_scanner()
         return True
@@ -301,8 +301,10 @@ class DeviceSelector:
             else:
                 print("Scanning serial devices...")
 
-            candidates = self.discover()
-            if self._handle_initial_control(0.0):
+            with InitialControlReader() as controls:
+                candidates = self.discover()
+                control = controls.read(0.0)
+            if self._handle_initial_control(control):
                 continue
 
             if name_filter is not None:
@@ -324,7 +326,9 @@ class DeviceSelector:
                     "No matching devices found; scanning again... "
                     "(Ctrl+T s scanner, Ctrl+C exit)"
                 )
-                self._handle_initial_control(0.5)
+                with InitialControlReader() as controls:
+                    control = controls.read(0.5)
+                self._handle_initial_control(control)
                 continue
 
             selected = self.choose_from(
