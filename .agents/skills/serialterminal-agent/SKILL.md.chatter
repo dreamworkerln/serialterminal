@@ -1,13 +1,13 @@
 ---
 name: lora-chatter-nodes
-summary: Project-specific наблюдаемое поведение LoRa-Chatter нод через SerialTerminal agent API. Не является generic SerialTerminal skill.
+description: Project-specific наблюдаемое поведение LoRa-Chatter нод через SerialTerminal agent API. Не является generic SerialTerminal skill.
 ---
 
 # LoRa-Chatter nodes
 
 Этот файл сохраняет project-specific знания, полученные при работе с двумя BLE-подключёнными LoRa-Chatter нодами через `python3 serialterminal.py agent`.
 
-Он **не является источником истины для SerialTerminal API** и не должен переопределять `.agents/skills/serialterminal-agent/SKILL.md` или `../../../AGENT_API.md`. При переносе Chatter-specific automation в `lora-sack-protocol` этот материал следует перенести туда как hardware/protocol skill.
+Он **не является источником истины для SerialTerminal API** и не должен переопределять `.agents/skills/serialterminal-agent/SKILL.md` или [AGENT_API.md](../../../AGENT_API.md). При переносе Chatter-specific automation в `lora-sack-protocol` этот материал следует перенести туда как hardware/protocol skill.
 
 ## Подключение
 
