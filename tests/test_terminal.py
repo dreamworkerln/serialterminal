@@ -4,7 +4,6 @@ from serialterminal.terminal import (
     CHATTER_HELP_COMMAND,
     CHATTER_OUTPUT_MODE_COMMANDS,
     TerminalSession,
-    encode_line,
 )
 from serialterminal.transports.base import ReceivedChunk, Transport
 
