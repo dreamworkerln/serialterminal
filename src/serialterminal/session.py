@@ -12,6 +12,7 @@ from .transports.base import ReceivedChunk, Transport, TransportError
 
 
 ConnectPreamble = Callable[[Transport], bytes | None]
+EventNotifier = Callable[[], None]
 
 
 def encode_line(line: str, line_ending: str = "\n") -> bytes:
@@ -87,6 +88,7 @@ class ManagedSession:
         reconnect_delay: float = 0.5,
         connect_preamble: ConnectPreamble | None = None,
         event_limit: int = 4096,
+        event_notifier: EventNotifier | None = None,
     ):
         if event_limit <= 0:
             raise ValueError("event_limit must be positive")
@@ -95,6 +97,7 @@ class ManagedSession:
         self.line_ending = line_ending
         self.reconnect_delay = reconnect_delay
         self.connect_preamble = connect_preamble
+        self.event_notifier = event_notifier
 
         self.stop_event = threading.Event()
         self.connected_event = threading.Event()
@@ -136,7 +139,14 @@ class ManagedSession:
             self._next_event_seq += 1
             self._events.append(event)
             self._event_condition.notify_all()
-            return event
+
+        notifier = self.event_notifier
+        if notifier is not None:
+            # Внешний wakeup вызывается только после освобождения session condition:
+            # manager-level waiter может держать свой condition и читать event ring
+            # без обратного порядка блокировок и без второго буфера событий.
+            notifier()
+        return event
 
     def _decode_event_text(self, stream: str, data: bytes) -> str:
         if not data:
