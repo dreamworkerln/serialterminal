@@ -81,6 +81,23 @@ def test_ten_item_menu_keeps_number_plus_enter_input(monkeypatch):
     assert selected is candidates[9]
 
 
+def test_initial_discovery_scanner_hotkey_retries_after_scanner(monkeypatch):
+    selector = DeviceSelector("auto")
+    candidate = _candidate(1)
+    discovery_results = iter([[], [candidate]])
+    controls = iter([None, "scanner", None])
+    scanner_runs = []
+
+    monkeypatch.setattr(selector, "discover", lambda: next(discovery_results))
+    monkeypatch.setattr(cli_module, "read_initial_control", lambda timeout: next(controls))
+    monkeypatch.setattr(selector, "_run_initial_scanner", lambda: scanner_runs.append(True))
+
+    selected = selector.choose_initial()
+
+    assert selected is candidate
+    assert scanner_runs == [True]
+
+
 def test_agent_subcommand_dispatches_to_jsonl_frontend(monkeypatch, tmp_path):
     import serialterminal.agent as agent_module
 
