@@ -99,19 +99,21 @@ Do not silently change BLE UUIDs, stream semantics, connection behavior, or tran
 
 ## Agent interface documentation
 
-`AGENT_API.md` is the canonical repository documentation for the machine-facing SerialTerminal interface.
+[AGENT_API.md](AGENT_API.md) is the canonical repository documentation for the machine-facing SerialTerminal JSONL interface. It owns the API schema, operations, request/response semantics, errors, session/cursor behavior, concurrency guarantees, logging contract, and CLI invocation.
 
-The repo-local agent skill, when present, is:
+The active generic SerialTerminal agent skill is [.agents/skills/serialterminal-agent/SKILL.md](.agents/skills/serialterminal-agent/SKILL.md).
 
-`.agents/skills/serialterminal-agent/SKILL.md`
+It is a concise operational entry point for an agent. From its location it links back to `../../../AGENT_API.md` and must not duplicate or redefine the full JSONL contract. If the skill and `AGENT_API.md` ever disagree about SerialTerminal behavior, `AGENT_API.md` is the source of truth and the skill must be corrected.
 
-It should contain concise operational guidance for an agent and refer to `AGENT_API.md` for the JSONL contract rather than duplicating the full API specification.
+The active project-specific LoRa-Chatter node skill is [.agents/skills/node-agent/SKILL.md](.agents/skills/node-agent/SKILL.md).
 
-For every source-code change, explicitly review both `AGENT_API.md` and `.agents/skills/serialterminal-agent/SKILL.md` for consistency with the changed behavior.
+Keep this node skill in the `serialterminal` repository so it remains available independently of which branch or worktree of `lora-sack-protocol` is currently selected. It may contain device addresses, Chatter commands, LoRa/echo/reboot behavior, radio diagnostics, hardware observations, and node-level acceptance guidance. It must use the generic SerialTerminal API through `AGENT_API.md`/the SerialTerminal skill rather than redefining that API.
 
-If the change affects the agent-facing API, session semantics, discovery/open/send/receive behavior, streams, errors, logging, CLI invocation, or the recommended agent workflow, update the affected documentation in the same task. Do not leave either document describing behavior that no longer matches the code.
+For every source-code change, explicitly review both `AGENT_API.md` and `.agents/skills/serialterminal-agent/SKILL.md` for consistency with the changed generic SerialTerminal behavior.
 
-If the repo-local skill does not yet exist, do not create it solely because of this synchronization rule; create it only when the task explicitly introduces that skill.
+If the change affects the agent-facing API, session semantics, discovery/open/send/receive behavior, streams, errors, logging, CLI invocation, or the recommended generic agent workflow, update the affected generic documentation in the same task. Do not leave either active generic document describing behavior that no longer matches the code.
+
+Review `.agents/skills/node-agent/SKILL.md` when a change affects how an agent should operate, observe, or validate LoRa-Chatter nodes. Do not update it mechanically for generic API changes unless its project-specific guidance actually became inaccurate.
 
 ## BLE behavior
 
