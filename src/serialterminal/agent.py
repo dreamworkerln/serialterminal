@@ -54,6 +54,24 @@ def _event_dict(event: SessionEvent) -> dict[str, Any]:
     return result
 
 
+def _render_response(response: dict[str, Any]) -> str:
+    return json.dumps(
+        response,
+        ensure_ascii=False,
+        separators=(",", ":"),
+        sort_keys=True,
+    )
+
+
+def _request_id_key(request_id: Any) -> str:
+    return json.dumps(
+        request_id,
+        ensure_ascii=False,
+        separators=(",", ":"),
+        sort_keys=True,
+    )
+
+
 class SessionManager:
     """Own multiple independent ManagedSession objects for machine clients."""
 
@@ -74,6 +92,7 @@ class SessionManager:
 
         self._lock = threading.Lock()
         self._wait_condition = threading.Condition()
+        self._wait_cancelled = threading.Event()
         self._candidates: dict[str, tuple[Any, Any]] = {}
         self._sessions: dict[str, ManagedSession] = {}
         self._session_device_keys: dict[str, str] = {}
@@ -93,6 +112,11 @@ class SessionManager:
         # остаются в event ring соответствующего ManagedSession.
         with self._wait_condition:
             self._wait_condition.notify_all()
+
+    def cancel_waits(self) -> None:
+        """Wake pending waits during agent-process shutdown."""
+        self._wait_cancelled.set()
+        self._notify_event_activity()
 
     def discover(
         self,
@@ -415,6 +439,12 @@ class SessionManager:
         # событие между scan и wait не может потеряться и lock order не зацикливается.
         with self._wait_condition:
             while True:
+                if self._wait_cancelled.is_set():
+                    raise AgentError(
+                        "agent_stopping",
+                        "agent process is stopping",
+                    )
+
                 matched: list[tuple[float, str, int, SessionEvent]] = []
 
                 for session_id, session in watched:
@@ -573,6 +603,11 @@ class AgentProtocol:
                 kinds=kinds,
             )
         if op == "wait_events":
+            if request.get("id") is None:
+                raise AgentError(
+                    "invalid_request",
+                    "wait_events requires a non-null request id",
+                )
             cursors = request.get("cursors")
             streams = request.get("streams")
             kinds = request.get("kinds")
@@ -652,12 +687,7 @@ class AgentProtocol:
         else:
             response = self.handle(request)
 
-        rendered = json.dumps(
-            response,
-            ensure_ascii=False,
-            separators=(",", ":"),
-            sort_keys=True,
-        )
+        rendered = _render_response(response)
         self.run_log.record("AGENT RESPONSE", rendered)
         return rendered
 
@@ -674,14 +704,123 @@ def run_agent(
     with RunLog(log_path) as run_log:
         manager = SessionManager(run_log=run_log)
         protocol = AgentProtocol(manager, run_log=run_log)
+        output_lock = threading.Lock()
+        pending_lock = threading.Lock()
+        pending_ids: set[str] = set()
+        wait_threads: list[threading.Thread] = []
         run_log.record("AGENT", {"event": "ready", "log_path": str(run_log.path)})
+
+        def emit_response(response: dict[str, Any]) -> None:
+            rendered = _render_response(response)
+            # Один lock задаёт одинаковый порядок строк в stdout и AGENT RESPONSE
+            # даже когда background wait завершается одновременно с command reply.
+            with output_lock:
+                run_log.record("AGENT RESPONSE", rendered)
+                output_stream.write(rendered + "\n")
+                output_stream.flush()
+
+        def finish_wait(request: dict[str, Any], request_key: str) -> None:
+            try:
+                emit_response(protocol.handle(request))
+            finally:
+                with pending_lock:
+                    pending_ids.discard(request_key)
+
         try:
             for line in input_stream:
                 if not line.strip():
                     continue
-                rendered = protocol.process_line(line)
-                output_stream.write(rendered + "\n")
-                output_stream.flush()
+
+                run_log.record("AGENT REQUEST", line.rstrip("\r\n"))
+                try:
+                    request = json.loads(line)
+                except json.JSONDecodeError as exc:
+                    emit_response(
+                        {
+                            "id": None,
+                            "ok": False,
+                            "error": {
+                                "code": "invalid_json",
+                                "message": str(exc),
+                            },
+                        }
+                    )
+                    continue
+
+                request_id = AgentProtocol._request_id(request)
+                request_key = (
+                    _request_id_key(request_id) if request_id is not None else None
+                )
+
+                if request_key is not None:
+                    with pending_lock:
+                        request_id_busy = request_key in pending_ids
+                    if request_id_busy:
+                        emit_response(
+                            {
+                                "id": request_id,
+                                "ok": False,
+                                "error": {
+                                    "code": "request_id_busy",
+                                    "message": (
+                                        "request id is already pending: "
+                                        f"{request_id!r}"
+                                    ),
+                                    "details": {"id": request_id},
+                                },
+                            }
+                        )
+                        continue
+
+                is_wait = (
+                    isinstance(request, dict)
+                    and request.get("op") == "wait_events"
+                    and request_id is not None
+                )
+                if is_wait:
+                    assert request_key is not None
+                    with pending_lock:
+                        # Повторная проверка закрывает race с только что
+                        # поставленным wait из другого reader iteration.
+                        if request_key in pending_ids:
+                            request_id_busy = True
+                        else:
+                            pending_ids.add(request_key)
+                            request_id_busy = False
+                    if request_id_busy:
+                        emit_response(
+                            {
+                                "id": request_id,
+                                "ok": False,
+                                "error": {
+                                    "code": "request_id_busy",
+                                    "message": (
+                                        "request id is already pending: "
+                                        f"{request_id!r}"
+                                    ),
+                                    "details": {"id": request_id},
+                                },
+                            }
+                        )
+                        continue
+
+                    thread = threading.Thread(
+                        target=finish_wait,
+                        args=(request, request_key),
+                        name=f"serialterminal-agent-wait-{len(wait_threads) + 1}",
+                        daemon=True,
+                    )
+                    wait_threads.append(thread)
+                    thread.start()
+                    continue
+
+                emit_response(protocol.handle(request))
         finally:
+            # EOF/agent shutdown must not wait for an arbitrarily long user timeout.
+            # Cancel pending waits first, let them emit their final correlated reply,
+            # then close device sessions while RunLog/stdout are still valid.
+            manager.cancel_waits()
+            for thread in wait_threads:
+                thread.join(timeout=1.0)
             manager.close_all()
     return 0
