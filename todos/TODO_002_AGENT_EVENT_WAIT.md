@@ -1,6 +1,6 @@
 # TODO_002 — Multi-session agent event wait and concurrent JSONL
 
-Status: OPEN
+Status: PARTIAL
 
 ## Problem statement
 
@@ -38,12 +38,12 @@ Add a generic multi-session long-poll operation and then allow command requests 
 
 ### Implementation
 
-- [ ] Add manager-level event wakeup fed by `ManagedSession` event creation.
-- [ ] Add `SessionManager.wait_events(...)` for one or N sessions.
-- [ ] Add JSONL `wait_events` dispatch and validation.
-- [ ] Add deterministic Stage 1 tests for one session, multiple sessions, filters/cursor advancement, timeout, and structured cursor/session errors.
-- [ ] Document Stage 1 in `AGENT_API.md`.
-- [ ] Validate Stage 1 in GitHub Actions before starting Stage 2.
+- [x] Add manager-level event wakeup fed by `ManagedSession` event creation.
+- [x] Add `SessionManager.wait_events(...)` for one or N sessions.
+- [x] Add JSONL `wait_events` dispatch and validation.
+- [x] Add deterministic Stage 1 tests for one session, multiple sessions, filters/cursor advancement, timeout, and structured cursor/session errors.
+- [x] Document Stage 1 in `AGENT_API.md`.
+- [x] Validate Stage 1 in GitHub Actions before starting Stage 2.
 - [ ] Allow pending `wait_events` while non-wait JSONL requests continue to execute.
 - [ ] Add pending request-ID tracking and `request_id_busy` handling.
 - [ ] Serialize response writes while allowing out-of-order completion by `id`.
@@ -76,7 +76,14 @@ GitHub Actions run 33775808413: SUCCESS
 
 ## Validation checkpoints
 
-Stage 1: OPEN
+Stage 1:
+
+```text
+dreamworkerln/serialterminal/dev@faf42369ef58660189608ecc16befdcee59c488a
+GitHub Actions run 33781308586: SUCCESS
+python -m compileall -q src serialterminal.py tools: PASS
+pytest -q: PASS
+```
 
 Stage 2: OPEN
 
