@@ -97,6 +97,22 @@ Do not couple UI behavior directly to transport-specific implementation when the
 
 Do not silently change BLE UUIDs, stream semantics, connection behavior, or transport contracts.
 
+## Agent interface documentation
+
+`AGENT_API.md` is the canonical repository documentation for the machine-facing SerialTerminal interface.
+
+The repo-local agent skill, when present, is:
+
+`.agents/skills/serialterminal-agent/SKILL.md`
+
+It should contain concise operational guidance for an agent and refer to `AGENT_API.md` for the JSONL contract rather than duplicating the full API specification.
+
+For every source-code change, explicitly review both `AGENT_API.md` and `.agents/skills/serialterminal-agent/SKILL.md` for consistency with the changed behavior.
+
+If the change affects the agent-facing API, session semantics, discovery/open/send/receive behavior, streams, errors, logging, CLI invocation, or the recommended agent workflow, update the affected documentation in the same task. Do not leave either document describing behavior that no longer matches the code.
+
+If the repo-local skill does not yet exist, do not create it solely because of this synchronization rule; create it only when the task explicitly introduces that skill.
+
 ## BLE behavior
 
 The Chatter firmware exposes separate BLE streams for human chat output and machine telemetry.
