@@ -4,9 +4,29 @@ This file is the authoritative current-state index for engineering TODOs in this
 
 ## Active
 
-None.
+### TODO_003 — `todos/TODO_003_AGENT_CODE_QUALITY.md`
 
-## Closed
+Status: OPEN
+
+Goal: reduce accidental complexity in agent `wait_events`, JSON operation dispatch, and JSONL runner lifecycle without changing the documented machine API.
+
+Current state:
+
+```text
+wait_events decomposition                 OPEN
+per-operation protocol handlers           OPEN
+JSONL runner lifecycle extraction         OPEN
+dead-import cleanup                       OPEN
+AGENT_API.md consistency review            OPEN
+GitHub Actions validation                  OPEN
+```
+
+Baseline:
+
+```text
+dev@b6133990e020a64e59ecf76236b6c1de9f59ce5a
+GitHub Actions 33783101850 SUCCESS
+```
 
 ### TODO_002 — `todos/TODO_002_AGENT_EVENT_WAIT.md`
 
