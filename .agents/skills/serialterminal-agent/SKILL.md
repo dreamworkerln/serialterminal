@@ -9,9 +9,7 @@ description: Работа с machine-facing SerialTerminal JSONL agent API дл�
 
 ## Сначала прочитай API contract
 
-Полный и канонический контракт находится в:
-
-`../../../AGENT_API.md`
+Полный и канонический контракт находится в [AGENT_API.md](../../../AGENT_API.md).
 
 Не дублируй и не переопределяй здесь schema, error codes или transport/session semantics. Если этот skill и `AGENT_API.md` расходятся, источником истины является `AGENT_API.md`.
 
@@ -57,7 +55,7 @@ SerialTerminal не пишет unsolicited event messages в JSONL stdout. Ка�
 
 ## Ошибки и доступ к hardware
 
-Не делай blind retry при structured error. Сначала прочитай `error.code`, `error.message`, при необходимости run log и соответствующий раздел `AGENT_API.md`.
+Не делай blind retry при structured error. Сначала прочитай `error.code`, `error.message`, при необходимости run log и соответствующий раздел [AGENT_API.md](../../../AGENT_API.md).
 
 Если host Bluetooth/D-Bus или sandbox возвращает permission error, не интерпретируй это как отсутствие устройства. Используй разрешённый окружением способ запуска с необходимыми правами или сообщи о permission boundary.
 
