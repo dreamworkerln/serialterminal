@@ -88,8 +88,18 @@ def test_initial_discovery_scanner_hotkey_retries_after_scanner(monkeypatch):
     controls = iter([None, "scanner", None])
     scanner_runs = []
 
+    class FakeInitialControlReader:
+        def __enter__(self):
+            return self
+
+        def __exit__(self, exc_type, exc, tb):
+            return None
+
+        def read(self, timeout=0.0):
+            return next(controls)
+
     monkeypatch.setattr(selector, "discover", lambda: next(discovery_results))
-    monkeypatch.setattr(cli_module, "read_initial_control", lambda timeout: next(controls))
+    monkeypatch.setattr(cli_module, "InitialControlReader", FakeInitialControlReader)
     monkeypatch.setattr(selector, "_run_initial_scanner", lambda: scanner_runs.append(True))
 
     selected = selector.choose_initial()
