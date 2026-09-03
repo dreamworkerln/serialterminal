@@ -103,7 +103,13 @@ Agent process также создаёт один отдельный log в `logs
 
 Полный контракт, cursor semantics, concurrent `wait_events`, out-of-order response rules и ошибки: `AGENT_API.md`.
 
-LoRa/Chatter-specific Node A/Node B, fault/recovery и hardware acceptance scenarios намеренно не зашиты в `serialterminal`; они должны жить в Codex skills проекта `lora-sack-protocol` и пользоваться этим generic interface.
+Generic SerialTerminal API остаётся device-agnostic. Project-specific LoRa-Chatter node guidance хранится в `.agents/skills/node-agent/SKILL.md` этого репозитория, чтобы skill был доступен независимо от выбранной branch/worktree `lora-sack-protocol`; firmware/protocol source authority при этом остаётся в соответствующем source state `lora-sack-protocol`.
+
+### Live hardware/Codex smoke
+
+2026-09-03 наблюдался live smoke с двумя физическими BLE LoRa-Chatter нодами в одном `serialterminal agent` process: Codex самостоятельно изучил node `/help`, открыл две независимые sessions, использовал multi-session `wait_events`, продолжал обычные команды при pending wait и выполнил TX с обеих sessions близко по времени.
+
+Это подтверждает практическую работу multi-session agent workflow и независимых per-session TX paths. Сам по себе этот smoke не доказывает успешную peer-доставку обеих близких LoRa передач; delivery подтверждается отдельным peer RX/telemetry evidence.
 
 ## Discovery и reconnect
 
