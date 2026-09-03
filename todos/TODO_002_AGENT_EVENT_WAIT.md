@@ -1,38 +1,41 @@
 # TODO_002 — Multi-session agent event wait and concurrent JSONL
 
-Status: PARTIAL
+Status: CLOSED
 
 ## Problem statement
 
-The current machine-facing `events` operation waits on one session at a time, so an agent watching multiple devices must alternate requests. The JSONL frontend also processes requests synchronously, so a long-running wait prevents the same agent process from accepting commands until that wait returns.
+The original machine-facing `events` operation waited on one session at a time, so an agent watching multiple devices had to alternate requests. The JSONL frontend also processed requests synchronously, so a long-running wait prevented the same agent process from accepting commands until that wait returned.
 
 ## Purpose
 
 Add a generic multi-session long-poll operation and then allow command requests to proceed while such waits are pending, without adding unsolicited stdout push messages and without duplicating transport/session logic.
 
-## Target behavior
+## Implemented behavior
 
 ### Stage 1 — `wait_events`
 
 - One `wait_events` request watches one or more existing sessions.
-- Request field `cursors` maps each watched session ID to its last observed event `seq`.
-- The request sleeps until a matching event appears or `timeout_ms` expires; it must not busy-poll sessions.
-- A manager-level wakeup/doorbell is notified whenever a `ManagedSession` records an event; session event rings remain the source of truth.
-- On wake, collect all currently available matching events from all watched sessions and tag each returned event with its `session`.
-- Optional `kinds` and `streams` filters match existing `events` semantics.
-- Returned cursors advance through all inspected events, including filtered-out events, so ignored events are not reconsidered on the next wait.
-- Timeout is a successful response with `events: []` and `timed_out: true`.
-- Invalid/expired cursors identify the affected session in structured error details.
+- Request field `cursors` maps each watched session ID to its last inspected event `seq`.
+- The request sleeps until a matching event appears or `timeout_ms` expires; it does not busy-poll sessions.
+- A manager-level condition acts only as a wakeup/doorbell when a `ManagedSession` records an event; per-session event rings remain authoritative.
+- On wake, all currently available matching events across watched sessions are collected and each returned event includes its source `session`.
+- Optional `kinds` and `streams` filters follow the existing event model.
+- Returned cursors advance through all inspected events, including filtered-out events.
+- Positive timeout expiry is a successful response with `events: []` and `timed_out: true`.
+- Invalid/expired cursors and unknown sessions identify the affected session in structured error details.
 
 ### Stage 2 — concurrent JSONL request handling
 
 - `wait_events` may remain pending while the same JSONL process accepts ordinary commands such as `send_line`, `status`, `events`, and `close`.
-- Ordinary non-wait commands remain serialized in input order; only pending `wait_events` calls are executed asynchronously so existing mutation ordering is preserved.
-- Responses may therefore arrive out of request order and are correlated by request `id`.
+- Ordinary non-wait commands remain serialized in input order; only pending `wait_events` calls execute asynchronously, preserving mutation ordering among ordinary requests.
+- Responses may arrive out of request order and are correlated by request `id`.
 - A non-null request `id` is required for `wait_events`.
-- Reuse of an ID that is still pending is rejected with structured `request_id_busy`; the original request remains pending.
-- stdout remains response-only: no unsolicited event messages are emitted.
-- stdout writes are serialized so each response remains exactly one complete JSON line.
+- Reuse of an ID still owned by a pending wait returns structured `request_id_busy`; the original wait remains pending.
+- Multiple waits with distinct IDs may be pending simultaneously.
+- stdout remains response-only; no unsolicited event messages are emitted.
+- Response logging/stdout emission is serialized so each response remains one complete JSON line and `[AGENT RESPONSE]` order matches stdout response order.
+- On process shutdown, pending waits are cancelled/woken before sessions are closed rather than waiting for arbitrary long-poll timeouts.
+- Existing `events` remains available and synchronous; clients that need a non-blocking command channel while waiting should use `wait_events`.
 
 ## Scope
 
@@ -44,12 +47,13 @@ Add a generic multi-session long-poll operation and then allow command requests 
 - [x] Add deterministic Stage 1 tests for one session, multiple sessions, filters/cursor advancement, timeout, and structured cursor/session errors.
 - [x] Document Stage 1 in `AGENT_API.md`.
 - [x] Validate Stage 1 in GitHub Actions before starting Stage 2.
-- [ ] Allow pending `wait_events` while non-wait JSONL requests continue to execute.
-- [ ] Add pending request-ID tracking and `request_id_busy` handling.
-- [ ] Serialize response writes while allowing out-of-order completion by `id`.
-- [ ] Add deterministic Stage 2 tests proving a command completes while a wait is pending and duplicate pending IDs are rejected.
-- [ ] Document concurrency, response ordering, and ID rules in `AGENT_API.md`.
-- [ ] Run final full CI and close this TODO only after success.
+- [x] Allow pending `wait_events` while non-wait JSONL requests continue to execute.
+- [x] Add pending request-ID tracking and `request_id_busy` handling.
+- [x] Serialize response writes while allowing out-of-order completion by `id`.
+- [x] Add deterministic Stage 2 tests proving a command completes while a wait is pending and duplicate pending IDs are rejected.
+- [x] Document concurrency, response ordering, and ID rules in `AGENT_API.md`.
+- [x] Synchronize the README agent operation summary with the new API.
+- [x] Run final full CI and close this TODO only after success.
 
 ## Non-goals
 
@@ -76,7 +80,7 @@ GitHub Actions run 33775808413: SUCCESS
 
 ## Validation checkpoints
 
-Stage 1:
+Stage 1 accepted checkpoint:
 
 ```text
 dreamworkerln/serialterminal/dev@faf42369ef58660189608ecc16befdcee59c488a
@@ -85,8 +89,29 @@ python -m compileall -q src serialterminal.py tools: PASS
 pytest -q: PASS
 ```
 
-Stage 2: OPEN
+Stage 2 implementation + canonical `AGENT_API.md` checkpoint:
+
+```text
+dreamworkerln/serialterminal/dev@c2167099ad6b6fb9aa8ee07cdba9c724b5b368c4
+GitHub Actions run 33782053409: SUCCESS
+python -m compileall -q src serialterminal.py tools: PASS
+pytest -q: PASS
+```
+
+Accepted implementation/documentation checkpoint including README synchronization:
+
+```text
+dreamworkerln/serialterminal/dev@aaeab3002e60bd1e85595d73e3248d42c3141c1f
+GitHub Actions run 33782252791: SUCCESS
+```
+
+Implemented: `aaeab3002e60bd1e85595d73e3248d42c3141c1f`
+Validated: `aaeab3002e60bd1e85595d73e3248d42c3141c1f` / GitHub Actions run `33782252791` SUCCESS
+
+## Hardware validation
+
+A live hardware/Codex smoke specifically exercising the new multi-session `wait_events` and concurrent-response behavior was **NOT RUN** as part of this implementation task. The deterministic tests and clean-environment CI are the closure gates recorded above.
 
 ## Follow-up work
 
-Hardware/Codex smoke of the new wait/concurrency behavior is useful after implementation but is not a substitute for deterministic regression tests and clean-environment CI.
+A hardware/Codex smoke can verify the new wait/concurrency workflow against actual devices. Project/device-specific acceptance scenarios remain outside this generic repository API.
