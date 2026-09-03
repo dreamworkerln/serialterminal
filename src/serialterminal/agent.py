@@ -5,6 +5,7 @@ from dataclasses import asdict
 import json
 import sys
 import threading
+import time
 from typing import Any, Callable, TextIO
 
 from .runlog import RunLog
@@ -72,6 +73,7 @@ class SessionManager:
         self.reconnect_delay = reconnect_delay
 
         self._lock = threading.Lock()
+        self._wait_condition = threading.Condition()
         self._candidates: dict[str, tuple[Any, Any]] = {}
         self._sessions: dict[str, ManagedSession] = {}
         self._session_device_keys: dict[str, str] = {}
@@ -85,6 +87,12 @@ class SessionManager:
         if session is None:
             raise AgentError("unknown_session", f"unknown session: {session_id}")
         return session
+
+    def _notify_event_activity(self) -> None:
+        # Это только manager-level doorbell. Сами события и cursor semantics
+        # остаются в event ring соответствующего ManagedSession.
+        with self._wait_condition:
+            self._wait_condition.notify_all()
 
     def discover(
         self,
@@ -228,6 +236,7 @@ class SessionManager:
             line_ending=line_ending,
             reconnect_delay=self.reconnect_delay,
             connect_preamble=preamble,
+            event_notifier=self._notify_event_activity,
         )
         session_id = self._next_session()
 
@@ -357,6 +366,117 @@ class SessionManager:
             "latest_seq": session.latest_event_seq(),
         }
 
+    def wait_events(
+        self,
+        cursors: dict[str, int],
+        *,
+        timeout_ms: int = 0,
+        streams: list[str] | None = None,
+        kinds: list[str] | None = None,
+    ) -> dict[str, Any]:
+        if not cursors:
+            raise AgentError("invalid_request", "wait_events requires non-empty cursors")
+        if timeout_ms < 0:
+            raise AgentError("invalid_timeout", "timeout_ms must be non-negative")
+
+        watched: list[tuple[str, ManagedSession]] = []
+        current_cursors: dict[str, int] = {}
+        for session_id, cursor in cursors.items():
+            if not isinstance(session_id, str) or not session_id:
+                raise AgentError(
+                    "invalid_request",
+                    "wait_events cursor keys must be non-empty session strings",
+                )
+            if isinstance(cursor, bool) or not isinstance(cursor, int) or cursor < 0:
+                raise AgentError(
+                    "invalid_cursor",
+                    f"invalid event cursor for session {session_id}: {cursor!r}",
+                    {"session": session_id, "requested_seq": cursor},
+                )
+            try:
+                session = self._get_session(session_id)
+            except AgentError as exc:
+                if exc.code != "unknown_session":
+                    raise
+                raise AgentError(
+                    "unknown_session",
+                    f"unknown session: {session_id}",
+                    {"session": session_id},
+                ) from exc
+            watched.append((session_id, session))
+            current_cursors[session_id] = cursor
+
+        stream_filter = set(streams) if streams is not None else None
+        kind_filter = set(kinds) if kinds is not None else None
+        deadline = time.monotonic() + timeout_ms / 1000.0
+
+        # Держим manager condition во время snapshot scan. Session _record_event
+        # уведомляет этот condition уже после освобождения своего event lock, поэтому
+        # событие между scan и wait не может потеряться и lock order не зацикливается.
+        with self._wait_condition:
+            while True:
+                matched: list[tuple[float, str, int, SessionEvent]] = []
+
+                for session_id, session in watched:
+                    cursor = current_cursors[session_id]
+                    try:
+                        available = session.events_after(cursor)
+                    except SessionCursorExpired as exc:
+                        raise AgentError(
+                            "cursor_expired",
+                            f"{session_id}: {exc}",
+                            {
+                                "session": session_id,
+                                "requested_seq": exc.requested_seq,
+                                "oldest_seq": exc.oldest_seq,
+                            },
+                        ) from exc
+                    except ValueError as exc:
+                        raise AgentError(
+                            "invalid_cursor",
+                            f"{session_id}: {exc}",
+                            {"session": session_id, "requested_seq": cursor},
+                        ) from exc
+
+                    if available:
+                        current_cursors[session_id] = available[-1].seq
+
+                    for event in available:
+                        if kind_filter is not None and event.kind not in kind_filter:
+                            continue
+                        if stream_filter is not None and event.stream not in stream_filter:
+                            continue
+                        matched.append(
+                            (event.timestamp, session_id, event.seq, event)
+                        )
+
+                if matched:
+                    matched.sort(key=lambda item: (item[0], item[1], item[2]))
+                    return {
+                        "events": [
+                            {"session": session_id, **_event_dict(event)}
+                            for _, session_id, _, event in matched
+                        ],
+                        "cursors": dict(current_cursors),
+                        "timed_out": False,
+                    }
+
+                if timeout_ms == 0:
+                    return {
+                        "events": [],
+                        "cursors": dict(current_cursors),
+                        "timed_out": False,
+                    }
+
+                remaining = deadline - time.monotonic()
+                if remaining <= 0:
+                    return {
+                        "events": [],
+                        "cursors": dict(current_cursors),
+                        "timed_out": True,
+                    }
+                self._wait_condition.wait(timeout=remaining)
+
     def close(self, session_id: str) -> dict[str, Any]:
         session = self._get_session(session_id)
         with self._lock:
@@ -449,6 +569,46 @@ class AgentProtocol:
                 str(request.get("session", "")),
                 after_seq=int(request.get("after_seq", 0)),
                 timeout_ms=int(request.get("timeout_ms", 0)),
+                streams=streams,
+                kinds=kinds,
+            )
+        if op == "wait_events":
+            cursors = request.get("cursors")
+            streams = request.get("streams")
+            kinds = request.get("kinds")
+            if not isinstance(cursors, dict) or not cursors:
+                raise AgentError(
+                    "invalid_request",
+                    "wait_events requires non-empty object field 'cursors'",
+                )
+            if streams is not None and not isinstance(streams, list):
+                raise AgentError("invalid_request", "streams must be a list")
+            if kinds is not None and not isinstance(kinds, list):
+                raise AgentError("invalid_request", "kinds must be a list")
+            normalized_cursors: dict[str, int] = {}
+            for session_id, cursor in cursors.items():
+                if not isinstance(session_id, str) or not session_id:
+                    raise AgentError(
+                        "invalid_request",
+                        "wait_events cursor keys must be non-empty session strings",
+                    )
+                if isinstance(cursor, bool) or not isinstance(cursor, int):
+                    raise AgentError(
+                        "invalid_cursor",
+                        f"invalid event cursor for session {session_id}: {cursor!r}",
+                        {"session": session_id, "requested_seq": cursor},
+                    )
+                normalized_cursors[session_id] = cursor
+            try:
+                timeout_ms = int(request.get("timeout_ms", 0))
+            except (TypeError, ValueError) as exc:
+                raise AgentError(
+                    "invalid_timeout",
+                    "timeout_ms must be an integer",
+                ) from exc
+            return self.manager.wait_events(
+                normalized_cursors,
+                timeout_ms=timeout_ms,
                 streams=streams,
                 kinds=kinds,
             )
