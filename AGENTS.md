@@ -99,19 +99,25 @@ Do not silently change BLE UUIDs, stream semantics, connection behavior, or tran
 
 ## Agent interface documentation
 
-`AGENT_API.md` is the canonical repository documentation for the machine-facing SerialTerminal interface.
+`AGENT_API.md` is the canonical repository documentation for the machine-facing SerialTerminal JSONL interface. It owns the API schema, operations, request/response semantics, errors, session/cursor behavior, concurrency guarantees, logging contract, and CLI invocation.
 
-The repo-local agent skill, when present, is:
+The active repo-local agent skill is:
 
 `.agents/skills/serialterminal-agent/SKILL.md`
 
-It should contain concise operational guidance for an agent and refer to `AGENT_API.md` for the JSONL contract rather than duplicating the full API specification.
+It is a concise operational entry point for an agent. From its location it refers to `../../../AGENT_API.md` and must not duplicate or redefine the full JSONL contract. If the skill and `AGENT_API.md` ever disagree about SerialTerminal behavior, `AGENT_API.md` is the source of truth and the skill must be corrected.
+
+Project-specific Chatter observations are preserved separately in:
+
+`.agents/skills/serialterminal-agent/SKILL.md.chatter`
+
+`SKILL.md.chatter` is not the active generic SerialTerminal skill and is not a source of truth for the SerialTerminal API. It may contain device addresses, Chatter commands, LoRa/echo/reboot behavior, radio diagnostics, and hardware acceptance notes; those belong conceptually to the related firmware/protocol repository and should not be copied into the generic skill.
 
 For every source-code change, explicitly review both `AGENT_API.md` and `.agents/skills/serialterminal-agent/SKILL.md` for consistency with the changed behavior.
 
-If the change affects the agent-facing API, session semantics, discovery/open/send/receive behavior, streams, errors, logging, CLI invocation, or the recommended agent workflow, update the affected documentation in the same task. Do not leave either document describing behavior that no longer matches the code.
+If the change affects the agent-facing API, session semantics, discovery/open/send/receive behavior, streams, errors, logging, CLI invocation, or the recommended generic agent workflow, update the affected documentation in the same task. Do not leave either active document describing behavior that no longer matches the code.
 
-If the repo-local skill does not yet exist, do not create it solely because of this synchronization rule; create it only when the task explicitly introduces that skill.
+Do not update `SKILL.md.chatter` merely because the generic SerialTerminal API changed unless the project-specific Chatter guidance itself became inaccurate.
 
 ## BLE behavior
 
