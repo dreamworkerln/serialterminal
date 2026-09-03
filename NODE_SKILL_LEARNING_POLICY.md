@@ -2,49 +2,199 @@
 
 ## Purpose
 
-Этот документ задаёт процесс накопления hardware observations и контролируемого обновления `.agents/skills/node-agent/SKILL.md`.
+Этот документ предназначен для reviewer-а, который периодически обрабатывает накопленные hardware observations из orphan branch `node_observations` и при необходимости обновляет `.agents/skills/node-agent/SKILL.md` в `dev`.
 
-Цель — разделить две роли:
+Local executor не должен выполнять этот процесс. Его отдельный контракт: [NODE_OBSERVATION_RECORDING_POLICY.md](NODE_OBSERVATION_RECORDING_POLICY.md).
+
+Reviewer выполняет дорогую часть knowledge processing:
 
 ```text
-local executor agent
-    выполняет hardware-задачи и фиксирует наблюдения
-
-reviewer
-    периодически обрабатывает накопленные observations,
-    обобщает их и обновляет class-level node skill
+raw observations
+→ compare across runs
+→ inspect authoritative source when needed
+→ separate object state from class behavior
+→ deduplicate / resolve conflicts
+→ generalize reusable rules
+→ update lora-chatter-nodes skill
+→ advance REVIEW_STATE.md
 ```
-
-Local executor не должен тратить токены на полноценное knowledge-management рассуждение и не должен самостоятельно «обучать» node skill после каждого hardware run.
 
 ---
 
-## 1. Node skill описывает класс, а не экземпляры
+## 1. Authority and branches
 
-`.agents/skills/node-agent/SKILL.md` должен позволять агенту правильно работать с LoRa-Chatter node, которую он раньше не видел.
+```text
+dev
+    SerialTerminal code/docs
+    AGENT_API.md
+    .agents/skills/serialterminal-agent/SKILL.md
+    .agents/skills/node-agent/SKILL.md
+    reviewer policies
 
-В skill допустимы class-level знания:
+node_observations
+    orphan evidence branch
+    observations/*.md
+    REVIEW_STATE.md
 
-- команды и их semantics;
-- transport/stream behavior;
-- protocol behavior;
-- validation criteria;
-- fault/recovery scenarios;
-- reusable hardware-operation rules;
-- protocol constants и другие настоящие class-level identifiers, когда они являются частью контракта.
+lora-sack-protocol
+    firmware/protocol source authority
+```
 
-В skill не должны попадать instance-specific данные:
+`node_observations` не является source branch и не merge-ится в `dev`.
 
-- конкретные node IDs;
-- MAC/BLE addresses;
-- конкретные USB device paths;
-- session IDs;
-- текущие cursors/seq;
-- текущие RSSI/SNR/Q;
-- текущая lab topology;
-- текущая доступность конкретного transport;
-- текущее питание/состояние конкретного экземпляра;
-- результаты одного run, сформулированные как постоянное свойство устройства.
+Observation records являются historical evidence. Reviewer не переписывает старые records, чтобы они соответствовали текущему пониманию. Correction/refinement делается reviewer output/skill update или новым observation record.
+
+Перед любой записью refetch actual target branch HEAD и relevant files.
+
+---
+
+## 2. Reviewer bootstrap
+
+Перед review:
+
+1. refetch `serialterminal/dev` HEAD;
+2. refetch `serialterminal/node_observations` HEAD;
+3. прочитать root `AGENTS.md`;
+4. прочитать этот policy;
+5. прочитать текущий `.agents/skills/node-agent/SKILL.md`;
+6. прочитать `REVIEW_STATE.md` из `node_observations`, если он существует;
+7. определить exact set новых observation records;
+8. читать `AGENT_API.md`/generic SerialTerminal skill только если observation затрагивает generic API/transport semantics;
+9. inspect `lora-sack-protocol` source/docs, когда для promotion/conflict resolution требуется firmware authority.
+
+Не начинай с memory или guessed last observation.
+
+---
+
+## 3. REVIEW_STATE.md
+
+`REVIEW_STATE.md` живёт в корне orphan branch `node_observations` и является единственным mutable reviewer state в этой branch.
+
+Local executor его не меняет.
+
+Рекомендуемый формат:
+
+```markdown
+# Node observation review state
+
+last_reviewed_observation: observations/OBS_20260903T203005Z_echo-timeout.md
+last_reviewed_observation_commit: <node_observations commit SHA containing/ending processed range>
+reviewed_against_dev: <dev SHA read during review>
+reviewed_by_commit: <dev commit that applied skill/docs changes, or none>
+reviewed_at: YYYY-MM-DDTHH:MM:SSZ
+
+unresolved:
+  - observation: observations/OBS_...
+    reason: <short reason>
+```
+
+Semantics:
+
+- `last_reviewed_observation` — последний observation file в полностью обработанном диапазоне;
+- `last_reviewed_observation_commit` — commit observation branch, до которого review выполнен;
+- `reviewed_against_dev` — exact `dev` checkpoint, с которым сравнивались observations/skill;
+- `reviewed_by_commit` — exact `dev` commit, созданный review-ом для обновления skill/docs; если изменения в `dev` не требовались, `none`;
+- `unresolved` — уже рассмотренные, но не закрытые anomaly/conflict candidates, которые надо сохранить видимыми для будущего evidence.
+
+`REVIEW_STATE.md` обновляется только после того, как reviewer outcome в `dev` завершён и проверен.
+
+---
+
+## 4. Как определить новые observations
+
+Primary boundary — `last_reviewed_observation_commit`.
+
+Reviewer должен обработать observation files, добавленные в `node_observations` после этого commit, в commit order.
+
+Если `REVIEW_STATE.md` ещё отсутствует, это initial review: обработай все существующие `observations/OBS_*.md`.
+
+Если старый state содержит только `last_reviewed_observation`, но не commit SHA, найди commit, который впервые добавил этот file, и используй его как recovery boundary.
+
+Не полагайся только на timestamp filename: commit history является authoritative ordering при неоднозначности.
+
+`REVIEW_STATE.md`-only commits не считаются observations.
+
+---
+
+## 5. Processing каждого observation
+
+Для каждого нового record:
+
+1. проверить, что это factual observation, а не уже выполненная generalization;
+2. сохранить concrete setup/identity/measurements как run evidence;
+3. проверить exact SerialTerminal/firmware checkpoints, если они указаны;
+4. сравнить observation с текущим node skill;
+5. при необходимости сравнить с другими observations того же scenario;
+6. при semantic conflict inspect authoritative firmware/source или generic API;
+7. классифицировать reviewer outcome;
+8. решить: ignore as transient, retain as evidence, mark unresolved, report bug candidate, refine existing skill rule или promote new class-level rule.
+
+Reviewer не обязан превращать каждый PASS в новое знание.
+
+---
+
+## 6. Classification
+
+Минимальные классы:
+
+```text
+CONFIRMS_EXISTING
+    observation подтверждает уже правильный class-level rule
+
+CLASS_CANDIDATE
+    reusable behavior, потенциально достойное skill
+
+INSTANCE_STATE
+    состояние/config одного экземпляра
+
+ENVIRONMENT_TOPOLOGY
+    текущие transports/devices/permissions/lab setup
+
+MEASUREMENT
+    RSSI/SNR/Q/timing/counters/current values
+
+EVIDENCE_ONLY
+    полезное историческое подтверждение без изменения skill
+
+ANOMALY_CONFLICT
+    расходится с skill/source/expected behavior
+
+BUG_CANDIDATE
+    evidence указывает на возможный regression/implementation defect
+
+INSUFFICIENT
+    evidence недостаточно для вывода
+```
+
+Только `CLASS_CANDIDATE` после promotion gate напрямую изменяет node skill.
+
+`ANOMALY_CONFLICT` сначала требует resolution; он не является автоматическим новым contract.
+
+---
+
+## 7. Class-level abstraction rule
+
+`.agents/skills/node-agent/SKILL.md` описывает класс LoRa-Chatter node, а не лабораторные экземпляры.
+
+Reviewer должен суметь сформулировать promoted rule без случайной привязки к:
+
+- concrete node ID;
+- MAC/BLE address;
+- USB device path;
+- session ID/cursor/seq;
+- current RSSI/SNR/Q;
+- current topology;
+- current transport availability;
+- current power state конкретного экземпляра;
+- exact payload/date одного run.
+
+Главный тест:
+
+```text
+Would this instruction help an agent operate a LoRa-Chatter node it has never seen before?
+```
+
+Если нет — это почти наверняка evidence/state, а не skill knowledge.
 
 Ключевое правило:
 
@@ -52,277 +202,220 @@ Local executor не должен тратить токены на полноце
 current state of an object != behavior of the class
 ```
 
-Например, observation «в этом run USB endpoint отсутствовал» не означает, что LoRa-Chatter node не поддерживает USB. Observation «в этом run RF был недоступен» не означает, что конкретная node permanently имеет отключённый RF.
+---
+
+## 8. Generalization examples
+
+Не promote:
+
+```text
+node <id> had RF disabled
+```
+
+Можно promote после подтверждения:
+
+```text
+If controller power remains available while radio-module power is absent,
+controller transport may remain reachable while RF is unavailable.
+```
+
+Не promote:
+
+```text
+USB endpoint was absent/present in this run
+```
+
+Можно promote:
+
+```text
+Discovery reflects currently available transports, not a permanent node inventory.
+Multiple transports reporting the same node identity are transport paths to one physical node.
+```
+
+Не promote:
+
+```text
+RSSI was -29 dBm
+```
+
+Можно использовать как evidence успешного peer RX, но не как class-level expected RSSI.
 
 ---
 
-## 2. Local executor — простой исполнитель
+## 9. Promotion gate
 
-Local executor должен:
+Новое/изменённое правило попадает в `node-agent/SKILL.md` только если:
 
-1. прочитать `AGENTS.md`, `AGENT_API.md`, generic SerialTerminal skill и текущий node skill;
-2. выполнить заданный hardware scenario;
-3. собрать достаточное evidence для PASS/FAIL/BLOCKED;
-4. не путать local queue/write confirmation с higher-level delivery;
-5. явно сообщить неожиданное поведение, anomaly или bug candidate;
-6. оставить hardware в требуемом безопасном финальном состоянии;
-7. при включённом observation recording сохранить короткую фактическую запись о run.
+- оно class-level;
+- повторно полезно будущему executor-у;
+- не является transient state/measurement/topology;
+- подтверждено достаточным hardware evidence, authoritative source или их сочетанием;
+- формулировка не сильнее имеющегося evidence/source;
+- это не догадка;
+- оно не противоречит authoritative source;
+- оно не дублирует уже существующий rule;
+- оно уменьшает вероятность будущей ошибки executor-а;
+- skill остаётся компактной instruction manual, а не test log.
 
-Local executor не обязан:
+Один run может быть достаточен для хорошо определённого fault scenario, если intentional setup известен и source/behavior согласованы. Один случайный outcome не должен превращаться в универсальный contract.
 
-- классифицировать каждое наблюдение как reusable knowledge;
-- строить общую модель поведения;
-- разрешать противоречия между skill, source и hardware;
-- дедуплицировать накопленные знания;
-- редактировать `node-agent/SKILL.md`;
-- превращать единичное observation в постоянное правило.
-
-Если обнаружено поведение, противоречащее текущему skill или expected result, executor должен рапортовать его как anomaly/conflict и сохранить evidence, а не переписывать skill под один run.
+Если confidence недостаточен, leave unresolved/evidence-only.
 
 ---
 
-## 3. Observation records — сырьё, не skill
+## 10. Conflict resolution
 
-Для накопления наблюдений рекомендуется отдельная evidence area, например:
-
-```text
-node_observations/
-    OBS_YYYYMMDD_<short-topic>.md
-```
-
-Если позже будет выделена отдельная Git branch для executor-generated observations, executor должен писать только observation records в эту branch. Создание/имя такой branch является отдельным repository decision и этой policy автоматически не выполняется.
-
-Observation record должен быть коротким и фактическим. Минимальный шаблон:
-
-```markdown
-# Node observation
-
-Observed: YYYY-MM-DDTHH:MM:SSZ
-Task: <short task>
-Firmware/source checkpoint: <repo/branch@SHA if known/relevant>
-SerialTerminal checkpoint: <repo/branch@SHA>
-
-## Setup
-- transports actually discovered/used
-- relevant intentional fault/setup conditions
-
-## Actions
-- concise ordered actions
-
-## Observed evidence
-- exact relevant outputs/events
-- PASS/FAIL/BLOCKED facts
-
-## Anomalies / conflicts
-- expected vs observed, if any
-
-## Final state
-- cleanup/restored modes/sessions
-
-## Evidence pointers
-- log path / artifact / commit / external report when available
-```
-
-Не нужно копировать полный terminal transcript, если достаточно точных excerpts и ссылки на authoritative log/evidence.
-
-Observation record может содержать concrete node IDs, addresses, measurements и topology, потому что это historical evidence конкретного run. Именно поэтому observation records отделены от class-level skill.
-
----
-
-## 4. Bug/anomaly reporting имеет приоритет
-
-Если executor обнаружил потенциальный баг, regression или расхождение с ожидаемым поведением, он должен явно выделить:
+Если observation противоречит skill, reviewer должен сначала определить наиболее вероятный тип:
 
 ```text
-expected
-observed
-evidence
-reproduction steps, if known
-current impact
-```
-
-Он не должен автоматически объявлять новое observed behavior правильным контрактом.
-
-До reviewer/source inspection такой результат остаётся anomaly/bug candidate.
-
----
-
-## 5. Reviewer выполняет обучение
-
-Reviewer периодически читает накопленные observation records, текущий node skill, relevant firmware/source и generic SerialTerminal contract.
-
-Именно reviewer выполняет дорогую часть процесса:
-
-```text
-collect observations
-→ compare with current skill
-→ inspect authoritative source when needed
-→ separate instance state from class behavior
-→ deduplicate
-→ resolve/refine conflicts
-→ generalize reusable rules
-→ update node skill
-→ preserve evidence separately
-```
-
-Reviewer может использовать Git/GitHub history, exact SHAs и накопленные observation files для cross-run анализа.
-
----
-
-## 6. Reviewer classification
-
-При обработке observation reviewer различает минимум:
-
-```text
-CLASS BEHAVIOR
-    reusable behavior of LoRa-Chatter nodes
-
-INSTANCE STATE
-    current state/configuration of one physical node
-
-ENVIRONMENT / TOPOLOGY
-    what transports/devices were available in this run
-
-MEASUREMENT
-    RSSI/SNR/Q/timing/counters and similar run-specific values
-
-EVIDENCE
-    historical proof that a scenario was exercised
-
-ANOMALY / CONFLICT
-    observation that disagrees with skill/source/expected behavior
-```
-
-Только reusable class behavior является прямым кандидатом на promotion в node skill.
-
-Instance state, topology, measurements и run history остаются evidence.
-
----
-
-## 7. Generalization rule
-
-Перед promotion reviewer должен суметь сформулировать знание без привязки к конкретному экземпляру или случайной лабораторной конфигурации.
-
-Плохая формулировка:
-
-```text
-node 1B44 has RF disabled
-```
-
-Хорошая class-level формулировка:
-
-```text
-If the controller remains powered while radio-module power is absent,
-controller transport may remain available while boot reports RF unavailable.
-```
-
-Плохая формулировка:
-
-```text
-USB device X is always present
-```
-
-Хорошая class-level формулировка:
-
-```text
-Discovery reflects currently available transports. If multiple transports
-report the same node identity, treat them as transport paths to one physical node.
-```
-
----
-
-## 8. Promotion gate
-
-Reviewer может добавить/изменить правило в `node-agent/SKILL.md` только если оно:
-
-- class-level, а не instance-level;
-- повторно полезно будущему агенту;
-- не является transient measurement/state;
-- не зависит без необходимости от concrete node IDs/addresses/topology;
-- подтверждено source contract, hardware evidence или их сочетанием;
-- не является простой догадкой;
-- не противоречит authoritative source;
-- не дублирует существующее правило;
-- делает skill инструкцией, а не журналом экспериментов.
-
-Если confidence недостаточен, knowledge остаётся в observations до следующего review/validation.
-
----
-
-## 9. Conflict handling
-
-Observation, противоречащее skill, не должно автоматически overwrite skill.
-
-Reviewer сначала определяет одно из:
-
-```text
-skill wording was too absolute
-skill is stale after source change
-observation is an intentional alternate hardware state
-observation is environment-specific
-observation is a regression/bug
+skill wording too absolute
+skill stale after behavior/source change
+intentional alternate hardware state
+instance/environment-specific outcome
+measurement variance
+SerialTerminal/tool artifact
+firmware regression/bug
 insufficient evidence
 ```
 
-Только после этого меняется class-level guidance.
+Дальше:
+
+- если skill слишком абсолютный — сузить его до реально подтверждённого class-level rule;
+- если source изменился — обновить skill по actual source + validation evidence;
+- если alternate state — описать conditional scenario, а не свойство экземпляра;
+- если environment/instance-specific — оставить только в evidence;
+- если bug candidate — не нормализовать баг в skill; сохранить unresolved и рапортовать;
+- если insufficient — не менять skill.
 
 ---
 
-## 10. Skill не является test log
+## 11. Cross-run processing
 
-Датированные smoke runs, конкретные payloads, MAC addresses, exact RSSI/SNR/Q и аналогичные сведения должны жить в observation/evidence records, а не накапливаться в node skill.
+Reviewer должен использовать накопление observations для выводов, которые local executor делать не обязан:
 
-Skill может сохранить обобщённый проверенный вывод, например:
+- одинаковый pattern повторяется в разных runs;
+- один observation опровергает слишком сильную старую формулировку;
+- разные экземпляры показывают один class-level behavior;
+- fault scenario воспроизводится при одинаковом intentional setup;
+- старый anomaly исчез после source fix;
+- measurement variation подтверждает, что значение не является constant.
+
+Не нужно ждать искусственного числа повторов. Требуемая evidence strength зависит от типа claim.
+
+---
+
+## 12. Обновление lora-chatter-nodes skill
+
+Target:
 
 ```text
-BLE notification boundaries are not guaranteed to match text-line boundaries.
+serialterminal/dev:.agents/skills/node-agent/SKILL.md
 ```
 
-но не обязан хранить каждую дату и каждый run, который этот факт подтвердил.
+Перед write:
+
+1. refetch actual `dev` HEAD;
+2. refetch current skill blob;
+3. re-check that observations still относятся к актуальному behavior/source;
+4. внести минимальные class-level changes;
+5. не переносить raw logs/IDs/measurements в skill;
+6. review diff for accidental weakening/duplication;
+7. commit normal docs change to `dev`;
+8. read back commit and updated skill.
+
+Если review затронул generic SerialTerminal API, следовать `AGENTS.md`: отдельно проверить `AGENT_API.md` и generic SerialTerminal skill. Не переписывать generic contract из Chatter-specific observation без source evidence.
 
 ---
 
-## 11. Recommended operational loop
+## 13. Порядок обновления REVIEW_STATE.md
+
+После processing диапазона:
+
+1. сначала закончить все необходимые изменения в `dev`;
+2. получить exact resulting `dev` commit SHA;
+3. read back updated skill/docs;
+4. определить последний полностью обработанный observation и observation-branch commit boundary;
+5. refetch actual `node_observations` HEAD и current `REVIEW_STATE.md`;
+6. update `REVIEW_STATE.md`;
+7. сохранить unresolved entries;
+8. commit state update в `node_observations`;
+9. read back state.
+
+Нельзя advance `REVIEW_STATE.md`, если reviewer ещё не закончил соответствующий dev outcome.
+
+Если `dev` change не требовался:
 
 ```text
-user/reviewer defines hardware task
-        ↓
-local executor runs task
-        ↓
-PASS/FAIL/BLOCKED + evidence
-        ↓
-optional observation file committed to evidence area/branch
-        ↓
-reviewer periodically processes accumulated observations
-        ↓
-reviewer updates node-agent/SKILL.md only when promotion gate passes
+reviewed_by_commit: none
+reviewed_against_dev: <exact dev SHA used for review>
 ```
 
-Local executor optimizes for reliable execution and evidence collection.
-Reviewer optimizes for correctness, abstraction quality and long-term skill maintenance.
+Это означает: observations обработаны, но skill/docs уже были корректны или promotion не прошла.
 
 ---
 
-## 12. Authority
+## 14. Partial review
+
+Reviewer может обработать только часть новых observations.
+
+В этом случае `last_reviewed_observation*` продвигается только до последнего **полностью обработанного** record в contiguous commit range.
+
+Не перескакивай через неразобранный observation только потому, что более поздний файл проще.
+
+Unresolved observation считается обработанным для cursor/state, если reviewer уже классифицировал его и сохранил в `unresolved`; будущие related observations могут закрыть его позднее.
+
+---
+
+## 15. What not to do
+
+Reviewer не должен:
+
+- удалять raw observations после promotion;
+- переписывать history `node_observations` ради чистоты;
+- переносить MAC/node IDs/measurements в class skill;
+- считать PASS одного run обязательной class guarantee;
+- нормализовать regression как новый contract без source decision;
+- обновлять REVIEW_STATE до skill/docs outcome;
+- заявлять hardware/source validation, которое не выполнялось.
+
+---
+
+## 16. Expected reviewer report
+
+После review сообщить кратко:
 
 ```text
-AGENT_API.md
-    generic SerialTerminal machine-facing API authority
+observations processed: <range/count>
+skill changes: <summary or none>
+unresolved: <count/list>
+dev commit: <SHA or none>
+REVIEW_STATE commit: <SHA>
+next observation boundary: <last_reviewed_observation>
+```
 
-.agents/skills/serialterminal-agent/SKILL.md
-    concise generic operational guidance
+---
 
-.agents/skills/node-agent/SKILL.md
-    class-level LoRa-Chatter operating/validation guidance
+## Authority summary
+
+```text
+NODE_OBSERVATION_RECORDING_POLICY.md
+    local executor -> raw evidence
+
+node_observations/observations/*.md
+    immutable run-specific observations
 
 NODE_SKILL_LEARNING_POLICY.md
-    rules for collecting evidence and promoting knowledge into node skill
+    reviewer processing/promotion rules
 
-node observation records
-    historical run-specific evidence
+node_observations:REVIEW_STATE.md
+    mutable review cursor/state
+
+.agents/skills/node-agent/SKILL.md
+    current class-level LoRa-Chatter instructions
 
 lora-sack-protocol source/docs
     firmware/protocol implementation authority
-```
 
-При расхождении skill с source или новым hardware evidence skill не переписывается локальным executor автоматически. Расхождение передаётся reviewer-у для анализа и controlled promotion/correction.
+AGENT_API.md
+    generic SerialTerminal API authority
+```
