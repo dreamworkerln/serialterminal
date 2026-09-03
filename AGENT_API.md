@@ -53,7 +53,7 @@ Error:
 
 `id` is copied from the request and may be any JSON value.
 
-A wait timeout is not an error. `events` returns an empty array with `timed_out: true`.
+A wait timeout is not an error. `events` and `wait_events` return an empty event array with `timed_out: true` when a positive timeout expires without a matching event.
 
 ## Device discovery
 
@@ -278,6 +278,166 @@ connect-preamble-written
 
 The event buffer is retained in memory with a finite window. If a caller holds an obsolete cursor after that window has rotated, the API returns structured error `cursor_expired` with the oldest available sequence number.
 
+## Wait for events across one or more sessions
+
+`wait_events` is the preferred long-poll operation when an agent may need to react to any of several open sessions. It also works with exactly one session, so the same operation can be used for a single-device echo/response test and for a multi-device exchange.
+
+`cursors` is a non-empty object that maps every watched session ID to the last event sequence already inspected for that session:
+
+```json
+{
+  "id":20,
+  "op":"wait_events",
+  "cursors":{
+    "s1":42
+  },
+  "timeout_ms":10000
+}
+```
+
+Watch two sessions with one request:
+
+```json
+{
+  "id":21,
+  "op":"wait_events",
+  "cursors":{
+    "s1":42,
+    "s2":75
+  },
+  "timeout_ms":30000
+}
+```
+
+Sequence numbers are independent per session. There is intentionally no single global `after_seq` for multi-session waits.
+
+SerialTerminal does not repeatedly poll each session while waiting. Every `ManagedSession` keeps its own authoritative event ring and notifies a manager-level condition when an event is recorded. `wait_events` sleeps on that shared wakeup and then inspects the watched session rings.
+
+When at least one matching event is available, the response contains all matching events already available across the watched sessions. Every returned event includes its source `session`:
+
+```json
+{
+  "id":21,
+  "ok":true,
+  "result":{
+    "events":[
+      {
+        "session":"s1",
+        "seq":43,
+        "kind":"tx",
+        "tx_id":7,
+        "tx_state":"written"
+      },
+      {
+        "session":"s2",
+        "seq":76,
+        "kind":"rx",
+        "stream":"chat",
+        "text":"hello\n"
+      }
+    ],
+    "cursors":{
+      "s1":43,
+      "s2":76
+    },
+    "timed_out":false
+  }
+}
+```
+
+Returned `cursors` are the positions the caller should use for its next `wait_events` request.
+
+### Filters and cursor advancement
+
+`wait_events` accepts the same optional `kinds` and `streams` filters as `events`:
+
+```json
+{
+  "id":22,
+  "op":"wait_events",
+  "cursors":{
+    "s1":43,
+    "s2":76
+  },
+  "kinds":["rx"],
+  "streams":["chat"],
+  "timeout_ms":30000
+}
+```
+
+A filter controls which events are returned and which events cause the wait to complete. Cursors nevertheless advance through every inspected event, including events excluded by the filter.
+
+For example, if a session produces:
+
+```text
+seq 44  tx
+seq 45  state
+seq 46  rx/chat
+```
+
+while `kinds:["rx"]` is active, only `seq=46` is returned, and the returned cursor for that session is `46`. If only `tx` and `state` events arrive before timeout, no events are returned, but the response cursor advances past those inspected events so the next wait does not reconsider them.
+
+With `timeout_ms:0`, `wait_events` is an immediate multi-session snapshot. An empty immediate snapshot has `timed_out:false`, matching the existing `events` convention that only an expired positive timeout is reported as a timeout.
+
+### Timeout
+
+If no matching event appears before a positive timeout expires:
+
+```json
+{
+  "id":23,
+  "ok":true,
+  "result":{
+    "events":[],
+    "cursors":{
+      "s1":43,
+      "s2":76
+    },
+    "timed_out":true
+  }
+}
+```
+
+The cursor values may be higher than the input values if non-matching events were inspected while the request was waiting.
+
+### Errors
+
+An empty `cursors` object is `invalid_request`. Cursor keys must be non-empty session strings and cursor values must be non-negative integers.
+
+If a watched session does not exist, the request fails with `unknown_session` and identifies the affected session:
+
+```json
+{
+  "id":24,
+  "ok":false,
+  "error":{
+    "code":"unknown_session",
+    "message":"unknown session: missing",
+    "details":{"session":"missing"}
+  }
+}
+```
+
+If one watched cursor is older than that session's retained event window, the complete `wait_events` request fails with `cursor_expired`. The error identifies the affected session, requested cursor, and oldest retained sequence:
+
+```json
+{
+  "id":25,
+  "ok":false,
+  "error":{
+    "code":"cursor_expired",
+    "message":"s2: event cursor 10 expired; oldest available seq is 57",
+    "details":{
+      "session":"s2",
+      "requested_seq":10,
+      "oldest_seq":57
+    }
+  }
+}
+```
+
+At the current Stage 1 implementation checkpoint the JSONL reader is still synchronous: while one `wait_events` request is pending, the process does not read the next request line. Concurrent command handling while a wait is pending is the next stage of the same API work.
+
 ## Close
 
 ```json
@@ -295,7 +455,7 @@ discover
 open Device A -> s1
 open Device B -> s2
 send_line s1
-wait events s2
+wait_events {s1, s2}
 ...
 close s1
 close s2
