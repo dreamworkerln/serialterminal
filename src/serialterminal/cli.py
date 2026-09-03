@@ -1,9 +1,8 @@
 from __future__ import annotations
 
 import argparse
-from dataclasses import dataclass
 import sys
-import time
+from dataclasses import dataclass
 from typing import Any
 
 from .runlog import default_log_path
@@ -14,7 +13,6 @@ from .transports.serial import (
     SerialDeviceIdentity,
     SerialTransport,
     discover_serial_devices,
-    find_ports,
 )
 
 
@@ -523,7 +521,7 @@ def _run_session(
     selector: DeviceSelector,
     reconnect_delay: float = 0.5,
 ) -> int:
-    actual_log_path = PathLikeLog = str(default_log_path()) if log_path is None else log_path
+    actual_log_path = str(default_log_path()) if log_path is None else log_path
     print(f"Locked target: {transport.description}")
     print(
         "After disconnect/reboot only this selected device "
