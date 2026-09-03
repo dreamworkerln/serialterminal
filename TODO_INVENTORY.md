@@ -4,28 +4,51 @@ This file is the authoritative current-state index for engineering TODOs in this
 
 ## Active
 
+None.
+
+## Closed
+
 ### TODO_003 — `todos/TODO_003_AGENT_CODE_QUALITY.md`
 
-Status: OPEN
+Status: CLOSED
 
 Goal: reduce accidental complexity in agent `wait_events`, JSON operation dispatch, and JSONL runner lifecycle without changing the documented machine API.
 
 Current state:
 
 ```text
-wait_events decomposition                 OPEN
-per-operation protocol handlers           OPEN
-JSONL runner lifecycle extraction         OPEN
-dead-import cleanup                       OPEN
-AGENT_API.md consistency review            OPEN
-GitHub Actions validation                  OPEN
+wait_events decomposition                 CLOSED
+per-operation protocol handlers           CLOSED
+JSONL runner lifecycle extraction         CLOSED
+dead-import/local cleanup                  CLOSED
+Ruff F401/F841 hard gate                   CLOSED
+AGENT_API.md consistency review            CLOSED / no content change required
+GitHub Actions validation                  CLOSED / PASS
 ```
 
-Baseline:
+Complexity change:
 
 ```text
-dev@b6133990e020a64e59ecf76236b6c1de9f59ce5a
-GitHub Actions 33783101850 SUCCESS
+SessionManager.wait_events   CCN 28 -> 10   length 116 -> 53
+AgentProtocol._dispatch      CCN 33 -> 3    length 108 -> 20
+run_agent                    CCN 14 -> 3    length 110 -> 21
+project Lizard warnings      15 -> 13
+```
+
+Exact checkpoints:
+
+```text
+Baseline:
+  dev@b6133990e020a64e59ecf76236b6c1de9f59ce5a
+  GitHub Actions 33783101850 SUCCESS
+
+Agent orchestration refactor:
+  dev@741b1d926c68ba2e8d811a201b01c235616687c8
+  GitHub Actions 33785313698 SUCCESS
+
+Accepted implementation/static-analysis checkpoint:
+  dev@a74b46585b3f2c0e032b6b444b2d1089b4fde1e9
+  GitHub Actions 33785730259 SUCCESS
 ```
 
 ### TODO_002 — `todos/TODO_002_AGENT_EVENT_WAIT.md`
