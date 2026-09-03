@@ -56,16 +56,14 @@ def test_stream_visibility_and_hotkeys(tmp_path):
         log_path=tmp_path / "terminal.log",
     )
     try:
-        assert session.view_mode == "both"
-        assert session._received_visible("chat")
-        assert session._received_visible("telemetry")
-        assert session._received_visible("main")
-
-        session.view_mode = "chat"
+        assert session.view_mode == "chat"
         assert session._received_visible("chat")
         assert not session._received_visible("telemetry")
+        assert session._received_visible("main")
         assert len(session._build_key_bindings().bindings) == 12
 
+        # Legacy internal view switching remains available for compatibility,
+        # but normal keybindings no longer expose it.
         session.view_mode = "telemetry"
         session.write_received(ReceivedChunk("chat", b"hidden chat\n"))
         assert "hidden chat" in (tmp_path / "terminal.log").read_text()
@@ -82,8 +80,6 @@ def test_system_lines_bypass_local_telemetry_view(tmp_path, monkeypatch):
     try:
         session.view_mode = "telemetry"
 
-        # The SYSTEM prefix may itself be split across arbitrary BLE notify
-        # chunks. Ordinary CHAT lines around it must remain hidden.
         session.write_received(ReceivedChunk("chat", b"> hidden\n[SY"))
         assert "".join(fake_stdout.writes) == ""
 
@@ -184,6 +180,7 @@ def test_help_hotkey_is_equivalent_to_full_help(tmp_path):
         transcript = (tmp_path / "terminal.log").read_text()
         assert "[serialterminal hotkeys]" in transcript
         assert "/chat /tele /both /echo /reboot" in transcript
+        assert "background/transcript-only" in transcript
         assert "full help (this list + Chatter /help)" in transcript
     finally:
         session.log_file.close()
@@ -257,18 +254,19 @@ def test_received_ble_chunks_are_committed_as_complete_lines(tmp_path, monkeypat
     fake_stdout = FakeStdout()
     monkeypatch.setattr(terminal_module.sys, "stdout", fake_stdout)
 
+    log_path = tmp_path / "terminal.log"
     session = TerminalSession(
         DummyBleLikeTransport(),
-        log_path=tmp_path / "terminal.log",
+        log_path=log_path,
     )
     try:
-        session.view_mode = "both"
         session.write_received(ReceivedChunk("telemetry", b"TX HEARTBEAT seq=18"))
         assert fake_stdout.writes == []
 
         session.write_received(ReceivedChunk("telemetry", b" frame=12B\n"))
 
-        assert fake_stdout.writes == ["TX HEARTBEAT seq=18 frame=12B\n"]
+        assert fake_stdout.writes == []
+        assert "TX HEARTBEAT seq=18 frame=12B\n" in log_path.read_text()
         assert fake_stdout.flush_count == 0
     finally:
         session.log_file.close()
@@ -286,8 +284,6 @@ def test_received_utf8_survives_ble_notification_boundary(tmp_path, monkeypatch)
         text = "[ME] апршщдзжзжзхэ\n"
         encoded = text.encode("utf-8")
 
-        # Split after only the first byte of a two-byte Cyrillic code point,
-        # matching an arbitrary BLE notification/MTU boundary.
         prefix = "[ME] апршщдз".encode("utf-8")
         cut = len(prefix) + 1
         session.write_received(ReceivedChunk("chat", encoded[:cut]))
@@ -308,20 +304,21 @@ def test_utf8_decoder_state_is_separate_per_ble_stream(tmp_path, monkeypatch):
     fake_stdout = FakeStdout()
     monkeypatch.setattr(terminal_module.sys, "stdout", fake_stdout)
 
+    log_path = tmp_path / "terminal.log"
     session = TerminalSession(
         DummyBleLikeTransport(),
-        log_path=tmp_path / "terminal.log",
+        log_path=log_path,
     )
     try:
-        session.view_mode = "both"
         letter = "ж".encode("utf-8")
 
         session.write_received(ReceivedChunk("chat", letter[:1]))
         session.write_received(ReceivedChunk("telemetry", b"T\n"))
         session.write_received(ReceivedChunk("chat", letter[1:] + b"\n"))
 
-        assert "".join(fake_stdout.writes) == "T\nж\n"
+        assert "".join(fake_stdout.writes) == "ж\n"
         assert "�" not in "".join(fake_stdout.writes)
+        assert "T\n" in log_path.read_text()
     finally:
         session.log_file.close()
 
@@ -437,7 +434,8 @@ def test_interleaved_telemetry_does_not_duplicate_pending_payload(tmp_path, monk
     fake_stdout = FakeStdout()
     monkeypatch.setattr(terminal_module.sys, "stdout", fake_stdout)
 
-    session = TerminalSession(DummyBleLikeTransport(), log_path=tmp_path / "terminal.log")
+    log_path = tmp_path / "terminal.log"
+    session = TerminalSession(DummyBleLikeTransport(), log_path=log_path)
     try:
         session._submit_interactive_line("hello")
         assert session.outgoing.get_nowait() == "hello"
@@ -446,9 +444,8 @@ def test_interleaved_telemetry_does_not_duplicate_pending_payload(tmp_path, monk
         session.write_received(ReceivedChunk("telemetry", b"TX USER seq=7 OK\n"))
         session.write_received(ReceivedChunk("chat", b"> hello\n"))
 
-        assert "".join(fake_stdout.writes) == (
-            "TX USER seq=7 OK\n> hello\n"
-        )
+        assert "".join(fake_stdout.writes) == "> hello\n"
+        assert "TX USER seq=7 OK\n" in log_path.read_text()
         assert session._presentation.pending_count() == 0
     finally:
         session.log_file.close()

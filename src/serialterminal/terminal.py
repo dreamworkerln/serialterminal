@@ -69,12 +69,10 @@ class TerminalSession:
         self._received_line_buffers = {}
         self._hidden_chat_line_buffer = ""
 
-        # BLE defaults to BOTH so Chatter /chat /tele /both has the same
-        # user-visible meaning as in a standard Android NUS terminal. The
-        # Ctrl+T 1/2/3 view remains an optional local display filter.
-        # Plain Serial/SPP use stream `main`, which is always visible because
-        # their output is physically combined.
-        self.view_mode = "both"
+        # Human console follows the primary/main stream. BLE 0004 telemetry is
+        # still subscribed and retained in the transcript, but is background
+        # machine data rather than a second user-visible VIEW.
+        self.view_mode = "chat"
 
         self.log_file = self.log_path.open("a", encoding="utf-8", buffering=1)
         stamp = datetime.now().astimezone().strftime("%Y-%m-%d %H:%M:%S %z")
@@ -165,9 +163,13 @@ class TerminalSession:
             self.log_file.flush()
 
             for line in lines:
-                reveal = self._presentation.consume_firmware_line(line)
-                if reveal is not None:
-                    sys.stdout.write(reveal + "\n")
+                # Only the human/main firmware stream owns presentation
+                # outcomes. Background BLE 0004 telemetry must not resolve or
+                # reject pending USER/ECHO presentation state.
+                if chunk.stream != "telemetry":
+                    reveal = self._presentation.consume_firmware_line(line)
+                    if reveal is not None:
+                        sys.stdout.write(reveal + "\n")
 
                 if self._received_line_visible(chunk.stream, line):
                     sys.stdout.write(line)
@@ -198,9 +200,6 @@ class TerminalSession:
             transport.disconnect()
             return False
 
-        # USB/serial does not expose the Chatter BLE name during device selection.
-        # Ask the controller for its canonical node identity before opening the
-        # reconnect-safe user TX gate so queued user lines cannot overtake /id.
         if isinstance(transport, SerialTransport):
             try:
                 transport.write(encode_line(CHATTER_ID_COMMAND, self.line_ending))
@@ -329,9 +328,9 @@ class TerminalSession:
                     )
                 )
 
-        add_control("1", "chat")
-        add_control("2", "telemetry")
-        add_control("3", "both")
+        add_control("1", "output_chat")
+        add_control("2", "output_telemetry")
+        add_control("3", "output_both")
         add_control("c", "output_chat")
         add_control("t", "output_telemetry")
         add_control("b", "output_both")
@@ -354,20 +353,9 @@ class TerminalSession:
         )
 
     def _set_view_mode(self, mode: str) -> None:
-        transport = self._current_transport()
-        if set(transport.stream_capabilities) == {"main"}:
-            self.write_output(
-                "\n[view: USB/Serial/SPP is physically combined; "
-                "use Ctrl+T c/t/b to change Chatter device output]\n\n"
-            )
-            return
-
-        with self.decode_lock:
-            self._hidden_chat_line_buffer = ""
-            self._received_line_buffers.clear()
-
+        # Retained as an internal compatibility helper for old callers/tests;
+        # normal UI no longer exposes a local VIEW selector.
         self.view_mode = mode
-        self.write_output(f"\n[view: {mode.upper()}]\n\n")
 
     def _print_status(self) -> None:
         transport = self._current_transport()
@@ -377,25 +365,22 @@ class TerminalSession:
             f"  connected : {'yes' if self.connected_event.is_set() else 'no'}\n"
             f"  device    : {transport.description}\n"
             f"  device key: {transport.device_key}\n"
-            f"  view      : {self.view_mode.upper()}\n"
             f"  streams   : {streams}\n"
+            "  telemetry : BLE 0004 is background/transcript-only\n"
             "\n"
         )
 
     def _print_hotkey_help(self) -> None:
         self.write_output(
             "\n[serialterminal hotkeys]\n"
-            "  VIEW default: BOTH; Ctrl+T 1/2/3 are local display filters only\n"
+            "  BLE 0004 telemetry is background/transcript-only; normal console follows 0003\n"
             "  /chat /tele /both /echo /reboot are sent unchanged to Chatter\n"
             "  /id requests the canonical Chatter node identity\n"
             "  /help shows this list and requests Chatter /help\n"
             "  Ctrl+C       quit immediately\n"
-            "  Ctrl+T 1     local CHAT view (BLE)\n"
-            "  Ctrl+T 2     local TELEMETRY view (BLE)\n"
-            "  Ctrl+T 3     local BOTH view (BLE)\n"
-            "  Ctrl+T c     Chatter device output: CHAT\n"
-            "  Ctrl+T t     Chatter device output: TELEMETRY\n"
-            "  Ctrl+T b     Chatter device output: BOTH\n"
+            "  Ctrl+T 1/c   Chatter human console: CHAT\n"
+            "  Ctrl+T 2/t   Chatter human console: TELEMETRY\n"
+            "  Ctrl+T 3/b   Chatter human console: BOTH\n"
             "  Ctrl+T e     Chatter echo mode toggle\n"
             "  Ctrl+T d     device chooser\n"
             "  Ctrl+T s     Bluetooth capability scanner\n"

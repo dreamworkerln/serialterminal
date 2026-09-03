@@ -28,14 +28,15 @@ class DummyBleLikeTransport(Transport):
         pass
 
 
-def test_ble_session_defaults_to_both_view(tmp_path):
+def test_ble_session_defaults_to_human_console_only(tmp_path):
     session = TerminalSession(
         DummyBleLikeTransport(),
         log_path=tmp_path / "terminal.log",
     )
     try:
-        assert session.view_mode == "both"
+        assert session.view_mode == "chat"
         assert session._received_visible("chat")
-        assert session._received_visible("telemetry")
+        assert not session._received_visible("telemetry")
+        assert session._received_visible("main")
     finally:
         session.log_file.close()
