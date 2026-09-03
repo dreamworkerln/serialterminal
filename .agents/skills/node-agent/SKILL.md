@@ -1,15 +1,17 @@
 ---
 name: lora-chatter-nodes
-description: Project-specific наблюдаемое поведение LoRa-Chatter нод через SerialTerminal agent API. Не является generic SerialTerminal skill.
+description: Project-specific class-level поведение LoRa-Chatter нод через SerialTerminal agent API. Не является generic SerialTerminal skill.
 ---
 
 # LoRa-Chatter nodes
 
-Этот файл сохраняет project-specific знания, полученные при работе с двумя BLE-подключёнными LoRa-Chatter нодами через `python3 serialterminal.py agent`.
+Этот skill описывает, как работать с **классом LoRa-Chatter node** через `python3 serialterminal.py agent` и как проверять наблюдаемое firmware/RF behavior.
 
-Он **не является источником истины для SerialTerminal API** и не должен переопределять `.agents/skills/serialterminal-agent/SKILL.md` или [AGENT_API.md](../../../AGENT_API.md). Этот node skill намеренно хранится в `serialterminal`, чтобы оставаться доступным независимо от того, какая branch/worktree сейчас выбрана в `lora-sack-protocol`. Source of truth для firmware/protocol поведения при этом остаётся соответствующий source checkpoint `lora-sack-protocol` и фактически наблюдаемое hardware behavior.
+Он **не является источником истины для SerialTerminal API** и не должен переопределять `.agents/skills/serialterminal-agent/SKILL.md` или [AGENT_API.md](../../../AGENT_API.md). Source of truth для firmware/protocol поведения остаётся соответствующий source checkpoint `lora-sack-protocol` и фактически подтверждённое hardware behavior.
 
-## Подключение
+Этот skill не хранит concrete node IDs, MAC/BLE addresses, USB paths, текущие measurements или текущую lab topology. Такие сведения относятся к конкретному run/evidence и обрабатываются по [NODE_SKILL_LEARNING_POLICY.md](../../../NODE_SKILL_LEARNING_POLICY.md).
+
+## Подключение и discovery
 
 Работай через SerialTerminal agent, а не через прямой BLE/LoRa access:
 
@@ -17,7 +19,7 @@ description: Project-specific наблюдаемое поведение LoRa-Cha
 python3 serialterminal.py agent
 ```
 
-Если host Bluetooth/D-Bus или sandbox возвращает `Operation not permitted`/другой permission error, это не означает отсутствие устройства. Используй разрешённый окружением запуск с необходимыми правами.
+Если host Bluetooth/D-Bus или sandbox возвращает `Operation not permitted`/другой permission error, это не означает отсутствие устройства. Используй разрешённый окружением способ запуска с необходимыми правами или сообщи о permission boundary.
 
 Обнаружение:
 
@@ -25,97 +27,71 @@ python3 serialterminal.py agent
 {"id":1,"op":"discover","scope":"auto"}
 ```
 
-Наблюдавшиеся устройства:
+Discovery отражает **текущую доступность transports**, а не постоянную inventory нод. В одном run могут быть доступны BLE, USB serial или другие поддерживаемые transport paths, а в другом часть из них может отсутствовать.
 
-```text
-BLE LoRa-Chatter-1B44  44:1B:F6:8D:B7:A9
-BLE LoRa-Chatter-72E0  E0:72:A1:D5:4C:15
-```
+Для определения физической ноды используй `/id`. Если два transport paths сообщают одну и ту же node identity, считай их двумя путями к одной физической ноде, а не двумя отдельными нодами.
 
-В discovery также появляется USB serial endpoint:
+Открывай каждую нужную физическую ноду как отдельную long-lived session по текущему `device_key`, полученному из discovery. Не хардкодь конкретные addresses или session IDs из предыдущих запусков.
 
-```text
-/dev/serial/by-id/usb-1a86_USB_Single_Serial_5B8F072180-if00
-VID:PID=1A86:55D3
-```
-
-Это не третья радионода. Открытие USB endpoint дало сессию с одним потоком `main`, а `/id` и `/help` вернули `LoRa-Chatter-1B44` и тот же human-console interface, что у BLE-ноды `44:1B:F6:8D:B7:A9`. Поэтому USB и BLE-адрес `1B44` следует считать двумя transport paths к одной физической ноде, если они доступны одновременно.
-
-Открытие каждой физической ноды создаёт отдельную живую session. В проверке использовались `s1` для `1B44` и `s2` для `72E0`:
-
-```json
-{"id":2,"op":"open","device_key":"ble-address:44:1b:f6:8d:b7:a9"}
-{"id":3,"op":"open","device_key":"ble-address:e0:72:a1:d5:4c:15"}
-```
-
-Обе sessions подключались как `state=connected` и имели потоки `chat` и `telemetry`. При `open` с `auto_id=true` SerialTerminal отправляет ноде `/id` как connect preamble.
+При `open` с `auto_id=true` SerialTerminal отправляет `/id` как connect preamble после connect/reconnect до публикации session как connected.
 
 ## BLE-потоки и получение данных
 
-Устройство имеет два независимых BLE-потока:
+BLE LoRa-Chatter session имеет два независимых потока:
 
 - `chat` — человекочитаемый вывод, команды и сообщения;
 - `telemetry` — машинная телеметрия и диагностические события радиоканала.
 
-При открытии session SerialTerminal сам подписывается на telemetry characteristic. Отдельную команду подписки через agent API отправлять не нужно. Notifications принимаются в фоне и складываются в session event buffer.
+При открытии BLE session SerialTerminal сам подписывается на telemetry characteristic. Отдельную команду подписки через agent API отправлять не нужно.
 
-Для реакции на новые данные держи `wait_events` pending. После его ответа обработай события и сразу выдай следующий `wait_events` с возвращёнными `cursors`, если наблюдение должно продолжаться.
+Для реактивной работы используй `wait_events`. Для нескольких sessions храни отдельный cursor на каждую session и после каждого ответа продолжай именно с возвращённым объектом `cursors`.
 
-Используй независимый cursor для каждой session:
+`wait_events` может оставаться pending, пока тот же agent process принимает обычные команды. Ответы JSONL могут приходить не в порядке запросов, поэтому всегда сопоставляй их по request `id`.
 
-```json
-{"id":10,"op":"wait_events","cursors":{"s1":123,"s2":456},"timeout_ms":5000}
+`timeout_ms` — только максимальная длительность конкретного long-poll, а не protocol constant.
+
+BLE notification boundary не является границей текстовой строки. Если одна строка разбита на несколько RX events, склеивай соседние fragments по session/stream/seq до завершения строки.
+
+## Что считать подтверждением
+
+`send_line`/`send_bytes` с `state=queued` подтверждает только постановку данных в reconnect-safe TX queue.
+
+Последующее событие `tx_state=written` подтверждает только успешный вызов transport `write()`.
+
+Ни `queued`, ни `written`, ни локальная строка отправителя с префиксом `>` сами по себе не доказывают peer delivery.
+
+Higher-level доставку подтверждай peer RX/telemetry/application-level evidence.
+
+## USER-передача между нодами
+
+Для обычной проверки radio delivery используй уникальный payload и последовательный сценарий:
+
+```text
+Node A send USER payload
+→ wait for real peer RX on Node B
+→ only then Node B send another USER payload
+→ wait for real peer RX on Node A
 ```
 
-Для ожидания только сообщений:
+Успешный peer receive обычно подтверждается комбинацией:
 
-```json
-{"id":11,"op":"wait_events","cursors":{"s2":123},"timeout_ms":5000,"kinds":["rx"],"streams":["chat"]}
-```
+- telemetry `RX USER`;
+- chat-строкой вида `< [RSSI/SNR Q] payload`;
+- совпадением уникального payload.
 
-`timeout_ms` — максимальная длительность одного long-poll request, а не protocol constant и не серверный push. `wait_events` остаётся pending, пока тот же agent process может принимать обычные запросы, например `send_line`. Пустой результат с `timed_out=true` означает только, что за это окно новых подходящих событий не было.
-
-Не считай `send_line` доставкой: `state=queued` означает только постановку в reconnect-safe TX queue. Последующее TX-событие `tx_state=written` означает успешный transport `write()`. Доставку по радио подтверждай RX-событием на peer-ноде или соответствующей радиотелеметрией.
-
-Локальный вывод отправителя с префиксом `>` не подтверждает приём peer-нодой; принятый peer-текст обычно имеет вид `< [RSSI/SNR Q] ...`.
+RSSI/SNR/Q являются measurements конкретного run и не должны превращаться в постоянные expected values skill.
 
 ## Одновременные передачи и half-duplex
 
-LoRa-канал между нодами работает в half-duplex, поэтому близкие по времени передачи могут столкнуться.
+LoRa-канал между нодами half-duplex, поэтому близкие по времени передачи могут столкнуться.
 
-Для обычной проверки гарантированной двунаправленной доставки используй последовательный сценарий: отправь с первой ноды, дождись подтверждённого RX на второй, затем отправь ответ в обратную сторону.
+Для обычного acceptance/smoke используй последовательные передачи с подтверждённым peer RX.
 
-Для явного concurrency/collision test одновременная передача с разных sessions допустима и может использоваться намеренно. SerialTerminal способен независимо поставить TX в очереди разных sessions; фактический radio outcome определяется поведением LoRa/firmware и должен оцениваться по RX/telemetry, а не только по локальным `>` строкам.
-
-### Hardware/Codex multi-session smoke — 2026-09-03
-
-Наблюдался живой сценарий с двумя физическими BLE-нодами в одном `serialterminal agent` process. Codex самостоятельно изучил доступные node commands через `/help`, открыл обе ноды как независимые sessions и использовал multi-session `wait_events`.
-
-Пока `wait_events` оставался pending, agent продолжал выполнять обычные команды. Затем были отправлены сообщения с обеих sessions близко по времени, то есть реально был использован независимый per-session TX path для двух физических нод.
-
-Этот smoke подтверждает практическую работоспособность multi-session open, concurrent pending `wait_events` и независимых TX queues разных sessions. Он **не является сам по себе доказательством успешной LoRa-доставки обеих одновременных передач**: такой вывод делай только по peer RX/telemetry.
-
-## Передача сообщений между нодами
-
-Обе ноды наблюдались как связанные точка-точка по LoRa. Обычная передача выполняется строкой через `send_line`:
-
-```json
-{"id":20,"op":"send_line","session":"s1","text":"hello from node 1"}
-```
-
-Получатель в `chat` обычно показывает строку вида:
-
-```text
-< [-22/+12 Q100] hello from node 1
-```
-
-BLE notification boundary не является границей текстовой строки. При необходимости склеивай соседние RX-фрагменты одного потока по `seq` до завершения строки.
-
-В приведённом примере вывод соответствует примерно `RSSI=-22`, `SNR=+12`, `Q=100%`.
+Для отдельного concurrency/collision test можно намеренно поставить TX в независимые queues разных sessions. SerialTerminal способен обслуживать такие sessions независимо, но radio outcome оценивай только по RX/telemetry, а не по факту локального queue/write.
 
 ## Режимы вывода
 
-Команды переключают, какие категории устройство выводит в BLE-console:
+Команды переключают human-console routing:
 
 ```text
 /chat  -> OUTPUT CHAT
@@ -123,21 +99,19 @@ BLE notification boundary не является границей текстов�
 /both  -> OUTPUT BOTH
 ```
 
-Практически наблюдалось:
+Ожидаемое наблюдаемое поведение:
 
-- после `/chat` подтверждение `OUTPUT CHAT` пришло в `chat`;
-- после `/tele` подтверждение `OUTPUT MODE ... state=TELEMETRY` пришло в `telemetry`;
-- после `/both` подтверждения `OUTPUT BOTH` пришли и в `chat`, и в `telemetry`.
+- `/chat` — подтверждение `OUTPUT CHAT` в `chat`;
+- `/tele` — подтверждение режима TELEMETRY в `telemetry`;
+- `/both` — подтверждение BOTH может быть видно в `chat` и `telemetry`.
 
-Эти команды меняют маршрутизацию вывода на BLE-потоках, а не сам факт существования LoRa-связи между нодами.
+Команды output mode меняют маршрутизацию presentation/telemetry, а не сам факт существования LoRa-связи.
+
+После smoke test верни ноду в ожидаемый безопасный mode, обычно `/chat`, если задача не требует другого состояния.
 
 ## Echo-режим
 
-`/echo` переключает echo-mode:
-
-```json
-{"id":21,"op":"send_line","session":"s1","text":"/echo"}
-```
+`/echo` переключает echo-mode.
 
 Подтверждение включения:
 
@@ -145,65 +119,60 @@ BLE notification boundary не является границей текстов�
 [SYS] ECHO MODE ON
 ```
 
-В echo-mode обычный текст превращается в радиотестовый `ECHO_REQUEST`, а удалённая нода отвечает `ECHO_REPLY`.
+В echo-mode обычный текст становится `ECHO_REQUEST`; peer отвечает `ECHO_REPLY`.
 
-На отправляющей ноде наблюдался вывод:
-
-```text
-> [ECHO TX] echo test from node 1
-< [ECHO -24/+10 Q100] echo test from node 1
-```
-
-На удалённой ноде в telemetry при этом фиксировались:
+Для настоящего ECHO PASS требуй не только локальный ECHO TX, а совокупное evidence:
 
 ```text
-RX ECHO_REQUEST
-RSSI=-22.0 dBm SNR=+10.8 dB Q=100%
-TX ECHO_REPLY
-OK time=1976 ms guard=500ms
+sender: TX ECHO_REQUEST
+peer:   RX ECHO_REQUEST
+peer:   TX ECHO_REPLY
+sender: RX ECHO_REPLY / correlated ECHO result
 ```
 
-Таким образом, echo — протокол проверки радиодоставки и round trip, а не только локальное отображение введённого текста. Для обычной передачи сообщений выключи его повторным `/echo`; после этого удалённая нода снова получает сообщение как `RX USER` и показывает его с RSSI/SNR.
+После проверки обязательно выключи echo повторным `/echo`, если задача не требует оставить его включённым.
+
+Если ECHO_REPLY не подтверждён или evidence неполное, результат должен быть FAIL/BLOCKED/INCONCLUSIVE по фактам, а не guessed PASS.
 
 ## Перезагрузка ноды
 
-`/reboot` действительно перезагружает ESP32 controller. Вызывай его только при явном намерении перезагрузить устройство.
+`/reboot` реально перезагружает ESP32 controller. Используй его только когда задача явно требует reboot/fault/recovery scenario.
 
-Через USB serial на ноде `1B44` наблюдалась последовательность:
+Ожидаемые признаки включают:
 
 ```text
 [SYS] REBOOTING
-rst:0xc (RTC_SW_CPU_RST)
-[SYS] CHATTER NODE LoRa-Chatter-1B44
-[SYS] CHATTER READY
+...
+[SYS] CHATTER NODE LoRa-Chatter-<identity>
 ```
 
-Через BLE та же команда сначала дала `USER REBOOT` и `[SYS] REBOOTING`, после чего BLE-session прошла состояния:
+При BLE reboot кратковременный переход session через:
 
 ```text
 disconnected -> reconnecting -> connected
 ```
 
-После восстановления `ManagedSession` автоматически отправила connect preamble (`/id`), а нода снова объявила себя `LoRa-Chatter-1B44`. Поэтому кратковременное BLE-отключение во время перезагрузки ожидаемо; отдельную session заново открывать не нужно, если `ManagedSession` уже держит этот `device_key`.
+является ожидаемым transport consequence. `ManagedSession` продолжает держать тот же physical `device_key`; после reconnect при `auto_id=true` снова выполняется `/id` preamble. Не открывай новую session только из-за ожидаемого reboot disconnect, если существующая managed session успешно reconnectится.
 
-### Нода 1B44 с отключённым питанием радиомодуля
+## Fault scenario: controller доступен, RF power отсутствует
 
-Наблюдение от 2026-09-03: у `LoRa-Chatter-1B44` (`44:1B:F6:8D:B7:A9`) ESP32 запитан через USB, а питание радиомодуля отключено. Поэтому USB-путь остаётся доступен, но RF намеренно недоступен.
+Возможен intentional hardware state, когда ESP32/controller остаётся запитан и transport к нему доступен, а питание radio module/mezzanine отсутствует.
 
-После отправки `/reboot` через USB serial наблюдалась последовательность:
+В таком состоянии boot может сообщить:
 
 ```text
-[SYS] REBOOTING
-rst:0xc (RTC_SW_CPU_RST)
-[SYS] CHATTER NODE LoRa-Chatter-1B44
 [SYS] RADIO UNAVAILABLE bootTxSelfTest (-5); RF disabled
 ```
 
-После этой строки в течение 15 секунд поздней попытки инициализации или восстановления RF не наблюдалось. Этот сценарий является ожидаемым признаком отключённого питания радиомодуля, а не неисправности USB или ESP32.
+Это один из возможных fault/degraded scenarios, а не постоянное свойство конкретной ноды.
+
+При такой проверке отличай доступность controller transport от доступности RF path. Не интерпретируй рабочий USB/BLE control path как доказательство исправного RF и не интерпретируй `RADIO UNAVAILABLE` как неисправность самого USB/BLE transport.
+
+Если задача проверяет отсутствие automatic RF recovery после degraded boot, наблюдай требуемое окно и рапортуй только реально увиденное; не превращай длительность одного run в универсальную protocol constant.
 
 ## `/help` и доступные команды
 
-Проверенная команда `/help` вернула:
+Проверенная команда `/help` описывает:
 
 ```text
 /help     show this help
@@ -215,7 +184,7 @@ rst:0xc (RTC_SW_CPU_RST)
 /reboot   reboot ESP32 controller
 ```
 
-Также устройство сообщает raw controls:
+Также firmware может сообщать raw controls:
 
 ```text
 0x31 / 14 31 -> CHAT
@@ -224,20 +193,54 @@ rst:0xc (RTC_SW_CPU_RST)
 0x65 / 14 65 -> ECHO toggle
 ```
 
-Наблюдались Android BLE macros с LF: `/help`, `/id`, `/chat`, `/tele`, `/both`, `/echo`, `/reboot`.
-
-`/reboot` не используй без отдельного явного намерения: это реальная перезагрузка ESP32 controller.
+При сомнении о доступном command set сначала выполни `/help` на фактически подключённой ноде вместо предположения по старому run.
 
 ## Диагностические признаки
 
-Telemetry содержит, среди прочего, счётчики `TX ok`, `RX ok`, `user`, `echo_req`, `echo_rep`, `crc`, `hdr`, `bad`, `readerr`, `Q`, `drops`, а также диагностические блоки `SESSION`, `DIO0_TX`, `RX_POLL`, `PEER_REPORT` и `RX/TX ECHO_*`.
+Telemetry может содержать счётчики и диагностические блоки, включая:
 
-Успешную проверку радиоканала подтверждай совокупностью признаков:
+```text
+TX ok
+RX ok
+user
+echo_req
+echo_rep
+crc
+hdr
+bad
+readerr
+Q
+drops
+SESSION
+DIO0_TX
+RX_POLL
+PEER_REPORT
+RX/TX ECHO_*
+```
 
-1. `send_line` принял строку (`queued`);
-2. на отправителе появилось TX-событие `written`;
-3. на получателе появился `RX USER`/сообщение или `RX ECHO_REQUEST`;
-4. для echo появился `TX ECHO_REPLY` и итоговый `OK`;
-5. RSSI/SNR/Q позволяют оценить качество радиоканала.
+Используй их как evidence текущего сценария, но не превращай текущие значения counters/quality в class-level constants.
 
-Не делай вывод о доставке только по `queued` или только по `written`: они подтверждают локальную очередь/transport write, но не приём peer-нодой.
+Для radio validation полезна совокупность признаков:
+
+1. local request принят SerialTerminal queue;
+2. transport write выполнен;
+3. peer показал соответствующий RX или protocol event;
+4. для ECHO наблюдалась request/reply цепочка;
+5. measurements подтверждают фактическое состояние канала, но не являются сами по себе критерием identity или постоянной конфигурации.
+
+## Работа с неожиданностями
+
+Если hardware behavior противоречит этому skill или expected result:
+
+- не переписывай skill автоматически;
+- явно рапортуй expected vs observed;
+- приложи достаточное evidence и reproduction steps;
+- пометь результат как anomaly/bug candidate или insufficient evidence;
+- дальнейшее обобщение и update skill выполняются reviewer-ом по `NODE_SKILL_LEARNING_POLICY.md`.
+
+Главный принцип:
+
+```text
+skill = reusable rules for the class
+run evidence = facts about particular objects in a particular experiment
+```
