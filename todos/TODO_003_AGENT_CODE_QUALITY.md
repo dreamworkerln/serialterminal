@@ -1,6 +1,6 @@
 # TODO_003 — Agent code-quality refactor
 
-Status: OPEN
+Status: CLOSED
 
 ## Purpose
 
@@ -25,11 +25,11 @@ run_agent                    CCN 14  length 110
 
 Implementation:
 
-- [ ] split `SessionManager.wait_events` validation/snapshot/filter/result helpers from its wait loop;
-- [ ] split per-operation JSON validation/dispatch out of `AgentProtocol._dispatch`;
-- [ ] move JSONL runner lifecycle/pending-wait/stdout synchronization out of the top-level `run_agent` function;
-- [ ] remove obvious dead imports encountered by Ruff where behavior is unaffected;
-- [ ] explicitly review `AGENT_API.md` for consistency; do not change it unless behavior changes.
+- [x] split `SessionManager.wait_events` validation/snapshot/filter/result helpers from its wait loop;
+- [x] split per-operation JSON validation/dispatch out of `AgentProtocol._dispatch`;
+- [x] move JSONL runner lifecycle/pending-wait/stdout synchronization out of the top-level `run_agent` function;
+- [x] remove obvious dead imports encountered by Ruff where behavior is unaffected;
+- [x] explicitly review `AGENT_API.md` for consistency; no content change was needed because observable behavior did not change.
 
 Non-goals:
 
@@ -42,7 +42,7 @@ Non-goals:
 
 ## Accepted Lizard warnings outside this task
 
-The following are not refactor targets unless implementation uncovers a correctness issue:
+The following remain intentionally outside this refactor:
 
 - parameter-count warnings in constructors/cache helpers;
 - `ManagedSession.events_after` filter-expression complexity;
@@ -51,19 +51,48 @@ The following are not refactor targets unless implementation uncovers a correctn
 
 ## Validation
 
-- [ ] `python -m compileall -q src serialterminal.py tools` PASS in GitHub Actions;
-- [ ] Ruff static-analysis gate PASS;
-- [ ] Lizard runs and the three target hotspot metrics materially improve;
-- [ ] full pytest suite PASS;
-- [ ] existing agent concurrency/wait/cursor/error tests remain unchanged in observable behavior;
-- [ ] `AGENT_API.md` consistency review recorded;
-- [ ] exact implementation and validation checkpoints recorded here and in `TODO_INVENTORY.md`.
+- [x] `python -m compileall -q src serialterminal.py tools` PASS in GitHub Actions;
+- [x] Ruff static-analysis gate PASS;
+- [x] Lizard runs and the three target hotspot metrics materially improve;
+- [x] full pytest suite PASS (84 tests);
+- [x] existing agent concurrency/wait/cursor/error tests remain unchanged in observable behavior;
+- [x] `AGENT_API.md` consistency review recorded;
+- [x] exact implementation and validation checkpoints recorded here and in `TODO_INVENTORY.md`.
 
 ## Findings
 
-None yet.
+The refactor reduced the target functions to:
+
+```text
+SessionManager.wait_events   CCN 10  length 53
+AgentProtocol._dispatch      CCN 3   length 20
+run_agent                    CCN 3   length 21
+```
+
+The project-wide Lizard warning count dropped from 15 to 13. The remaining warnings include intentionally accepted parameter-count/state-machine/filter-expression cases documented above.
+
+The JSONL runner is now represented by the internal `_AgentJsonlRunner` object. This is an implementation boundary only: ordinary requests remain serialized by the reader, `wait_events` remains the only background request, stdout remains lock-serialized, and request/response correlation remains by `id`.
+
+Ruff's hard gate was also extended narrowly to `F401` and `F841`, preventing unused imports and unused local variables from returning without adopting the broader style/typing/exception-policy rule set that was intentionally deferred.
 
 ## Exact checkpoints
 
-Implementation: OPEN
-Validation: OPEN
+```text
+Agent orchestration refactor:
+  dev@741b1d926c68ba2e8d811a201b01c235616687c8
+  GitHub Actions 33785313698 SUCCESS
+
+Dead CLI cleanup:
+  dev@e18dad9b30e70d28e02d5f3726b712be08d25f6b
+  GitHub Actions 33785582744 SUCCESS
+
+Unused test import cleanup:
+  dev@4930f97f5beb40c947209ca987f5fe2c7f5336a7
+  GitHub Actions 33785686326 SUCCESS
+
+Accepted implementation/static-analysis checkpoint:
+  dev@a74b46585b3f2c0e032b6b444b2d1089b4fde1e9
+  GitHub Actions 33785730259 SUCCESS
+```
+
+Remaining follow-ups: none required for TODO_003 closure.
