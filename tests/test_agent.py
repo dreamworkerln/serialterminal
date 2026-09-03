@@ -1,4 +1,5 @@
 from dataclasses import dataclass
+import io
 import json
 import queue
 import threading
@@ -6,7 +7,7 @@ import time
 
 import pytest
 
-from serialterminal.agent import AgentError, AgentProtocol, SessionManager
+from serialterminal.agent import AgentError, AgentProtocol, SessionManager, run_agent
 from serialterminal.runlog import RunLog, default_log_path
 from serialterminal.transports.base import ReceivedChunk, Transport, TransportError
 
@@ -97,6 +98,58 @@ class FakeSelectorFactory:
         return FakeSelector(self, scope, baud, scan_seconds)
 
 
+class _QueueInput:
+    def __init__(self):
+        self._lines = queue.Queue()
+
+    def put(self, line):
+        self._lines.put(line)
+
+    def close(self):
+        self._lines.put(None)
+
+    def __iter__(self):
+        return self
+
+    def __next__(self):
+        line = self._lines.get()
+        if line is None:
+            raise StopIteration
+        return line
+
+
+class _BlockingWaitManager:
+    def __init__(self, **kwargs):
+        self.wait_started = threading.Event()
+        self.wait_release = threading.Event()
+        self.cancelled = threading.Event()
+
+    def wait_events(self, cursors, *, timeout_ms=0, streams=None, kinds=None):
+        self.wait_started.set()
+        self.wait_release.wait(timeout=2.0)
+        if self.cancelled.is_set():
+            raise AgentError("agent_stopping", "agent process is stopping")
+        return {
+            "events": [],
+            "cursors": dict(cursors),
+            "timed_out": True,
+        }
+
+    def status(self, session_id):
+        return {
+            "session": session_id,
+            "connected": True,
+            "state": "connected",
+        }
+
+    def cancel_waits(self):
+        self.cancelled.set()
+        self.wait_release.set()
+
+    def close_all(self):
+        pass
+
+
 def _wait_until(predicate, timeout=1.0):
     deadline = time.monotonic() + timeout
     while time.monotonic() < deadline:
@@ -104,6 +157,40 @@ def _wait_until(predicate, timeout=1.0):
             return True
         time.sleep(0.01)
     return predicate()
+
+
+def _jsonl_responses(output):
+    return [
+        json.loads(line)
+        for line in output.getvalue().splitlines()
+        if line.strip()
+    ]
+
+
+def _start_blocking_agent(monkeypatch, tmp_path):
+    import serialterminal.agent as agent_module
+
+    holder = {}
+
+    def manager_factory(**kwargs):
+        manager = _BlockingWaitManager(**kwargs)
+        holder["manager"] = manager
+        return manager
+
+    monkeypatch.setattr(agent_module, "SessionManager", manager_factory)
+    input_stream = _QueueInput()
+    output_stream = io.StringIO()
+    thread = threading.Thread(
+        target=run_agent,
+        kwargs={
+            "log_path": str(tmp_path / "agent.log"),
+            "stdin": input_stream,
+            "stdout": output_stream,
+        },
+    )
+    thread.start()
+    assert _wait_until(lambda: "manager" in holder)
+    return holder["manager"], input_stream, output_stream, thread
 
 
 def test_manager_discovers_opens_multiple_sessions_and_auto_ids():
@@ -345,8 +432,92 @@ def test_protocol_dispatches_wait_events(tmp_path):
                     "timed_out": False,
                 },
             }
+
+            missing_id = json.loads(
+                protocol.process_line(
+                    json.dumps(
+                        {
+                            "op": "wait_events",
+                            "cursors": {session_id: opened["latest_seq"]},
+                        }
+                    )
+                    + "\n"
+                )
+            )
+            assert missing_id["ok"] is False
+            assert missing_id["error"]["code"] == "invalid_request"
         finally:
             manager.close_all()
+
+
+def test_agent_accepts_command_while_wait_events_is_pending(monkeypatch, tmp_path):
+    manager, input_stream, output_stream, thread = _start_blocking_agent(
+        monkeypatch, tmp_path
+    )
+    try:
+        input_stream.put(
+            '{"id":100,"op":"wait_events","cursors":{"s1":0},"timeout_ms":5000}\n'
+        )
+        assert manager.wait_started.wait(timeout=1.0)
+
+        input_stream.put('{"id":101,"op":"status","session":"s1"}\n')
+        assert _wait_until(
+            lambda: any(
+                response.get("id") == 101
+                for response in _jsonl_responses(output_stream)
+            )
+        )
+
+        responses = _jsonl_responses(output_stream)
+        assert [response["id"] for response in responses] == [101]
+
+        manager.wait_release.set()
+        assert _wait_until(lambda: len(_jsonl_responses(output_stream)) == 2)
+        responses = _jsonl_responses(output_stream)
+        assert [response["id"] for response in responses] == [101, 100]
+        assert responses[0]["result"]["state"] == "connected"
+        assert responses[1]["ok"] is True
+    finally:
+        manager.wait_release.set()
+        input_stream.close()
+        thread.join(timeout=1.0)
+        assert not thread.is_alive()
+
+
+def test_agent_rejects_request_id_reused_by_pending_wait(monkeypatch, tmp_path):
+    manager, input_stream, output_stream, thread = _start_blocking_agent(
+        monkeypatch, tmp_path
+    )
+    try:
+        input_stream.put(
+            '{"id":7,"op":"wait_events","cursors":{"s1":0},"timeout_ms":5000}\n'
+        )
+        assert manager.wait_started.wait(timeout=1.0)
+
+        input_stream.put('{"id":7,"op":"status","session":"s1"}\n')
+        assert _wait_until(
+            lambda: any(
+                response.get("error", {}).get("code") == "request_id_busy"
+                for response in _jsonl_responses(output_stream)
+            )
+        )
+
+        busy = _jsonl_responses(output_stream)[0]
+        assert busy["id"] == 7
+        assert busy["ok"] is False
+        assert busy["error"]["code"] == "request_id_busy"
+        assert busy["error"]["details"] == {"id": 7}
+
+        manager.wait_release.set()
+        assert _wait_until(lambda: len(_jsonl_responses(output_stream)) == 2)
+        responses = _jsonl_responses(output_stream)
+        assert responses[1]["id"] == 7
+        assert responses[1]["ok"] is True
+    finally:
+        manager.wait_release.set()
+        input_stream.close()
+        thread.join(timeout=1.0)
+        assert not thread.is_alive()
 
 
 def test_protocol_returns_structured_errors_and_logs_json(tmp_path):
