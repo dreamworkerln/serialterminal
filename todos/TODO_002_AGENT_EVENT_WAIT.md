@@ -110,8 +110,19 @@ Validated: `aaeab3002e60bd1e85595d73e3248d42c3141c1f` / GitHub Actions run `3378
 
 ## Hardware validation
 
-A live hardware/Codex smoke specifically exercising the new multi-session `wait_events` and concurrent-response behavior was **NOT RUN** as part of this implementation task. The deterministic tests and clean-environment CI are the closure gates recorded above.
+A live hardware/Codex smoke specifically exercising the new multi-session `wait_events` and concurrent command behavior was **NOT RUN as part of the implementation closure gates**. The deterministic tests and clean-environment CI above remain the exact closure evidence.
+
+Post-closure on 2026-09-03, a live smoke was observed with two physical BLE LoRa-Chatter nodes in one `serialterminal agent` process:
+
+- both nodes were opened as independent sessions;
+- Codex used a multi-session `wait_events` request;
+- while that wait remained pending, the same process continued issuing ordinary commands;
+- TX was then issued from both sessions close together, exercising the independent per-session TX paths on physical devices.
+
+This is direct post-closure evidence for the practical multi-session/concurrent-wait workflow. It does **not** by itself prove successful peer receipt of both close-together LoRa transmissions; RF delivery still requires corresponding peer RX/telemetry evidence.
+
+The exact process log/checkpoint for this manual smoke was not recorded in this TODO, so no guessed run-log identifier is claimed.
 
 ## Follow-up work
 
-A hardware/Codex smoke can verify the new wait/concurrency workflow against actual devices. Project/device-specific acceptance scenarios remain outside this generic repository API.
+The generic hardware/Codex concurrency smoke is now complete as post-closure validation. Project/device-specific RF acceptance scenarios remain outside the generic API contract and are documented in `.agents/skills/node-agent/SKILL.md` when they are relevant to LoRa-Chatter hardware.
