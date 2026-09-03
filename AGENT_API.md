@@ -2,7 +2,7 @@
 
 `serialterminal agent` is a local machine-facing JSON Lines frontend over the same discovery, transports and reconnect/session logic used by the normal human terminal.
 
-It is intentionally generic. LoRa/Chatter hardware test scenarios belong in external Codex skills, not in this API.
+It is intentionally generic. Device-, firmware- and project-specific test scenarios belong in the consuming agent skills, not in this API.
 
 ## Start
 
@@ -89,7 +89,7 @@ Example response:
       {
         "key":"ble-address:44:1b:f6:8d:b7:a9",
         "kind":"ble",
-        "label":"BLE  LoRa-Chatter-1B44",
+        "label":"BLE  Device-1B44",
         "detail":"44:1B:F6:8D:B7:A9"
       }
     ]
@@ -119,7 +119,7 @@ auto_id=true
 wait_connected_ms=10000
 ```
 
-`auto_id=true` sends the normal `/id` line as a connect preamble after every successful transport connect/reconnect and before the session is published as connected. This is intentionally enabled for agent sessions so the hardware transcript contains an identity probe. For a non-Chatter target where sending `/id` is undesirable, explicitly use:
+`auto_id=true` sends the current SerialTerminal `/id` connect preamble after every successful transport connect/reconnect and before the session is published as connected. For a target where sending this preamble is undesirable, explicitly use:
 
 ```json
 {"id":2,"op":"open","device_key":"...","auto_id":false}
@@ -194,7 +194,7 @@ A later session event with:
 {"kind":"tx","tx_id":12,"tx_state":"written"}
 ```
 
-means the existing transport `write()` completed successfully. It does **not** mean a LoRa packet reached a peer or that any higher-level protocol accepted the command.
+means the existing transport `write()` completed successfully. It does **not** mean a peer received the data or that any higher-level protocol accepted or completed the requested operation.
 
 ## Send raw bytes
 
@@ -292,8 +292,8 @@ A single agent process can keep independent sessions open simultaneously:
 
 ```text
 discover
-open Node A -> s1
-open Node B -> s2
+open Device A -> s1
+open Device B -> s2
 send_line s1
 wait events s2
 ...
@@ -301,7 +301,7 @@ close s1
 close s2
 ```
 
-No Node A/Node B or LoRa-specific meaning is built into SerialTerminal. Those roles and acceptance rules belong in the calling Codex skill.
+SerialTerminal assigns no application-specific roles or acceptance rules to those devices. Such semantics belong in the calling agent skill.
 
 ## Architecture boundary
 
