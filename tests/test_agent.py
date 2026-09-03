@@ -1,6 +1,7 @@
 from dataclasses import dataclass
 import json
 import queue
+import threading
 import time
 
 import pytest
@@ -176,6 +177,176 @@ def test_send_line_raw_bytes_and_cursor_rx_events():
         assert timeout_result["timed_out"] is True
     finally:
         manager.close_all()
+
+
+def test_wait_events_wakes_for_one_session():
+    factory = FakeSelectorFactory()
+    manager = SessionManager(selector_factory=factory, reconnect_delay=0.01)
+    try:
+        manager.discover()
+        opened = manager.open("ble:a", auto_id=False, wait_connected_ms=500)
+        session_id = opened["session"]
+        cursor = opened["latest_seq"]
+        result = {}
+
+        def wait_for_rx():
+            result.update(
+                manager.wait_events(
+                    {session_id: cursor},
+                    timeout_ms=500,
+                    kinds=["rx"],
+                )
+            )
+
+        waiter = threading.Thread(target=wait_for_rx)
+        waiter.start()
+        factory.transports["ble:a"].reads.put(ReceivedChunk("chat", b"echo\n"))
+        waiter.join(timeout=1.0)
+
+        assert not waiter.is_alive()
+        assert result["timed_out"] is False
+        assert result["events"][0]["session"] == session_id
+        assert result["events"][0]["kind"] == "rx"
+        assert result["events"][0]["text"] == "echo\n"
+        assert result["cursors"][session_id] == result["events"][0]["seq"]
+    finally:
+        manager.close_all()
+
+
+def test_wait_events_wakes_for_either_of_two_sessions():
+    factory = FakeSelectorFactory()
+    manager = SessionManager(selector_factory=factory, reconnect_delay=0.01)
+    try:
+        manager.discover()
+        first = manager.open("ble:a", auto_id=False, wait_connected_ms=500)
+        second = manager.open("serial:b", auto_id=False, wait_connected_ms=500)
+        cursors = {
+            first["session"]: first["latest_seq"],
+            second["session"]: second["latest_seq"],
+        }
+        result = {}
+
+        def wait_for_rx():
+            result.update(
+                manager.wait_events(cursors, timeout_ms=500, kinds=["rx"])
+            )
+
+        waiter = threading.Thread(target=wait_for_rx)
+        waiter.start()
+        factory.transports["serial:b"].reads.put(ReceivedChunk("main", b"from-b\n"))
+        waiter.join(timeout=1.0)
+
+        assert not waiter.is_alive()
+        assert result["timed_out"] is False
+        assert [event["session"] for event in result["events"]] == [second["session"]]
+        assert result["events"][0]["text"] == "from-b\n"
+        assert result["cursors"][first["session"]] == cursors[first["session"]]
+        assert result["cursors"][second["session"]] > cursors[second["session"]]
+    finally:
+        manager.close_all()
+
+
+def test_wait_events_filters_but_advances_cursor_through_inspected_events():
+    factory = FakeSelectorFactory()
+    manager = SessionManager(selector_factory=factory, reconnect_delay=0.01)
+    try:
+        manager.discover()
+        opened = manager.open("serial:b", auto_id=False, wait_connected_ms=500)
+        session_id = opened["session"]
+        cursor = opened["latest_seq"]
+
+        manager.send_line(session_id, "hello")
+        assert _wait_until(lambda: factory.transports["serial:b"].writes == [b"hello\n"])
+        session = manager._get_session(session_id)
+        latest = session.latest_event_seq()
+        assert latest > cursor
+
+        result = manager.wait_events(
+            {session_id: cursor},
+            timeout_ms=0,
+            kinds=["rx"],
+        )
+
+        assert result == {
+            "events": [],
+            "cursors": {session_id: latest},
+            "timed_out": False,
+        }
+    finally:
+        manager.close_all()
+
+
+def test_wait_events_timeout_and_session_specific_cursor_errors():
+    factory = FakeSelectorFactory()
+    manager = SessionManager(selector_factory=factory, reconnect_delay=0.01)
+    try:
+        manager.discover()
+        opened = manager.open("serial:b", auto_id=False, wait_connected_ms=500)
+        session_id = opened["session"]
+        cursor = opened["latest_seq"]
+
+        timed_out = manager.wait_events({session_id: cursor}, timeout_ms=30, kinds=["rx"])
+        assert timed_out["events"] == []
+        assert timed_out["timed_out"] is True
+        assert timed_out["cursors"] == {session_id: cursor}
+
+        session = manager._get_session(session_id)
+        for index in range(4100):
+            session._record_event("state", state=f"test-{index}")
+
+        with pytest.raises(AgentError) as expired:
+            manager.wait_events({session_id: 0})
+        assert expired.value.code == "cursor_expired"
+        assert expired.value.details["session"] == session_id
+        assert expired.value.details["requested_seq"] == 0
+        assert expired.value.details["oldest_seq"] > 1
+
+        with pytest.raises(AgentError) as missing:
+            manager.wait_events({"missing": 0})
+        assert missing.value.code == "unknown_session"
+        assert missing.value.details == {"session": "missing"}
+    finally:
+        manager.close_all()
+
+
+def test_protocol_dispatches_wait_events(tmp_path):
+    factory = FakeSelectorFactory()
+    log_path = tmp_path / "agent.log"
+    with RunLog(log_path) as run_log:
+        manager = SessionManager(
+            selector_factory=factory,
+            run_log=run_log,
+            reconnect_delay=0.01,
+        )
+        protocol = AgentProtocol(manager, run_log=run_log)
+        try:
+            manager.discover()
+            opened = manager.open("ble:a", auto_id=False, wait_connected_ms=500)
+            session_id = opened["session"]
+            response = json.loads(
+                protocol.process_line(
+                    json.dumps(
+                        {
+                            "id": 19,
+                            "op": "wait_events",
+                            "cursors": {session_id: opened["latest_seq"]},
+                            "timeout_ms": 0,
+                        }
+                    )
+                    + "\n"
+                )
+            )
+            assert response == {
+                "id": 19,
+                "ok": True,
+                "result": {
+                    "events": [],
+                    "cursors": {session_id: opened["latest_seq"]},
+                    "timed_out": False,
+                },
+            }
+        finally:
+            manager.close_all()
 
 
 def test_protocol_returns_structured_errors_and_logs_json(tmp_path):
