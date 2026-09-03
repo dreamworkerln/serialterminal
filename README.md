@@ -10,11 +10,13 @@
 python3 serialterminal.py
 ```
 
-Session log по умолчанию:
+По умолчанию каждый отдельный запуск human terminal создаёт отдельный session log:
 
 ```text
-serialterminal.log
+logs/serialterminal-YYYYMMDD-HHMMSS-ffffff-pPID.log
 ```
+
+Явный `--log <path>` остаётся доступен для отладки/совместимости.
 
 После запуска:
 
@@ -31,11 +33,15 @@ Type /help or press Ctrl+T ? for full help.
 - Classic Bluetooth SPP/RFCOMM на Linux через BlueZ + Python Bluetooth sockets;
 - unified device chooser;
 - sticky reconnect по стабильной physical identity;
+- общий headless `ManagedSession` для reconnect/RX/TX logic;
+- machine-facing `serialterminal agent` JSONL interface поверх той же session/transport logic;
+- несколько независимых agent sessions к разным устройствам в одном процессе;
 - BLE `0003` как human-console stream и optional `0004` как background machine-telemetry stream;
 - локальные hotkeys `Ctrl+T ...`;
 - локальное line editing через `prompt_toolkit`, включая Backspace/Delete и Unicode;
 - Chatter device commands `/help`, `/id`, `/chat`, `/tele`, `/both`, `/echo`, `/reboot`;
-- автоматический `/id` после USB Serial connect/reconnect;
+- автоматический `/id` после USB Serial connect/reconnect в human terminal;
+- configurable agent connect preamble с `auto_id=true` по умолчанию;
 - Chatter output/echo raw hotkeys `Ctrl+T 1/2/3`, `Ctrl+T c/t/b/e`;
 - pending presentation для USER/ECHO: `>` остаётся только firmware-owned подтверждением успешного RF TX;
 - полный help через `/help` или `Ctrl+T ?`;
@@ -43,6 +49,60 @@ Type /help or press Ctrl+T ? for full help.
 - Bluetooth scanner/prober;
 - transcript с немедленным `flush()`;
 - `LF`, `CRLF` или `CR` после `Enter`.
+
+## Agent / Codex JSONL interface
+
+Agent mode запускается без TUI:
+
+```bash
+python3 serialterminal.py agent
+```
+
+stdin и stdout используются как request/response JSON Lines. Один request всегда даёт один machine-readable JSON response. Основные операции:
+
+```text
+discover
+open
+status
+list_sessions
+send_line
+send_bytes
+events
+close
+```
+
+Пример:
+
+```json
+{"id":1,"op":"discover","scope":"auto"}
+{"id":2,"op":"open","device_key":"ble-address:44:1b:f6:8d:b7:a9"}
+{"id":3,"op":"send_line","session":"s1","text":"/id"}
+{"id":4,"op":"events","session":"s1","after_seq":0,"timeout_ms":5000}
+{"id":5,"op":"close","session":"s1"}
+```
+
+Receive/wait использует монотонный `seq` cursor и retained event buffer, а не эмуляцию человека внутри prompt/TUI. RX events сохраняют transport stream tag (`main`, `chat`, `telemetry`) и byte-accurate `data_b64`; `text` — дополнительное incremental UTF-8 представление.
+
+`send_line` и `send_bytes` используют одну reconnect-safe ordered TX queue. `tx_state=written` означает только успешное завершение существующего transport `write()`, а не LoRa delivery/peer acceptance.
+
+Agent session по умолчанию использует `auto_id=true`: `/id` отправляется как connect preamble при каждом успешном connect/reconnect до публикации состояния `connected`. Для generic/non-Chatter устройства это можно явно отключить при `open` через `"auto_id": false`.
+
+Один agent process может держать несколько разных `device_key` одновременно. Повторный `open` того же `device_key` внутри одного manager возвращает structured `device_busy`.
+
+Agent process также создаёт один отдельный log в `logs/`. В него в одном chronological timeline пишутся:
+
+```text
+[AGENT REQUEST]
+[AGENT RESPONSE]
+[STATE]
+[TX]
+[RX <stream>]
+[ERROR]
+```
+
+Полный контракт и примеры: `AGENT_API.md`.
+
+LoRa/Chatter-specific Node A/Node B, fault/recovery и hardware acceptance scenarios намеренно не зашиты в `serialterminal`; они должны жить в Codex skills проекта `lora-sack-protocol` и пользоваться этим generic interface.
 
 ## Discovery и reconnect
 
@@ -121,9 +181,9 @@ Canonical identity Chatter имеет вид:
 
 Это то же имя, которое нода рекламирует по BLE. `serialterminal` не строит собственный node ID.
 
-После успешного `SerialTransport.connect()` terminal автоматически отправляет `/id` **до** открытия reconnect-safe user TX gate. Поэтому накопленная USER/command очередь не может обогнать identity request. Это делается на каждом USB Serial connect/reconnect.
+В human terminal после успешного `SerialTransport.connect()` автоматически отправляется `/id` **до** открытия reconnect-safe user TX gate. Поэтому накопленная USER/command очередь не может обогнать identity request. Это делается на каждом USB Serial connect/reconnect.
 
-BLE NUS и Bluetooth SPP не получают автоматический `/id`: при выборе BLE имя ноды уже видно пользователю, а лишний host-side запрос не нужен. Явный `/id` при этом работает через любой transport.
+Human BLE NUS и Bluetooth SPP не получают автоматический `/id`: при выборе BLE имя ноды уже видно пользователю, а лишний host-side запрос не нужен. Явный `/id` при этом работает через любой transport. Agent interface имеет отдельный generic connect-preamble policy: `auto_id=true` по умолчанию и может быть отключён на `open`.
 
 При классификации команды `serialterminal` использует ту же boundary-normalization, что и текущий Chatter firmware: ASCII control/space + DEL по краям игнорируются только для command matching. Поэтому, например, строка `  /id  ` распознаётся как команда. Если после такого trim строка не совпала с известной командой, она остаётся обычным payload и отправляется **в исходном виде**.
 
@@ -186,10 +246,12 @@ Plain `hello` означает только «это было отправлен
 serialterminal outgoing transport queue
     queue.Queue() без maxsize
     reconnect-safe, практически unbounded
+    shared ManagedSession mechanism for human/agent line/raw TX
 
 serialterminal pending presentation queue
     limit = 4 payload
     отдельна от transport queue
+    human Chatter presentation only
 
 Chatter firmware InputEvent queue
     depth = 4
@@ -278,9 +340,10 @@ Reconnect-safe queue относится к:
 /help controller request
 raw Ctrl+T 1/2/3/c/t/b/e controls
 ordinary USER/ECHO text
+agent send_line/send_bytes
 ```
 
-Автоматический Serial `/id` не кладётся в эту очередь: он отправляется непосредственно после успешного connect и до `connected_event`, чтобы queued user input не мог его обогнать.
+Connect preamble `/id` не кладётся в reconnect-safe queue: human Serial auto-ID и agent `auto_id=true` отправляют его непосредственно после успешного transport connect и до `connected_event`, чтобы queued user/agent TX не мог его обогнать.
 
 Важно: output/echo mode хранится в RAM Chatter и после reboot возвращается к firmware defaults. `serialterminal` не переотправляет последний device mode автоматически после reconnect.
 
@@ -354,7 +417,7 @@ python -m compileall -q src serialterminal.py tools
 pytest -q
 ```
 
-Покрыты command trim, `/id`, auto-ID только на Serial, отсутствие auto-ID на Bluetooth transport, USER/ECHO presentation, rejection, background `0004` telemetry, BLE chunk boundaries, duplicate payloads, disconnect semantics и full-duplex Serial regression.
+Покрыты command trim, human Serial `/id`, отсутствие human auto-ID на Bluetooth transport, USER/ECHO presentation, rejection, background `0004` telemetry, BLE chunk boundaries, duplicate payloads, disconnect semantics, full-duplex Serial regression, shared `ManagedSession` reconnect/order/stream events, multi-session agent manager, JSONL structured errors/waits и per-run logging.
 
 Не фиксируйте в README число тестов как постоянную характеристику: authoritative результат — exact CI run для конкретного commit SHA.
 
