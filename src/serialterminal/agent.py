@@ -780,29 +780,7 @@ def run_agent(
                 if is_wait:
                     assert request_key is not None
                     with pending_lock:
-                        # Повторная проверка закрывает race с только что
-                        # поставленным wait из другого reader iteration.
-                        if request_key in pending_ids:
-                            request_id_busy = True
-                        else:
-                            pending_ids.add(request_key)
-                            request_id_busy = False
-                    if request_id_busy:
-                        emit_response(
-                            {
-                                "id": request_id,
-                                "ok": False,
-                                "error": {
-                                    "code": "request_id_busy",
-                                    "message": (
-                                        "request id is already pending: "
-                                        f"{request_id!r}"
-                                    ),
-                                    "details": {"id": request_id},
-                                },
-                            }
-                        )
-                        continue
+                        pending_ids.add(request_key)
 
                     thread = threading.Thread(
                         target=finish_wait,
