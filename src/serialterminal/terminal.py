@@ -2,10 +2,8 @@ from __future__ import annotations
 
 import codecs
 from dataclasses import dataclass
-import queue
 import sys
 import threading
-import time
 from datetime import datetime
 from pathlib import Path
 from typing import Callable
@@ -15,7 +13,8 @@ from prompt_toolkit.key_binding import KeyBindings
 from prompt_toolkit.patch_stdout import patch_stdout
 
 from .presentation import PresentationTracker, recognized_chatter_command
-from .transports.base import ReceivedChunk, Transport, TransportError
+from .session import ManagedSession, SessionClosedError, encode_line
+from .transports.base import ReceivedChunk, Transport
 from .transports.serial import SerialTransport
 
 
@@ -30,18 +29,14 @@ CHATTER_ID_COMMAND = "/id"
 CHATTER_SYSTEM_PREFIX = "[SYS]"
 
 
-def encode_line(line: str, line_ending: str = "\n") -> bytes:
-    return (line + line_ending).encode("utf-8")
-
-
 @dataclass(frozen=True)
 class _ControlRequest:
     action: str
     buffered_line: str
 
 
-class TerminalSession:
-    """Line-oriented terminal independent from the underlying transport."""
+class TerminalSession(ManagedSession):
+    """Human line-oriented frontend over the shared managed session core."""
 
     def __init__(
         self,
@@ -51,19 +46,17 @@ class TerminalSession:
         reconnect_delay: float = 0.5,
         device_chooser: Callable[[], Transport | None] | None = None,
     ):
-        self.transport = transport
+        super().__init__(
+            transport,
+            line_ending=line_ending,
+            reconnect_delay=reconnect_delay,
+            connect_preamble=self._human_connect_preamble,
+        )
         self.log_path = Path(log_path)
-        self.line_ending = line_ending
-        self.reconnect_delay = reconnect_delay
         self.device_chooser = device_chooser
 
-        self.stop_event = threading.Event()
-        self.connected_event = threading.Event()
-        self.connection_paused = threading.Event()
         self.output_lock = threading.Lock()
-        self.transport_lock = threading.Lock()
         self.decode_lock = threading.Lock()
-        self.outgoing: queue.Queue[str] = queue.Queue()
         self._presentation = PresentationTracker()
         self._received_decoders = {}
         self._received_line_buffers = {}
@@ -79,9 +72,12 @@ class TerminalSession:
         self.log_file.write(f"\n===== serialterminal session {stamp} =====\n")
         self.log_file.flush()
 
-    def _current_transport(self) -> Transport:
-        with self.transport_lock:
-            return self.transport
+    def _human_connect_preamble(self, transport: Transport) -> bytes | None:
+        # Сохраняем прежнее human-поведение: автоматический /id выполнялся
+        # только для Serial, а BLE/SPP не получали дополнительную команду.
+        if isinstance(transport, SerialTransport):
+            return encode_line(CHATTER_ID_COMMAND, self.line_ending)
+        return None
 
     def write_output(self, text: str) -> None:
         """Write local terminal/status output to both screen and transcript."""
@@ -188,103 +184,36 @@ class TerminalSession:
                 sys.stdout.write(line + "\n")
             sys.stdout.flush()
 
-    def _connect(self) -> bool:
-        if self.connection_paused.is_set():
-            return False
+    # ManagedSession hooks keep reconnect/TX/RX mechanics out of the human UI.
+    def on_waiting(self) -> None:
+        self.write_output("[waiting for selected device...]\n")
 
-        transport = self._current_transport()
-        if not transport.connect():
-            return False
-
-        if self.connection_paused.is_set() or transport is not self._current_transport():
-            transport.disconnect()
-            return False
-
-        if isinstance(transport, SerialTransport):
-            try:
-                transport.write(encode_line(CHATTER_ID_COMMAND, self.line_ending))
-            except (TransportError, OSError):
-                transport.disconnect()
-                return False
-
+    def on_connected(self, transport: Transport) -> None:
         self._reset_received_decoders()
-        self.connected_event.set()
         self.write_output(f"\n[connected: {transport.description}]\n\n")
-        return True
 
-    def _disconnect(self) -> None:
-        self.connected_event.clear()
-        self._current_transport().disconnect()
+    def on_received(self, chunk: ReceivedChunk) -> None:
+        self.write_received(chunk)
+
+    def on_disconnected(self, description: str, error: str | None) -> None:
         self._reveal_sent_presentations()
         self._reset_received_decoders()
+        self.write_output(f"\n[disconnected: {description}]\n\n")
 
-    def rx_loop(self) -> None:
-        waiting_printed = False
+    def on_tx_written(self, item) -> None:
+        if isinstance(item, str):
+            self._presentation.mark_sent(str(item))
 
-        while not self.stop_event.is_set():
-            if self.connection_paused.is_set():
-                time.sleep(0.05)
-                continue
-
-            if not self.connected_event.is_set():
-                if not waiting_printed:
-                    self.write_output("[waiting for selected device...]\n")
-                    waiting_printed = True
-
-                if self._connect():
-                    waiting_printed = False
-                else:
-                    time.sleep(self.reconnect_delay)
-                    continue
-
-            transport = self._current_transport()
-            try:
-                chunk = transport.read_chunk(512)
-                self.write_received(chunk)
-            except (TransportError, OSError):
-                if self.stop_event.is_set():
-                    break
-                old = transport.description
-                self.connected_event.clear()
-                transport.disconnect()
-                self._reveal_sent_presentations()
-                self._reset_received_decoders()
-                self.write_output(f"\n[disconnected: {old}]\n\n")
-                time.sleep(0.3)
-
-    def _write_line(self, line: str) -> None:
-        self._current_transport().write(encode_line(line, self.line_ending))
-
-    def tx_loop(self) -> None:
-        """Send complete input lines in order, retaining them across reconnects."""
-        while not self.stop_event.is_set():
-            try:
-                line = self.outgoing.get(timeout=0.1)
-            except queue.Empty:
-                continue
-
-            try:
-                while not self.stop_event.is_set():
-                    if not self.connected_event.wait(timeout=0.1):
-                        continue
-
-                    try:
-                        self._write_line(line)
-                        self._presentation.mark_sent(line)
-                        break
-                    except (TransportError, OSError):
-                        self._disconnect()
-                        self.write_output("\n[send failed; reconnecting]\n")
-                        time.sleep(self.reconnect_delay)
-            finally:
-                self.outgoing.task_done()
+    def on_send_failed(self, error: str | None) -> None:
+        self.write_output("\n[send failed; reconnecting]\n")
 
     def send_line(self, line: str) -> bool:
         """Queue one complete line; it is never split into per-key writes."""
-        if self.stop_event.is_set():
+        try:
+            self.queue_line(line)
+            return True
+        except SessionClosedError:
             return False
-        self.outgoing.put(line)
-        return True
 
     def _submit_interactive_line(self, line: str) -> None:
         """Log one accepted line and choose command or pending-payload presentation."""
@@ -479,10 +408,7 @@ class TerminalSession:
             return
 
     def run(self) -> None:
-        rx = threading.Thread(target=self.rx_loop, daemon=True)
-        tx = threading.Thread(target=self.tx_loop, daemon=True)
-        rx.start()
-        tx.start()
+        self.start()
 
         self.write_output("serialterminal\n")
         self.write_output("Type /help or press Ctrl+T ? for full help.\n")
@@ -511,13 +437,8 @@ class TerminalSession:
         except KeyboardInterrupt:
             self.write_output("\n[exit]\n")
         finally:
-            self.stop_event.set()
-            self.connection_paused.clear()
             self._reveal_sent_presentations()
-            rx.join(timeout=1.0)
-            tx.join(timeout=1.0)
-            current = self._current_transport()
-            current.close()
+            self.stop()
             with self.output_lock:
                 self.log_file.flush()
                 self.log_file.close()
