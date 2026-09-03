@@ -2,11 +2,11 @@ from __future__ import annotations
 
 import argparse
 from dataclasses import dataclass
-from datetime import datetime
 import sys
 import time
 from typing import Any
 
+from .runlog import default_log_path
 from .terminal import TerminalSession
 from .transports.base import Transport, TransportError
 from .transports.serial import (
@@ -350,7 +350,7 @@ def _serial_parser(prog: str) -> argparse.ArgumentParser:
         action="store_true",
         help="List detected serial devices and exit",
     )
-    parser.add_argument("--log", default="serialterminal.log")
+    parser.add_argument("--log", default=None)
     parser.add_argument(
         "--eol",
         choices=("lf", "crlf", "cr"),
@@ -391,7 +391,7 @@ def _spp_parser(prog: str) -> argparse.ArgumentParser:
         prog=prog,
         description="Classic Bluetooth Serial Port Profile terminal",
     )
-    parser.add_argument("--log", default="serialterminal-spp.log")
+    parser.add_argument("--log", default=None)
     parser.add_argument(
         "--eol",
         choices=("lf", "crlf", "cr"),
@@ -436,6 +436,19 @@ def _scan_parser(prog: str) -> argparse.ArgumentParser:
     return parser
 
 
+def _agent_parser(prog: str) -> argparse.ArgumentParser:
+    parser = argparse.ArgumentParser(
+        prog=prog,
+        description="Machine-facing JSON Lines interface over SerialTerminal sessions",
+    )
+    parser.add_argument(
+        "--log",
+        default=None,
+        help="explicit log path; default creates a unique logs/serialterminal-*.log",
+    )
+    return parser
+
+
 def _auto_parser(prog: str) -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(
         prog=prog,
@@ -453,7 +466,7 @@ def _auto_parser(prog: str) -> argparse.ArgumentParser:
         ),
     )
     parser.add_argument("-b", "--baud", type=int, default=115200)
-    parser.add_argument("--log", default="serialterminal.log")
+    parser.add_argument("--log", default=None)
     parser.add_argument(
         "--eol",
         choices=("lf", "crlf", "cr"),
@@ -480,11 +493,12 @@ def _line_ending(name: str) -> str:
 def _run_session(
     transport: Transport,
     *,
-    log_path: str,
+    log_path: str | None,
     eol: str,
     selector: DeviceSelector,
     reconnect_delay: float = 0.5,
 ) -> int:
+    actual_log_path = PathLikeLog = str(default_log_path()) if log_path is None else log_path
     print(f"Locked target: {transport.description}")
     print(
         "After disconnect/reboot only this selected device "
@@ -493,7 +507,7 @@ def _run_session(
 
     TerminalSession(
         transport=transport,
-        log_path=log_path,
+        log_path=actual_log_path,
         line_ending=_line_ending(eol),
         reconnect_delay=reconnect_delay,
         device_chooser=selector.choose_transport_menu,
@@ -535,10 +549,7 @@ def _run_ble(argv: list[str], prog: str) -> int:
     args = parser.parse_args(argv)
 
     try:
-        from .transports.ble_nus import (
-            ble_log_slug,
-            normalize_ble_target,
-        )
+        from .transports.ble_nus import normalize_ble_target
     except Exception as exc:
         parser.error(str(exc))
 
@@ -557,16 +568,9 @@ def _run_ble(argv: list[str], prog: str) -> int:
     except TransportError as exc:
         parser.error(str(exc))
 
-    log_path = args.log
-    if log_path is None:
-        stamp = datetime.now().strftime("%Y%m%d-%H%M%S")
-        log_path = (
-            f"nus-{ble_log_slug(candidate.identity.name)}-{stamp}.log"
-        )
-
     return _run_session(
         transport,
-        log_path=log_path,
+        log_path=args.log,
         eol=args.eol,
         selector=selector,
         reconnect_delay=1.0,
@@ -642,6 +646,13 @@ def _run_scan(argv: list[str], prog: str) -> int:
         parser.error(str(exc))
 
 
+def _run_agent(argv: list[str], prog: str) -> int:
+    args = _agent_parser(prog).parse_args(argv)
+    from .agent import run_agent
+
+    return run_agent(log_path=args.log)
+
+
 def _run_auto(argv: list[str], prog: str) -> int:
     args = _auto_parser(prog).parse_args(argv)
 
@@ -682,6 +693,9 @@ def _run_auto(argv: list[str], prog: str) -> int:
 
 def main(argv: list[str] | None = None) -> int:
     args = list(sys.argv[1:] if argv is None else argv)
+
+    if args and args[0] == "agent":
+        return _run_agent(args[1:], "serialterminal agent")
 
     if args and args[0] == "scan":
         return _run_scan(args[1:], "serialterminal scan")
