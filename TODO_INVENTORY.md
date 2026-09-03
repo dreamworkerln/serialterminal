@@ -4,9 +4,13 @@ This file is the authoritative current-state index for engineering TODOs in this
 
 ## Active
 
+None.
+
+## Closed
+
 ### TODO_002 — `todos/TODO_002_AGENT_EVENT_WAIT.md`
 
-Status: PARTIAL
+Status: CLOSED
 
 Goal: add multi-session long-poll `wait_events`, then allow ordinary JSONL commands to proceed while waits are pending, without unsolicited stdout push.
 
@@ -16,10 +20,12 @@ Current state:
 Stage 1 multi-session wait_events                 CLOSED
 Stage 1 AGENT_API.md + deterministic tests        CLOSED
 Stage 1 GitHub Actions validation                  CLOSED / PASS
-Stage 2 concurrent pending wait requests           OPEN
-Stage 2 request-id correlation/duplicate handling  OPEN
-Stage 2 AGENT_API.md + deterministic tests         OPEN
-final GitHub Actions validation                    OPEN
+Stage 2 concurrent pending wait requests           CLOSED
+Stage 2 request-id correlation/duplicate handling  CLOSED
+Stage 2 AGENT_API.md + deterministic tests         CLOSED
+README agent summary synchronization               CLOSED
+final implementation CI validation                 CLOSED / PASS
+hardware/Codex concurrency smoke                   NOT RUN / follow-up, not closure gate
 ```
 
 Exact checkpoints:
@@ -32,9 +38,15 @@ Baseline:
 Stage 1 accepted checkpoint:
   dev@faf42369ef58660189608ecc16befdcee59c488a
   GitHub Actions 33781308586 SUCCESS
-```
 
-## Closed
+Stage 2 implementation + AGENT_API checkpoint:
+  dev@c2167099ad6b6fb9aa8ee07cdba9c724b5b368c4
+  GitHub Actions 33782053409 SUCCESS
+
+Accepted implementation/documentation checkpoint:
+  dev@aaeab3002e60bd1e85595d73e3248d42c3141c1f
+  GitHub Actions 33782252791 SUCCESS
+```
 
 ### TODO_001 — `todos/TODO_001_AGENT_INTERFACE.md`
 
