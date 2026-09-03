@@ -8,7 +8,7 @@ Status: CLOSED
 
 ## Purpose
 
-Expose the existing SerialTerminal device discovery, transport, reconnect and stream behavior through a small reusable session layer and a minimal JSONL frontend suitable for local Codex-driven hardware testing. Keep SerialTerminal generic; LoRa/Chatter test scenarios remain external skills.
+Expose the existing SerialTerminal device discovery, transport, reconnect and stream behavior through a small reusable session layer and a minimal JSONL frontend suitable for local Codex-driven hardware testing. Keep SerialTerminal generic; LoRa/Chatter test scenarios remain outside the generic agent implementation.
 
 ## Implemented behavior
 
@@ -25,7 +25,7 @@ Expose the existing SerialTerminal device discovery, transport, reconnect and st
 - Normal human runs and agent runs default to unique files under `logs/serialterminal-*.log`; explicit `--log` remains available.
 - Agent JSON requests/responses and session state/TX/RX/error events are recorded in the same chronological process log.
 - `AGENT_API.md` documents the generic contract and future MCP boundary.
-- LoRa/Chatter Node A/Node B, fault/recovery and acceptance scenarios remain outside this repository's agent implementation and belong in `lora-sack-protocol` Codex skills.
+- LoRa/Chatter Node A/Node B, fault/recovery and acceptance scenarios remain outside the generic agent implementation. The active project-specific node skill is stored at `.agents/skills/node-agent/SKILL.md` in this repository so it is independent of the currently selected `lora-sack-protocol` branch/worktree; firmware/protocol source authority remains `lora-sack-protocol`.
 
 ## Scope
 
@@ -53,14 +53,14 @@ Expose the existing SerialTerminal device discovery, transport, reconnect and st
 - [x] Full `pytest -q` PASS in GitHub Actions on exact checkpoint.
 - [x] GitHub Actions clean-environment CI PASS on exact checkpoint.
 
-Hardware validation of the new agent frontend was **NOT RUN** and was not a required gate for this implementation TODO. Live hardware/Codex smoke is follow-up validation, not evidence claimed by this closure.
+Hardware validation of the new agent frontend was **NOT RUN as a closure gate** for this implementation TODO. A post-closure live hardware/Codex smoke was completed later and is recorded below; it does not retroactively change the implementation/CI checkpoints used to close the task.
 
 ## Non-goals
 
 - MCP implementation in this phase.
 - Daemon/service deployment, REST, WebSocket or global installation.
 - A Chatter-only transport/tool.
-- Node A/Node B, LoRa fault/recovery or other protocol-specific test scenarios.
+- Node A/Node B, LoRa fault/recovery or other protocol-specific test scenarios inside the generic agent implementation.
 - A regex/expect scripting DSL.
 - Reimplementation of serial, Bleak/NUS or RFCOMM I/O in agent code.
 
@@ -72,7 +72,7 @@ Hardware validation of the new agent frontend was **NOT RUN** and was not a requ
 - BLE logical streams remain separate; human/chat and telemetry are not merged for convenience.
 - Human Chatter presentation remains a UI-level concern and does not redefine generic agent RX data.
 - Agent transport-write success is not represented as LoRa/peer delivery success.
-- Project-specific Codex skills belong in `lora-sack-protocol`, not in this implementation.
+- Project-specific node guidance must not redefine the generic JSONL API. The active node skill may live in `serialterminal` for stable availability, while firmware/protocol truth remains owned by the relevant `lora-sack-protocol` source checkpoint and hardware evidence.
 
 ## Design decisions
 
@@ -124,8 +124,22 @@ pytest -q
 Implemented: `396f499305c7ab1c425483b5a5f10e8521125f4f`
 Validated: `396f499305c7ab1c425483b5a5f10e8521125f4f` / GitHub Actions run `33764159009` SUCCESS
 
+## Post-closure hardware validation history
+
+Observed on physical hardware on 2026-09-03:
+
+- `python3 serialterminal.py agent` was used with two physical BLE LoRa-Chatter nodes in one process;
+- Codex independently inspected node `/help` and used the discovered command surface without a pre-scripted node workflow;
+- both physical nodes were opened as independent sessions;
+- multi-session `wait_events` was used and the same agent process continued issuing ordinary commands while the wait was pending;
+- TX was issued from both sessions close together, exercising independent per-session TX paths on physical devices.
+
+This post-closure smoke is evidence that the generic agent frontend is practically usable with multiple physical sessions. It is **not** by itself proof that both close-together LoRa transmissions were received by their peers; RF delivery still requires peer RX/telemetry evidence.
+
+The exact process log/checkpoint for this manual smoke was not recorded in this TODO, so no guessed run-log identifier is added here.
+
 ## Follow-up work
 
-- Run a live local Codex/JSONL smoke against actual Serial/BLE targets and inspect the generated chronological log.
-- Add LoRa/Chatter Codex skills and hardware acceptance scenarios in `lora-sack-protocol`.
+- Live local Codex/JSONL multi-device smoke: COMPLETED post-closure on 2026-09-03 as recorded above.
+- Maintain LoRa/Chatter hardware observations and node-level acceptance guidance in `.agents/skills/node-agent/SKILL.md`; do not move the generic SerialTerminal API contract out of `AGENT_API.md`.
 - MCP adapter, if/when required, should become a separate task and thinly wrap the stable `SessionManager` API.
