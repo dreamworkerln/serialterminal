@@ -6,6 +6,21 @@ This file is the authoritative current-state index for engineering TODOs in this
 
 None.
 
+## Post-closure validation history
+
+2026-09-03 live Codex/hardware smoke:
+
+```text
+physical BLE LoRa-Chatter sessions           OBSERVED / two nodes in one agent process
+Codex node /help self-discovery               OBSERVED
+multi-session wait_events                     OBSERVED
+ordinary commands while wait pending          OBSERVED
+independent TX from both physical sessions    OBSERVED
+simultaneous-LoRa peer delivery               NOT CLAIMED without peer RX/telemetry
+```
+
+The active project-specific node/hardware guidance is `.agents/skills/node-agent/SKILL.md`. It is intentionally stored in `serialterminal` so it does not disappear when a different `lora-sack-protocol` branch/worktree is selected. `AGENT_API.md` remains the canonical generic SerialTerminal JSONL contract.
+
 ## Closed
 
 ### TODO_003 — `todos/TODO_003_AGENT_CODE_QUALITY.md`
@@ -68,7 +83,7 @@ Stage 2 request-id correlation/duplicate handling  CLOSED
 Stage 2 AGENT_API.md + deterministic tests         CLOSED
 README agent summary synchronization               CLOSED
 final implementation CI validation                 CLOSED / PASS
-hardware/Codex concurrency smoke                   NOT RUN / follow-up, not closure gate
+hardware/Codex concurrency smoke                   PASS / post-closure physical two-node smoke 2026-09-03
 ```
 
 Exact checkpoints:
@@ -107,7 +122,8 @@ JSONL agent frontend                             CLOSED
 cursor-based RX/wait + line/raw TX               CLOSED
 unique default run logs + agent/session logging  CLOSED
 API documentation                                CLOSED
-hardware smoke                                   NOT RUN / follow-up, not closure gate
+hardware/Codex multi-device smoke                PASS / post-closure physical BLE validation 2026-09-03
+node-agent project skill                         ACTIVE / .agents/skills/node-agent/SKILL.md
 ```
 
 Exact checkpoints:
@@ -131,6 +147,6 @@ Accepted documented implementation checkpoint:
 
 Next work is intentionally outside TODO_001 closure:
 
-1. live Codex/JSONL smoke with actual Serial/BLE hardware and log inspection;
-2. LoRa/Chatter-specific Codex skills and acceptance scenarios in `lora-sack-protocol`;
+1. generic agent hardware/Codex multi-device smoke is now completed post-closure; no additional generic terminal feature is implied by that validation;
+2. maintain LoRa/Chatter node observations and acceptance guidance in `.agents/skills/node-agent/SKILL.md` while keeping firmware/protocol source authority in the relevant `lora-sack-protocol` source state;
 3. future MCP adapter only if required, wrapping the same `SessionManager` API.
