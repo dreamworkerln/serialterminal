@@ -13,6 +13,17 @@ jobs:
         with:
           python-version: "3.12"
       - run: python -m pip install --upgrade pip
-      - run: pip install -e . pytest
-      - run: python -m compileall -q src serialterminal.py tools
-      - run: pytest -q
+      - run: pip install -e '.[dev]'
+
+      - name: Compile
+        run: python -m compileall -q src serialterminal.py tools
+
+      - name: Static analysis
+        run: ruff check src tests serialterminal.py tools
+
+      - name: Complexity
+        continue-on-error: true
+        run: lizard -l python -C 10 -L 80 -a 5 src serialterminal.py tools
+
+      - name: Tests
+        run: pytest -q
