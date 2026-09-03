@@ -4,11 +4,12 @@ This file is the mutable stable recovery entry point for the `serialterminal` wo
 
 ## Recovery order
 
-1. `CONTEXT.md`, if present and relevant.
-2. `HANDOFF_INDEX.md`.
-3. Latest verified snapshot named below.
-4. Project knowledge/docs referenced by that snapshot.
-5. Refetch the actual source checkpoint/ref before current code work.
+1. Applicable repository/workstream operating instructions (`AGENTS.md`), if present.
+2. `CONTEXT.md`, if present and relevant.
+3. `HANDOFF_INDEX.md`.
+4. Latest verified snapshot named below.
+5. Project knowledge/docs referenced by that snapshot.
+6. Refetch the actual source checkpoint/ref before current code work.
 
 ## Snapshot rules
 
