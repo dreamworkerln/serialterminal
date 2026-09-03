@@ -1,4 +1,8 @@
+from pathlib import Path
+
+import serialterminal.cli as cli_module
 from serialterminal.cli import DeviceCandidate, DeviceSelector
+from serialterminal.transports.base import Transport
 
 
 def _candidate(index: int) -> DeviceCandidate:
@@ -75,3 +79,72 @@ def test_ten_item_menu_keeps_number_plus_enter_input(monkeypatch):
     )
 
     assert selected is candidates[9]
+
+
+def test_agent_subcommand_dispatches_to_jsonl_frontend(monkeypatch, tmp_path):
+    import serialterminal.agent as agent_module
+
+    observed = {}
+
+    def fake_run_agent(*, log_path=None, stdin=None, stdout=None):
+        observed["log_path"] = log_path
+        return 23
+
+    monkeypatch.setattr(agent_module, "run_agent", fake_run_agent)
+    log_path = tmp_path / "agent.log"
+
+    assert cli_module.main(["agent", "--log", str(log_path)]) == 23
+    assert observed == {"log_path": str(log_path)}
+
+
+class _DummyTransport(Transport):
+    @property
+    def is_connected(self):
+        return False
+
+    @property
+    def description(self):
+        return "dummy"
+
+    def connect(self):
+        return False
+
+    def disconnect(self):
+        pass
+
+    def read(self, size=512):
+        return b""
+
+    def write(self, data):
+        pass
+
+
+class _DummySelector:
+    def choose_transport_menu(self):
+        return None
+
+
+def test_human_session_uses_unique_default_log_path(monkeypatch, tmp_path):
+    captured = {}
+    generated = tmp_path / "logs" / "serialterminal-run.log"
+
+    class FakeTerminalSession:
+        def __init__(self, **kwargs):
+            captured.update(kwargs)
+
+        def run(self):
+            captured["ran"] = True
+
+    monkeypatch.setattr(cli_module, "TerminalSession", FakeTerminalSession)
+    monkeypatch.setattr(cli_module, "default_log_path", lambda: Path(generated))
+
+    result = cli_module._run_session(
+        _DummyTransport(),
+        log_path=None,
+        eol="lf",
+        selector=_DummySelector(),
+    )
+
+    assert result == 0
+    assert captured["log_path"] == str(generated)
+    assert captured["ran"] is True
