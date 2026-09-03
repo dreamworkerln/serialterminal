@@ -4,126 +4,105 @@ Status: COMPLETED
 
 ## Current operation
 
-Record the completed SerialTerminal agent work, post-closure physical multi-node validation, current documentation/skills/TODO state, and publish a new verified handoff snapshot.
+Documentation/TODO/history synchronization after live physical agent use is complete, and the resulting recovery state has been published as `HANDOFF_003.md`.
 
-No production source-code change is part of this operation. The current `dev` changes are documentation/history/TODO synchronization after live hardware use.
+No production source-code change was part of this operation.
 
-## Exact baselines / result
-
-Operation start source: dreamworkerln/serialterminal/dev@e0d7b5f91c88f91a0d426b8048803bc188614d5a
-Operation start handoff authority: dreamworkerln/serialterminal/dev_handoff@bc17b841484a5cb704874c9bea3d27325fc8e7dd
-Operating-instructions sync: dreamworkerln/serialterminal/dev_handoff@f0d564763739b1846aa69cd2bcf9d5d5f4f11797
-Completed source/docs: dreamworkerln/serialterminal/dev@30a084f6d726ccc0df19a3363dac129c3838f9b2
-Final source/docs CI: GitHub Actions run 33801154957 SUCCESS
-
-Important earlier implementation checkpoints:
+## Exact completed state
 
 ```text
-multi-session wait/concurrent JSONL accepted docs checkpoint:
-  dev@aaeab3002e60bd1e85595d73e3248d42c3141c1f
-  GitHub Actions 33782252791 SUCCESS
+Operation start source:
+  dreamworkerln/serialterminal/dev@e0d7b5f91c88f91a0d426b8048803bc188614d5a
 
-agent quality/static-analysis accepted checkpoint:
-  dev@a74b46585b3f2c0e032b6b444b2d1089b4fde1e9
-  GitHub Actions 33785730259 SUCCESS
+Completed source/docs:
+  dreamworkerln/serialterminal/dev@30a084f6d726ccc0df19a3363dac129c3838f9b2
+  GitHub Actions run 33801154957 SUCCESS
 
-closed quality inventory checkpoint:
-  dev@0346825648f4bb60c81b1b37c1aee240580583de
-  GitHub Actions 33785862613 SUCCESS
+Operation start handoff authority:
+  dreamworkerln/serialterminal/dev_handoff@bc17b841484a5cb704874c9bea3d27325fc8e7dd
+
+Operating-instructions sync:
+  dreamworkerln/serialterminal/dev_handoff@f0d564763739b1846aa69cd2bcf9d5d5f4f11797
+
+Snapshot 003 pre-creation handoff checkpoint:
+  dreamworkerln/serialterminal/dev_handoff@cee6f4e7251ee1b2cd891a76fa66a1ad59c89088
+
+Verified snapshot creation:
+  dreamworkerln/serialterminal/dev_handoff@86aa1147f0dde755f4c4d353cd0a397890503323
+  HANDOFF_003.md blob fb3a789635b9ddc2a40116c0865c6ae16c72b70d
+
+Index publication:
+  dreamworkerln/serialterminal/dev_handoff@68655579a6e7956454f96d61ead3bf1cb67816ae
 ```
 
-## Completed scope since previous handoff snapshot
+`HANDOFF_INDEX.md` now points to `HANDOFF_003.md`. Older `HANDOFF_001.md` and `HANDOFF_002.md` remain unchanged and immutable.
 
-- Added multi-session `wait_events` with independent per-session cursors and deterministic merged batches.
-- `wait_events` may remain pending while ordinary JSONL commands continue; responses are correlated by request `id` and may complete out of request order.
-- Preserved response-only JSONL stdout; no unsolicited push events were introduced.
-- Refactored `wait_events`, protocol dispatch and JSONL runner lifecycle to reduce accidental complexity without changing the documented machine contract.
-- Added conservative Ruff hard gates including unused imports/locals and advisory Lizard complexity reporting in CI.
-- Fixed initial-device-selection `Ctrl+T s` scanner handling so the startup scanner hotkey works while discovery is running without concurrent BLE discovery/scanner execution.
-- Added the active generic `.agents/skills/serialterminal-agent/SKILL.md`, which points to canonical `AGENT_API.md`.
-- Added the active project-specific `.agents/skills/node-agent/SKILL.md` and linked it from `AGENTS.md`.
-- Decided to keep `node-agent/SKILL.md` in `serialterminal` so it remains stable when `lora-sack-protocol` branch/worktree selection changes. It does not redefine the generic SerialTerminal API.
-- Synchronized generic handoff/TODO management policies with the related workstreams.
-- Updated README, TODO_001, TODO_002 and TODO inventory after physical hardware/Codex validation.
-- `TODO_INVENTORY.md` still has `Active: None`.
+## Current authoritative recovery state
 
-## Post-closure physical hardware findings
+Use the normal recovery order:
 
-Observed on 2026-09-03 using physical LoRa-Chatter hardware:
+1. read applicable `AGENTS.md`;
+2. read this `CONTEXT.md`;
+3. read `HANDOFF_INDEX.md`;
+4. read verified `HANDOFF_003.md`;
+5. refetch moving `dev` before new source work.
 
-- one `serialterminal agent` process opened two physical BLE nodes as independent sessions;
-- Codex independently used node `/help` to learn the available node command surface;
-- a multi-session `wait_events` request was used;
-- ordinary commands continued while that wait was pending;
-- TX was issued from both physical sessions close together, exercising independent per-session TX paths;
-- earlier physical node-to-node transfer and Chatter echo behavior were also observed and are documented in `.agents/skills/node-agent/SKILL.md`;
-- node `1B44` was additionally observed through USB with ESP32 powered while radio-module power was intentionally absent; boot reported `RADIO UNAVAILABLE bootTxSelfTest (-5); RF disabled` and USB/ESP32 remained available.
+`dev` is source authority. `dev_handoff` is recovery-only.
 
-Do not overstate the close-together TX smoke: it proves host-side multi-session/concurrent-wait/per-session-TX usability, not successful peer reception of both simultaneous LoRa transmissions. Peer delivery requires RX/telemetry evidence.
+## Current project state
 
-The exact process log and exact flashed firmware revision for the manual smoke were not recorded here. Do not invent them during recovery.
+- Generic SerialTerminal JSONL contract: `AGENT_API.md`.
+- Generic operational agent skill: `.agents/skills/serialterminal-agent/SKILL.md`.
+- Project-specific LoRa-Chatter node/hardware skill: `.agents/skills/node-agent/SKILL.md`.
+- The node skill is deliberately stored in `serialterminal` so it remains available independently of the selected `lora-sack-protocol` branch/worktree.
+- Firmware/protocol truth remains the actual relevant `lora-sack-protocol` source revision plus physical evidence; the node skill does not replace source inspection.
+- `TODO_INVENTORY.md` has `Active: None`.
+- `TODO_001_AGENT_INTERFACE`, `TODO_002_AGENT_EVENT_WAIT`, and `TODO_003_AGENT_CODE_QUALITY` remain CLOSED.
+- No required SerialTerminal implementation work is open.
 
-## Current documentation authority
+## Post-closure hardware state
 
-- `AGENT_API.md` — canonical generic SerialTerminal JSONL contract.
-- `.agents/skills/serialterminal-agent/SKILL.md` — concise generic operational workflow that points to `AGENT_API.md`.
-- `.agents/skills/node-agent/SKILL.md` — project-specific observed LoRa-Chatter node/hardware workflow and findings; deliberately stored in `serialterminal`.
-- `README.md` — human/agent usage summary and the post-closure hardware smoke note.
-- `TODO_INVENTORY.md` plus `todos/TODO_001_AGENT_INTERFACE.md`, `todos/TODO_002_AGENT_EVENT_WAIT.md`, `todos/TODO_003_AGENT_CODE_QUALITY.md` — engineering task/history state.
+Observed on physical hardware on 2026-09-03:
 
-Firmware/protocol source truth remains the actual relevant `lora-sack-protocol` source revision and physical hardware behavior. The node skill location does not make SerialTerminal source authoritative for Chatter firmware semantics.
+- two physical BLE LoRa-Chatter nodes were opened as independent sessions in one `serialterminal agent` process;
+- Codex independently used `/help` to learn the node command surface;
+- multi-session `wait_events` was exercised;
+- ordinary commands continued while a wait remained pending;
+- TX was issued from both sessions close together, exercising independent per-session host TX paths;
+- earlier node-to-node and echo observations plus the `1B44` radio-power-off observation are recorded in `.agents/skills/node-agent/SKILL.md`.
 
-## Invariants / do not change
+Do not claim successful reception of both close-together LoRa transmissions without peer RX/telemetry evidence.
 
-- `dev` is SerialTerminal source authority; `dev_handoff` is recovery-only.
-- Existing Serial/BLE/SPP transports remain I/O authority; agent code must not duplicate them.
-- Human and agent frontends share `ManagedSession` reconnect/RX/TX behavior.
-- Sticky reconnect stays bound to the selected physical identity.
-- BLE streams stay separate.
-- `state=queued` is queue acceptance only; `tx_state=written` is transport-write evidence only; neither proves LoRa peer delivery.
-- JSONL stdout remains request-correlated response-only output.
-- Ordinary JSONL commands remain serialized; pending `wait_events` is the asynchronous request mechanism.
-- Different `ManagedSession` instances retain independent TX workers/queues, allowing independent physical-device TX progress.
-- Do not introduce broad concurrency or MCP merely to make architecture look more asynchronous; require a concrete need.
+```text
+Exact manual-smoke process log ID: UNKNOWN / not recorded
+Exact flashed firmware revision:       UNKNOWN / not recorded
+```
 
-## Validation actually completed
+## Validation
 
-Final current documentation checkpoint:
+Final current SerialTerminal source/docs checkpoint:
 
 ```text
 dreamworkerln/serialterminal/dev@30a084f6d726ccc0df19a3363dac129c3838f9b2
 GitHub Actions run 33801154957 SUCCESS
 ```
 
-The run completed repository CI steps including compile, static analysis, advisory complexity execution, and tests.
+CI completed compile, static analysis, advisory complexity execution and tests successfully.
 
-Post-closure hardware validation is recorded above and in the active node skill/TODO history. The manual smoke does not have a retained exact process-log identifier in this recovery state.
+## Optional future work
 
-## Current optional follow-ups
+Only if a concrete need appears:
 
-No required SerialTerminal code work is open.
+1. stable machine-facing mapping for host/sandbox Bluetooth permission errors;
+2. per-backend diagnostics for partial `discover scope:auto` failure;
+3. MCP as a thin wrapper over the existing `SessionManager`.
 
-Potential future polish only when there is concrete demand:
-
-1. map host/sandbox BLE permission failures such as `Operation not permitted` to a stable agent-facing error such as `permission_denied` instead of generic/internal failure;
-2. optionally expose per-backend discovery diagnostics for partial `scope:auto` success/failure;
-3. add MCP only if a real consumer requires it, wrapping the existing `SessionManager` rather than creating a parallel transport/session stack.
-
-These are not active TODOs at this checkpoint.
+These are not active TODOs.
 
 ## Last completed action
 
-README, node-agent skill, TODO_001, TODO_002 and TODO inventory were synchronized with the post-closure physical multi-session/Codex validation and current skill ownership decision. Final `dev` CI is green at the exact checkpoint above.
+`HANDOFF_003.md` was created, read back and verified before `HANDOFF_INDEX.md` was advanced to snapshot 003, following `HANDOFF_MANAGEMENT_POLICY.md`.
 
 ## Next action
 
-1. Refetch `dev` and `dev_handoff`.
-2. Create `HANDOFF_003.md` as the next immutable snapshot.
-3. Read back and verify it before publication.
-4. Only then advance `HANDOFF_INDEX.md` to snapshot 003.
-
-## Blockers / findings
-
-- No required SerialTerminal implementation blocker remains.
-- No active TODO remains.
-- Exact hardware smoke process-log ID and exact flashed Chatter firmware revision are unknown in this handoff state and must remain explicitly unknown.
+No handoff publication action remains. For the next engineering task, refetch `dev`, read current TODO state, and open new work only for a concrete requirement or defect.
