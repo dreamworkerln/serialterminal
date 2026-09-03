@@ -7,7 +7,7 @@ description: Project-specific наблюдаемое поведение LoRa-Cha
 
 Этот файл сохраняет project-specific знания, полученные при работе с двумя BLE-подключёнными LoRa-Chatter нодами через `python3 serialterminal.py agent`.
 
-Он **не является источником истины для SerialTerminal API** и не должен переопределять `.agents/skills/serialterminal-agent/SKILL.md` или [AGENT_API.md](../../../AGENT_API.md). При переносе Chatter-specific automation в `lora-sack-protocol` этот материал следует перенести туда как hardware/protocol skill.
+Он **не является источником истины для SerialTerminal API** и не должен переопределять `.agents/skills/serialterminal-agent/SKILL.md` или [AGENT_API.md](../../../AGENT_API.md). Этот node skill намеренно хранится в `serialterminal`, чтобы оставаться доступным независимо от того, какая branch/worktree сейчас выбрана в `lora-sack-protocol`. Source of truth для firmware/protocol поведения при этом остаётся соответствующий source checkpoint `lora-sack-protocol` и фактически наблюдаемое hardware behavior.
 
 ## Подключение
 
@@ -86,6 +86,14 @@ LoRa-канал между нодами работает в half-duplex, поэ�
 Для обычной проверки гарантированной двунаправленной доставки используй последовательный сценарий: отправь с первой ноды, дождись подтверждённого RX на второй, затем отправь ответ в обратную сторону.
 
 Для явного concurrency/collision test одновременная передача с разных sessions допустима и может использоваться намеренно. SerialTerminal способен независимо поставить TX в очереди разных sessions; фактический radio outcome определяется поведением LoRa/firmware и должен оцениваться по RX/telemetry, а не только по локальным `>` строкам.
+
+### Hardware/Codex multi-session smoke — 2026-09-03
+
+Наблюдался живой сценарий с двумя физическими BLE-нодами в одном `serialterminal agent` process. Codex самостоятельно изучил доступные node commands через `/help`, открыл обе ноды как независимые sessions и использовал multi-session `wait_events`.
+
+Пока `wait_events` оставался pending, agent продолжал выполнять обычные команды. Затем были отправлены сообщения с обеих sessions близко по времени, то есть реально был использован независимый per-session TX path для двух физических нод.
+
+Этот smoke подтверждает практическую работоспособность multi-session open, concurrent pending `wait_events` и независимых TX queues разных sessions. Он **не является сам по себе доказательством успешной LoRa-доставки обеих одновременных передач**: такой вывод делай только по peer RX/telemetry.
 
 ## Передача сообщений между нодами
 
