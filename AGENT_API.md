@@ -12,6 +12,10 @@ python3 serialterminal.py agent
 
 The process reads one JSON object per line from stdin and writes exactly one JSON response per request to stdout.
 
+`wait_events` requests may remain pending while later ordinary requests are accepted. Therefore responses are correlated by `id` and are not globally guaranteed to appear in request order.
+
+SerialTerminal does not emit unsolicited JSON event messages on stdout. Every stdout line is still a response to a request.
+
 By default one unique logfile is created under:
 
 ```text
@@ -37,7 +41,7 @@ The same chronological log contains:
 
 RX/TX byte payloads are represented as base64 in structured records. Text is a UTF-8 convenience view; `data_b64` remains the byte-accurate representation.
 
-## Response envelope
+## Response envelope and request IDs
 
 Success:
 
@@ -51,7 +55,25 @@ Error:
 {"id":1,"ok":false,"error":{"code":"unknown_session","message":"unknown session: s1"}}
 ```
 
-`id` is copied from the request and may be any JSON value.
+For existing synchronous operations, `id` is copied from the request and may be any JSON value.
+
+`wait_events` is asynchronous at the JSONL frontend and therefore requires a non-null request `id`. Clients should use unique IDs for every request and must not reuse an ID while a `wait_events` request with that ID is still pending.
+
+A request that reuses an ID owned by a pending wait is rejected without cancelling the original wait:
+
+```json
+{
+  "id":100,
+  "ok":false,
+  "error":{
+    "code":"request_id_busy",
+    "message":"request id is already pending: 100",
+    "details":{"id":100}
+  }
+}
+```
+
+Once the original pending request finishes, that ID is no longer busy and may be reused, although monotonically increasing IDs are recommended because they simplify correlation and log inspection.
 
 A wait timeout is not an error. `events` and `wait_events` return an empty event array with `timed_out: true` when a positive timeout expires without a matching event.
 
@@ -211,7 +233,7 @@ Raw bytes use base64:
 
 Line and raw-byte sends use the same ordered reconnect-safe TX queue.
 
-## Receive / wait using an event cursor
+## Receive / wait using a single-session event cursor
 
 Each session has monotonically increasing event sequence numbers.
 
@@ -278,9 +300,11 @@ connect-preamble-written
 
 The event buffer is retained in memory with a finite window. If a caller holds an obsolete cursor after that window has rotated, the API returns structured error `cursor_expired` with the oldest available sequence number.
 
+`events` is preserved for simple single-session request/response use. Its timeout is processed synchronously by the JSONL reader. If a client needs to keep issuing other commands while waiting, use `wait_events` instead of a long-running `events` request.
+
 ## Wait for events across one or more sessions
 
-`wait_events` is the preferred long-poll operation when an agent may need to react to any of several open sessions. It also works with exactly one session, so the same operation can be used for a single-device echo/response test and for a multi-device exchange.
+`wait_events` is the preferred long-poll operation when an agent needs to react to session activity without blocking the JSONL command channel. It works with exactly one session for echo/response tests and with multiple sessions for cross-device tests.
 
 `cursors` is a non-empty object that maps every watched session ID to the last event sequence already inspected for that session:
 
@@ -402,7 +426,7 @@ The cursor values may be higher than the input values if non-matching events wer
 
 ### Errors
 
-An empty `cursors` object is `invalid_request`. Cursor keys must be non-empty session strings and cursor values must be non-negative integers.
+`wait_events` requires a non-null `id` and a non-empty `cursors` object. Cursor keys must be non-empty session strings and cursor values must be non-negative integers.
 
 If a watched session does not exist, the request fails with `unknown_session` and identifies the affected session:
 
@@ -436,7 +460,35 @@ If one watched cursor is older than that session's retained event window, the co
 }
 ```
 
-At the current Stage 1 implementation checkpoint the JSONL reader is still synchronous: while one `wait_events` request is pending, the process does not read the next request line. Concurrent command handling while a wait is pending is the next stage of the same API work.
+## Concurrent JSONL behavior
+
+Only `wait_events` requests are dispatched asynchronously. Ordinary operations remain serialized by the main JSONL reader in input order. This preserves the previous ordering of discovery/open/send/status/close mutations while allowing one or more long-poll waits to remain pending in parallel.
+
+Example timeline:
+
+```text
+request id=100  wait_events(s1,s2, 30s)   -> pending
+request id=101  send_line(s1,"hello")     -> response id=101
+request id=102  status(s1)                 -> response id=102
+... event arrives on s2 ...
+                                         -> response id=100
+```
+
+Corresponding stdout may therefore be:
+
+```json
+{"id":101,"ok":true,"result":{"tx_id":7,"state":"queued"}}
+{"id":102,"ok":true,"result":{"session":"s1","state":"connected"}}
+{"id":100,"ok":true,"result":{"events":[],"cursors":{"s1":43,"s2":76},"timed_out":false}}
+```
+
+The exact result fields depend on the operations and events; the important contract is that each complete response is associated with its own request `id`, not with stdout position.
+
+Multiple `wait_events` requests with different IDs may be pending at the same time. A later ordinary request using an ID that belongs to any still-pending wait is rejected with `request_id_busy` and is not executed.
+
+stdout writes are serialized, so concurrent completions cannot interleave fragments of two JSON objects. The logfile uses the same response emission lock for `[AGENT RESPONSE]`, so response-line order in the log matches response-line order on stdout. `[AGENT REQUEST]` entries remain in input order and may naturally appear before responses to earlier pending waits.
+
+There is no unsolicited event push. A client that wants continuous observation should issue a new `wait_events` after processing each completed wait response, using the returned `cursors`.
 
 ## Close
 
@@ -444,7 +496,7 @@ At the current Stage 1 implementation checkpoint the JSONL reader is still synch
 {"id":10,"op":"close","session":"s1"}
 ```
 
-Process EOF also closes all remaining sessions.
+Process EOF cancels pending `wait_events`, then closes all remaining sessions. Pending waits cancelled specifically because the agent process is stopping may complete with structured `agent_stopping` before stdout closes.
 
 ## Multiple devices
 
