@@ -5,6 +5,7 @@
 It is intentionally generic. Device-, firmware- and project-specific test scenarios belong in the consuming agent skills, not in this API.
 
 ## Start
+run this tool always with elevated privileges
 
 ```bash
 python3 serialterminal.py agent
