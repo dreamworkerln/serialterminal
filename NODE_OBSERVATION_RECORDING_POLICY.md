@@ -89,25 +89,36 @@ scripts/commit-node-observation
 
 Этот helper является trusted repository infrastructure. **Local executor agent не должен модифицировать, переписывать, патчить или генерировать замену `scripts/commit-node-observation` во время hardware/observation task**, даже если helper завершился ошибкой. Изменять helper можно только в отдельной явно поставленной code-maintenance задаче с обычным review/validation.
 
-Executor вызывает helper только из корня main `serialterminal` clone и только в таком виде:
+Executor вызывает helper только из корня main `serialterminal` clone и **без аргументов**:
 
 ```bash
-python3 -I scripts/commit-node-observation observations/OBS_YYYYMMDDTHHMMSSZ_<short-topic>.md
+python3 -I scripts/commit-node-observation
 ```
 
-Чтобы не подтверждать эту операцию вручную каждый run, человек может один раз добавить narrow Codex exec-policy rule для этого exact command prefix:
+Команда намеренно стабильная и не содержит filename/timestamp конкретного observation. Поэтому человек может один раз разрешить именно этот command prefix для elevated execution и не подтверждать новый `OBS_*.md` вручную каждый run:
 
 ```python
 prefix_rule(
     pattern = ["python3", "-I", "scripts/commit-node-observation"],
     decision = "allow",
-    justification = "Allow the guarded SerialTerminal observation helper to commit and push one new raw observation.",
+    justification = "Allow the guarded SerialTerminal observation helper to commit and push pending raw observations.",
 )
 ```
 
 Это permission setup выполняет только человек/operator. Executor **не должен** изменять Codex rules, `config.toml`, project trust, sandbox mode, writable roots или другие permissions.
 
-Helper специально ограничивает elevated Git workflow: он проверяет, что его собственная working-tree версия совпадает с current `HEAD`, main clone находится на `dev`, sibling является independent clone на `node_observations` с upstream `origin/node_observations`, local/remote refs синхронизированы, tracked state чистый и существует ровно один новый `OBS_*.md`. После этого helper добавляет только этот record, делает commit и normal push, затем проверяет clean/synced state.
+Helper специально ограничивает elevated Git workflow. Он проверяет, что:
+
+- его собственная working-tree версия совпадает с current `HEAD`;
+- main clone находится на `dev`;
+- sibling является independent clone на `node_observations` с upstream `origin/node_observations`;
+- local/remote refs синхронизированы;
+- tracked state полностью чистый, поэтому старые observations, `REVIEW_STATE.md` и другие tracked files не могут быть изменены или удалены;
+- все untracked files являются корректно названными новыми `observations/OBS_*.md`.
+
+Helper принимает **один или несколько** pending new observation files. Если после предыдущего interrupted/failed run осталось несколько валидных новых `OBS_*.md`, helper добавляет их все и отправляет одним commit/push. Любой посторонний untracked file приводит к отказу вместо broad staging.
+
+После commit/push helper проверяет final clean state и local-vs-origin synchronization.
 
 ### Helper result contract
 
@@ -117,11 +128,13 @@ Executor должен учитывать и **exit code**, и textual output hel
 
 ```text
 exit code: 0
-observation committed and pushed: observations/OBS_....md
+observations committed and pushed: <N>
+observation: observations/OBS_....md
+observation: observations/OBS_....md
 commit: <SHA>
 ```
 
-`exit 0` означает, что helper выполнил commit, normal push и собственную final clean/local-vs-origin synchronization verification.
+`exit 0` означает, что helper закоммитил все pending new observations, выполнил normal push и собственную final clean/local-vs-origin synchronization verification.
 
 Обычная guard/Git failure:
 
@@ -130,14 +143,14 @@ exit code: 1
 OBSERVATION COMMIT FAILED: <concrete reason>
 ```
 
-Invalid invocation/path:
+Invalid invocation, например переданы аргументы:
 
 ```text
 exit code: 2
-<usage or invalid-path diagnostic>
+usage: python3 -I scripts/commit-node-observation
 ```
 
-При non-zero exit executor не должен ограничиваться сообщением «helper failed». Он должен сохранить и передать пользователю **точный diagnostic text helper-а**, потому что helper сообщает конкретную причину: dirty tracked state, divergence, wrong branch/upstream, invalid storage layout, Git/network failure и т.п.
+При non-zero exit executor не должен ограничиваться сообщением «helper failed». Он должен сохранить и передать пользователю **точный diagnostic text helper-а**, потому что helper сообщает конкретную причину: dirty tracked state, divergence, wrong branch/upstream, unexpected untracked files, invalid storage layout, Git/network failure и т.п.
 
 После `exit 0` executor при необходимости может дополнительно выполнить read-only remote verification, не изменяя Git state:
 
@@ -351,28 +364,33 @@ current impact
    git -C ../serialterminal-observations branch --show-current
    ```
 
-4. Если есть unexpected local changes, старые modified/deleted observations или изменение `REVIEW_STATE.md`, не перезаписывай их и сообщи проблему.
-5. Создай ровно один новый file:
+4. Если есть tracked modifications/deletions, staged changes или изменение `REVIEW_STATE.md`, не исправляй и не перезаписывай их; сообщи проблему.
+5. Создай новый record текущего run:
 
    ```text
    ../serialterminal-observations/observations/OBS_YYYYMMDDTHHMMSSZ_<short-topic>.md
    ```
 
-6. Не изменяй `REVIEW_STATE.md`, предыдущие observation files **или `scripts/commit-node-observation`**.
-7. Из корня main `serialterminal` clone выполни только guarded helper:
+   Если в clone уже лежат другие untracked валидные `OBS_*.md` от предыдущего interrupted/failed commit attempt, не удаляй и не переписывай их. Helper отправит весь pending batch одним commit.
+6. Не изменяй `REVIEW_STATE.md`, предыдущие committed observation files **или `scripts/commit-node-observation`**.
+7. Из корня main `serialterminal` clone выполни только guarded helper без аргументов:
 
    ```bash
-   python3 -I scripts/commit-node-observation observations/OBS_YYYYMMDDTHHMMSSZ_<short-topic>.md
+   python3 -I scripts/commit-node-observation
    ```
 
 8. Проверь exit code и сохрани stdout/stderr helper-а. При non-zero передай пользователю exact diagnostic; не пытайся исправлять helper в рамках hardware task.
 9. Не выполняй вместо helper-а raw `git add`, `git commit`, `git push`, `git reset`, `git rebase`, merge или force-push в observation clone.
-10. Успехом считается `exit 0` + helper output с commit SHA. Helper уже выполняет push и final clean/synced verification; при необходимости executor может дополнительно сравнить local `HEAD` с remote SHA через read-only `git ls-remote`.
+10. Успехом считается `exit 0` + helper output с количеством observations и commit SHA. Helper уже выполняет push и final clean/synced verification; при необходимости executor может дополнительно сравнить local `HEAD` с remote SHA через read-only `git ls-remote`.
 
-Commit message helper формирует автоматически из filename slug:
+Commit message helper формирует автоматически:
 
 ```text
-obs: <short topic>
+one pending observation:
+    obs: <short topic>
+
+multiple pending observations:
+    obs: record node observations
 ```
 
 Если helper завершился с `OBSERVATION COMMIT FAILED`, не обходи его guards. Сохрани factual hardware result в основном report и сообщи конкретную storage/Git проблему пользователю.
@@ -411,7 +429,7 @@ NODE_OBSERVATION_RECORDING_POLICY.md
     executor rule for raw observation recording
 
 scripts/commit-node-observation
-    guarded commit/push path for one new observation; executor must not modify it during hardware tasks
+    guarded commit/push path for all pending new observations; executor must not modify it during hardware tasks
 
 NODE_SKILL_LEARNING_POLICY.md
     reviewer rule for processing observations and updating node skill
