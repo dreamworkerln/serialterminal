@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Safely commit and push one new node observation from the sibling clone."""
+"""Safely commit and push pending node observations from the sibling clone."""
 
 from __future__ import annotations
 
@@ -90,23 +90,50 @@ def require_synced_with_origin(repo: Path) -> None:
         )
 
 
-def main() -> int:
-    if len(sys.argv) != 2:
-        print(
-            "usage: python3 -I scripts/commit-node-observation "
-            "observations/OBS_YYYYMMDDTHHMMSSZ_<short-topic>.md",
-            file=sys.stderr,
+def pending_observations(repo: Path) -> list[str]:
+    untracked = sorted(
+        nul_paths(
+            run_git(
+                repo,
+                "ls-files",
+                "--others",
+                "--exclude-standard",
+                "-z",
+            ).stdout
         )
-        return 2
+    )
+    if not untracked:
+        raise ObservationCommitError("no new observation files to commit")
 
-    observation_path = sys.argv[1]
-    if not OBS_PATH_RE.fullmatch(observation_path):
-        print("refusing invalid observation path", file=sys.stderr)
+    invalid = [path for path in untracked if not OBS_PATH_RE.fullmatch(path)]
+    if invalid:
+        raise ObservationCommitError(
+            "unexpected untracked files in observation clone: " + ", ".join(invalid)
+        )
+
+    missing = [path for path in untracked if not (repo / path).is_file()]
+    if missing:
+        raise ObservationCommitError(
+            "observation path is not a regular file: " + ", ".join(missing)
+        )
+
+    return untracked
+
+
+def commit_message(paths: list[str]) -> str:
+    if len(paths) == 1:
+        topic = Path(paths[0]).stem.split("_", 2)[2].replace("-", " ")
+        return f"obs: {topic}"
+    return "obs: record node observations"
+
+
+def main() -> int:
+    if len(sys.argv) != 1:
+        print("usage: python3 -I scripts/commit-node-observation", file=sys.stderr)
         return 2
 
     main_repo = Path(__file__).resolve().parent.parent
     obs_repo = main_repo.parent / OBS_REPO_NAME
-    obs_file = obs_repo / observation_path
 
     try:
         require_trusted_helper(main_repo)
@@ -140,46 +167,31 @@ def main() -> int:
 
         require_clean_tracked_state(obs_repo)
         require_synced_with_origin(obs_repo)
+        observations = pending_observations(obs_repo)
 
-        untracked = nul_paths(
-            run_git(
-                obs_repo,
-                "ls-files",
-                "--others",
-                "--exclude-standard",
-                "-z",
-            ).stdout
+        run_git(obs_repo, "add", "--", *observations)
+
+        staged = sorted(
+            nul_paths(run_git(obs_repo, "diff", "--cached", "--name-only", "-z").stdout)
         )
-        if untracked != [observation_path]:
+        staged_added = sorted(
+            nul_paths(
+                run_git(
+                    obs_repo,
+                    "diff",
+                    "--cached",
+                    "--diff-filter=A",
+                    "--name-only",
+                    "-z",
+                ).stdout
+            )
+        )
+        if staged != observations or staged_added != observations:
             raise ObservationCommitError(
-                "expected exactly one untracked observation file; "
-                f"found: {untracked or 'none'}"
+                "staged changes are not exactly the pending new observations"
             )
 
-        if not obs_file.is_file():
-            raise ObservationCommitError("observation file does not exist as a regular file")
-
-        run_git(obs_repo, "add", "--", observation_path)
-
-        staged = nul_paths(
-            run_git(obs_repo, "diff", "--cached", "--name-only", "-z").stdout
-        )
-        staged_added = nul_paths(
-            run_git(
-                obs_repo,
-                "diff",
-                "--cached",
-                "--diff-filter=A",
-                "--name-only",
-                "-z",
-            ).stdout
-        )
-        if staged != [observation_path] or staged_added != [observation_path]:
-            raise ObservationCommitError("staged change is not exactly one newly added observation")
-
-        topic = Path(observation_path).stem.split("_", 2)[2].replace("-", " ")
-        message = f"obs: {topic}"
-        run_git(obs_repo, "commit", "-m", message, "--", observation_path)
+        run_git(obs_repo, "commit", "-m", commit_message(observations), "--", *observations)
         commit_sha = run_git(obs_repo, "rev-parse", "HEAD").stdout.strip()
 
         run_git(obs_repo, "push", "origin", f"HEAD:{OBS_BRANCH}")
@@ -198,7 +210,9 @@ def main() -> int:
         if counts != ["0", "0"]:
             raise ObservationCommitError("push completed but local/remote refs are not synchronized")
 
-        print(f"observation committed and pushed: {observation_path}")
+        print(f"observations committed and pushed: {len(observations)}")
+        for path in observations:
+            print(f"observation: {path}")
         print(f"commit: {commit_sha}")
         return 0
     except ObservationCommitError as exc:
