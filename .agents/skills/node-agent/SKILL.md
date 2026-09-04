@@ -72,6 +72,8 @@ BLE machine telemetry является отдельным background stream и �
 
 Для распознавания local command firmware нормализует только boundary whitespace/control bytes. Если строка не распознана как local command, в USER/ECHO payload должен идти исходный текст, а не нормализованная копия.
 
+Для USER/ECHO agent tests отправляй payload длиной `1..200` UTF-8 bytes включительно.
+
 Не считай локальное распознавание команды радиопередачей.
 
 ## USER radio delivery
