@@ -95,7 +95,9 @@ Executor вызывает helper только из корня main `serialtermin
 python3 -I scripts/commit-node-observation
 ```
 
-Команда намеренно стабильная и не содержит filename/timestamp конкретного observation. Поэтому человек может один раз разрешить именно этот command prefix для elevated execution и не подтверждать новый `OBS_*.md` вручную каждый run:
+Команда намеренно стабильная и не содержит filename/timestamp конкретного observation. Helper ожидаемо пишет в `.git` observation clone, поэтому executor должен **сразу запрашивать elevated execution для этой команды**, а не сначала запускать её в обычном `workspace-write` sandbox и получать ожидаемый read-only failure.
+
+Человек может один раз разрешить именно этот стабильный command prefix для elevated execution и не подтверждать новый `OBS_*.md` вручную каждый run:
 
 ```python
 prefix_rule(
@@ -373,12 +375,13 @@ current impact
 
    Если в clone уже лежат другие untracked валидные `OBS_*.md` от предыдущего interrupted/failed commit attempt, не удаляй и не переписывай их. Helper отправит весь pending batch одним commit.
 6. Не изменяй `REVIEW_STATE.md`, предыдущие committed observation files **или `scripts/commit-node-observation`**.
-7. Из корня main `serialterminal` clone выполни только guarded helper без аргументов:
+7. Из корня main `serialterminal` clone сразу запроси **elevated execution** guarded helper без аргументов:
 
    ```bash
    python3 -I scripts/commit-node-observation
    ```
 
+   Не запускай helper сначала в обычном sandbox: его нормальная работа включает запись Git metadata в observation clone.
 8. Проверь exit code и сохрани stdout/stderr helper-а. При non-zero передай пользователю exact diagnostic; не пытайся исправлять helper в рамках hardware task.
 9. Не выполняй вместо helper-а raw `git add`, `git commit`, `git push`, `git reset`, `git rebase`, merge или force-push в observation clone.
 10. Успехом считается `exit 0` + helper output с количеством observations и commit SHA. Helper уже выполняет push и final clean/synced verification; при необходимости executor может дополнительно сравнить local `HEAD` с remote SHA через read-only `git ls-remote`.
