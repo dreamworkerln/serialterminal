@@ -75,9 +75,15 @@ git worktree list
 
 Ожидается main worktree на `dev` и отдельный worktree на `node_observations`.
 
-**Local executor agent не должен выполнять команды из этого initial-setup блока.** Они приведены только как manual setup instruction для человека. Executor только ищет уже настроенный worktree через `git worktree list --porcelain`.
+После создания worktree человек также должен убедиться, что local Codex/sandbox configuration разрешает запись в observation worktree. Project trust и sandbox write access — разные настройки; наличие `trust_level = "trusted"` для observation project не следует считать автоматическим доказательством writable-доступа.
 
-Если такой branch/worktree не настроен, executor не создаёт branch/worktree автоматически и не переключает branches. Рапортуй `OBSERVATION STORAGE NOT CONFIGURED` и продолжай hardware task без изменения skills/docs.
+Если local configuration использует дополнительные writable roots/directories, observation worktree должен быть разрешён там соответствующим способом. Проверка должна подтверждать фактическую возможность записи, а не только наличие worktree в Git metadata.
+
+**Local executor agent не должен выполнять команды из этого initial-setup блока и не должен изменять `config.toml`, project trust, sandbox mode, writable roots или другие sandbox permissions.** Они принадлежат human/operator setup. Executor только ищет уже настроенный worktree через `git worktree list --porcelain` и использует предоставленные ему права.
+
+Если branch/worktree не настроен, executor не создаёт branch/worktree автоматически и не переключает branches. Рапортуй `OBSERVATION STORAGE NOT CONFIGURED` и продолжай hardware task без изменения skills/docs.
+
+Если worktree настроен и найден, но sandbox/permissions не позволяют записывать в него, не пытайся менять permissions или конфигурацию. Рапортуй `OBSERVATION STORAGE NOT WRITABLE` и продолжай hardware task без изменения skills/docs.
 
 ---
 
