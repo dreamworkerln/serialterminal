@@ -37,10 +37,34 @@ The same chronological log contains:
 [STATE]
 [TX]
 [RX <stream>]
+[RX LINE <stream>]
+[RX PARTIAL <stream>]
 [ERROR]
 ```
 
 RX/TX byte payloads are represented as base64 in structured records. Text is a UTF-8 convenience view; `data_b64` remains the byte-accurate representation.
+
+`[RX <stream>]` remains the raw chunk-level source of truth. BLE notification/chunk boundaries and the original `data_b64`, chunk text, event `seq`, and timestamp are not normalized or replaced by line logging.
+
+The additional `[RX LINE <stream>]` records are a log-only convenience view. They assemble the already incrementally decoded RX text separately for every `(session, stream)` pair and emit one record for every decoded LF-terminated logical line:
+
+```json
+{
+  "session":"s2",
+  "stream":"chat",
+  "text":"SESSION t=540s TX ok=1 user=0 err=0",
+  "seq_first":282,
+  "seq_last":284
+}
+```
+
+The final LF is omitted from `text`. For CRLF input, one `\r` immediately before the terminating `\n` is also omitted in the line view; raw RX bytes remain unchanged. Empty logical lines are retained. `seq_first` and `seq_last` identify the raw RX event range that contributed to the assembled line.
+
+Line assembly uses the existing incremental UTF-8 decoded event text, so a multibyte character split across transport chunks is not decoded independently per chunk a second time. Chat, telemetry, main, and any other streams keep independent line state and are never joined across streams or sessions.
+
+If a connection lifecycle boundary or logfile close occurs with decoded text still buffered without a terminating LF, the convenience logger writes `[RX PARTIAL <stream>]` with the same `session`, `stream`, `text`, `seq_first`, and `seq_last` fields before discarding that line state. Raw chunk records remain available even when an incomplete UTF-8 byte sequence never produced decoded text.
+
+`RX LINE` / `RX PARTIAL` records do not create new `SessionEvent` objects and do not change `events`, `wait_events`, cursor advancement, transport chunk semantics, or JSONL stdout behavior.
 
 ## Response envelope and request IDs
 
