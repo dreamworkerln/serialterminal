@@ -95,7 +95,20 @@ Executor вызывает helper только из корня main `serialtermin
 python3 -I scripts/commit-node-observation
 ```
 
-Команда намеренно стабильная и не содержит filename/timestamp конкретного observation. Helper ожидаемо пишет в `.git` observation clone, поэтому executor должен **сразу запрашивать elevated execution для этой команды**, а не сначала запускать её в обычном `workspace-write` sandbox и получать ожидаемый read-only failure.
+Этот helper command должен запускаться **отдельным standalone shell execution**. В том же shell command нельзя добавлять никакие команды до или после него через `&&`, `;`, `||`, pipe, subshell, command substitution или другую shell chaining/composition. Нельзя, например, объединять чтение документации и helper:
+
+```bash
+# WRONG
+sed -n '521,560p' AGENT_API.md && python3 -I scripts/commit-node-observation
+```
+
+Любые `sed`/`cat`/`git status`/другие проверки выполняй отдельными command executions. Elevated request для helper должен содержать ровно один executable command:
+
+```bash
+python3 -I scripts/commit-node-observation
+```
+
+Команда намеренно стабильная и не содержит filename/timestamp конкретного observation. Helper ожидаемо пишет в `.git` observation clone, поэтому executor должен **сразу запрашивать elevated execution для этой standalone-команды**, а не сначала запускать её в обычном `workspace-write` sandbox и получать ожидаемый read-only failure.
 
 Человек может один раз разрешить именно этот стабильный command prefix для elevated execution и не подтверждать новый `OBS_*.md` вручную каждый run:
 
@@ -161,6 +174,8 @@ local_sha="$(git -C ../serialterminal-observations rev-parse HEAD)"
 remote_sha="$(git -C ../serialterminal-observations ls-remote origin refs/heads/node_observations | awk '{print $1}')"
 test -n "$remote_sha" && test "$local_sha" = "$remote_sha"
 ```
+
+Эта remote verification выполняется **отдельным command execution после helper**, а не chaining-ом к elevated helper command.
 
 Только если SHA совпали, commit считается независимо подтверждённым непосредственно на remote `node_observations`, и observation cycle считается полностью завершённым. Если SHA не совпали, executor должен сообщить mismatch и не заявлять remote success. Если read-only проверка не выполнилась из-за network/tool restrictions, не отменяй уже успешный helper result, но явно сообщи `remote verification: not verified`; не заявляй, что remote был независимо проверен.
 
@@ -375,16 +390,16 @@ current impact
 
    Если в clone уже лежат другие untracked валидные `OBS_*.md` от предыдущего interrupted/failed commit attempt, не удаляй и не переписывай их. Helper отправит весь pending batch одним commit.
 6. Не изменяй `REVIEW_STATE.md`, предыдущие committed observation files **или `scripts/commit-node-observation`**.
-7. Из корня main `serialterminal` clone сразу запроси **elevated execution** guarded helper без аргументов:
+7. Из корня main `serialterminal` clone сразу запроси **elevated execution** guarded helper без аргументов как отдельный standalone command:
 
    ```bash
    python3 -I scripts/commit-node-observation
    ```
 
-   Не запускай helper сначала в обычном sandbox: его нормальная работа включает запись Git metadata в observation clone.
+   Elevated helper execution должно содержать **только эту команду**. Не добавляй к ней чтение файлов, status checks, `echo`, remote verification или другие команды через `&&`, `;`, `||`, pipe или другие shell composition operators. Не запускай helper сначала в обычном sandbox: его нормальная работа включает запись Git metadata в observation clone.
 8. Проверь exit code и сохрани stdout/stderr helper-а. При non-zero передай пользователю exact diagnostic; не пытайся исправлять helper в рамках hardware task.
 9. Не выполняй вместо helper-а raw `git add`, `git commit`, `git push`, `git reset`, `git rebase`, merge или force-push в observation clone.
-10. После `exit 0` **обязательно** независимо проверь remote SHA через read-only `git ls-remote` и сравни его с local `HEAD`. Только при совпадении SHA рапортуй `remote verification: verified`. При mismatch рапортуй mismatch и не заявляй remote success. Если независимая проверка невозможна из-за network/tool restrictions, рапортуй `remote verification: not verified`.
+10. После `exit 0` отдельным read-only command execution **обязательно** независимо проверь remote SHA через `git ls-remote` и сравни его с local `HEAD`. Только при совпадении SHA рапортуй `remote verification: verified`. При mismatch рапортуй mismatch и не заявляй remote success. Если независимая проверка невозможна из-за network/tool restrictions, рапортуй `remote verification: not verified`.
 
 Commit message helper формирует автоматически:
 
