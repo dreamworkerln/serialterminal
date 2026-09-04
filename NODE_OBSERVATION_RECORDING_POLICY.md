@@ -87,7 +87,9 @@ Repository содержит guarded helper:
 scripts/commit-node-observation
 ```
 
-Executor вызывает его только из корня main `serialterminal` clone и только в таком виде:
+Этот helper является trusted repository infrastructure. **Local executor agent не должен модифицировать, переписывать, патчить или генерировать замену `scripts/commit-node-observation` во время hardware/observation task**, даже если helper завершился ошибкой. Изменять helper можно только в отдельной явно поставленной code-maintenance задаче с обычным review/validation.
+
+Executor вызывает helper только из корня main `serialterminal` clone и только в таком виде:
 
 ```bash
 python3 -I scripts/commit-node-observation observations/OBS_YYYYMMDDTHHMMSSZ_<short-topic>.md
@@ -107,6 +109,46 @@ prefix_rule(
 
 Helper специально ограничивает elevated Git workflow: он проверяет, что его собственная working-tree версия совпадает с current `HEAD`, main clone находится на `dev`, sibling является independent clone на `node_observations` с upstream `origin/node_observations`, local/remote refs синхронизированы, tracked state чистый и существует ровно один новый `OBS_*.md`. После этого helper добавляет только этот record, делает commit и normal push, затем проверяет clean/synced state.
 
+### Helper result contract
+
+Executor должен учитывать и **exit code**, и textual output helper-а.
+
+Успех:
+
+```text
+exit code: 0
+observation committed and pushed: observations/OBS_....md
+commit: <SHA>
+```
+
+`exit 0` означает, что helper выполнил commit, normal push и собственную final clean/local-vs-origin synchronization verification.
+
+Обычная guard/Git failure:
+
+```text
+exit code: 1
+OBSERVATION COMMIT FAILED: <concrete reason>
+```
+
+Invalid invocation/path:
+
+```text
+exit code: 2
+<usage or invalid-path diagnostic>
+```
+
+При non-zero exit executor не должен ограничиваться сообщением «helper failed». Он должен сохранить и передать пользователю **точный diagnostic text helper-а**, потому что helper сообщает конкретную причину: dirty tracked state, divergence, wrong branch/upstream, invalid storage layout, Git/network failure и т.п.
+
+После `exit 0` executor при необходимости может дополнительно выполнить read-only remote verification, не изменяя Git state:
+
+```bash
+local_sha="$(git -C ../serialterminal-observations rev-parse HEAD)"
+remote_sha="$(git -C ../serialterminal-observations ls-remote origin refs/heads/node_observations | awk '{print $1}')"
+test -n "$remote_sha" && test "$local_sha" = "$remote_sha"
+```
+
+Если SHA совпали, commit подтверждён непосредственно на remote `node_observations`. Если эта дополнительная read-only проверка не удалась из-за network/tool restrictions, не отменяй уже успешный helper result; сообщи отдельно, что independent remote re-check не выполнен.
+
 Если observation clone отсутствует или настроен неправильно, executor не создаёт и не перенастраивает его. Рапортуй:
 
 ```text
@@ -119,7 +161,7 @@ OBSERVATION STORAGE NOT CONFIGURED
 OBSERVATION STORAGE NOT WRITABLE
 ```
 
-Если helper отказывается выполнять commit/push из-за dirty state, divergence, wrong branch/upstream или другой guard failure, не обходи guard raw Git-командами и не делай merge/rebase/reset/force push. Рапортуй ошибку пользователю.
+Если helper отказывается выполнять commit/push из-за dirty state, divergence, wrong branch/upstream или другой guard failure, не обходи guard raw Git-командами и не делай merge/rebase/reset/force push. Не модифицируй helper для обхода отказа. Рапортуй exact helper diagnostic пользователю.
 
 ---
 
@@ -316,15 +358,16 @@ current impact
    ../serialterminal-observations/observations/OBS_YYYYMMDDTHHMMSSZ_<short-topic>.md
    ```
 
-6. Не изменяй `REVIEW_STATE.md` и предыдущие observation files.
+6. Не изменяй `REVIEW_STATE.md`, предыдущие observation files **или `scripts/commit-node-observation`**.
 7. Из корня main `serialterminal` clone выполни только guarded helper:
 
    ```bash
    python3 -I scripts/commit-node-observation observations/OBS_YYYYMMDDTHHMMSSZ_<short-topic>.md
    ```
 
-8. Не выполняй вместо helper-а raw `git add`, `git commit`, `git push`, `git reset`, `git rebase`, merge или force-push в observation clone.
-9. Успехом считается только helper output с commit SHA после successful push и final clean/synced verification.
+8. Проверь exit code и сохрани stdout/stderr helper-а. При non-zero передай пользователю exact diagnostic; не пытайся исправлять helper в рамках hardware task.
+9. Не выполняй вместо helper-а raw `git add`, `git commit`, `git push`, `git reset`, `git rebase`, merge или force-push в observation clone.
+10. Успехом считается `exit 0` + helper output с commit SHA. Helper уже выполняет push и final clean/synced verification; при необходимости executor может дополнительно сравнить local `HEAD` с remote SHA через read-only `git ls-remote`.
 
 Commit message helper формирует автоматически из filename slug:
 
@@ -344,6 +387,7 @@ obs: <short topic>
 hardware result: PASS/FAIL/BLOCKED/INCONCLUSIVE
 observation: <filename or not recorded>
 observation commit: <SHA if committed+pushed, otherwise not committed>
+remote verification: <verified / helper-only / not verified>
 anomaly: <none or one-line summary>
 ```
 
@@ -367,7 +411,7 @@ NODE_OBSERVATION_RECORDING_POLICY.md
     executor rule for raw observation recording
 
 scripts/commit-node-observation
-    guarded commit/push path for one new observation
+    guarded commit/push path for one new observation; executor must not modify it during hardware tasks
 
 NODE_SKILL_LEARNING_POLICY.md
     reviewer rule for processing observations and updating node skill
