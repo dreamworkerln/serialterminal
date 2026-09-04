@@ -1,108 +1,66 @@
 # Current work context
 
-Status: COMPLETED
+Status: IN PROGRESS
 
 ## Current operation
 
-Documentation/TODO/history synchronization after live physical agent use is complete, and the resulting recovery state has been published as `HANDOFF_003.md`.
+Publish the next SerialTerminal recovery snapshot after the post-003 documentation/agent-learning work on `dev`.
 
-No production source-code change was part of this operation.
+No production Python source change is part of this handoff operation.
 
-## Exact completed state
-
-```text
-Operation start source:
-  dreamworkerln/serialterminal/dev@e0d7b5f91c88f91a0d426b8048803bc188614d5a
-
-Completed source/docs:
-  dreamworkerln/serialterminal/dev@30a084f6d726ccc0df19a3363dac129c3838f9b2
-  GitHub Actions run 33801154957 SUCCESS
-
-Operation start handoff authority:
-  dreamworkerln/serialterminal/dev_handoff@bc17b841484a5cb704874c9bea3d27325fc8e7dd
-
-Operating-instructions sync:
-  dreamworkerln/serialterminal/dev_handoff@f0d564763739b1846aa69cd2bcf9d5d5f4f11797
-
-Snapshot 003 pre-creation handoff checkpoint:
-  dreamworkerln/serialterminal/dev_handoff@cee6f4e7251ee1b2cd891a76fa66a1ad59c89088
-
-Verified snapshot creation:
-  dreamworkerln/serialterminal/dev_handoff@86aa1147f0dde755f4c4d353cd0a397890503323
-  HANDOFF_003.md blob fb3a789635b9ddc2a40116c0865c6ae16c72b70d
-
-Index publication:
-  dreamworkerln/serialterminal/dev_handoff@68655579a6e7956454f96d61ead3bf1cb67816ae
-```
-
-`HANDOFF_INDEX.md` now points to `HANDOFF_003.md`. Older `HANDOFF_001.md` and `HANDOFF_002.md` remain unchanged and immutable.
-
-## Current authoritative recovery state
-
-Use the normal recovery order:
-
-1. read applicable `AGENTS.md`;
-2. read this `CONTEXT.md`;
-3. read `HANDOFF_INDEX.md`;
-4. read verified `HANDOFF_003.md`;
-5. refetch moving `dev` before new source work.
-
-`dev` is source authority. `dev_handoff` is recovery-only.
-
-## Current project state
-
-- Generic SerialTerminal JSONL contract: `AGENT_API.md`.
-- Generic operational agent skill: `.agents/skills/serialterminal-agent/SKILL.md`.
-- Project-specific LoRa-Chatter node/hardware skill: `.agents/skills/node-agent/SKILL.md`.
-- The node skill is deliberately stored in `serialterminal` so it remains available independently of the selected `lora-sack-protocol` branch/worktree.
-- Firmware/protocol truth remains the actual relevant `lora-sack-protocol` source revision plus physical evidence; the node skill does not replace source inspection.
-- `TODO_INVENTORY.md` has `Active: None`.
-- `TODO_001_AGENT_INTERFACE`, `TODO_002_AGENT_EVENT_WAIT`, and `TODO_003_AGENT_CODE_QUALITY` remain CLOSED.
-- No required SerialTerminal implementation work is open.
-
-## Post-closure hardware state
-
-Observed on physical hardware on 2026-09-03:
-
-- two physical BLE LoRa-Chatter nodes were opened as independent sessions in one `serialterminal agent` process;
-- Codex independently used `/help` to learn the node command surface;
-- multi-session `wait_events` was exercised;
-- ordinary commands continued while a wait remained pending;
-- TX was issued from both sessions close together, exercising independent per-session host TX paths;
-- earlier node-to-node and echo observations plus the `1B44` radio-power-off observation are recorded in `.agents/skills/node-agent/SKILL.md`.
-
-Do not claim successful reception of both close-together LoRa transmissions without peer RX/telemetry evidence.
+## Exact current checkpoints
 
 ```text
-Exact manual-smoke process log ID: UNKNOWN / not recorded
-Exact flashed firmware revision:       UNKNOWN / not recorded
+SerialTerminal source/docs:
+  dreamworkerln/serialterminal/dev@0da242eb9c67bf82d59fbfbbcb0bca3ced92a942
+  GitHub Actions run 33909130096 SUCCESS
+
+Observation evidence branch:
+  dreamworkerln/serialterminal/node_observations@b024b43ef43d1e9fbe0806ef3996f1a4bc549198
+
+Handoff authority after operating-instructions sync:
+  dreamworkerln/serialterminal/dev_handoff@544bd8fdacab5581cf5da985e0d7426ccf767c77
 ```
+
+Latest published recovery snapshot remains `HANDOFF_003.md` until `HANDOFF_004.md` is created, read back, verified, and only then published through `HANDOFF_INDEX.md`.
+
+## Material state since snapshot 003
+
+- `dev` advanced 22 commits from the source checkpoint recorded by snapshot 003.
+- SerialTerminal Python transport/session/terminal implementation did not change in that range.
+- Added `NODE_OBSERVATION_RECORDING_POLICY.md` for local executor raw hardware evidence.
+- Added `NODE_SKILL_LEARNING_POLICY.md` for reviewer promotion/generalization.
+- Added guarded `scripts/commit-node-observation` workflow and refined its standalone elevated execution/remote-verification contract.
+- Run-specific node evidence moved to the orphan `node_observations` branch; `.agents/skills/node-agent/SKILL.md` is class-level only.
+- Current `node_observations` contains three observation records; `REVIEW_STATE.md` still has no reviewed boundary.
+- `AGENT_API.md` now explicitly says to run `python3 serialterminal.py agent` with elevated privileges.
+- Node skill now documents current ACK-capable reliable USER semantics, bounded retry/queue/cancellation rules, duplicate/ACK handling, and the focused two-node reliability gate.
+- Node skill keeps USER/ECHO payload guidance at `1..200` UTF-8 bytes; the 200-byte limit remains Chatter-specific, not a generic SerialTerminal send-line guard.
+- Generic SerialTerminal send semantics remain unchanged: `send_line`/`send_bytes` queue transport work; firmware/application outcomes arrive later as RX/events.
+- Current TODO inventory still has `Active: None`.
+
+## Current authority boundaries
+
+- `dev` is SerialTerminal source/docs authority.
+- `dev_handoff` is recovery-only.
+- `AGENT_API.md` is the generic JSONL contract.
+- `.agents/skills/serialterminal-agent/SKILL.md` is the generic operational skill.
+- `.agents/skills/node-agent/SKILL.md` is reusable class-level LoRa-Chatter guidance only.
+- `node_observations` is append-only run-specific evidence, not source and not merged into `dev`.
+- `NODE_OBSERVATION_RECORDING_POLICY.md` governs executor evidence recording.
+- `NODE_SKILL_LEARNING_POLICY.md` governs reviewer promotion/generalization.
+- Firmware/protocol authority remains the actual relevant `lora-sack-protocol` source/docs checkpoint.
 
 ## Validation
 
-Final current SerialTerminal source/docs checkpoint:
+Current `dev@0da242eb9c67bf82d59fbfbbcb0bca3ced92a942` has GitHub Actions run `33909130096` with conclusion `success`.
 
-```text
-dreamworkerln/serialterminal/dev@30a084f6d726ccc0df19a3363dac129c3838f9b2
-GitHub Actions run 33801154957 SUCCESS
-```
-
-CI completed compile, static analysis, advisory complexity execution and tests successfully.
-
-## Optional future work
-
-Only if a concrete need appears:
-
-1. stable machine-facing mapping for host/sandbox Bluetooth permission errors;
-2. per-backend diagnostics for partial `discover scope:auto` failure;
-3. MCP as a thin wrapper over the existing `SessionManager`.
-
-These are not active TODOs.
-
-## Last completed action
-
-`HANDOFF_003.md` was created, read back and verified before `HANDOFF_INDEX.md` was advanced to snapshot 003, following `HANDOFF_MANAGEMENT_POLICY.md`.
+No new hardware interaction is performed by this handoff task.
 
 ## Next action
 
-No handoff publication action remains. For the next engineering task, refetch `dev`, read current TODO state, and open new work only for a concrete requirement or defect.
+1. Refetch exact `dev`, `node_observations`, and `dev_handoff` heads.
+2. Create `HANDOFF_004.md`.
+3. Read back and verify the snapshot.
+4. Only then advance `HANDOFF_INDEX.md` to 004.
+5. Finalize this mutable `CONTEXT.md` after publication.
