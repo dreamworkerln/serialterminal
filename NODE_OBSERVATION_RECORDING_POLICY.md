@@ -154,7 +154,7 @@ usage: python3 -I scripts/commit-node-observation
 
 При non-zero exit executor не должен ограничиваться сообщением «helper failed». Он должен сохранить и передать пользователю **точный diagnostic text helper-а**, потому что helper сообщает конкретную причину: dirty tracked state, divergence, wrong branch/upstream, unexpected untracked files, invalid storage layout, Git/network failure и т.п.
 
-После `exit 0` executor при необходимости может дополнительно выполнить read-only remote verification, не изменяя Git state:
+После `exit 0` executor **обязан** выполнить независимую read-only проверку remote, не изменяя Git state:
 
 ```bash
 local_sha="$(git -C ../serialterminal-observations rev-parse HEAD)"
@@ -162,7 +162,7 @@ remote_sha="$(git -C ../serialterminal-observations ls-remote origin refs/heads/
 test -n "$remote_sha" && test "$local_sha" = "$remote_sha"
 ```
 
-Если SHA совпали, commit подтверждён непосредственно на remote `node_observations`. Если эта дополнительная read-only проверка не удалась из-за network/tool restrictions, не отменяй уже успешный helper result; сообщи отдельно, что independent remote re-check не выполнен.
+Только если SHA совпали, commit считается независимо подтверждённым непосредственно на remote `node_observations`, и observation cycle считается полностью завершённым. Если SHA не совпали, executor должен сообщить mismatch и не заявлять remote success. Если read-only проверка не выполнилась из-за network/tool restrictions, не отменяй уже успешный helper result, но явно сообщи `remote verification: not verified`; не заявляй, что remote был независимо проверен.
 
 Если observation clone отсутствует или настроен неправильно, executor не создаёт и не перенастраивает его. Рапортуй:
 
@@ -384,7 +384,7 @@ current impact
    Не запускай helper сначала в обычном sandbox: его нормальная работа включает запись Git metadata в observation clone.
 8. Проверь exit code и сохрани stdout/stderr helper-а. При non-zero передай пользователю exact diagnostic; не пытайся исправлять helper в рамках hardware task.
 9. Не выполняй вместо helper-а raw `git add`, `git commit`, `git push`, `git reset`, `git rebase`, merge или force-push в observation clone.
-10. Успехом считается `exit 0` + helper output с количеством observations и commit SHA. Helper уже выполняет push и final clean/synced verification; при необходимости executor может дополнительно сравнить local `HEAD` с remote SHA через read-only `git ls-remote`.
+10. После `exit 0` **обязательно** независимо проверь remote SHA через read-only `git ls-remote` и сравни его с local `HEAD`. Только при совпадении SHA рапортуй `remote verification: verified`. При mismatch рапортуй mismatch и не заявляй remote success. Если независимая проверка невозможна из-за network/tool restrictions, рапортуй `remote verification: not verified`.
 
 Commit message helper формирует автоматически:
 
@@ -408,7 +408,7 @@ multiple pending observations:
 hardware result: PASS/FAIL/BLOCKED/INCONCLUSIVE
 observation: <filename or not recorded>
 observation commit: <SHA if committed+pushed, otherwise not committed>
-remote verification: <verified / helper-only / not verified>
+remote verification: <verified / not verified>
 anomaly: <none or one-line summary>
 ```
 
