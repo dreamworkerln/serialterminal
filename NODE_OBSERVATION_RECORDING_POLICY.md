@@ -20,70 +20,106 @@ node_observations
 
 Эта branch не является development branch SerialTerminal и не должна содержать копию/merge истории `dev`.
 
-Для неё используется отдельный permanent Git worktree. Main SerialTerminal worktree остаётся на `dev` и используется для запуска кода/agent API; observation worktree используется только для записи evidence.
+Для local storage используется **отдельный independent clone**, а не Git worktree.
 
-Executor не должен переключать main worktree с `dev` на `node_observations`.
-
-Рекомендуемый local layout — два соседних worktree относительно общей parent directory:
+Рекомендуемый local layout относительно общей parent directory:
 
 ```text
 ./serialterminal/
-    main worktree, branch dev
+    main clone, branch dev
 
 ./serialterminal-observations/
-    permanent worktree, branch node_observations
+    independent clone, branch node_observations
 ```
 
-Если команды выполняются из корня main `serialterminal` worktree, observation worktree в таком layout находится по относительному пути:
+Если команды выполняются из корня main `serialterminal` clone, observation clone находится по относительному пути:
 
 ```text
 ../serialterminal-observations
 ```
 
-Это только рекомендуемое расположение для человека. Executor не должен зависеть от exact filesystem path и всегда определяет фактический observation worktree через Git metadata.
+Main `serialterminal` clone используется для запуска SerialTerminal/agent API и чтения policy/skills. `serialterminal-observations` используется только для raw observation evidence и reviewer state.
 
-Чтобы найти observation worktree, используй:
-
-```bash
-git worktree list --porcelain
-```
-
-и найди worktree с:
-
-```text
-branch refs/heads/node_observations
-```
+Executor не должен переключать main clone с `dev` на `node_observations` и не должен создавать linked Git worktree для observations.
 
 ### Human-only initial setup
 
-Следующие команды показывают, как **человек один раз инициализирует** permanent observation worktree из корня main `serialterminal` worktree:
+Следующие команды — **одноразовая setup-инструкция для человека**, а не задача local executor agent.
+
+Из корня main `serialterminal` clone:
 
 ```bash
-git fetch origin node_observations
-
-git worktree add --track \
-  -b node_observations \
-  ../serialterminal-observations \
-  origin/node_observations
+git clone \
+  --single-branch \
+  --branch node_observations \
+  "$(git remote get-url origin)" \
+  ../serialterminal-observations
 ```
 
-После этого человек может проверить регистрацию worktree:
+Проверка:
 
 ```bash
-git worktree list
+git -C ../serialterminal-observations status --short --branch
+git -C ../serialterminal-observations branch --show-current
+git -C ../serialterminal-observations rev-parse --abbrev-ref --symbolic-full-name '@{upstream}'
 ```
 
-Ожидается main worktree на `dev` и отдельный worktree на `node_observations`.
+Ожидается:
 
-После создания worktree человек также должен убедиться, что local Codex/sandbox configuration разрешает запись в observation worktree. Project trust и sandbox write access — разные настройки; наличие `trust_level = "trusted"` для observation project не следует считать автоматическим доказательством writable-доступа.
+```text
+branch: node_observations
+upstream: origin/node_observations
+```
 
-Если local configuration использует дополнительные writable roots/directories, observation worktree должен быть разрешён там соответствующим способом. Проверка должна подтверждать фактическую возможность записи, а не только наличие worktree в Git metadata.
+`../serialterminal-observations/.git` должен быть обычной directory собственного clone, а не pointer-файлом linked worktree.
 
-**Local executor agent не должен выполнять команды из этого initial-setup блока и не должен изменять `config.toml`, project trust, sandbox mode, writable roots или другие sandbox permissions.** Они принадлежат human/operator setup. Executor только ищет уже настроенный worktree через `git worktree list --porcelain` и использует предоставленные ему права.
+После clone человек должен убедиться, что local Codex/sandbox configuration позволяет executor-у создавать observation files внутри `../serialterminal-observations`. Если используется explicit writable-root configuration, sibling observation clone должен быть разрешён там.
 
-Если branch/worktree не настроен, executor не создаёт branch/worktree автоматически и не переключает branches. Рапортуй `OBSERVATION STORAGE NOT CONFIGURED` и продолжай hardware task без изменения skills/docs.
+Project trust и sandbox write access — разные настройки. Наличие trusted project само по себе не считается доказательством writable-доступа.
 
-Если worktree настроен и найден, но sandbox/permissions не позволяют записывать в него, не пытайся менять permissions или конфигурацию. Рапортуй `OBSERVATION STORAGE NOT WRITABLE` и продолжай hardware task без изменения skills/docs.
+### Human-only permission setup для commit/push helper
+
+В `workspace-write` Git metadata (`.git`) может оставаться read-only даже внутри writable clone. Поэтому executor не должен выполнять raw `git add` / `git commit` / `git push` для observation clone.
+
+Repository содержит guarded helper:
+
+```text
+scripts/commit-node-observation
+```
+
+Executor вызывает его только из корня main `serialterminal` clone и только в таком виде:
+
+```bash
+python3 -I scripts/commit-node-observation observations/OBS_YYYYMMDDTHHMMSSZ_<short-topic>.md
+```
+
+Чтобы не подтверждать эту операцию вручную каждый run, человек может один раз добавить narrow Codex exec-policy rule для этого exact command prefix:
+
+```python
+prefix_rule(
+    pattern = ["python3", "-I", "scripts/commit-node-observation"],
+    decision = "allow",
+    justification = "Allow the guarded SerialTerminal observation helper to commit and push one new raw observation.",
+)
+```
+
+Это permission setup выполняет только человек/operator. Executor **не должен** изменять Codex rules, `config.toml`, project trust, sandbox mode, writable roots или другие permissions.
+
+Helper специально ограничивает elevated Git workflow: он проверяет, что его собственная working-tree версия совпадает с current `HEAD`, main clone находится на `dev`, sibling является independent clone на `node_observations` с upstream `origin/node_observations`, local/remote refs синхронизированы, tracked state чистый и существует ровно один новый `OBS_*.md`. После этого helper добавляет только этот record, делает commit и normal push, затем проверяет clean/synced state.
+
+Если observation clone отсутствует или настроен неправильно, executor не создаёт и не перенастраивает его. Рапортуй:
+
+```text
+OBSERVATION STORAGE NOT CONFIGURED
+```
+
+Если clone найден, но sandbox не позволяет создать observation file, не меняй permissions/configuration. Рапортуй:
+
+```text
+OBSERVATION STORAGE NOT WRITABLE
+```
+
+Если helper отказывается выполнять commit/push из-за dirty state, divergence, wrong branch/upstream или другой guard failure, не обходи guard raw Git-командами и не делай merge/rebase/reset/force push. Рапортуй ошибку пользователю.
 
 ---
 
@@ -260,26 +296,43 @@ current impact
 
 ---
 
-## 9. Git rules для executor
+## 9. Executor workflow: сохранить observation
 
-Перед записью:
+После hardware interaction:
 
-1. основной worktree остаётся на `dev`;
-2. найди permanent `node_observations` worktree через `git worktree list --porcelain`;
-3. в observation worktree проверь `git status --short`;
-4. если есть неожиданные local changes, не перезаписывай их и сообщи проблему;
-5. создай ровно один новый observation file для текущего run;
-6. не изменяй `REVIEW_STATE.md`;
-7. не изменяй предыдущие observation files;
-8. commit только новый record.
+1. Main `serialterminal` clone оставь на `dev`.
+2. Используй уже подготовленный sibling clone `../serialterminal-observations`; не создавай его сам.
+3. Проверь:
 
-Рекомендуемый commit message:
+   ```bash
+   git -C ../serialterminal-observations status --short --branch
+   git -C ../serialterminal-observations branch --show-current
+   ```
+
+4. Если есть unexpected local changes, старые modified/deleted observations или изменение `REVIEW_STATE.md`, не перезаписывай их и сообщи проблему.
+5. Создай ровно один новый file:
+
+   ```text
+   ../serialterminal-observations/observations/OBS_YYYYMMDDTHHMMSSZ_<short-topic>.md
+   ```
+
+6. Не изменяй `REVIEW_STATE.md` и предыдущие observation files.
+7. Из корня main `serialterminal` clone выполни только guarded helper:
+
+   ```bash
+   python3 -I scripts/commit-node-observation observations/OBS_YYYYMMDDTHHMMSSZ_<short-topic>.md
+   ```
+
+8. Не выполняй вместо helper-а raw `git add`, `git commit`, `git push`, `git reset`, `git rebase`, merge или force-push в observation clone.
+9. Успехом считается только helper output с commit SHA после successful push и final clean/synced verification.
+
+Commit message helper формирует автоматически из filename slug:
 
 ```text
 obs: <short topic>
 ```
 
-Не merge/rebase/reset `node_observations` ради записи observation. Если push отклонён или branch разошлась, остановись и сообщи ситуацию вместо автоматического history manipulation.
+Если helper завершился с `OBSERVATION COMMIT FAILED`, не обходи его guards. Сохрани factual hardware result в основном report и сообщи конкретную storage/Git проблему пользователю.
 
 ---
 
@@ -290,6 +343,7 @@ obs: <short topic>
 ```text
 hardware result: PASS/FAIL/BLOCKED/INCONCLUSIVE
 observation: <filename or not recorded>
+observation commit: <SHA if committed+pushed, otherwise not committed>
 anomaly: <none or one-line summary>
 ```
 
@@ -311,6 +365,9 @@ AGENT_API.md
 
 NODE_OBSERVATION_RECORDING_POLICY.md
     executor rule for raw observation recording
+
+scripts/commit-node-observation
+    guarded commit/push path for one new observation
 
 NODE_SKILL_LEARNING_POLICY.md
     reviewer rule for processing observations and updating node skill
