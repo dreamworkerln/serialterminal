@@ -24,6 +24,24 @@ node_observations
 
 Executor не должен переключать main worktree с `dev` на `node_observations`.
 
+Рекомендуемый local layout — два соседних worktree относительно общей parent directory:
+
+```text
+./serialterminal/
+    main worktree, branch dev
+
+./serialterminal-observations/
+    permanent worktree, branch node_observations
+```
+
+Если команды выполняются из корня main `serialterminal` worktree, observation worktree в таком layout находится по относительному пути:
+
+```text
+../serialterminal-observations
+```
+
+Это только рекомендуемое расположение для человека. Executor не должен зависеть от exact filesystem path и всегда определяет фактический observation worktree через Git metadata.
+
 Чтобы найти observation worktree, используй:
 
 ```bash
@@ -36,7 +54,30 @@ git worktree list --porcelain
 branch refs/heads/node_observations
 ```
 
-Если такой branch/worktree не настроен, не создавай его автоматически и не переключай branches без отдельной setup-задачи. Рапортуй `OBSERVATION STORAGE NOT CONFIGURED` и продолжай hardware task без изменения skills/docs.
+### Human-only initial setup
+
+Следующие команды показывают, как **человек один раз инициализирует** permanent observation worktree из корня main `serialterminal` worktree:
+
+```bash
+git fetch origin node_observations
+
+git worktree add --track \
+  -b node_observations \
+  ../serialterminal-observations \
+  origin/node_observations
+```
+
+После этого человек может проверить регистрацию worktree:
+
+```bash
+git worktree list
+```
+
+Ожидается main worktree на `dev` и отдельный worktree на `node_observations`.
+
+**Local executor agent не должен выполнять команды из этого initial-setup блока.** Они приведены только как manual setup instruction для человека. Executor только ищет уже настроенный worktree через `git worktree list --porcelain`.
+
+Если такой branch/worktree не настроен, executor не создаёт branch/worktree автоматически и не переключает branches. Рапортуй `OBSERVATION STORAGE NOT CONFIGURED` и продолжай hardware task без изменения skills/docs.
 
 ---
 
