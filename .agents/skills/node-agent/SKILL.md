@@ -9,7 +9,7 @@ description: Project-specific class-level правила работы и про�
 
 Generic SerialTerminal workflow, JSONL schema, sessions, cursors, `wait_events`, transport errors и queue/write semantics бери из [serialterminal-agent](../serialterminal-agent/SKILL.md) и [AGENT_API.md](../../../AGENT_API.md). Не дублируй их здесь.
 
-Firmware/protocol authority — актуальные source/docs `dreamworkerln/lora-sack-protocol` соответствующего Chatter checkpoint.
+Firmware/protocol authority — актуальные source/docs `dreamworkerln/lora-sack-protocol` соответствующего Chatter checkpoint. Правила reliable USER ниже относятся к текущему ACK-capable Chatter checkpoint; если задача явно проверяет старый best-effort checkpoint, используй его собственный source/docs contract.
 
 Не хардкодь concrete node IDs, MAC/BLE addresses, USB paths, session IDs, RSSI/SNR/Q, current topology или текущее состояние конкретного экземпляра.
 
@@ -30,13 +30,15 @@ Discovery показывает текущие доступные transport paths
 Основные human-readable commands:
 
 ```text
-/help     show current command set
-/id       show canonical node identity
-/chat     human console CHAT
-/tele     human console TELEMETRY
-/both     human console BOTH
-/echo     toggle diagnostic echo mode
-/reboot   reboot ESP32 controller
+/help        show current command set
+/id          show canonical node identity
+/chat        human console CHAT
+/tele        human console TELEMETRY
+/both        human console BOTH
+/echo        toggle diagnostic echo mode
+/cancel      stop current reliable USER retry, or remove one unsent queued USER
+/cancel all  stop current reliable USER retry and clear queued USER messages
+/reboot      reboot ESP32 controller
 ```
 
 При сомнении в доступном command set сначала используй `/help` на подключённой ноде.
@@ -66,6 +68,17 @@ SYSTEM остаётся human-console output.
 
 BLE machine telemetry является отдельным background stream и при подписке доступна независимо от `/chat` / `/tele` / `/both`. Не используй переключение human output mode как доказательство наличия или отсутствия RF traffic.
 
+CHAT не является protocol log. Для USER сохраняется compact human design:
+
+```text
+> text
+< [RSSI/SNR Q] text
+```
+
+Первый успешный physical USER TX печатает `>` один раз. Retry не создаёт дополнительных `>` lines. Успешный matching ACK молчит в CHAT.
+
+ACK, `WAIT_ACK`, attempt number, timeout, backoff, retry/defer, queue depth, ACK matched/unmatched и duplicate/stale classification относятся к TELEMETRY. В CHAT/SYSTEM reliability должна всплывать только как actionable outcome, например delivery failure, cancellation или queue-full rejection.
+
 После обычного smoke верни output mode в `/chat`, если задача не требует другого финального состояния.
 
 ## Local command matching и payload
@@ -76,26 +89,90 @@ BLE machine telemetry является отдельным background stream и �
 
 Не считай локальное распознавание команды радиопередачей.
 
-## USER radio delivery
+## Reliable USER delivery
 
-`dev_chat` — best-effort protocol без ACK/retry reliability layer.
+Текущий ACK-capable Chatter использует bounded stop-and-wait для USER traffic:
+
+```text
+one reliable USER in-flight
+N reliable USER waiting in bounded queue
+```
+
+Пока один USER находится в `WAIT_ACK` или retry backoff, новые USER lines могут приниматься в reliability queue. Local controls остаются отдельной lane и не должны намеренно блокироваться за этой очередью.
+
+Logical USER identity:
+
+```text
+(sender_session_id, user_seq)
+```
+
+Retry обязан повторять тот же identity и тот же payload. ACK подтверждает именно этот USER identity; passive peer report, SerialTerminal `queued`, transport `written` и локальный `>` ACK не заменяют.
+
+Current hardware-validation policy в firmware:
+
+```text
+maximum physical USER attempts = 5
+reliable USER queue depth = 8
+```
+
+Это configurable implementation policy, а не вечные wire-protocol constants. Если firmware source/docs отличаются, source/docs являются authority.
 
 Для обычного bidirectional smoke используй уникальные payloads и последовательный сценарий:
 
 ```text
 A sends USER
--> require peer evidence on B
--> B sends another USER
--> require peer evidence on A
+-> require peer USER/application evidence on B
+-> require matching ACK/delivery evidence on A
+-> B sends another unique USER
+-> require peer USER/application evidence on A
+-> require matching ACK/delivery evidence on B
 ```
 
-Half-duplex simultaneous TX может привести к collision, поэтому concurrency test отделяй от обычного delivery acceptance.
+Для нормального reliable USER PASS сильное evidence включает обе стороны: peer действительно показал/принял уникальный USER, а sender получил matching ACK для того же logical USER. Не повышай только локальный `>` или transport write до delivery PASS.
 
-Peer delivery подтверждай по фактическому peer RX/application evidence, например совпавшему уникальному payload и соответствующему RX USER event/rendering.
+Half-duplex simultaneous TX может привести к collision. В reliable checkpoint это отдельный concurrency/retry scenario: collision допустим как промежуточное событие, но bounded randomized retries должны в итоге развести обмен или закончиться явным failure после лимита.
 
 Локальный firmware marker `>` означает подтверждённый local physical TxDone + успешное возвращение TX path к RX, но **не доказывает peer delivery**.
 
 Не превращай RSSI/SNR/Q конкретного run в expected constants.
+
+## Receiver duplicate и ACK semantics
+
+На NEW USER peer должен показать USER в CHAT один раз и создать ACK obligation.
+
+Если ACK потерялся, sender может повторить тот же USER identity. Такой DUPLICATE не должен повторно появляться в peer CHAT, но peer должен снова отправить ACK.
+
+STALE USER вне recent window не должен заново показываться как пользовательское сообщение и не требует ACK по текущему contract.
+
+ACK сам не ACK-ается. HEARTBEAT и ECHO остаются best-effort и не входят в reliable USER state machine.
+
+Wrong-session, wrong-seq, stale или unrelated ACK не должен завершать текущий pending USER.
+
+## Reliable queue и cancellation
+
+Если reliable USER queue заполнена, новый USER должен быть явно отклонён, а не silently dropped и не представлен как accepted delivery. Ожидаемый SYSTEM outcome:
+
+```text
+[SYS] SEND QUEUE FULL: message not accepted
+```
+
+`/cancel` имеет две разные semantics:
+
+```text
+in-flight USER already physically transmitted
+    -> stop future retries
+    -> delivery status remains unknown
+
+no in-flight USER, queued unsent USER exists
+    -> remove one queued USER
+    -> it was not transmitted
+```
+
+После хотя бы одного physical TX отменить уже возможную peer delivery невозможно. Поэтому in-flight cancellation не означает «peer точно не получил».
+
+`/cancel all` останавливает текущий reliable USER retry, если он есть, и очищает queued reliable USER messages.
+
+Для cancellation tests проверяй не только SYSTEM text, но и telemetry: после cancellation не должно появляться дальнейших retry TX для отменённого logical USER.
 
 ## Diagnostic ECHO
 
@@ -118,13 +195,53 @@ sender RX matching ECHO_REPLY
 
 Отсутствие matching reply до firmware deadline даёт ECHO failure/no-response; ECHO остаётся best-effort и не ретраится автоматически.
 
+Reliable USER имеет приоритет над lower-priority ECHO RF work: pending USER/ACK flow не должен быть обогнан новым ECHO request.
+
 После теста обязательно верни echo OFF, если задача явно не требует оставить его включённым.
+
+## Focused two-node reliability gate
+
+Перед закрытием ACK reliability checkpoint проверь отдельными hardware scenarios как минимум:
+
+```text
+normal USER -> ACK
+lost USER -> retry -> ACK
+lost ACK -> duplicate USER -> no duplicate CHAT -> repeated ACK
+simultaneous USER from both nodes -> retries eventually separate or bounded explicit failure
+peer off -> bounded retries -> DELIVERY FAILED after configured max attempts
+peer returns during retry window -> pending USER can deliver
+new USER typed while another waits -> queued and later delivered
+queue full -> explicit rejection
+/cancel on in-flight USER -> retries stop, status unknown
+/cancel on unsent queued USER -> removed before TX
+/cancel all -> current retry stopped + queue cleared
+wrong-session ACK -> ignored
+wrong-seq ACK -> ignored
+stale/duplicate ACK -> harmless
+heartbeat remains best-effort
+ECHO remains independent best-effort diagnostic traffic
+```
+
+Для lost USER/lost ACK/wrong ACK scenarios не выдумывай evidence и не подменяй fault injection предположением. Если доступный hardware setup не умеет детерминированно создать нужный fault, пометь scenario `BLOCKED` или `INCONCLUSIVE` и зафиксируй причину. Не выполняй destructive fault injection без явной задачи пользователя.
+
+Для lost-ACK acceptance особенно важно одновременно доказать:
+
+```text
+peer CHAT showed USER exactly once
+peer telemetry classified retransmission as duplicate
+peer sent repeated ACK
+sender eventually matched ACK
+```
+
+Для peer-off scenario убедись, что retries bounded и после final failure не продолжаются бесконечно.
 
 ## Reboot
 
 `/reboot` перезагружает ESP32 controller. Используй его только для явно заданного reboot/fault/recovery scenario.
 
 Transport disconnect/reconnect во время reboot сам по себе не означает появление новой физической ноды; после восстановления снова проверь canonical identity, если это важно для сценария.
+
+Reliability не обещает exactly-once semantics через reboot/NVS persistence. Не переноси pre-reboot pending identity assumptions через reboot без explicit evidence.
 
 ## Radio degraded/fatal semantics
 
@@ -166,9 +283,12 @@ INCONCLUSIVE
 
 ```text
 echo OFF
+reliable USER flow settled; no unintended retry left running
 output CHAT
 opened test sessions closed when no longer needed
 ```
+
+Если тест намеренно оставил pending/queued USER и требуется очистить его перед завершением, используй documented cancellation semantics и зафиксируй resulting delivery status; не объявляй cancellation доказательством недоставки уже transmitted USER.
 
 Главный принцип:
 
