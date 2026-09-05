@@ -1,14 +1,14 @@
 # Current work context
 
-Status: IN PROGRESS
+Status: COMPLETED
 
 ## Current operation
 
-Publish handoff snapshot 005 for the accepted SerialTerminal agent observation/logging refactor.
+Snapshot 005 publication is complete.
 
-No production source change is part of this handoff operation.
+No production source change was part of this handoff operation.
 
-## Exact source state being captured
+## Exact completed state
 
 ```text
 SerialTerminal source/docs:
@@ -18,41 +18,61 @@ SerialTerminal source/docs:
 Observation evidence:
   dreamworkerln/serialterminal/node_observations@b024b43ef43d1e9fbe0806ef3996f1a4bc549198
 
-Handoff baseline before this publication:
-  dreamworkerln/serialterminal/dev_handoff@afb7f5bf14d9f346086c05c3e009566644d64f54
+Pre-snapshot context checkpoint:
+  dreamworkerln/serialterminal/dev_handoff@20893774c60171d6d27d61f42031dcd67aae7951
+
+Verified snapshot creation:
+  dreamworkerln/serialterminal/dev_handoff@d85d962db5ca8157dd3a53f047bf10abece95fe3
+  HANDOFF_005.md blob 4ed8464e8a479d6f26d9841b41857ae0a0097a5d
+
+Index publication:
+  dreamworkerln/serialterminal/dev_handoff@6bb4ecae4b1c6c890a3adf11a8e298aea6c92c9e
 ```
 
-## Recovery invariant during publication
+`HANDOFF_INDEX.md` now points to `HANDOFF_005.md`. Older published snapshots remain immutable.
 
-`HANDOFF_INDEX.md` must remain on verified snapshot 004 until `HANDOFF_005.md` exists and has been read back/verified.
+## Current recovery state
 
-Older published snapshots remain immutable.
+Recovery order:
 
-## Material state to capture
+1. read `AGENTS.md`;
+2. read this `CONTEXT.md`;
+3. read `HANDOFF_INDEX.md`;
+4. read verified `HANDOFF_005.md`;
+5. refetch moving `dev` and any relevant evidence/protocol refs before current work.
 
-- `observe` is now the only machine receive/cursor operation; former `events` and `wait_events` operations are removed.
-- One raw per-session cursor drives both `observe.result.events` and `observe.result.lines`.
-- Logical LF-terminated lines are assembled canonically in `ManagedSession`, independently per stream, with UTF-8 split handling, CRLF normalization in the line view, empty-line preservation and `seq_first`/`seq_last` correlation.
-- Raw transport/session events remain forensic source of truth and preserve chunk boundaries and `data_b64`.
-- Agent runs now emit paired forensic and human-console logs: `serialterminal-...log` and `serialterminal-...console.log`.
-- The forensic log no longer emits separate `[RX LINE ...]`/`[RX PARTIAL ...]` records.
-- The companion console log records `send_line` as `[session] > ...` and completed human-console RX lines as `[session] < ...`; BLE machine telemetry is excluded unless equivalent text actually arrives through the human-console stream.
-- `AGENT_API.md`, generic agent skill, node skill and README are synchronized with the new API/logging model.
-- `TODO_004_NODE_RUN_BUNDLES` remains `DEFERRED`, but its stated dependency/return condition is now satisfied by `dev@e6e74a4...`; resumption is a separate task and must record this exact accepted dependency checkpoint before implementation.
-- `node_observations` remains unchanged at `b024b43e...`; `REVIEW_STATE.md` is still unadvanced (`none`).
+## Current project state
 
-## Last completed action
-
-Refetched `dev`, `dev_handoff` and `node_observations`; reviewed `AGENTS.md`, handoff policy, snapshot 004/index/context, current API/skills, TODO inventory/TODO_004 and exact CI state.
-
-## Next action
-
-1. refetch `dev_handoff` after this context commit;
-2. create `HANDOFF_005.md` only;
-3. read it back and verify provenance, current API/logging semantics, TODO/evidence state and validation;
-4. only then advance `HANDOFF_INDEX.md` to 005;
-5. finalize this `CONTEXT.md` as completed and verify final branch/CI state.
+- `dev` is source/docs authority; `dev_handoff` is recovery-only.
+- `AGENT_API.md` is the canonical generic SerialTerminal JSONL contract.
+- `observe` is now the only generic machine receive/cursor operation; old `events`/`wait_events` are removed.
+- One raw cursor per session governs both raw `observe.result.events` and completed logical `observe.result.lines`.
+- Logical line assembly lives canonically in `ManagedSession`, independently per stream; logging does not implement a second assembler.
+- Agent runs produce paired `serialterminal-...log` forensic logs and `serialterminal-...console.log` human-console companion logs.
+- The forensic log keeps raw `[RX <stream>]` records and no longer emits separate `[RX LINE ...]` / `[RX PARTIAL ...]` convenience records.
+- Companion `.console.log` records session-scoped `send_line` input and completed human-console RX lines; separate BLE machine telemetry is excluded unless it actually appears in the human-console stream.
+- `TODO_INVENTORY.md` now contains `TODO_004 — Automated node run bundles`, status `DEFERRED`.
+- TODO_004's stated dependency/return condition is satisfied by accepted `dev@e6e74a4...`, but this handoff did not resume or change that TODO status.
+- Run-specific hardware evidence remains in `node_observations`; `REVIEW_STATE.md` is still unadvanced (`none`).
+- Chatter's 200-byte USER/ECHO guidance remains firmware/application-specific; generic SerialTerminal does not synchronously reject oversized text.
 
 ## Validation
 
-The source checkpoint being captured already has GitHub Actions run `33959407933` = SUCCESS. No new hardware interaction is required or claimed for this handoff publication.
+Current recorded source validation:
+
+```text
+dev@e6e74a45237abaf488cb815c2bba185810215c9d
+GitHub Actions run 33959407933 SUCCESS
+Compile PASS
+Static analysis PASS
+Tests PASS (94 passed)
+Lizard complexity remains advisory/non-blocking
+```
+
+No new physical hardware interaction was performed by this handoff task.
+
+## Next action
+
+No handoff publication action remains.
+
+For the next engineering task, refetch `dev` first. If resuming TODO_004, record the exact accepted dependency checkpoint before implementation and preserve the current one-assembler / paired-log architecture. Hardware execution and observation review remain governed separately by `NODE_OBSERVATION_RECORDING_POLICY.md` and `NODE_SKILL_LEARNING_POLICY.md`.
