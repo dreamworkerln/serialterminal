@@ -4,7 +4,35 @@ This file is the authoritative current-state index for engineering TODOs in this
 
 ## Active
 
-None.
+### TODO_004 — `todos/TODO_004_NODE_RUN_BUNDLES.md`
+
+Status: DEFERRED
+
+Goal: automate complete hardware-run publication so a reviewer can fetch the short observation, full executor report, exact SerialTerminal forensic log, and human-console companion log directly from GitHub without operator copy/paste.
+
+Current state:
+
+```text
+run-bundle design                         DEFERRED / planning captured
+observation + bundle append-only model    DEFERRED / design captured
+guarded publication helper                DEFERRED / design captured
+manifest/report/log packaging              DEFERRED / design captured
+hardware validation                        NOT STARTED
+```
+
+Return condition:
+
+```text
+start after the in-progress SerialTerminal observation refactor has an accepted dev checkpoint providing:
+- one canonical observation API with raw events + completed logical firmware lines
+- one companion human-console SerialTerminal logfile from the same canonical line/session model
+```
+
+Planning baseline:
+
+```text
+dev@fe6ad62a1d72daf2b385e6abc980d633a883f270
+```
 
 ## Post-closure validation history
 
