@@ -86,14 +86,16 @@ class RunLog:
         *,
         timestamp: float | None = None,
     ) -> None:
-        if direction not in {">", "<"}:
+        markers = {">": "I", "<": "O"}
+        if direction not in markers:
             raise ValueError("console direction must be '>' or '<'")
         # Одна logical record должна оставаться одной физической строкой logfile,
         # даже если caller передал control characters внутри send_line text.
         visible_text = text.replace("\r", "\\r").replace("\n", "\\n")
         with self._lock:
             self._console_file.write(
-                f"{self._timestamp(timestamp)} [{session}] {direction} {visible_text}\n"
+                f"{self._timestamp(timestamp)} [{session}] [{markers[direction]}] "
+                f"{visible_text}\n"
             )
             self._console_file.flush()
 

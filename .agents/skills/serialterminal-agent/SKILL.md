@@ -86,7 +86,9 @@ logs/serialterminal-...-pPID.log
 logs/serialterminal-...-pPID.console.log
 ```
 
-Основной `.log` — forensic/API/transport truth. Companion `.console.log` — presentation/audit view того, что примерно увидел бы человек: `send_line` записывается как `[sN] > ...`, completed human-console RX line — как `[sN] < ...`.
+Основной `.log` — forensic/API/transport truth. Companion `.console.log` — presentation/audit view того, что примерно увидел бы человек: `send_line` записывается как `[sN] [I] ...`, completed human-console RX line — как `[sN] [O] ...`. `[I]` означает input, принятый через `send_line`; `[O]` — completed logical line из human-console RX stream.
+
+Firmware-owned leading `>` / `<` остаются частью самой строки и не заменяются этими host-side markers. Например firmware output `> hello` записывается как `[sN] [O] > hello`.
 
 BLE background machine telemetry не попадает в `.console.log` только потому, что SerialTerminal подписан на отдельный telemetry stream. Если та же telemetry semantics реально появилась в human-console `chat` stream, например при `/both`, она естественно попадает в companion log. Этот файл не является delivery evidence и не заменяет `result.events`/`result.lines`.
 

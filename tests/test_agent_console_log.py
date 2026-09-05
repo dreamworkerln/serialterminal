@@ -148,17 +148,24 @@ def test_console_log_tracks_send_line_and_chunked_human_rx_but_not_ble_telemetry
             transport.reads.put(ReceivedChunk("chat", b"PUT BOTH\n"))
             transport.reads.put(ReceivedChunk("telemetry", b"MACHINE ONLY\n"))
             transport.reads.put(ReceivedChunk("chat", b"RX ACK visible-in-both\n"))
+            transport.reads.put(ReceivedChunk("chat", b"> radio-check-1B44-780\n"))
+            transport.reads.put(
+                ReceivedChunk("chat", b"< [-13/+10 Q100] radio-check-1B44-780\n")
+            )
 
             assert _wait_until(
-                lambda: "RX ACK visible-in-both" in run_log.console_path.read_text()
+                lambda: "< [-13/+10 Q100] radio-check-1B44-780"
+                in run_log.console_path.read_text()
             )
         finally:
             manager.close_all()
 
     console = raw_path.with_name("agent.console.log").read_text()
-    assert f"[{session_id}] > /both" in console
-    assert f"[{session_id}] < [SYS] OUTPUT BOTH" in console
-    assert f"[{session_id}] < RX ACK visible-in-both" in console
+    assert f"[{session_id}] [I] /both" in console
+    assert f"[{session_id}] [O] [SYS] OUTPUT BOTH" in console
+    assert f"[{session_id}] [O] RX ACK visible-in-both" in console
+    assert f"[{session_id}] [O] > radio-check-1B44-780" in console
+    assert f"[{session_id}] [O] < [-13/+10 Q100] radio-check-1B44-780" in console
     assert "MACHINE ONLY" not in console
 
     forensic = raw_path.read_text()
@@ -196,7 +203,7 @@ def test_console_log_keeps_session_ids_and_common_chronological_file(tmp_path):
             manager.close_all()
 
     lines = raw_path.with_name("agent.console.log").read_text().splitlines()
-    assert any(f"[{s1}] > one" in line for line in lines)
-    assert any(f"[{s2}] > two" in line for line in lines)
-    assert any(f"[{s1}] < reply-one" in line for line in lines)
-    assert any(f"[{s2}] < reply-two" in line for line in lines)
+    assert any(f"[{s1}] [I] one" in line for line in lines)
+    assert any(f"[{s2}] [I] two" in line for line in lines)
+    assert any(f"[{s1}] [O] reply-one" in line for line in lines)
+    assert any(f"[{s2}] [O] reply-two" in line for line in lines)

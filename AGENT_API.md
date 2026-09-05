@@ -57,16 +57,17 @@ There are no separate `[RX LINE ...]` or `[RX PARTIAL ...]` records in the foren
 The companion `.console.log` is only a human-oriented presentation/audit view. Records look like:
 
 ```text
-2026-09-05T08:23:01.100+00:00 [s1] > /both
-2026-09-05T08:23:01.420+00:00 [s1] < [SYS] OUTPUT BOTH
-2026-09-05T08:23:05.100+00:00 [s2] > hello
-2026-09-05T08:23:06.750+00:00 [s2] < < [-33/+10 Q100] hello
+2026-09-05T08:23:01.100+00:00 [s1] [I] /both
+2026-09-05T08:23:01.420+00:00 [s1] [O] [SYS] OUTPUT BOTH
+2026-09-05T08:23:05.100+00:00 [s2] [I] hello
+2026-09-05T08:23:06.750+00:00 [s2] [O] < [-33/+10 Q100] hello
 ```
 
 Semantics:
 
-- `>` is text accepted through `send_line` for that session;
-- `<` is a completed logical line from that session's human-console RX stream;
+- `[I]` is text accepted through `send_line` for that session;
+- `[O]` is a completed logical line from that session's human-console RX stream;
+- firmware-owned leading `>` / `<` remain part of the firmware line itself and are not replaced by the host-side `[I]` / `[O]` markers;
 - all sessions share one chronological companion file and every record contains its session ID;
 - `send_bytes` is not represented as ordinary human input;
 - the companion log is presentation/audit convenience, not transport-write or protocol-delivery evidence.
@@ -275,7 +276,7 @@ Response:
 {"id":5,"ok":true,"result":{"tx_id":12,"state":"queued"}}
 ```
 
-`queued` means the reconnect-safe SerialTerminal TX queue accepted the item. The same accepted text is also written to the companion console log as `[session] > text` when run logging is enabled.
+`queued` means the reconnect-safe SerialTerminal TX queue accepted the item. The same accepted text is also written to the companion console log as `[session] [I] text` when run logging is enabled.
 
 A later raw observation event with:
 
