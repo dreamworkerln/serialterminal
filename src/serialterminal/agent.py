@@ -14,12 +14,14 @@ from .session import (
     SessionClosedError,
     SessionCursorExpired,
     SessionEvent,
+    SessionLine,
     encode_line,
 )
 
 
 CHATTER_ID_COMMAND = "/id"
 _EOL = {"lf": "\n", "crlf": "\r\n", "cr": "\r"}
+_HUMAN_CONSOLE_STREAMS = frozenset({"main", "chat"})
 
 
 class AgentError(RuntimeError):
@@ -52,6 +54,15 @@ def _event_dict(event: SessionEvent) -> dict[str, Any]:
     if event.data is not None:
         result["data_b64"] = base64.b64encode(event.data).decode("ascii")
     return result
+
+
+def _line_dict(line: SessionLine) -> dict[str, Any]:
+    return {
+        "stream": line.stream,
+        "seq_first": line.seq_first,
+        "seq_last": line.seq_last,
+        "text": line.text,
+    }
 
 
 def _render_response(response: dict[str, Any]) -> str:
@@ -91,8 +102,8 @@ class SessionManager:
         self.reconnect_delay = reconnect_delay
 
         self._lock = threading.Lock()
-        self._wait_condition = threading.Condition()
-        self._wait_cancelled = threading.Event()
+        self._observe_condition = threading.Condition()
+        self._observe_cancelled = threading.Event()
         self._candidates: dict[str, tuple[Any, Any]] = {}
         self._sessions: dict[str, ManagedSession] = {}
         self._session_device_keys: dict[str, str] = {}
@@ -108,14 +119,14 @@ class SessionManager:
         return session
 
     def _notify_event_activity(self) -> None:
-        # Это только manager-level doorbell. Сами события и cursor semantics
-        # остаются в event ring соответствующего ManagedSession.
-        with self._wait_condition:
-            self._wait_condition.notify_all()
+        # Это только manager-level doorbell. Сами raw events, logical lines и
+        # cursor semantics остаются в соответствующем ManagedSession.
+        with self._observe_condition:
+            self._observe_condition.notify_all()
 
-    def cancel_waits(self) -> None:
-        """Wake pending waits during agent-process shutdown."""
-        self._wait_cancelled.set()
+    def cancel_observes(self) -> None:
+        """Wake pending observe requests during agent-process shutdown."""
+        self._observe_cancelled.set()
         self._notify_event_activity()
 
     def discover(
@@ -167,6 +178,19 @@ class SessionManager:
         else:
             tag = "ERROR"
         self.run_log.record(tag, payload)
+
+    def _log_console_line(self, session_id: str, line: SessionLine) -> None:
+        if self.run_log is None or line.stream not in _HUMAN_CONSOLE_STREAMS:
+            return
+        # BLE machine telemetry намеренно не попадает в human-console view. Если
+        # firmware в /both сама дублирует telemetry в chat stream, такая строка
+        # естественно попадёт сюда, потому что authority — фактический human stream.
+        self.run_log.record_console(
+            session_id,
+            "<",
+            line.text,
+            timestamp=line.timestamp,
+        )
 
     def _event_logger_loop(
         self,
@@ -255,14 +279,15 @@ class SessionManager:
             if auto_id
             else None
         )
+        session_id = self._next_session()
         session = ManagedSession(
             transport,
             line_ending=line_ending,
             reconnect_delay=self.reconnect_delay,
             connect_preamble=preamble,
             event_notifier=self._notify_event_activity,
+            line_notifier=lambda line: self._log_console_line(session_id, line),
         )
-        session_id = self._next_session()
 
         with self._lock:
             # Повторная проверка закрывает race между двумя одновременными open.
@@ -343,6 +368,8 @@ class SessionManager:
             tx_id = session.queue_line(text, line_ending=ending)
         except SessionClosedError as exc:
             raise AgentError("session_closed", str(exc)) from exc
+        if self.run_log is not None:
+            self.run_log.record_console(session_id, ">", text)
         return {"tx_id": tx_id, "state": "queued"}
 
     def send_bytes(self, session_id: str, data: bytes) -> dict[str, Any]:
@@ -353,54 +380,16 @@ class SessionManager:
             raise AgentError("session_closed", str(exc)) from exc
         return {"tx_id": tx_id, "state": "queued", "size": len(data)}
 
-    def events(
-        self,
-        session_id: str,
-        *,
-        after_seq: int = 0,
-        timeout_ms: int = 0,
-        streams: list[str] | None = None,
-        kinds: list[str] | None = None,
-    ) -> dict[str, Any]:
-        if timeout_ms < 0:
-            raise AgentError("invalid_timeout", "timeout_ms must be non-negative")
-        session = self._get_session(session_id)
-        try:
-            events = session.events_after(
-                int(after_seq),
-                timeout=timeout_ms / 1000.0,
-                streams=streams,
-                kinds=kinds,
-            )
-        except SessionCursorExpired as exc:
-            raise AgentError(
-                "cursor_expired",
-                str(exc),
-                {
-                    "requested_seq": exc.requested_seq,
-                    "oldest_seq": exc.oldest_seq,
-                },
-            ) from exc
-        except ValueError as exc:
-            raise AgentError("invalid_cursor", str(exc)) from exc
-
-        return {
-            "events": [_event_dict(event) for event in events],
-            "timed_out": not events and timeout_ms > 0,
-            "latest_seq": session.latest_event_seq(),
-        }
-
-    def _resolve_wait_sessions(
+    def _resolve_observe_sessions(
         self,
         cursors: dict[str, int],
-    ) -> tuple[list[tuple[str, ManagedSession]], dict[str, int]]:
-        watched: list[tuple[str, ManagedSession]] = []
-        current_cursors: dict[str, int] = {}
+    ) -> list[tuple[str, ManagedSession, int]]:
+        watched: list[tuple[str, ManagedSession, int]] = []
         for session_id, cursor in cursors.items():
             if not isinstance(session_id, str) or not session_id:
                 raise AgentError(
                     "invalid_request",
-                    "wait_events cursor keys must be non-empty session strings",
+                    "observe cursor keys must be non-empty session strings",
                 )
             if isinstance(cursor, bool) or not isinstance(cursor, int) or cursor < 0:
                 raise AgentError(
@@ -418,18 +407,17 @@ class SessionManager:
                     f"unknown session: {session_id}",
                     {"session": session_id},
                 ) from exc
-            watched.append((session_id, session))
-            current_cursors[session_id] = cursor
-        return watched, current_cursors
+            watched.append((session_id, session, cursor))
+        return watched
 
     @staticmethod
-    def _read_wait_session_events(
+    def _read_observation_snapshot(
         session_id: str,
         session: ManagedSession,
         cursor: int,
-    ) -> list[SessionEvent]:
+    ) -> tuple[list[SessionEvent], list[SessionLine]]:
         try:
-            return session.events_after(cursor)
+            return session.observation_after(cursor)
         except SessionCursorExpired as exc:
             raise AgentError(
                 "cursor_expired",
@@ -447,87 +435,86 @@ class SessionManager:
                 {"session": session_id, "requested_seq": cursor},
             ) from exc
 
-    def _collect_wait_events(
+    def _collect_observation(
         self,
-        watched: list[tuple[str, ManagedSession]],
-        current_cursors: dict[str, int],
-        stream_filter: set[str] | None,
-        kind_filter: set[str] | None,
-    ) -> list[tuple[float, str, int, SessionEvent]]:
-        matched: list[tuple[float, str, int, SessionEvent]] = []
-        for session_id, session in watched:
-            available = self._read_wait_session_events(
-                session_id,
-                session,
-                current_cursors[session_id],
+        watched: list[tuple[str, ManagedSession, int]],
+    ) -> tuple[
+        list[tuple[float, str, int, SessionEvent]],
+        list[tuple[float, str, int, SessionLine]],
+        dict[str, int],
+    ]:
+        events: list[tuple[float, str, int, SessionEvent]] = []
+        lines: list[tuple[float, str, int, SessionLine]] = []
+        current_cursors: dict[str, int] = {}
+
+        for session_id, session, cursor in watched:
+            available, completed = self._read_observation_snapshot(
+                session_id, session, cursor
             )
-            if available:
-                current_cursors[session_id] = available[-1].seq
+            current_cursors[session_id] = available[-1].seq if available else cursor
             for event in available:
-                if kind_filter is not None and event.kind not in kind_filter:
-                    continue
-                if stream_filter is not None and event.stream not in stream_filter:
-                    continue
-                matched.append((event.timestamp, session_id, event.seq, event))
-        return matched
+                events.append((event.timestamp, session_id, event.seq, event))
+            for line in completed:
+                lines.append((line.timestamp, session_id, line.seq_last, line))
+
+        return events, lines, current_cursors
 
     @staticmethod
-    def _wait_events_result(
-        matched: list[tuple[float, str, int, SessionEvent]],
-        current_cursors: dict[str, int],
+    def _observation_result(
+        events: list[tuple[float, str, int, SessionEvent]],
+        lines: list[tuple[float, str, int, SessionLine]],
+        cursors: dict[str, int],
         *,
         timed_out: bool,
     ) -> dict[str, Any]:
-        matched.sort(key=lambda item: (item[0], item[1], item[2]))
+        events.sort(key=lambda item: (item[0], item[1], item[2]))
+        lines.sort(key=lambda item: (item[0], item[1], item[2]))
         return {
             "events": [
                 {"session": session_id, **_event_dict(event)}
-                for _, session_id, _, event in matched
+                for _, session_id, _, event in events
             ],
-            "cursors": dict(current_cursors),
+            "lines": [
+                {"session": session_id, **_line_dict(line)}
+                for _, session_id, _, line in lines
+            ],
+            "cursors": dict(cursors),
             "timed_out": timed_out,
         }
 
-    def wait_events(
+    def observe(
         self,
         cursors: dict[str, int],
         *,
         timeout_ms: int = 0,
-        streams: list[str] | None = None,
-        kinds: list[str] | None = None,
     ) -> dict[str, Any]:
         if not cursors:
-            raise AgentError("invalid_request", "wait_events requires non-empty cursors")
+            raise AgentError("invalid_request", "observe requires non-empty cursors")
         if timeout_ms < 0:
             raise AgentError("invalid_timeout", "timeout_ms must be non-negative")
 
-        watched, current_cursors = self._resolve_wait_sessions(cursors)
-        stream_filter = set(streams) if streams is not None else None
-        kind_filter = set(kinds) if kinds is not None else None
+        watched = self._resolve_observe_sessions(cursors)
         deadline = time.monotonic() + timeout_ms / 1000.0
 
         # Держим manager condition во время snapshot scan. Session _record_event
         # уведомляет этот condition уже после освобождения своего event lock, поэтому
-        # событие между scan и wait не может потеряться и lock order не зацикливается.
-        with self._wait_condition:
+        # событие между scan и observe-wait не может потеряться и lock order не зацикливается.
+        with self._observe_condition:
             while True:
-                if self._wait_cancelled.is_set():
+                if self._observe_cancelled.is_set():
                     raise AgentError("agent_stopping", "agent process is stopping")
 
-                matched = self._collect_wait_events(
-                    watched,
-                    current_cursors,
-                    stream_filter,
-                    kind_filter,
-                )
-                if matched:
-                    return self._wait_events_result(
-                        matched,
+                events, lines, current_cursors = self._collect_observation(watched)
+                if events:
+                    return self._observation_result(
+                        events,
+                        lines,
                         current_cursors,
                         timed_out=False,
                     )
                 if timeout_ms == 0:
-                    return self._wait_events_result(
+                    return self._observation_result(
+                        [],
                         [],
                         current_cursors,
                         timed_out=False,
@@ -535,12 +522,13 @@ class SessionManager:
 
                 remaining = deadline - time.monotonic()
                 if remaining <= 0:
-                    return self._wait_events_result(
+                    return self._observation_result(
+                        [],
                         [],
                         current_cursors,
                         timed_out=True,
                     )
-                self._wait_condition.wait(timeout=remaining)
+                self._observe_condition.wait(timeout=remaining)
 
     def close(self, session_id: str) -> dict[str, Any]:
         session = self._get_session(session_id)
@@ -579,19 +567,12 @@ class AgentProtocol:
         return request.get("id") if isinstance(request, dict) else None
 
     @staticmethod
-    def _optional_list(request: dict[str, Any], name: str) -> list[Any] | None:
-        value = request.get(name)
-        if value is not None and not isinstance(value, list):
-            raise AgentError("invalid_request", f"{name} must be a list")
-        return value
-
-    @staticmethod
-    def _normalize_wait_cursors(request: dict[str, Any]) -> dict[str, int]:
+    def _normalize_observe_cursors(request: dict[str, Any]) -> dict[str, int]:
         cursors = request.get("cursors")
         if not isinstance(cursors, dict) or not cursors:
             raise AgentError(
                 "invalid_request",
-                "wait_events requires non-empty object field 'cursors'",
+                "observe requires non-empty object field 'cursors'",
             )
 
         normalized: dict[str, int] = {}
@@ -599,7 +580,7 @@ class AgentProtocol:
             if not isinstance(session_id, str) or not session_id:
                 raise AgentError(
                     "invalid_request",
-                    "wait_events cursor keys must be non-empty session strings",
+                    "observe cursor keys must be non-empty session strings",
                 )
             if isinstance(cursor, bool) or not isinstance(cursor, int):
                 raise AgentError(
@@ -654,26 +635,13 @@ class AgentProtocol:
             raise AgentError("invalid_base64", "data_b64 is not valid base64") from exc
         return self.manager.send_bytes(str(request.get("session", "")), data)
 
-    def _handle_events(self, request: dict[str, Any]) -> dict[str, Any]:
-        streams = self._optional_list(request, "streams")
-        kinds = self._optional_list(request, "kinds")
-        return self.manager.events(
-            str(request.get("session", "")),
-            after_seq=int(request.get("after_seq", 0)),
-            timeout_ms=int(request.get("timeout_ms", 0)),
-            streams=streams,
-            kinds=kinds,
-        )
-
-    def _handle_wait_events(self, request: dict[str, Any]) -> dict[str, Any]:
+    def _handle_observe(self, request: dict[str, Any]) -> dict[str, Any]:
         if request.get("id") is None:
             raise AgentError(
                 "invalid_request",
-                "wait_events requires a non-null request id",
+                "observe requires a non-null request id",
             )
-        cursors = self._normalize_wait_cursors(request)
-        streams = self._optional_list(request, "streams")
-        kinds = self._optional_list(request, "kinds")
+        cursors = self._normalize_observe_cursors(request)
         try:
             timeout_ms = int(request.get("timeout_ms", 0))
         except (TypeError, ValueError) as exc:
@@ -681,12 +649,7 @@ class AgentProtocol:
                 "invalid_timeout",
                 "timeout_ms must be an integer",
             ) from exc
-        return self.manager.wait_events(
-            cursors,
-            timeout_ms=timeout_ms,
-            streams=streams,
-            kinds=kinds,
-        )
+        return self.manager.observe(cursors, timeout_ms=timeout_ms)
 
     def _handle_close(self, request: dict[str, Any]) -> dict[str, Any]:
         return self.manager.close(str(request.get("session", "")))
@@ -703,8 +666,7 @@ class AgentProtocol:
             "status": self._handle_status,
             "send_line": self._handle_send_line,
             "send_bytes": self._handle_send_bytes,
-            "events": self._handle_events,
-            "wait_events": self._handle_wait_events,
+            "observe": self._handle_observe,
             "close": self._handle_close,
         }
         handler = handlers.get(op)
@@ -771,12 +733,12 @@ class _AgentJsonlRunner:
         self._output_lock = threading.Lock()
         self._pending_lock = threading.Lock()
         self._pending_ids: set[str] = set()
-        self._wait_threads: list[threading.Thread] = []
+        self._observe_threads: list[threading.Thread] = []
 
     def _emit_response(self, response: dict[str, Any]) -> None:
         rendered = _render_response(response)
         # Один lock задаёт одинаковый порядок строк в stdout и AGENT RESPONSE
-        # даже когда background wait завершается одновременно с command reply.
+        # даже когда background observe завершается одновременно с command reply.
         with self._output_lock:
             self.run_log.record("AGENT RESPONSE", rendered)
             self.output_stream.write(rendered + "\n")
@@ -805,7 +767,7 @@ class _AgentJsonlRunner:
             },
         }
 
-    def _finish_wait(self, request: dict[str, Any], request_key: str) -> None:
+    def _finish_observe(self, request: dict[str, Any], request_key: str) -> None:
         try:
             self._emit_response(self.protocol.handle(request))
         finally:
@@ -817,23 +779,23 @@ class _AgentJsonlRunner:
             return request_key in self._pending_ids
 
     @staticmethod
-    def _is_async_wait(request: Any, request_id: Any) -> bool:
+    def _is_async_observe(request: Any, request_id: Any) -> bool:
         return (
             isinstance(request, dict)
-            and request.get("op") == "wait_events"
+            and request.get("op") == "observe"
             and request_id is not None
         )
 
-    def _start_wait(self, request: dict[str, Any], request_key: str) -> None:
+    def _start_observe(self, request: dict[str, Any], request_key: str) -> None:
         with self._pending_lock:
             self._pending_ids.add(request_key)
         thread = threading.Thread(
-            target=self._finish_wait,
+            target=self._finish_observe,
             args=(request, request_key),
-            name=f"serialterminal-agent-wait-{len(self._wait_threads) + 1}",
+            name=f"serialterminal-agent-observe-{len(self._observe_threads) + 1}",
             daemon=True,
         )
-        self._wait_threads.append(thread)
+        self._observe_threads.append(thread)
         thread.start()
 
     def _handle_request(self, request: Any) -> None:
@@ -844,10 +806,10 @@ class _AgentJsonlRunner:
         if request_key is not None and self._request_is_pending(request_key):
             self._emit_response(self._request_id_busy_response(request_id))
             return
-        if self._is_async_wait(request, request_id):
+        if self._is_async_observe(request, request_id):
             assert isinstance(request, dict)
             assert request_key is not None
-            self._start_wait(request, request_key)
+            self._start_observe(request, request_key)
             return
         self._emit_response(self.protocol.handle(request))
 
@@ -861,11 +823,11 @@ class _AgentJsonlRunner:
         self._handle_request(request)
 
     def _shutdown(self) -> None:
-        # EOF/agent shutdown must not wait for an arbitrarily long user timeout.
-        # Cancel pending waits first, let them emit their final correlated reply,
-        # then close device sessions while RunLog/stdout are still valid.
-        self.manager.cancel_waits()
-        for thread in self._wait_threads:
+        # EOF/agent shutdown не должен ждать произвольно долгий user timeout. Сначала
+        # отменяем pending observe, даём им вернуть correlated reply, затем закрываем
+        # device sessions, пока RunLog/stdout ещё доступны.
+        self.manager.cancel_observes()
+        for thread in self._observe_threads:
             thread.join(timeout=1.0)
         self.manager.close_all()
 
@@ -890,7 +852,14 @@ def run_agent(
     with RunLog(log_path) as run_log:
         manager = SessionManager(run_log=run_log)
         protocol = AgentProtocol(manager, run_log=run_log)
-        run_log.record("AGENT", {"event": "ready", "log_path": str(run_log.path)})
+        run_log.record(
+            "AGENT",
+            {
+                "event": "ready",
+                "log_path": str(run_log.path),
+                "console_log_path": str(run_log.console_path),
+            },
+        )
         _AgentJsonlRunner(
             manager,
             protocol,

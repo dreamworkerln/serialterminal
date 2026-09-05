@@ -2,10 +2,11 @@
 
 `serialterminal agent` is a local machine-facing JSON Lines frontend over the same discovery, transports and reconnect/session logic used by the normal human terminal.
 
-It is intentionally generic. Device-, firmware- and project-specific test scenarios belong in the consuming agent skills, not in this API.
+It is intentionally generic. Device-, firmware- and project-specific test scenarios belong in consuming agent skills, not in this API.
 
 ## Start
-run this tool always with elevated privileges
+
+Run this tool with elevated privileges when the host Bluetooth/serial environment requires them:
 
 ```bash
 python3 serialterminal.py agent
@@ -13,58 +14,78 @@ python3 serialterminal.py agent
 
 The process reads one JSON object per line from stdin and writes exactly one JSON response per request to stdout.
 
-`wait_events` requests may remain pending while later ordinary requests are accepted. Therefore responses are correlated by `id` and are not globally guaranteed to appear in request order.
+`observe` requests may remain pending while later ordinary requests are accepted. Responses are therefore correlated by `id` and are not globally guaranteed to appear in request order.
 
-SerialTerminal does not emit unsolicited JSON event messages on stdout. Every stdout line is still a response to a request.
+SerialTerminal does not emit unsolicited JSON event messages on stdout. Every stdout line is a response to a request.
 
-By default one unique logfile is created under:
+## Run logs
+
+By default every agent process creates a paired forensic log and human-console companion log with the same timestamp/PID prefix:
 
 ```text
 logs/serialterminal-YYYYMMDD-HHMMSS-ffffff-pPID.log
+logs/serialterminal-YYYYMMDD-HHMMSS-ffffff-pPID.console.log
 ```
 
-An explicit path can be supplied for debugging/tests:
+An explicit forensic path can be supplied:
 
 ```bash
 python3 serialterminal.py agent --log /tmp/serialterminal-agent.log
 ```
 
-The same chronological log contains:
+Its companion path is derived from that path:
 
 ```text
+/tmp/serialterminal-agent.console.log
+```
+
+The main `.log` is the forensic/API/transport truth. Its chronological records include:
+
+```text
+[RUN]
+[AGENT]
 [AGENT REQUEST]
 [AGENT RESPONSE]
 [STATE]
 [TX]
 [RX <stream>]
-[RX LINE <stream>]
-[RX PARTIAL <stream>]
 [ERROR]
 ```
 
-RX/TX byte payloads are represented as base64 in structured records. Text is a UTF-8 convenience view; `data_b64` remains the byte-accurate representation.
+There are no separate `[RX LINE ...]` or `[RX PARTIAL ...]` records in the forensic log. Raw `[RX <stream>]` records preserve transport/session chunk boundaries, raw event `seq`, incremental chunk-level `text`, and byte-accurate `data_b64`.
 
-`[RX <stream>]` remains the raw chunk-level source of truth. BLE notification/chunk boundaries and the original `data_b64`, chunk text, event `seq`, and timestamp are not normalized or replaced by line logging.
+The companion `.console.log` is only a human-oriented presentation/audit view. Records look like:
 
-The additional `[RX LINE <stream>]` records are a log-only convenience view. They assemble the already incrementally decoded RX text separately for every `(session, stream)` pair and emit one record for every decoded LF-terminated logical line:
+```text
+2026-09-05T08:23:01.100+00:00 [s1] > /both
+2026-09-05T08:23:01.420+00:00 [s1] < [SYS] OUTPUT BOTH
+2026-09-05T08:23:05.100+00:00 [s2] > hello
+2026-09-05T08:23:06.750+00:00 [s2] < < [-33/+10 Q100] hello
+```
+
+Semantics:
+
+- `>` is text accepted through `send_line` for that session;
+- `<` is a completed logical line from that session's human-console RX stream;
+- all sessions share one chronological companion file and every record contains its session ID;
+- `send_bytes` is not represented as ordinary human input;
+- the companion log is presentation/audit convenience, not transport-write or protocol-delivery evidence.
+
+For BLE, the separate machine telemetry stream is **not** written to `.console.log` merely because SerialTerminal is subscribed to it. The BLE human-console/chat stream is written. If firmware output mode such as `/both` causes telemetry text to appear in the human-console stream itself, that line naturally appears in `.console.log` because it is what a human console would have received.
+
+Console RX lines come from the same canonical `ManagedSession` logical-line model used by `observe.result.lines`; there is no second line assembler in logging.
+
+The forensic startup `[AGENT]` ready record contains both paths:
 
 ```json
 {
-  "session":"s2",
-  "stream":"chat",
-  "text":"SESSION t=540s TX ok=1 user=0 err=0",
-  "seq_first":282,
-  "seq_last":284
+  "event":"ready",
+  "log_path":"logs/serialterminal-...-pPID.log",
+  "console_log_path":"logs/serialterminal-...-pPID.console.log"
 }
 ```
 
-The final LF is omitted from `text`. For CRLF input, one `\r` immediately before the terminating `\n` is also omitted in the line view; raw RX bytes remain unchanged. Empty logical lines are retained. `seq_first` and `seq_last` identify the raw RX event range that contributed to the assembled line.
-
-Line assembly uses the existing incremental UTF-8 decoded event text, so a multibyte character split across transport chunks is not decoded independently per chunk a second time. Chat, telemetry, main, and any other streams keep independent line state and are never joined across streams or sessions.
-
-If a connection lifecycle boundary or logfile close occurs with decoded text still buffered without a terminating LF, the convenience logger writes `[RX PARTIAL <stream>]` with the same `session`, `stream`, `text`, `seq_first`, and `seq_last` fields before discarding that line state. Raw chunk records remain available even when an incomplete UTF-8 byte sequence never produced decoded text.
-
-`RX LINE` / `RX PARTIAL` records do not create new `SessionEvent` objects and do not change `events`, `wait_events`, cursor advancement, transport chunk semantics, or JSONL stdout behavior.
+Both files are opened and closed with the same `RunLog` lifetime.
 
 ## Response envelope and request IDs
 
@@ -80,11 +101,11 @@ Error:
 {"id":1,"ok":false,"error":{"code":"unknown_session","message":"unknown session: s1"}}
 ```
 
-For existing synchronous operations, `id` is copied from the request and may be any JSON value.
+For ordinary synchronous operations, `id` is copied from the request and may be any JSON value.
 
-`wait_events` is asynchronous at the JSONL frontend and therefore requires a non-null request `id`. Clients should use unique IDs for every request and must not reuse an ID while a `wait_events` request with that ID is still pending.
+`observe` is asynchronous at the JSONL frontend and requires a non-null request `id`. Clients should use unique IDs and must not reuse an ID while an `observe` request with that ID is still pending.
 
-A request that reuses an ID owned by a pending wait is rejected without cancelling the original wait:
+A request that reuses an ID owned by a pending `observe` is rejected without cancelling the original request:
 
 ```json
 {
@@ -98,9 +119,28 @@ A request that reuses an ID owned by a pending wait is rejected without cancelli
 }
 ```
 
-Once the original pending request finishes, that ID is no longer busy and may be reused, although monotonically increasing IDs are recommended because they simplify correlation and log inspection.
+Once the pending request finishes, that ID is no longer busy. Monotonically increasing IDs are recommended because they simplify correlation and log inspection.
 
-A wait timeout is not an error. `events` and `wait_events` return an empty event array with `timed_out: true` when a positive timeout expires without a matching event.
+A positive observation timeout expiring without a new raw event is not an error; the response has `timed_out:true`.
+
+## Operations
+
+The machine-facing operations are:
+
+```text
+discover
+open
+list_sessions
+status
+send_line
+send_bytes
+observe
+close
+```
+
+`observe` is the only receive/cursor operation. The former machine operations `events` and `wait_events` are removed and return `unknown_operation`.
+
+The cursor shape is always a `cursors` object, including when exactly one session is watched.
 
 ## Device discovery
 
@@ -134,10 +174,10 @@ Example response:
   "result":{
     "devices":[
       {
-        "key":"ble-address:44:1b:f6:8d:b7:a9",
+        "key":"ble-address:...",
         "kind":"ble",
-        "label":"BLE  Device-1B44",
-        "detail":"44:1B:F6:8D:B7:A9"
+        "label":"BLE Device",
+        "detail":"..."
       }
     ]
   }
@@ -152,7 +192,7 @@ Example response:
 {
   "id":2,
   "op":"open",
-  "device_key":"ble-address:44:1b:f6:8d:b7:a9"
+  "device_key":"ble-address:..."
 }
 ```
 
@@ -166,7 +206,7 @@ auto_id=true
 wait_connected_ms=10000
 ```
 
-`auto_id=true` sends the current SerialTerminal `/id` connect preamble after every successful transport connect/reconnect and before the session is published as connected. For a target where sending this preamble is undesirable, explicitly use:
+`auto_id=true` sends the SerialTerminal `/id` connect preamble after every successful transport connect/reconnect and before the session is published as connected. For a target where this preamble is undesirable, use:
 
 ```json
 {"id":2,"op":"open","device_key":"...","auto_id":false}
@@ -182,13 +222,15 @@ The background session continues retrying the same device.
 
 One `SessionManager` does not allow the same `device_key` to be opened twice. Different devices may be held simultaneously.
 
+The response includes `latest_seq`. Save it as the initial raw cursor for subsequent `observe` calls when activity before completion of `open` has already been inspected or should be ignored.
+
 ## Session status
 
 ```json
 {"id":3,"op":"status","session":"s1"}
 ```
 
-Example result fields:
+Typical result fields:
 
 ```text
 session
@@ -233,15 +275,15 @@ Response:
 {"id":5,"ok":true,"result":{"tx_id":12,"state":"queued"}}
 ```
 
-`queued` means the reconnect-safe SerialTerminal TX queue accepted the item.
+`queued` means the reconnect-safe SerialTerminal TX queue accepted the item. The same accepted text is also written to the companion console log as `[session] > text` when run logging is enabled.
 
-A later session event with:
+A later raw observation event with:
 
 ```json
 {"kind":"tx","tx_id":12,"tx_state":"written"}
 ```
 
-means the existing transport `write()` completed successfully. It does **not** mean a peer received the data or that any higher-level protocol accepted or completed the requested operation.
+means the existing transport `write()` completed successfully. It does **not** mean a peer received the data or that a higher-level protocol accepted or completed the requested operation.
 
 ## Send raw bytes
 
@@ -256,113 +298,42 @@ Raw bytes use base64:
 }
 ```
 
-Line and raw-byte sends use the same ordered reconnect-safe TX queue.
+Line and raw-byte sends use the same ordered reconnect-safe TX queue. `send_bytes` is not rendered as ordinary human input in the companion console log.
 
-## Receive / wait using a single-session event cursor
+## Observe raw events and logical lines
 
-Each session has monotonically increasing event sequence numbers.
-
-Request all retained events after cursor 40:
-
-```json
-{"id":7,"op":"events","session":"s1","after_seq":40}
-```
-
-Wait up to five seconds:
-
-```json
-{
-  "id":8,
-  "op":"events",
-  "session":"s1",
-  "after_seq":40,
-  "timeout_ms":5000
-}
-```
-
-Filter to RX on one stream:
-
-```json
-{
-  "id":9,
-  "op":"events",
-  "session":"s1",
-  "after_seq":40,
-  "timeout_ms":5000,
-  "kinds":["rx"],
-  "streams":["chat"]
-}
-```
-
-Typical RX event:
-
-```json
-{
-  "seq":47,
-  "kind":"rx",
-  "stream":"chat",
-  "data_b64":"W1NZU10gT0sK",
-  "text":"[SYS] OK\n"
-}
-```
-
-Typical state events include:
-
-```text
-reconnecting
-connected
-disconnected
-closed
-```
-
-Typical TX events include:
-
-```text
-queued
-written
-connect-preamble-written
-```
-
-The event buffer is retained in memory with a finite window. If a caller holds an obsolete cursor after that window has rotated, the API returns structured error `cursor_expired` with the oldest available sequence number.
-
-`events` is preserved for simple single-session request/response use. Its timeout is processed synchronously by the JSONL reader. If a client needs to keep issuing other commands while waiting, use `wait_events` instead of a long-running `events` request.
-
-## Wait for events across one or more sessions
-
-`wait_events` is the preferred long-poll operation when an agent needs to react to session activity without blocking the JSONL command channel. It works with exactly one session for echo/response tests and with multiple sessions for cross-device tests.
-
-`cursors` is a non-empty object that maps every watched session ID to the last event sequence already inspected for that session:
+Request for one session:
 
 ```json
 {
   "id":20,
-  "op":"wait_events",
+  "op":"observe",
   "cursors":{
     "s1":42
   },
-  "timeout_ms":10000
+  "timeout_ms":15000
 }
 ```
 
-Watch two sessions with one request:
+Request for multiple sessions uses exactly the same shape:
 
 ```json
 {
   "id":21,
-  "op":"wait_events",
+  "op":"observe",
   "cursors":{
     "s1":42,
     "s2":75
   },
-  "timeout_ms":30000
+  "timeout_ms":15000
 }
 ```
 
-Sequence numbers are independent per session. There is intentionally no single global `after_seq` for multi-session waits.
+`cursors` is required and must be a non-empty object. Each key is a session ID and each value is the last raw `SessionEvent.seq` already processed by the caller for that session. Sequence numbers are independent per session.
 
-SerialTerminal does not repeatedly poll each session while waiting. Every `ManagedSession` keeps its own authoritative event ring and notifies a manager-level condition when an event is recorded. `wait_events` sleeps on that shared wakeup and then inspects the watched session rings.
+There is intentionally one cursor model. A single watched session still uses a `cursors` object; there is no separate single-session receive shape.
 
-When at least one matching event is available, the response contains all matching events already available across the watched sessions. Every returned event includes its source `session`:
+### Result
 
 ```json
 {
@@ -373,101 +344,147 @@ When at least one matching event is available, the response contains all matchin
       {
         "session":"s1",
         "seq":43,
-        "kind":"tx",
-        "tx_id":7,
-        "tx_state":"written"
-      },
-      {
-        "session":"s2",
-        "seq":76,
         "kind":"rx",
         "stream":"chat",
-        "text":"hello\n"
+        "data_b64":"U0VTU0lPTiBUWCBvaw==",
+        "text":"SESSION TX ok"
+      },
+      {
+        "session":"s1",
+        "seq":44,
+        "kind":"rx",
+        "stream":"chat",
+        "data_b64":"PTEK",
+        "text":"=1\n"
+      }
+    ],
+    "lines":[
+      {
+        "session":"s1",
+        "stream":"chat",
+        "seq_first":43,
+        "seq_last":44,
+        "text":"SESSION TX ok=1"
       }
     ],
     "cursors":{
-      "s1":43,
-      "s2":76
+      "s1":44,
+      "s2":75
     },
     "timed_out":false
   }
 }
 ```
 
-Returned `cursors` are the positions the caller should use for its next `wait_events` request.
-
-### Filters and cursor advancement
-
-`wait_events` accepts the same optional `kinds` and `streams` filters as `events`:
-
-```json
-{
-  "id":22,
-  "op":"wait_events",
-  "cursors":{
-    "s1":43,
-    "s2":76
-  },
-  "kinds":["rx"],
-  "streams":["chat"],
-  "timeout_ms":30000
-}
-```
-
-A filter controls which events are returned and which events cause the wait to complete. Cursors nevertheless advance through every inspected event, including events excluded by the filter.
-
-For example, if a session produces:
+`events` and `lines` are two views over the same session receive history:
 
 ```text
-seq 44  tx
-seq 45  state
-seq 46  rx/chat
+events = forensic raw SessionEvent/chunk truth
+lines  = completed LF-terminated logical firmware lines
 ```
 
-while `kinds:["rx"]` is active, only `seq=46` is returned, and the returned cursor for that session is `46`. If only `tx` and `state` events arrive before timeout, no events are returned, but the response cursor advances past those inspected events so the next wait does not reconsider them.
+The caller should use `result.lines` for line-oriented protocol/human-readable reasoning and `result.events` when exact transport/session evidence is required.
 
-With `timeout_ms:0`, `wait_events` is an immediate multi-session snapshot. An empty immediate snapshot has `timed_out:false`, matching the existing `events` convention that only an expired positive timeout is reported as a timeout.
+### Raw events
 
-### Timeout
+`result.events` preserves the existing `SessionEvent` representation. It may contain:
 
-If no matching event appears before a positive timeout expires:
+```text
+state
+tx
+rx
+error
+```
+
+Fields already present on those events remain unchanged, including exact `seq`, `stream`, `data_b64`, chunk-level incremental UTF-8 `text`, `tx_id`, `tx_state`, timestamp and device/description metadata where applicable.
+
+BLE notifications remain BLE-sized chunks. SerialTerminal does not make a transport pretend to be line-oriented. `data_b64` is the byte-accurate source of truth.
+
+### Logical lines
+
+Logical line assembly lives once on `ManagedSession`, above the transport layer. Each receive stream has independent assembly state, so `main`, `chat`, `telemetry`, or future streams are never concatenated with one another.
+
+Assembly uses the same incremental UTF-8 decoded text already produced for the raw RX event. It does not run a second independent decoder over raw chunks.
+
+A line record has:
+
+```text
+session
+stream
+seq_first
+seq_last
+text
+```
+
+Rules:
+
+- LF terminates a logical line and is omitted from `text`;
+- a CR immediately before the terminating LF is removed from line-view `text`, so CRLF is one logical boundary;
+- raw event bytes and raw event text are not normalized;
+- empty LF-terminated lines are retained;
+- `seq_first` is the first raw RX event participating in the line;
+- `seq_last` is the raw RX event containing the terminating LF;
+- if the first raw chunk contains only the beginning of a split UTF-8 code point and incremental decoding yields empty text, that raw event still becomes `seq_first`.
+
+The same completed `SessionLine` objects feed `observe.result.lines` and the companion console logger. The logger merely selects human-console streams; it does not assemble text independently.
+
+### One raw cursor controls both views
+
+There is no line cursor.
+
+A completed line is returned when:
+
+```text
+line.seq_last > input_cursor_for_that_session
+```
+
+Its `seq_first` may be less than or equal to the input cursor. This is deliberate and lets the session retain an incomplete line across observation calls without forcing the caller to assemble RX fragments itself.
+
+For example, suppose the first observation returns:
+
+```text
+seq 100  RX text="DELIVERY WA"
+```
+
+The caller advances its raw cursor to 100. Later the next raw RX event is:
+
+```text
+seq 101  RX text="IT_ACK...\n"
+```
+
+Then:
+
+```json
+{"id":30,"op":"observe","cursors":{"s1":100},"timeout_ms":0}
+```
+
+returns raw event 101 and the complete line spanning both chunks:
 
 ```json
 {
-  "id":23,
-  "ok":true,
-  "result":{
-    "events":[],
-    "cursors":{
-      "s1":43,
-      "s2":76
-    },
-    "timed_out":true
-  }
+  "session":"s1",
+  "stream":"telemetry",
+  "seq_first":100,
+  "seq_last":101,
+  "text":"DELIVERY WAIT_ACK..."
 }
 ```
 
-The cursor values may be higher than the input values if non-matching events were inspected while the request was waiting.
+Do not manually join raw RX chunks when the required completed logical line is already present in `result.lines`.
 
-### Errors
+### Cursor-consistent snapshot
 
-`wait_events` requires a non-null `id` and a non-empty `cursors` object. Cursor keys must be non-empty session strings and cursor values must be non-negative integers.
+For each watched session, raw events and completed lines are read from one `ManagedSession` snapshot under the same session lock. An observation therefore cannot expose the raw event that terminates a logical line while accidentally omitting the line that the same event completed.
 
-If a watched session does not exist, the request fails with `unknown_session` and identifies the affected session:
+Across multiple sessions the manager merges the per-session snapshots and returns independent cursors for each session.
 
-```json
-{
-  "id":24,
-  "ok":false,
-  "error":{
-    "code":"unknown_session",
-    "message":"unknown session: missing",
-    "details":{"session":"missing"}
-  }
-}
-```
+### Retention and cursor expiry
 
-If one watched cursor is older than that session's retained event window, the complete `wait_events` request fails with `cursor_expired`. The error identifies the affected session, requested cursor, and oldest retained sequence:
+The finite raw `SessionEvent` ring is the authoritative cursor window. Completed logical lines are retained in relation to that same window so every still-valid raw cursor can retrieve completed lines whose `seq_last` is newer than the cursor.
+
+If a requested raw cursor has fallen before the retained event window, the whole `observe` request fails with `cursor_expired`. There is no separate line-cursor error.
+
+Example:
 
 ```json
 {
@@ -485,43 +502,77 @@ If one watched cursor is older than that session's retained event window, the co
 }
 ```
 
+An unknown watched session similarly fails the request with `unknown_session` and identifies the session in `details`.
+
+### Lifecycle boundaries and incomplete lines
+
+Only LF-terminated lines become first-class `result.lines` records.
+
+An incomplete line is not promoted to a separate API record on disconnect, reconnect or close. Its raw bytes/text remain available in `result.events`. Incomplete assembly state is cleared at connection lifecycle boundaries so text from one transport connection cannot be joined to bytes received after reconnect.
+
+The forensic log likewise does not create partial-line records.
+
+### Timeout semantics
+
+`timeout_ms` must be non-negative.
+
+`timeout_ms:0` is an immediate snapshot. If no new raw event exists:
+
+```json
+{
+  "events":[],
+  "lines":[],
+  "cursors":{"s1":42},
+  "timed_out":false
+}
+```
+
+A positive timeout long-polls until the first new raw event on any watched session. If no raw event appears before expiry:
+
+```json
+{
+  "events":[],
+  "lines":[],
+  "cursors":{"s1":42},
+  "timed_out":true
+}
+```
+
+If a raw event arrives but does not complete a logical line, the request returns immediately with non-empty `events` and empty `lines`. A caller waiting for a specific firmware line should issue the next `observe` using the returned `cursors`.
+
+There are no receive filters in `observe`; it returns all raw events after the watched cursors and all completed logical lines whose `seq_last` is newer than the corresponding input cursor. Callers may filter the returned arrays themselves.
+
 ## Concurrent JSONL behavior
 
-Only `wait_events` requests are dispatched asynchronously. Ordinary operations remain serialized by the main JSONL reader in input order. This preserves the previous ordering of discovery/open/send/status/close mutations while allowing one or more long-poll waits to remain pending in parallel.
+Only `observe` requests are dispatched asynchronously. Ordinary operations remain serialized by the main JSONL reader in input order. This preserves mutation ordering while allowing one or more long-poll observations to remain pending.
 
 Example timeline:
 
 ```text
-request id=100  wait_events(s1,s2, 30s)   -> pending
-request id=101  send_line(s1,"hello")     -> response id=101
-request id=102  status(s1)                 -> response id=102
-... event arrives on s2 ...
-                                         -> response id=100
+request id=100  observe(s1,s2, 30s)         -> pending
+request id=101  send_line(s1,"hello")       -> response id=101
+request id=102  status(s1)                   -> response id=102
+... raw event arrives on s2 ...
+                                           -> response id=100
 ```
 
-Corresponding stdout may therefore be:
+The exact result fields depend on current activity; correlation is by request `id`, not stdout position.
 
-```json
-{"id":101,"ok":true,"result":{"tx_id":7,"state":"queued"}}
-{"id":102,"ok":true,"result":{"session":"s1","state":"connected"}}
-{"id":100,"ok":true,"result":{"events":[],"cursors":{"s1":43,"s2":76},"timed_out":false}}
-```
+Multiple `observe` requests with different IDs may be pending simultaneously. Reusing any still-pending ID is rejected with `request_id_busy` and does not cancel the original request.
 
-The exact result fields depend on the operations and events; the important contract is that each complete response is associated with its own request `id`, not with stdout position.
+stdout writes are serialized, so concurrent completions cannot interleave fragments of JSON objects. The forensic log uses the same response emission lock for `[AGENT RESPONSE]`, so response-line order in the log matches response-line order on stdout. `[AGENT REQUEST]` entries remain in input order and may appear before responses to earlier pending observations.
 
-Multiple `wait_events` requests with different IDs may be pending at the same time. A later ordinary request using an ID that belongs to any still-pending wait is rejected with `request_id_busy` and is not executed.
+There is no unsolicited push. Continuous observation is implemented by issuing a new `observe` after each completed response, using its returned `cursors`.
 
-stdout writes are serialized, so concurrent completions cannot interleave fragments of two JSON objects. The logfile uses the same response emission lock for `[AGENT RESPONSE]`, so response-line order in the log matches response-line order on stdout. `[AGENT REQUEST]` entries remain in input order and may naturally appear before responses to earlier pending waits.
-
-There is no unsolicited event push. A client that wants continuous observation should issue a new `wait_events` after processing each completed wait response, using the returned `cursors`.
-
-## Close
+## Close and process shutdown
 
 ```json
 {"id":10,"op":"close","session":"s1"}
 ```
 
-Process EOF cancels pending `wait_events`, then closes all remaining sessions. Pending waits cancelled specifically because the agent process is stopping may complete with structured `agent_stopping` before stdout closes.
+Process EOF cancels pending `observe` calls, lets them finish with their correlated response, then closes remaining sessions. An observation cancelled specifically because the agent process is stopping may complete with structured `agent_stopping` before stdout closes.
+
+The forensic and companion console logs close together when the agent run ends.
 
 ## Multiple devices
 
@@ -532,7 +583,7 @@ discover
 open Device A -> s1
 open Device B -> s2
 send_line s1
-wait_events {s1, s2}
+observe {s1,s2}
 ...
 close s1
 close s2
@@ -550,6 +601,9 @@ JSONL adapter / future MCP adapter
 SessionManager
         ↓
 ManagedSession
+        ├─ raw SessionEvent ring ────────> observe.result.events
+        └─ canonical logical lines ──────> observe.result.lines
+                                      └──> human-console companion logger
         ↓
 existing Transport abstraction
         ↓

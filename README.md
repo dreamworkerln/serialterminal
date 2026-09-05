@@ -36,6 +36,8 @@ Type /help or press Ctrl+T ? for full help.
 - общий headless `ManagedSession` для reconnect/RX/TX logic;
 - machine-facing `serialterminal agent` JSONL interface поверх той же session/transport logic;
 - несколько независимых agent sessions к разным устройствам в одном процессе;
+- raw SessionEvent/chunk forensic receive view и session-level completed logical-line view через `observe`;
+- paired forensic + human-console agent run logs;
 - BLE `0003` как human-console stream и optional `0004` как background machine-telemetry stream;
 - локальные hotkeys `Ctrl+T ...`;
 - локальное line editing через `prompt_toolkit`, включая Backspace/Delete и Unicode;
@@ -58,7 +60,7 @@ Agent mode запускается без TUI:
 python3 serialterminal.py agent
 ```
 
-stdin и stdout используются как request/response JSON Lines. Один request всегда даёт один machine-readable JSON response. `wait_events` может оставаться pending, пока agent принимает следующие команды, поэтому ответы сопоставляются по `id` и могут приходить не в порядке запросов. Основные операции:
+stdin и stdout используются как request/response JSON Lines. Один request всегда даёт один machine-readable JSON response. `observe` может оставаться pending, пока agent принимает следующие команды, поэтому ответы сопоставляются по `id` и могут приходить не в порядке запросов. Основные операции:
 
 ```text
 discover
@@ -67,22 +69,25 @@ status
 list_sessions
 send_line
 send_bytes
-events
-wait_events
+observe
 close
 ```
+
+`events` и `wait_events` больше не являются machine API operations; receive/cursor workflow унифицирован через `observe`.
 
 Пример:
 
 ```json
 {"id":1,"op":"discover","scope":"auto"}
-{"id":2,"op":"open","device_key":"ble-address:44:1b:f6:8d:b7:a9"}
+{"id":2,"op":"open","device_key":"ble-address:..."}
 {"id":3,"op":"send_line","session":"s1","text":"/id"}
-{"id":4,"op":"wait_events","cursors":{"s1":0},"timeout_ms":5000,"kinds":["rx"]}
+{"id":4,"op":"observe","cursors":{"s1":0},"timeout_ms":5000}
 {"id":5,"op":"close","session":"s1"}
 ```
 
-Receive/wait использует монотонный `seq` cursor и retained event buffer, а не эмуляцию человека внутри prompt/TUI. RX events сохраняют transport stream tag (`main`, `chat`, `telemetry`) и byte-accurate `data_b64`; `text` — дополнительное incremental UTF-8 представление. `wait_events` принимает cursor отдельно для каждой watched session, может ждать одну или несколько session одним long-poll и не блокирует обработку следующих обычных JSONL-команд.
+Receive/observation использует один `cursors` object и retained raw event buffer. Формат одинаков для одной и нескольких sessions. `observe.result.events` сохраняет raw SessionEvent/chunk representation с transport stream tag (`main`, `chat`, `telemetry`), byte-accurate `data_b64` и incremental chunk-level UTF-8 `text`. `observe.result.lines` одновременно возвращает завершённые LF-terminated logical firmware lines с `seq_first/seq_last`; line assembly живёт на session layer и не меняет transport chunk boundaries.
+
+Один raw cursor управляет обеими views. Если logical line началась до входного cursor, а завершилась после него, следующий `observe` возвращает целую line, поэтому caller не обязан вручную хранить и склеивать RX fragments.
 
 `send_line` и `send_bytes` используют одну reconnect-safe ordered TX queue. `tx_state=written` означает только успешное завершение существующего transport `write()`, а не LoRa delivery/peer acceptance.
 
@@ -90,9 +95,18 @@ Agent session по умолчанию использует `auto_id=true`: `/id`
 
 Один agent process может держать несколько разных `device_key` одновременно. Повторный `open` того же `device_key` внутри одного manager возвращает structured `device_busy`.
 
-Agent process также создаёт один отдельный log в `logs/`. В него в одном chronological timeline пишутся:
+Каждый agent run создаёт связанную пару файлов с одним timestamp/PID prefix:
 
 ```text
+logs/serialterminal-YYYYMMDD-HHMMSS-ffffff-pPID.log
+logs/serialterminal-YYYYMMDD-HHMMSS-ffffff-pPID.console.log
+```
+
+Основной `.log` — forensic/API/transport truth. В нём остаются только точные chronological records:
+
+```text
+[RUN]
+[AGENT]
 [AGENT REQUEST]
 [AGENT RESPONSE]
 [STATE]
@@ -101,13 +115,28 @@ Agent process также создаёт один отдельный log в `logs
 [ERROR]
 ```
 
-Полный контракт, cursor semantics, concurrent `wait_events`, out-of-order response rules и ошибки: `AGENT_API.md`.
+Отдельных `[RX LINE ...]` и `[RX PARTIAL ...]` там больше нет. Logical lines являются first-class частью `ManagedSession`/`observe.result.lines`, а raw `[RX <stream>]` сохраняет transport chunk boundaries и `data_b64`.
+
+Companion `.console.log` — удобный человекочитаемый view одного run для всех sessions:
+
+```text
+2026-09-05T08:23:01.100+00:00 [s1] > /both
+2026-09-05T08:23:01.420+00:00 [s1] < [SYS] OUTPUT BOTH
+2026-09-05T08:23:05.100+00:00 [s2] > hello
+2026-09-05T08:23:06.750+00:00 [s2] < < [-33/+10 Q100] hello
+```
+
+`>` означает text, принятый через `send_line`; `<` — completed logical line, реально пришедшую через human-console stream. Для BLE отдельный machine telemetry stream `0004` в этот файл не пишется просто из-за подписки. Если firmware в `/both` сама вывела telemetry line через human-console `0003`/`chat`, такая строка естественно попадает в companion log. Отдельной второй line-assembly логики для этого файла нет: он получает те же canonical session lines, что и `observe.result.lines`.
+
+Companion log — presentation/audit view, а не evidence доставки. `send_bytes` в нём как обычный human input не изображается. Startup `[AGENT]` metadata в forensic log содержит оба пути: `log_path` и `console_log_path`.
+
+Полный контракт, raw/line cursor semantics, concurrent `observe`, out-of-order response rules, paired logging и ошибки: `AGENT_API.md`.
 
 Generic SerialTerminal API остаётся device-agnostic. Project-specific LoRa-Chatter node guidance хранится в `.agents/skills/node-agent/SKILL.md` этого репозитория, чтобы skill был доступен независимо от выбранной branch/worktree `lora-sack-protocol`; firmware/protocol source authority при этом остаётся в соответствующем source state `lora-sack-protocol`.
 
 ### Live hardware/Codex smoke
 
-2026-09-03 наблюдался live smoke с двумя физическими BLE LoRa-Chatter нодами в одном `serialterminal agent` process: Codex самостоятельно изучил node `/help`, открыл две независимые sessions, использовал multi-session `wait_events`, продолжал обычные команды при pending wait и выполнил TX с обеих sessions близко по времени.
+2026-09-03 наблюдался live smoke с двумя физическими BLE LoRa-Chatter нодами в одном `serialterminal agent` process: Codex самостоятельно изучил node `/help`, открыл две независимые sessions, использовал тогдашний multi-session receive long-poll, продолжал обычные команды при pending observation и выполнил TX с обеих sessions близко по времени.
 
 Это подтверждает практическую работу multi-session agent workflow и независимых per-session TX paths. Сам по себе этот smoke не доказывает успешную peer-доставку обеих близких LoRa передач; delivery подтверждается отдельным peer RX/telemetry evidence.
 
@@ -318,7 +347,7 @@ Human console на `0003` следует режиму Chatter:
 0004 = background machine telemetry
 ```
 
-`serialterminal` не показывает `0004` в normal console. Полученные `0004` bytes декодируются отдельным stream state и сохраняются в transcript, поэтому данные доступны для последующего анализа/collector logic без дублирования пользовательского экрана.
+`serialterminal` не показывает `0004` в normal console. Полученные `0004` bytes декодируются отдельным stream state и сохраняются в transcript/forensic agent records, поэтому данные доступны для последующего анализа без дублирования пользовательского экрана или agent `.console.log`.
 
 Для старой firmware без `0004` BLE соединение остаётся валидным через стандартный `0003`.
 
@@ -421,10 +450,12 @@ CI на каждый push/PR выполняет:
 
 ```text
 python -m compileall -q src serialterminal.py tools
+ruff check src tests serialterminal.py tools
+lizard -l python -C 10 -L 80 -a 5 src serialterminal.py tools   # advisory
 pytest -q
 ```
 
-Покрыты command trim, human Serial `/id`, отсутствие human auto-ID на Bluetooth transport, USER/ECHO presentation, rejection, background `0004` telemetry, BLE chunk boundaries, duplicate payloads, disconnect semantics, full-duplex Serial regression, shared `ManagedSession` reconnect/order/stream events, multi-session agent manager, JSONL structured errors/waits и per-run logging.
+Покрыты command trim, human Serial `/id`, отсутствие human auto-ID на Bluetooth transport, USER/ECHO presentation, rejection, background `0004` telemetry, BLE chunk boundaries, duplicate payloads, disconnect semantics, full-duplex Serial regression, shared `ManagedSession` reconnect/order/stream events, multi-session agent manager, async `observe`, raw-event/logical-line correlation и paired forensic/console run logging.
 
 Не фиксируйте в README число тестов как постоянную характеристику: authoritative результат — exact CI run для конкретного commit SHA.
 

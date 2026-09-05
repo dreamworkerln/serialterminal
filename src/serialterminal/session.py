@@ -2,7 +2,7 @@ from __future__ import annotations
 
 import codecs
 from collections import deque
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 import queue
 import threading
 import time
@@ -13,6 +13,7 @@ from .transports.base import ReceivedChunk, Transport, TransportError
 
 ConnectPreamble = Callable[[Transport], bytes | None]
 EventNotifier = Callable[[], None]
+LineNotifier = Callable[["SessionLine"], None]
 
 
 def encode_line(line: str, line_ending: str = "\n") -> bytes:
@@ -50,6 +51,22 @@ class SessionEvent:
     description: str | None = None
 
 
+@dataclass(frozen=True)
+class SessionLine:
+    stream: str
+    seq_first: int
+    seq_last: int
+    text: str
+    timestamp: float
+
+
+@dataclass
+class _LineState:
+    parts: list[str] = field(default_factory=list)
+    seq_first: int | None = None
+    seq_last: int | None = None
+
+
 class _QueuedLine(str):
     """Queue item that preserves string compatibility for existing callers/tests."""
 
@@ -80,6 +97,10 @@ QueuedTx = _QueuedLine | _QueuedBytes
 class ManagedSession:
     """Headless reconnecting session shared by human and machine frontends."""
 
+    _LINE_BOUNDARY_STATES = frozenset(
+        {"reconnecting", "connected", "disconnected", "closed"}
+    )
+
     def __init__(
         self,
         transport: Transport,
@@ -89,6 +110,7 @@ class ManagedSession:
         connect_preamble: ConnectPreamble | None = None,
         event_limit: int = 4096,
         event_notifier: EventNotifier | None = None,
+        line_notifier: LineNotifier | None = None,
     ):
         if event_limit <= 0:
             raise ValueError("event_limit must be positive")
@@ -98,6 +120,7 @@ class ManagedSession:
         self.reconnect_delay = reconnect_delay
         self.connect_preamble = connect_preamble
         self.event_notifier = event_notifier
+        self.line_notifier = line_notifier
 
         self.stop_event = threading.Event()
         self.connected_event = threading.Event()
@@ -107,6 +130,8 @@ class ManagedSession:
 
         self._event_limit = event_limit
         self._events: deque[SessionEvent] = deque(maxlen=event_limit)
+        self._lines: deque[SessionLine] = deque()
+        self._line_states: dict[str, _LineState] = {}
         self._event_condition = threading.Condition()
         self._next_event_seq = 1
         self._next_tx_id = 1
@@ -128,8 +153,78 @@ class ManagedSession:
             self._next_tx_id += 1
             return tx_id
 
+    def _validate_cursor_locked(self, after_seq: int) -> None:
+        if after_seq < 0:
+            raise ValueError("after_seq must be non-negative")
+        if self._events:
+            oldest_seq = self._events[0].seq
+            if after_seq < oldest_seq - 1:
+                raise SessionCursorExpired(after_seq, oldest_seq)
+
+    def _prune_lines_locked(self) -> None:
+        if not self._events:
+            return
+        oldest_seq = self._events[0].seq
+        while self._lines and self._lines[0].seq_last < oldest_seq:
+            self._lines.popleft()
+
+    def _reset_line_states_locked(self) -> None:
+        # Незавершённый текст остаётся доступен в raw SessionEvent records, но его
+        # нельзя склеивать через границу lifecycle нового transport connection.
+        self._line_states.clear()
+
+    def _assemble_rx_lines_locked(self, event: SessionEvent) -> list[SessionLine]:
+        stream = event.stream
+        text = event.text
+        if stream is None or text is None:
+            return []
+
+        state = self._line_states.setdefault(stream, _LineState())
+        # Даже если incremental decoder пока не выдал символ (например, первая
+        # половина UTF-8 code point), raw RX event уже относится к будущей строке.
+        if event.data is not None and state.seq_first is None:
+            state.seq_first = event.seq
+            state.seq_last = event.seq
+
+        completed: list[SessionLine] = []
+        for character in text:
+            if state.seq_first is None:
+                state.seq_first = event.seq
+            state.seq_last = event.seq
+
+            if character != "\n":
+                state.parts.append(character)
+                continue
+
+            line_text = "".join(state.parts)
+            if line_text.endswith("\r"):
+                line_text = line_text[:-1]
+            line = SessionLine(
+                stream=stream,
+                seq_first=state.seq_first,
+                seq_last=event.seq,
+                text=line_text,
+                timestamp=event.timestamp,
+            )
+            self._lines.append(line)
+            completed.append(line)
+            state.parts.clear()
+            state.seq_first = None
+            state.seq_last = None
+
+        if state.seq_first is not None and event.data is not None:
+            state.seq_last = event.seq
+        return completed
+
     def _record_event(self, kind: str, **fields) -> SessionEvent:
+        completed_lines: list[SessionLine] = []
         with self._event_condition:
+            if (
+                kind == "state"
+                and fields.get("state") in self._LINE_BOUNDARY_STATES
+            ):
+                self._reset_line_states_locked()
+
             event = SessionEvent(
                 seq=self._next_event_seq,
                 kind=kind,
@@ -138,12 +233,22 @@ class ManagedSession:
             )
             self._next_event_seq += 1
             self._events.append(event)
+            if kind == "rx":
+                # Logical line фиксируется под тем же lock до внешнего wakeup, поэтому
+                # observe не увидит terminating raw event без уже готовой line.
+                completed_lines = self._assemble_rx_lines_locked(event)
+            self._prune_lines_locked()
             self._event_condition.notify_all()
+
+        line_notifier = self.line_notifier
+        if line_notifier is not None:
+            for line in completed_lines:
+                line_notifier(line)
 
         notifier = self.event_notifier
         if notifier is not None:
             # Внешний wakeup вызывается только после освобождения session condition:
-            # manager-level waiter может держать свой condition и читать event ring
+            # manager-level observer может держать свой condition и читать event ring
             # без обратного порядка блокировок и без второго буфера событий.
             notifier()
         return event
@@ -175,8 +280,6 @@ class ManagedSession:
         kinds: Iterable[str] | None = None,
     ) -> list[SessionEvent]:
         """Return retained events after a cursor, optionally waiting for a match."""
-        if after_seq < 0:
-            raise ValueError("after_seq must be non-negative")
         if timeout < 0:
             raise ValueError("timeout must be non-negative")
 
@@ -186,11 +289,7 @@ class ManagedSession:
 
         with self._event_condition:
             while True:
-                if self._events:
-                    oldest_seq = self._events[0].seq
-                    if after_seq < oldest_seq - 1:
-                        raise SessionCursorExpired(after_seq, oldest_seq)
-
+                self._validate_cursor_locked(after_seq)
                 result = [
                     event
                     for event in self._events
@@ -205,6 +304,25 @@ class ManagedSession:
                 if remaining <= 0:
                     return []
                 self._event_condition.wait(timeout=remaining)
+
+    def lines_after(self, after_seq: int = 0) -> list[SessionLine]:
+        """Return completed LF-terminated lines whose terminating event is newer."""
+        with self._event_condition:
+            self._validate_cursor_locked(after_seq)
+            self._prune_lines_locked()
+            return [line for line in self._lines if line.seq_last > after_seq]
+
+    def observation_after(
+        self,
+        after_seq: int,
+    ) -> tuple[list[SessionEvent], list[SessionLine]]:
+        """Return one cursor-consistent raw-event and logical-line snapshot."""
+        with self._event_condition:
+            self._validate_cursor_locked(after_seq)
+            self._prune_lines_locked()
+            events = [event for event in self._events if event.seq > after_seq]
+            lines = [line for line in self._lines if line.seq_last > after_seq]
+            return events, lines
 
     def wait_connected(self, timeout: float | None = None) -> bool:
         return self.connected_event.wait(timeout=timeout)

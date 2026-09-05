@@ -118,19 +118,20 @@ class _QueueInput:
         return line
 
 
-class _BlockingWaitManager:
+class _BlockingObserveManager:
     def __init__(self, **kwargs):
-        self.wait_started = threading.Event()
-        self.wait_release = threading.Event()
+        self.observe_started = threading.Event()
+        self.observe_release = threading.Event()
         self.cancelled = threading.Event()
 
-    def wait_events(self, cursors, *, timeout_ms=0, streams=None, kinds=None):
-        self.wait_started.set()
-        self.wait_release.wait(timeout=2.0)
+    def observe(self, cursors, *, timeout_ms=0):
+        self.observe_started.set()
+        self.observe_release.wait(timeout=2.0)
         if self.cancelled.is_set():
             raise AgentError("agent_stopping", "agent process is stopping")
         return {
             "events": [],
+            "lines": [],
             "cursors": dict(cursors),
             "timed_out": True,
         }
@@ -142,9 +143,9 @@ class _BlockingWaitManager:
             "state": "connected",
         }
 
-    def cancel_waits(self):
+    def cancel_observes(self):
         self.cancelled.set()
-        self.wait_release.set()
+        self.observe_release.set()
 
     def close_all(self):
         pass
@@ -173,7 +174,7 @@ def _start_blocking_agent(monkeypatch, tmp_path):
     holder = {}
 
     def manager_factory(**kwargs):
-        manager = _BlockingWaitManager(**kwargs)
+        manager = _BlockingObserveManager(**kwargs)
         holder["manager"] = manager
         return manager
 
@@ -221,52 +222,7 @@ def test_manager_discovers_opens_multiple_sessions_and_auto_ids():
         manager.close_all()
 
 
-def test_send_line_raw_bytes_and_cursor_rx_events():
-    factory = FakeSelectorFactory()
-    manager = SessionManager(selector_factory=factory, reconnect_delay=0.01)
-    try:
-        manager.discover()
-        opened = manager.open("ble:a", wait_connected_ms=500)
-        session_id = opened["session"]
-        cursor = opened["latest_seq"]
-        transport = factory.transports["ble:a"]
-
-        line = manager.send_line(session_id, "hello")
-        raw = manager.send_bytes(session_id, b"\x14\x31")
-        assert _wait_until(
-            lambda: transport.writes[-2:] == [b"hello\n", b"\x14\x31"]
-        )
-        assert line["tx_id"] != raw["tx_id"]
-
-        transport.reads.put(ReceivedChunk("chat", "привет\n".encode("utf-8")))
-        received = manager.events(
-            session_id,
-            after_seq=cursor,
-            timeout_ms=500,
-            streams=["chat"],
-            kinds=["rx"],
-        )
-        assert received["timed_out"] is False
-        assert len(received["events"]) == 1
-        event = received["events"][0]
-        assert event["stream"] == "chat"
-        assert event["text"] == "привет\n"
-        assert event["data_b64"] == "0L/RgNC40LLQtdGCCg=="
-
-        after = event["seq"]
-        timeout_result = manager.events(
-            session_id,
-            after_seq=after,
-            timeout_ms=30,
-            kinds=["rx"],
-        )
-        assert timeout_result["events"] == []
-        assert timeout_result["timed_out"] is True
-    finally:
-        manager.close_all()
-
-
-def test_wait_events_wakes_for_one_session():
+def test_observe_one_session_returns_raw_event_and_completed_line():
     factory = FakeSelectorFactory()
     manager = SessionManager(selector_factory=factory, reconnect_delay=0.01)
     try:
@@ -274,33 +230,35 @@ def test_wait_events_wakes_for_one_session():
         opened = manager.open("ble:a", auto_id=False, wait_connected_ms=500)
         session_id = opened["session"]
         cursor = opened["latest_seq"]
-        result = {}
+        transport = factory.transports["ble:a"]
+        payload = "привет\n".encode("utf-8")
+        transport.reads.put(ReceivedChunk("chat", payload))
 
-        def wait_for_rx():
-            result.update(
-                manager.wait_events(
-                    {session_id: cursor},
-                    timeout_ms=500,
-                    kinds=["rx"],
-                )
-            )
+        observed = manager.observe({session_id: cursor}, timeout_ms=500)
 
-        waiter = threading.Thread(target=wait_for_rx)
-        waiter.start()
-        factory.transports["ble:a"].reads.put(ReceivedChunk("chat", b"echo\n"))
-        waiter.join(timeout=1.0)
-
-        assert not waiter.is_alive()
-        assert result["timed_out"] is False
-        assert result["events"][0]["session"] == session_id
-        assert result["events"][0]["kind"] == "rx"
-        assert result["events"][0]["text"] == "echo\n"
-        assert result["cursors"][session_id] == result["events"][0]["seq"]
+        assert observed["timed_out"] is False
+        assert len(observed["events"]) == 1
+        event = observed["events"][0]
+        assert event["session"] == session_id
+        assert event["kind"] == "rx"
+        assert event["stream"] == "chat"
+        assert event["text"] == "привет\n"
+        assert event["data_b64"] == "0L/RgNC40LLQtdGCCg=="
+        assert observed["lines"] == [
+            {
+                "session": session_id,
+                "stream": "chat",
+                "seq_first": event["seq"],
+                "seq_last": event["seq"],
+                "text": "привет",
+            }
+        ]
+        assert observed["cursors"] == {session_id: event["seq"]}
     finally:
         manager.close_all()
 
 
-def test_wait_events_wakes_for_either_of_two_sessions():
+def test_observe_two_sessions_wakes_for_either_session():
     factory = FakeSelectorFactory()
     manager = SessionManager(selector_factory=factory, reconnect_delay=0.01)
     try:
@@ -313,57 +271,68 @@ def test_wait_events_wakes_for_either_of_two_sessions():
         }
         result = {}
 
-        def wait_for_rx():
-            result.update(
-                manager.wait_events(cursors, timeout_ms=500, kinds=["rx"])
-            )
+        def observe():
+            result.update(manager.observe(cursors, timeout_ms=500))
 
-        waiter = threading.Thread(target=wait_for_rx)
-        waiter.start()
+        observer = threading.Thread(target=observe)
+        observer.start()
         factory.transports["serial:b"].reads.put(ReceivedChunk("main", b"from-b\n"))
-        waiter.join(timeout=1.0)
+        observer.join(timeout=1.0)
 
-        assert not waiter.is_alive()
+        assert not observer.is_alive()
         assert result["timed_out"] is False
         assert [event["session"] for event in result["events"]] == [second["session"]]
         assert result["events"][0]["text"] == "from-b\n"
+        assert result["lines"] == [
+            {
+                "session": second["session"],
+                "stream": "main",
+                "seq_first": result["events"][0]["seq"],
+                "seq_last": result["events"][0]["seq"],
+                "text": "from-b",
+            }
+        ]
         assert result["cursors"][first["session"]] == cursors[first["session"]]
         assert result["cursors"][second["session"]] > cursors[second["session"]]
     finally:
         manager.close_all()
 
 
-def test_wait_events_filters_but_advances_cursor_through_inspected_events():
+def test_observe_returns_full_line_started_before_input_cursor():
     factory = FakeSelectorFactory()
     manager = SessionManager(selector_factory=factory, reconnect_delay=0.01)
     try:
         manager.discover()
         opened = manager.open("serial:b", auto_id=False, wait_connected_ms=500)
         session_id = opened["session"]
-        cursor = opened["latest_seq"]
-
-        manager.send_line(session_id, "hello")
-        assert _wait_until(lambda: factory.transports["serial:b"].writes == [b"hello\n"])
         session = manager._get_session(session_id)
-        latest = session.latest_event_seq()
-        assert latest > cursor
-
-        result = manager.wait_events(
-            {session_id: cursor},
-            timeout_ms=0,
-            kinds=["rx"],
+        first = session._record_event(
+            "rx", stream="main", data=b"DELIVERY WA", text="DELIVERY WA"
         )
+        first_result = manager.observe({session_id: opened["latest_seq"]})
+        assert first_result["events"][-1]["seq"] == first.seq
+        assert first_result["lines"] == []
 
-        assert result == {
-            "events": [],
-            "cursors": {session_id: latest},
-            "timed_out": False,
-        }
+        second = session._record_event(
+            "rx", stream="main", data=b"IT_ACK\n", text="IT_ACK\n"
+        )
+        result = manager.observe({session_id: first.seq})
+
+        assert [event["seq"] for event in result["events"]] == [second.seq]
+        assert result["lines"] == [
+            {
+                "session": session_id,
+                "stream": "main",
+                "seq_first": first.seq,
+                "seq_last": second.seq,
+                "text": "DELIVERY WAIT_ACK",
+            }
+        ]
     finally:
         manager.close_all()
 
 
-def test_wait_events_timeout_and_session_specific_cursor_errors():
+def test_observe_timeout_and_session_specific_cursor_errors():
     factory = FakeSelectorFactory()
     manager = SessionManager(selector_factory=factory, reconnect_delay=0.01)
     try:
@@ -372,31 +341,46 @@ def test_wait_events_timeout_and_session_specific_cursor_errors():
         session_id = opened["session"]
         cursor = opened["latest_seq"]
 
-        timed_out = manager.wait_events({session_id: cursor}, timeout_ms=30, kinds=["rx"])
-        assert timed_out["events"] == []
-        assert timed_out["timed_out"] is True
-        assert timed_out["cursors"] == {session_id: cursor}
+        immediate = manager.observe({session_id: cursor}, timeout_ms=0)
+        assert immediate == {
+            "events": [],
+            "lines": [],
+            "cursors": {session_id: cursor},
+            "timed_out": False,
+        }
+
+        timed_out = manager.observe({session_id: cursor}, timeout_ms=30)
+        assert timed_out == {
+            "events": [],
+            "lines": [],
+            "cursors": {session_id: cursor},
+            "timed_out": True,
+        }
+
+        with pytest.raises(AgentError) as negative:
+            manager.observe({session_id: cursor}, timeout_ms=-1)
+        assert negative.value.code == "invalid_timeout"
 
         session = manager._get_session(session_id)
         for index in range(4100):
             session._record_event("state", state=f"test-{index}")
 
         with pytest.raises(AgentError) as expired:
-            manager.wait_events({session_id: 0})
+            manager.observe({session_id: 0})
         assert expired.value.code == "cursor_expired"
         assert expired.value.details["session"] == session_id
         assert expired.value.details["requested_seq"] == 0
         assert expired.value.details["oldest_seq"] > 1
 
         with pytest.raises(AgentError) as missing:
-            manager.wait_events({"missing": 0})
+            manager.observe({"missing": 0})
         assert missing.value.code == "unknown_session"
         assert missing.value.details == {"session": "missing"}
     finally:
         manager.close_all()
 
 
-def test_protocol_dispatches_wait_events(tmp_path):
+def test_protocol_dispatches_observe_and_rejects_old_operations(tmp_path):
     factory = FakeSelectorFactory()
     log_path = tmp_path / "agent.log"
     with RunLog(log_path) as run_log:
@@ -415,7 +399,7 @@ def test_protocol_dispatches_wait_events(tmp_path):
                     json.dumps(
                         {
                             "id": 19,
-                            "op": "wait_events",
+                            "op": "observe",
                             "cursors": {session_id: opened["latest_seq"]},
                             "timeout_ms": 0,
                         }
@@ -428,6 +412,7 @@ def test_protocol_dispatches_wait_events(tmp_path):
                 "ok": True,
                 "result": {
                     "events": [],
+                    "lines": [],
                     "cursors": {session_id: opened["latest_seq"]},
                     "timed_out": False,
                 },
@@ -437,7 +422,7 @@ def test_protocol_dispatches_wait_events(tmp_path):
                 protocol.process_line(
                     json.dumps(
                         {
-                            "op": "wait_events",
+                            "op": "observe",
                             "cursors": {session_id: opened["latest_seq"]},
                         }
                     )
@@ -446,19 +431,28 @@ def test_protocol_dispatches_wait_events(tmp_path):
             )
             assert missing_id["ok"] is False
             assert missing_id["error"]["code"] == "invalid_request"
+
+            for old_op in ("events", "wait_events"):
+                old = json.loads(
+                    protocol.process_line(
+                        json.dumps({"id": 30, "op": old_op}) + "\n"
+                    )
+                )
+                assert old["ok"] is False
+                assert old["error"]["code"] == "unknown_operation"
         finally:
             manager.close_all()
 
 
-def test_agent_accepts_command_while_wait_events_is_pending(monkeypatch, tmp_path):
+def test_agent_accepts_command_while_observe_is_pending(monkeypatch, tmp_path):
     manager, input_stream, output_stream, thread = _start_blocking_agent(
         monkeypatch, tmp_path
     )
     try:
         input_stream.put(
-            '{"id":100,"op":"wait_events","cursors":{"s1":0},"timeout_ms":5000}\n'
+            '{"id":100,"op":"observe","cursors":{"s1":0},"timeout_ms":5000}\n'
         )
-        assert manager.wait_started.wait(timeout=1.0)
+        assert manager.observe_started.wait(timeout=1.0)
 
         input_stream.put('{"id":101,"op":"status","session":"s1"}\n')
         assert _wait_until(
@@ -471,28 +465,28 @@ def test_agent_accepts_command_while_wait_events_is_pending(monkeypatch, tmp_pat
         responses = _jsonl_responses(output_stream)
         assert [response["id"] for response in responses] == [101]
 
-        manager.wait_release.set()
+        manager.observe_release.set()
         assert _wait_until(lambda: len(_jsonl_responses(output_stream)) == 2)
         responses = _jsonl_responses(output_stream)
         assert [response["id"] for response in responses] == [101, 100]
         assert responses[0]["result"]["state"] == "connected"
         assert responses[1]["ok"] is True
     finally:
-        manager.wait_release.set()
+        manager.observe_release.set()
         input_stream.close()
         thread.join(timeout=1.0)
         assert not thread.is_alive()
 
 
-def test_agent_rejects_request_id_reused_by_pending_wait(monkeypatch, tmp_path):
+def test_agent_rejects_request_id_reused_by_pending_observe(monkeypatch, tmp_path):
     manager, input_stream, output_stream, thread = _start_blocking_agent(
         monkeypatch, tmp_path
     )
     try:
         input_stream.put(
-            '{"id":7,"op":"wait_events","cursors":{"s1":0},"timeout_ms":5000}\n'
+            '{"id":7,"op":"observe","cursors":{"s1":0},"timeout_ms":5000}\n'
         )
-        assert manager.wait_started.wait(timeout=1.0)
+        assert manager.observe_started.wait(timeout=1.0)
 
         input_stream.put('{"id":7,"op":"status","session":"s1"}\n')
         assert _wait_until(
@@ -508,16 +502,43 @@ def test_agent_rejects_request_id_reused_by_pending_wait(monkeypatch, tmp_path):
         assert busy["error"]["code"] == "request_id_busy"
         assert busy["error"]["details"] == {"id": 7}
 
-        manager.wait_release.set()
+        manager.observe_release.set()
         assert _wait_until(lambda: len(_jsonl_responses(output_stream)) == 2)
         responses = _jsonl_responses(output_stream)
         assert responses[1]["id"] == 7
         assert responses[1]["ok"] is True
     finally:
-        manager.wait_release.set()
+        manager.observe_release.set()
         input_stream.close()
         thread.join(timeout=1.0)
         assert not thread.is_alive()
+
+
+def test_agent_shutdown_cancels_pending_observe(monkeypatch, tmp_path):
+    manager, input_stream, output_stream, thread = _start_blocking_agent(
+        monkeypatch, tmp_path
+    )
+    input_stream.put(
+        '{"id":55,"op":"observe","cursors":{"s1":0},"timeout_ms":60000}\n'
+    )
+    assert manager.observe_started.wait(timeout=1.0)
+
+    input_stream.close()
+    thread.join(timeout=1.0)
+
+    assert not thread.is_alive()
+    assert manager.cancelled.is_set()
+    responses = _jsonl_responses(output_stream)
+    assert responses == [
+        {
+            "id": 55,
+            "ok": False,
+            "error": {
+                "code": "agent_stopping",
+                "message": "agent process is stopping",
+            },
+        }
+    ]
 
 
 def test_protocol_returns_structured_errors_and_logs_json(tmp_path):
@@ -561,7 +582,7 @@ def test_protocol_returns_structured_errors_and_logs_json(tmp_path):
     assert '"op":"discover"' in transcript
 
 
-def test_session_events_are_written_to_same_agent_log(tmp_path):
+def test_session_events_are_written_to_same_agent_log_without_line_tags(tmp_path):
     factory = FakeSelectorFactory()
     log_path = tmp_path / "agent.log"
     with RunLog(log_path) as run_log:
@@ -586,6 +607,8 @@ def test_session_events_are_written_to_same_agent_log(tmp_path):
     assert "[TX]" in transcript
     assert "[RX chat]" in transcript
     assert "reply\\n" in transcript
+    assert "[RX LINE " not in transcript
+    assert "[RX PARTIAL " not in transcript
 
 
 def test_default_log_paths_are_unique_and_live_under_requested_log_dir(tmp_path):

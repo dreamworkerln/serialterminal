@@ -3,10 +3,7 @@ import time
 
 import pytest
 
-from serialterminal.session import (
-    ManagedSession,
-    SessionCursorExpired,
-)
+from serialterminal.session import ManagedSession, SessionCursorExpired
 from serialterminal.transports.base import ReceivedChunk, Transport, TransportError
 
 
@@ -114,7 +111,7 @@ def test_reconnect_safe_tx_retries_current_item_and_preserves_order():
         session.stop()
 
 
-def test_rx_events_preserve_stream_and_incremental_utf8_text():
+def test_rx_events_preserve_stream_and_incremental_utf8_text_and_lines():
     transport = FakeTransport(streams=("chat", "telemetry"))
     session = ManagedSession(transport, reconnect_delay=0.01)
     letter = "ж".encode("utf-8")
@@ -142,8 +139,137 @@ def test_rx_events_preserve_stream_and_incremental_utf8_text():
         assert b"".join(
             event.data for event in events if event.stream == "chat"
         ) == letter + b"\n"
+
+        raw, lines = session.observation_after(cursor)
+        assert raw == events
+        assert [(line.stream, line.text) for line in lines] == [
+            ("telemetry", "T"),
+            ("chat", "ж"),
+        ]
+        chat = lines[1]
+        assert chat.seq_first == events[0].seq
+        assert chat.seq_last == events[2].seq
     finally:
         session.stop()
+
+
+def test_completed_line_can_start_before_observation_cursor():
+    session = ManagedSession(FakeTransport())
+    first = session._record_event(
+        "rx",
+        stream="main",
+        data=b"DELIVERY WA",
+        text="DELIVERY WA",
+    )
+
+    raw, lines = session.observation_after(0)
+    assert raw == [first]
+    assert lines == []
+    cursor = first.seq
+
+    second = session._record_event(
+        "rx",
+        stream="main",
+        data=b"IT_ACK\n",
+        text="IT_ACK\n",
+    )
+    raw, lines = session.observation_after(cursor)
+
+    assert raw == [second]
+    assert len(lines) == 1
+    assert lines[0].seq_first == first.seq
+    assert lines[0].seq_last == second.seq
+    assert lines[0].text == "DELIVERY WAIT_ACK"
+
+
+def test_lines_keep_streams_independent_and_normalize_only_line_view():
+    session = ManagedSession(FakeTransport(streams=("chat", "telemetry")))
+    chat = session._record_event(
+        "rx",
+        stream="chat",
+        data=b"chat\r\n\n",
+        text="chat\r\n\n",
+    )
+    telemetry = session._record_event(
+        "rx",
+        stream="telemetry",
+        data=b"telemetry\n",
+        text="telemetry\n",
+    )
+
+    raw, lines = session.observation_after(0)
+    assert [event.data for event in raw] == [b"chat\r\n\n", b"telemetry\n"]
+    assert [(line.stream, line.text, line.seq_first, line.seq_last) for line in lines] == [
+        ("chat", "chat", chat.seq, chat.seq),
+        ("chat", "", chat.seq, chat.seq),
+        ("telemetry", "telemetry", telemetry.seq, telemetry.seq),
+    ]
+
+
+def test_utf8_split_empty_text_chunk_still_sets_line_seq_first():
+    session = ManagedSession(FakeTransport())
+    first = session._record_event(
+        "rx",
+        stream="main",
+        data=b"\xe2",
+        text="",
+    )
+    second = session._record_event(
+        "rx",
+        stream="main",
+        data=b"\x82\xac\n",
+        text="€\n",
+    )
+
+    _, lines = session.observation_after(0)
+    assert len(lines) == 1
+    assert lines[0].text == "€"
+    assert lines[0].seq_first == first.seq
+    assert lines[0].seq_last == second.seq
+
+
+def test_disconnect_clears_incomplete_line_before_next_connection():
+    transport = FakeTransport()
+    session = ManagedSession(transport)
+    transport.connected = True
+    before = session._record_event(
+        "rx",
+        stream="main",
+        data=b"before",
+        text="before",
+    )
+
+    session._disconnect("test disconnect")
+    assert session._connect()
+    after = session._record_event(
+        "rx",
+        stream="main",
+        data=b"after\n",
+        text="after\n",
+    )
+
+    _, lines = session.observation_after(before.seq)
+    assert [(line.text, line.seq_first, line.seq_last) for line in lines] == [
+        ("after", after.seq, after.seq)
+    ]
+
+
+def test_line_retention_follows_raw_cursor_window():
+    session = ManagedSession(FakeTransport(), event_limit=3)
+    first = session._record_event("rx", stream="main", data=b"a", text="a")
+    second = session._record_event("rx", stream="main", data=b"\n", text="\n")
+    session._record_event("state", state="one")
+    session._record_event("state", state="two")
+
+    raw, lines = session.observation_after(first.seq)
+    assert raw
+    assert [(line.seq_first, line.seq_last, line.text) for line in lines] == [
+        (first.seq, second.seq, "a")
+    ]
+
+    session._record_event("state", state="three")
+    with pytest.raises(SessionCursorExpired):
+        session.observation_after(first.seq)
 
 
 def test_events_after_waits_for_new_matching_event():

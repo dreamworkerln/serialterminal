@@ -1,6 +1,6 @@
 ---
 name: serialterminal-agent
-description: Работа с machine-facing SerialTerminal JSONL agent API для discovery, long-lived sessions, send/receive и multi-session wait.
+description: Работа с machine-facing SerialTerminal JSONL agent API для discovery, long-lived sessions, send и canonical observe.
 ---
 
 # SerialTerminal agent
@@ -27,35 +27,86 @@ python3 serialterminal.py agent
 2. `open` — открыть одну или несколько независимых sessions;
 3. сохранить `latest_seq` каждой открытой session;
 4. использовать `send_line` или `send_bytes` для передачи;
-5. использовать `wait_events` для ожидания событий одной или нескольких sessions;
-6. после каждого ответа `wait_events` продолжать с возвращёнными `cursors`;
-7. `close` завершает конкретную session; завершение agent process закрывает оставшиеся sessions.
+5. использовать `observe` с `cursors` для получения новых raw events и completed logical lines;
+6. после каждого ответа `observe` продолжать с возвращёнными `cursors`;
+7. для protocol/human-readable reasoning использовать `result.lines`, а для forensic transport/session verification — `result.events`;
+8. `close` завершает конкретную session; завершение agent process закрывает оставшиеся sessions.
 
 Предпочитай переиспользовать один agent process и уже открытые sessions вместо повторного запуска discovery/open для каждой команды.
 
-## Ожидание событий
+## Observe и cursors
 
-Для реактивной работы используй `wait_events`, а не частый polling через `events`.
+`observe` — единственный receive/cursor workflow. Формат cursor всегда один:
 
-`wait_events` может оставаться pending, пока тот же agent process принимает обычные команды. Он требует непустой `id`; пока wait с этим ID не завершился, ID нельзя переиспользовать. Ответы могут приходить не в порядке запросов, поэтому всегда коррелируй их по `id`.
+```json
+{"cursors":{"s1":42}}
+```
 
-Для нескольких sessions храни отдельный cursor на каждую session. После ответа используй именно возвращённый объект `cursors`, включая продвижение через события, исключённые фильтрами.
+Даже для одной session не используй отдельную форму `session + after_seq`.
 
-`timeout_ms` — только максимальное время конкретного long-poll. Это не protocol constant и не требуемая задержка: событие возвращается сразу после появления подходящего результата. После timeout или события при необходимости сразу запускай следующий `wait_events`.
+Для нескольких sessions передавай отдельный raw cursor на каждую:
+
+```json
+{"cursors":{"s1":42,"s2":75}}
+```
+
+После ответа используй именно возвращённый объект `cursors`.
+
+`observe` может оставаться pending, пока тот же agent process принимает обычные команды. Он требует непустой `id`; пока observation с этим ID не завершилась, ID нельзя переиспользовать. Ответы могут приходить не в порядке запросов, поэтому всегда коррелируй их по `id`.
+
+`timeout_ms` — только максимальное время конкретного long-poll. Это не protocol constant и не требуемая задержка: `observe` возвращается сразу после появления нового raw event. После timeout или event при необходимости сразу запускай следующий `observe` с возвращёнными cursors.
+
+Если пришли raw events, но нужная firmware line ещё не завершена LF, `result.lines` может быть пустым. Продолжай observation с новым cursor; session layer сам хранит незавершённый line state.
+
+Не склеивай RX chunks вручную, если нужная completed logical line уже есть в `result.lines`. `seq_first` у такой line может быть меньше или равен входному cursor, а `seq_last` — новее него: это нормальный способ вернуть целую строку, которая началась в предыдущем observation.
 
 SerialTerminal не пишет unsolicited event messages в JSONL stdout. Каждая stdout-строка является ответом на конкретный request.
+
+## Два уровня receive evidence
+
+`result.events` — forensic source of truth. Здесь сохраняются raw `SessionEvent` records, transport chunk boundaries, `data_b64`, incremental chunk-level `text`, state/TX metadata и точные raw `seq`.
+
+`result.lines` — convenience/protocol view только для завершённых LF-terminated firmware lines. Line assembly выполняется один раз на session layer независимо для каждого stream и не меняет BLE/Serial transport chunk semantics.
+
+Используй:
+
+```text
+firmware/protocol reasoning   -> result.lines
+transport/chunk forensics     -> result.events
+```
+
+Если нужно доказать exact bytes или границу BLE notification, смотри `result.events`/`data_b64`, а не reconstructed line text.
+
+## Run logs
+
+Каждый запуск agent создаёт связанную пару файлов с одним timestamp/PID prefix:
+
+```text
+logs/serialterminal-...-pPID.log
+logs/serialterminal-...-pPID.console.log
+```
+
+Основной `.log` — forensic/API/transport truth. Companion `.console.log` — presentation/audit view того, что примерно увидел бы человек: `send_line` записывается как `[sN] > ...`, completed human-console RX line — как `[sN] < ...`.
+
+BLE background machine telemetry не попадает в `.console.log` только потому, что SerialTerminal подписан на отдельный telemetry stream. Если та же telemetry semantics реально появилась в human-console `chat` stream, например при `/both`, она естественно попадает в companion log. Этот файл не является delivery evidence и не заменяет `result.events`/`result.lines`.
+
+Startup metadata в forensic log содержит `log_path` и `console_log_path`, чтобы executor мог положить оба файла в один run bundle.
 
 ## Что считать подтверждением
 
 `send_line`/`send_bytes` с `state=queued` подтверждает только принятие данных reconnect-safe TX queue.
 
-Последующее событие `tx_state=written` подтверждает успешный вызов transport `write()`, но не доставку peer-у и не выполнение higher-level protocol operation.
+Последующее raw event `tx_state=written` подтверждает успешный вызов transport `write()`, но не доставку peer-у и не выполнение higher-level protocol operation.
 
-Подтверждение доставки или результата определяй по RX/telemetry/application-level данным конкретного устройства или протокола. Такие firmware-specific правила не относятся к этому generic skill.
+Подтверждение доставки или результата определяй по RX/telemetry/application-level данным конкретного устройства или протокола. Для line-oriented firmware output сначала смотри `observe.result.lines`; при необходимости forensic доказательства проверяй соответствующие `observe.result.events`.
+
+Такие firmware-specific acceptance rules не относятся к этому generic skill.
 
 ## Ошибки и доступ к hardware
 
 Не делай blind retry при structured error. Сначала прочитай `error.code`, `error.message`, при необходимости run log и соответствующий раздел [AGENT_API.md](../../../AGENT_API.md).
+
+`cursor_expired` относится к raw SessionEvent retention window. Отдельного line cursor нет.
 
 Если host Bluetooth/D-Bus или sandbox возвращает permission error, не интерпретируй это как отсутствие устройства. Используй разрешённый окружением способ запуска с необходимыми правами или сообщи о permission boundary.
 

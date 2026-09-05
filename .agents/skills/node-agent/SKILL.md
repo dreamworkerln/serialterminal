@@ -7,7 +7,7 @@ description: Project-specific class-level правила работы и про�
 
 Этот skill содержит только reusable правила работы с **классом LoRa-Chatter node** и project-specific acceptance criteria.
 
-Generic SerialTerminal workflow, JSONL schema, sessions, cursors, `wait_events`, transport errors и queue/write semantics бери из [serialterminal-agent](../serialterminal-agent/SKILL.md) и [AGENT_API.md](../../../AGENT_API.md). Не дублируй их здесь.
+Generic SerialTerminal workflow, JSONL schema, sessions, `observe`, cursors, transport errors и queue/write semantics бери из [serialterminal-agent](../serialterminal-agent/SKILL.md) и [AGENT_API.md](../../../AGENT_API.md). Не дублируй их здесь.
 
 Firmware/protocol authority — актуальные source/docs `dreamworkerln/lora-sack-protocol` соответствующего Chatter checkpoint. Правила reliable USER ниже относятся к текущему ACK-capable Chatter checkpoint; если задача явно проверяет старый best-effort checkpoint, используй его собственный source/docs contract.
 
@@ -67,6 +67,17 @@ Output mode управляет human console:
 SYSTEM остаётся human-console output.
 
 BLE machine telemetry является отдельным background stream и при подписке доступна независимо от `/chat` / `/tele` / `/both`. Не используй переключение human output mode как доказательство наличия или отсутствия RF traffic.
+
+Для hardware evidence используй два уровня SerialTerminal observation:
+
+```text
+firmware logical output           -> observe.result.lines
+transport/chunk forensic evidence -> observe.result.events
+```
+
+Не склеивай raw BLE chunks вручную, если нужная завершённая firmware line уже присутствует в `observe.result.lines`; exact notification/chunk evidence при этом проверяй по `observe.result.events` и `data_b64`.
+
+При `/both` не делай вывод о semantic CHAT только потому, что telemetry line видна в human console. Учитывай текущий firmware output mode и отдельно существующий machine telemetry stream: одна и та же telemetry semantics может быть представлена в human console и background machine stream независимо.
 
 CHAT не является protocol log. Для USER сохраняется compact human design:
 
