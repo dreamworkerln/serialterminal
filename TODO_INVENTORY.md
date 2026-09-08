@@ -134,7 +134,7 @@ Exact checkpoints:
 ```text
 Baseline:
   dev@33f9719f0dd048084a4423de83babd1ab2d76ee7
-  GitHub Actions 33775808586 SUCCESS
+  GitHub Actions 33775808413 SUCCESS
 
 Stage 1 accepted checkpoint:
   dev@faf42369ef58660189608ecc16befdcee59c488a
@@ -173,7 +173,7 @@ Exact checkpoints:
 
 ```text
 Baseline:
-  dev@1e2f7632e7ea6d0cd20283babd1ab2d76ee7
+  dev@1e2f7632e7ea6d0cd20283ef713d811ca32dd178
 
 Human session-core regression checkpoint:
   dev@b9cebddfad326dc902d3adc94b773d39c0407605
