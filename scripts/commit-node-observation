@@ -1,28 +1,20 @@
 #!/usr/bin/env python3
-"""Safely commit and push pending node observations from the sibling clone."""
+"""Safely commit and push pending standalone node observations."""
 
 from __future__ import annotations
 
-import re
+import importlib.util
 import subprocess
 import sys
 from pathlib import Path
 
 MAIN_BRANCH = "dev"
-OBS_BRANCH = "node_observations"
-OBS_REPO_NAME = "serialterminal-observations"
 HELPER_PATH = "scripts/commit-node-observation"
-OBS_PATH_RE = re.compile(
-    r"^observations/OBS_\d{8}T\d{6}Z_[a-z0-9][a-z0-9-]*\.md$"
-)
+COMMON_PATH = "scripts/node-publication-common.py"
 
 
-class ObservationCommitError(RuntimeError):
-    pass
-
-
-def run_git(repo: Path, *args: str, check: bool = True) -> subprocess.CompletedProcess[str]:
-    result = subprocess.run(
+def bootstrap_git(repo: Path, *args: str) -> subprocess.CompletedProcess[str]:
+    return subprocess.run(
         ["git", *args],
         cwd=repo,
         text=True,
@@ -30,101 +22,41 @@ def run_git(repo: Path, *args: str, check: bool = True) -> subprocess.CompletedP
         stderr=subprocess.PIPE,
         check=False,
     )
-    if check and result.returncode != 0:
-        detail = result.stderr.strip() or result.stdout.strip() or "git command failed"
-        raise ObservationCommitError(f"git {' '.join(args)}: {detail}")
-    return result
 
 
-def nul_paths(raw: str) -> list[str]:
-    return [part for part in raw.split("\0") if part]
+def fail(message: str) -> int:
+    print(f"OBSERVATION COMMIT FAILED: {message}", file=sys.stderr)
+    return 1
 
 
-def require_trusted_helper(main_repo: Path) -> None:
-    branch = run_git(main_repo, "branch", "--show-current").stdout.strip()
-    if branch != MAIN_BRANCH:
-        raise ObservationCommitError(
-            f"main SerialTerminal clone must be on {MAIN_BRANCH}, found {branch or '<detached>'}"
+def load_common(main_repo: Path):
+    branch = bootstrap_git(main_repo, "branch", "--show-current")
+    if branch.returncode != 0:
+        raise RuntimeError(branch.stderr.strip() or "cannot determine main branch")
+    if branch.stdout.strip() != MAIN_BRANCH:
+        raise RuntimeError(
+            f"main SerialTerminal clone must be on {MAIN_BRANCH}, "
+            f"found {branch.stdout.strip() or '<detached>'}"
         )
 
-    run_git(main_repo, "ls-files", "--error-unmatch", "--", HELPER_PATH)
-    if (
-        run_git(
-            main_repo,
-            "diff",
-            "--quiet",
-            "HEAD",
-            "--",
-            HELPER_PATH,
-            check=False,
-        ).returncode
-        != 0
-    ):
-        raise ObservationCommitError(
-            "refusing elevated Git workflow because helper differs from current HEAD"
-        )
+    for path in (HELPER_PATH, COMMON_PATH):
+        tracked = bootstrap_git(main_repo, "ls-files", "--error-unmatch", "--", path)
+        if tracked.returncode != 0:
+            raise RuntimeError(f"trusted publication source is not tracked: {path}")
+        clean = bootstrap_git(main_repo, "diff", "--quiet", "HEAD", "--", path)
+        if clean.returncode != 0:
+            raise RuntimeError(
+                f"refusing elevated Git workflow because {path} differs from current HEAD"
+            )
 
-
-def require_clean_tracked_state(repo: Path) -> None:
-    if run_git(repo, "diff", "--quiet", check=False).returncode != 0:
-        raise ObservationCommitError("observation clone has unstaged tracked changes")
-    if run_git(repo, "diff", "--cached", "--quiet", check=False).returncode != 0:
-        raise ObservationCommitError("observation clone already has staged changes")
-
-
-def require_synced_with_origin(repo: Path) -> None:
-    run_git(repo, "fetch", "--quiet", "origin", OBS_BRANCH)
-    counts = run_git(
-        repo,
-        "rev-list",
-        "--left-right",
-        "--count",
-        f"origin/{OBS_BRANCH}...HEAD",
-    ).stdout.strip().split()
-    if counts != ["0", "0"]:
-        behind = counts[0] if counts else "?"
-        ahead = counts[1] if len(counts) > 1 else "?"
-        raise ObservationCommitError(
-            f"observation clone is not synced with origin/{OBS_BRANCH} "
-            f"(behind={behind}, ahead={ahead})"
-        )
-
-
-def pending_observations(repo: Path) -> list[str]:
-    untracked = sorted(
-        nul_paths(
-            run_git(
-                repo,
-                "ls-files",
-                "--others",
-                "--exclude-standard",
-                "-z",
-            ).stdout
-        )
-    )
-    if not untracked:
-        raise ObservationCommitError("no new observation files to commit")
-
-    invalid = [path for path in untracked if not OBS_PATH_RE.fullmatch(path)]
-    if invalid:
-        raise ObservationCommitError(
-            "unexpected untracked files in observation clone: " + ", ".join(invalid)
-        )
-
-    missing = [path for path in untracked if not (repo / path).is_file()]
-    if missing:
-        raise ObservationCommitError(
-            "observation path is not a regular file: " + ", ".join(missing)
-        )
-
-    return untracked
-
-
-def commit_message(paths: list[str]) -> str:
-    if len(paths) == 1:
-        topic = Path(paths[0]).stem.split("_", 2)[2].replace("-", " ")
-        return f"obs: {topic}"
-    return "obs: record node observations"
+    common_file = main_repo / COMMON_PATH
+    spec = importlib.util.spec_from_file_location("serialterminal_node_publication", common_file)
+    if spec is None or spec.loader is None:
+        raise RuntimeError(f"cannot load trusted publication module: {COMMON_PATH}")
+    module = importlib.util.module_from_spec(spec)
+    sys.modules[spec.name] = module
+    spec.loader.exec_module(module)
+    return module
 
 
 def main() -> int:
@@ -133,91 +65,11 @@ def main() -> int:
         return 2
 
     main_repo = Path(__file__).resolve().parent.parent
-    obs_repo = main_repo.parent / OBS_REPO_NAME
-
     try:
-        require_trusted_helper(main_repo)
-
-        if not obs_repo.is_dir() or not (obs_repo / ".git").is_dir():
-            raise ObservationCommitError(
-                f"expected independent sibling clone at ../{OBS_REPO_NAME}"
-            )
-
-        top = Path(run_git(obs_repo, "rev-parse", "--show-toplevel").stdout.strip()).resolve()
-        if top != obs_repo.resolve():
-            raise ObservationCommitError("unexpected observation repository root")
-
-        branch = run_git(obs_repo, "branch", "--show-current").stdout.strip()
-        if branch != OBS_BRANCH:
-            raise ObservationCommitError(
-                f"observation clone must be on {OBS_BRANCH}, found {branch or '<detached>'}"
-            )
-
-        upstream = run_git(
-            obs_repo,
-            "rev-parse",
-            "--abbrev-ref",
-            "--symbolic-full-name",
-            "@{upstream}",
-        ).stdout.strip()
-        if upstream != f"origin/{OBS_BRANCH}":
-            raise ObservationCommitError(
-                f"expected upstream origin/{OBS_BRANCH}, found {upstream}"
-            )
-
-        require_clean_tracked_state(obs_repo)
-        require_synced_with_origin(obs_repo)
-        observations = pending_observations(obs_repo)
-
-        run_git(obs_repo, "add", "--", *observations)
-
-        staged = sorted(
-            nul_paths(run_git(obs_repo, "diff", "--cached", "--name-only", "-z").stdout)
-        )
-        staged_added = sorted(
-            nul_paths(
-                run_git(
-                    obs_repo,
-                    "diff",
-                    "--cached",
-                    "--diff-filter=A",
-                    "--name-only",
-                    "-z",
-                ).stdout
-            )
-        )
-        if staged != observations or staged_added != observations:
-            raise ObservationCommitError(
-                "staged changes are not exactly the pending new observations"
-            )
-
-        run_git(obs_repo, "commit", "-m", commit_message(observations), "--", *observations)
-        commit_sha = run_git(obs_repo, "rev-parse", "HEAD").stdout.strip()
-
-        run_git(obs_repo, "push", "origin", f"HEAD:{OBS_BRANCH}")
-        run_git(obs_repo, "fetch", "--quiet", "origin", OBS_BRANCH)
-
-        if run_git(obs_repo, "status", "--porcelain").stdout.strip():
-            raise ObservationCommitError("observation clone is not clean after push")
-
-        counts = run_git(
-            obs_repo,
-            "rev-list",
-            "--left-right",
-            "--count",
-            f"origin/{OBS_BRANCH}...HEAD",
-        ).stdout.strip().split()
-        if counts != ["0", "0"]:
-            raise ObservationCommitError("push completed but local/remote refs are not synchronized")
-
-        print(f"observations committed and pushed: {len(observations)}")
-        for path in observations:
-            print(f"observation: {path}")
-        print(f"commit: {commit_sha}")
-        return 0
-    except ObservationCommitError as exc:
-        print(f"OBSERVATION COMMIT FAILED: {exc}", file=sys.stderr)
-        return 1
+        common = load_common(main_repo)
+        return common.publish("observation", main_repo, HELPER_PATH)
+    except (RuntimeError, OSError) as exc:
+        return fail(str(exc))
 
 
 if __name__ == "__main__":
