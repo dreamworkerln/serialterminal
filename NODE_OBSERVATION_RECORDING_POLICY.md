@@ -1,28 +1,26 @@
-# Node Observation Recording Policy
+# Node Run / Observation Recording Policy
 
 ## Purpose
 
-Этот документ описывает только работу local executor agent после hardware-задачи: как сохранить короткий factual observation record без анализа и без изменения `.agents/skills/node-agent/SKILL.md`.
+Этот документ задаёт canonical правила local executor agent после hardware-задачи: как сохранить complete run evidence и, когда нужно, короткий factual observation record в отдельной append-only branch.
 
-Local executor — исполнитель и сборщик evidence. Он не выполняет reviewer/promotion работу.
+Local executor — исполнитель и сборщик evidence. Он не выполняет reviewer/promotion работу и не изменяет `.agents/skills/node-agent/SKILL.md` на основании одного run.
 
-Reviewer обрабатывает накопленные observations по [NODE_SKILL_LEARNING_POLICY.md](NODE_SKILL_LEARNING_POLICY.md).
+Reviewer обрабатывает observations по [NODE_SKILL_LEARNING_POLICY.md](NODE_SKILL_LEARNING_POLICY.md).
 
 ---
 
-## 1. Где хранить observations
+## 1. Storage и branch model
 
-Observation records хранятся в отдельной orphan branch того же репозитория:
+Run bundles и observations хранятся в отдельной orphan branch того же репозитория:
 
 ```text
 node_observations
 ```
 
-Эта branch не является development branch SerialTerminal и не должна содержать копию/merge истории `dev`.
+Эта branch не является development branch SerialTerminal и не должна содержать copy/merge истории `dev`.
 
-Для local storage используется **отдельный independent clone**, а не Git worktree.
-
-Рекомендуемый local layout относительно общей parent directory:
+Для local storage используется отдельный independent clone:
 
 ```text
 ./serialterminal/
@@ -32,21 +30,19 @@ node_observations
     independent clone, branch node_observations
 ```
 
-Если команды выполняются из корня main `serialterminal` clone, observation clone находится по относительному пути:
+Если команды выполняются из корня main `serialterminal` clone, storage clone находится по пути:
 
 ```text
 ../serialterminal-observations
 ```
 
-Main `serialterminal` clone используется для запуска SerialTerminal/agent API и чтения policy/skills. `serialterminal-observations` используется только для raw observation evidence и reviewer state.
+Main clone используется для SerialTerminal/agent API, policy, skills и guarded helpers. Sibling clone используется только для run/observation evidence и reviewer state.
 
-Executor не должен переключать main clone с `dev` на `node_observations` и не должен создавать linked Git worktree для observations.
+Executor не переключает main clone с `dev` на `node_observations` и не создаёт linked worktree для evidence storage.
 
 ### Human-only initial setup
 
-Следующие команды — **одноразовая setup-инструкция для человека**, а не задача local executor agent.
-
-Из корня main `serialterminal` clone:
+Одноразовая setup-команда человека:
 
 ```bash
 git clone \
@@ -71,227 +67,126 @@ branch: node_observations
 upstream: origin/node_observations
 ```
 
-`../serialterminal-observations/.git` должен быть обычной directory собственного clone, а не pointer-файлом linked worktree.
+`../serialterminal-observations/.git` должен быть directory собственного clone, а не pointer-файлом linked worktree.
 
-После clone человек должен убедиться, что local Codex/sandbox configuration позволяет executor-у создавать observation files внутри `../serialterminal-observations`. Если используется explicit writable-root configuration, sibling observation clone должен быть разрешён там.
-
-Project trust и sandbox write access — разные настройки. Наличие trusted project само по себе не считается доказательством writable-доступа.
-
-### Human-only permission setup для commit/push helper
-
-В `workspace-write` Git metadata (`.git`) может оставаться read-only даже внутри writable clone. Поэтому executor не должен выполнять raw `git add` / `git commit` / `git push` для observation clone.
-
-Repository содержит guarded helper:
-
-```text
-scripts/commit-node-observation
-```
-
-Этот helper является trusted repository infrastructure. **Local executor agent не должен модифицировать, переписывать, патчить или генерировать замену `scripts/commit-node-observation` во время hardware/observation task**, даже если helper завершился ошибкой. Изменять helper можно только в отдельной явно поставленной code-maintenance задаче с обычным review/validation.
-
-Executor вызывает helper только из корня main `serialterminal` clone и **без аргументов**:
-
-```bash
-python3 -I scripts/commit-node-observation
-```
-
-Этот helper command должен запускаться **отдельным standalone shell execution**. В том же shell command нельзя добавлять никакие команды до или после него через `&&`, `;`, `||`, pipe, subshell, command substitution или другую shell chaining/composition. Нельзя, например, объединять чтение документации и helper:
-
-```bash
-# WRONG
-sed -n '521,560p' AGENT_API.md && python3 -I scripts/commit-node-observation
-```
-
-Любые `sed`/`cat`/`git status`/другие проверки выполняй отдельными command executions. Elevated request для helper должен содержать ровно один executable command:
-
-```bash
-python3 -I scripts/commit-node-observation
-```
-
-Команда намеренно стабильная и не содержит filename/timestamp конкретного observation. Helper ожидаемо пишет в `.git` observation clone, поэтому executor должен **сразу запрашивать elevated execution для этой standalone-команды**, а не сначала запускать её в обычном `workspace-write` sandbox и получать ожидаемый read-only failure.
-
-Человек может один раз разрешить именно этот стабильный command prefix для elevated execution и не подтверждать новый `OBS_*.md` вручную каждый run:
-
-```python
-prefix_rule(
-    pattern = ["python3", "-I", "scripts/commit-node-observation"],
-    decision = "allow",
-    justification = "Allow the guarded SerialTerminal observation helper to commit and push pending raw observations.",
-)
-```
-
-Это permission setup выполняет только человек/operator. Executor **не должен** изменять Codex rules, `config.toml`, project trust, sandbox mode, writable roots или другие permissions.
-
-Helper специально ограничивает elevated Git workflow. Он проверяет, что:
-
-- его собственная working-tree версия совпадает с current `HEAD`;
-- main clone находится на `dev`;
-- sibling является independent clone на `node_observations` с upstream `origin/node_observations`;
-- local/remote refs синхронизированы;
-- tracked state полностью чистый, поэтому старые observations, `REVIEW_STATE.md` и другие tracked files не могут быть изменены или удалены;
-- все untracked files являются корректно названными новыми `observations/OBS_*.md`.
-
-Helper принимает **один или несколько** pending new observation files. Если после предыдущего interrupted/failed run осталось несколько валидных новых `OBS_*.md`, helper добавляет их все и отправляет одним commit/push. Любой посторонний untracked file приводит к отказу вместо broad staging.
-
-После commit/push helper проверяет final clean state и local-vs-origin synchronization.
-
-### Helper result contract
-
-Executor должен учитывать и **exit code**, и textual output helper-а.
-
-Успех:
-
-```text
-exit code: 0
-observations committed and pushed: <N>
-observation: observations/OBS_....md
-observation: observations/OBS_....md
-commit: <SHA>
-```
-
-`exit 0` означает, что helper закоммитил все pending new observations, выполнил normal push и собственную final clean/local-vs-origin synchronization verification.
-
-Обычная guard/Git failure:
-
-```text
-exit code: 1
-OBSERVATION COMMIT FAILED: <concrete reason>
-```
-
-Invalid invocation, например переданы аргументы:
-
-```text
-exit code: 2
-usage: python3 -I scripts/commit-node-observation
-```
-
-При non-zero exit executor не должен ограничиваться сообщением «helper failed». Он должен сохранить и передать пользователю **точный diagnostic text helper-а**, потому что helper сообщает конкретную причину: dirty tracked state, divergence, wrong branch/upstream, unexpected untracked files, invalid storage layout, Git/network failure и т.п.
-
-### Обязательная independent remote verification
-
-После `exit 0` executor **обязан** независимо подтвердить, что commit действительно виден на remote `node_observations`.
-
-Используй **всегда одну и ту же standalone-команду** и никакую другую форму:
-
-```bash
-git -C ../serialterminal-observations ls-remote origin refs/heads/node_observations
-```
-
-Эта команда должна запускаться **отдельным standalone shell execution** после helper и **сразу с elevated execution**. Не запускай её сначала в обычном sandbox: сетевой/DNS-доступ к `origin` может быть ограничен, и sandboxed пробная попытка только создаёт ложный промежуточный failure.
-
-Elevated request должен содержать ровно:
-
-```bash
-git -C ../serialterminal-observations ls-remote origin refs/heads/node_observations
-```
-
-Не добавляй к этой команде `awk`, `grep`, `test`, `&&`, `;`, `||`, pipe, subshell, command substitution или любые команды до/после неё. Нужный SHA считывай из stdout уже после завершения command execution.
-
-Сравни первый SHA из stdout `ls-remote` с `commit: <SHA>`, который вернул helper. Только если они совпадают, рапортуй:
-
-```text
-remote verification: verified
-```
-
-Если SHA не совпали, сообщи mismatch и не заявляй remote success. Если standalone elevated `ls-remote` не выполнился из-за network/DNS/tool restrictions, не отменяй уже успешный helper result, но явно рапортуй:
-
-```text
-remote verification: not verified
-```
-
-Не заменяй эту проверку локальным `origin/node_observations`, потому что требуется независимое чтение actual remote ref.
-
-Если observation clone отсутствует или настроен неправильно, executor не создаёт и не перенастраивает его. Рапортуй:
-
-```text
-OBSERVATION STORAGE NOT CONFIGURED
-```
-
-Если clone найден, но sandbox не позволяет создать observation file, не меняй permissions/configuration. Рапортуй:
-
-```text
-OBSERVATION STORAGE NOT WRITABLE
-```
-
-Если helper отказывается выполнять commit/push из-за dirty state, divergence, wrong branch/upstream или другой guard failure, не обходи guard raw Git-командами и не делай merge/rebase/reset/force push. Не модифицируй helper для обхода отказа. Рапортуй exact helper diagnostic пользователю.
+Человек также настраивает writable access/sandbox для sibling clone. Executor не меняет Codex rules, `config.toml`, trust, sandbox mode или writable roots.
 
 ---
 
-## 2. Layout observation branch
+## 2. Target layout
 
-Ожидаемый layout:
+Published и pending evidence используют только canonical namespaces:
 
 ```text
 node_observations branch
 ├── REVIEW_STATE.md
-└── observations/
-    ├── OBS_YYYYMMDDTHHMMSSZ_<short-topic>.md
+├── observations/
+│   ├── OBS_YYYYMMDDTHHMMSSZ_<short-topic>.md
+│   └── ...
+└── runs/
+    ├── RUN_YYYYMMDDTHHMMSSZ_<short-topic>/
+    │   ├── MANIFEST.json
+    │   ├── REPORT.md
+    │   ├── serialterminal.log
+    │   └── serialterminal.console.log
     └── ...
 ```
 
-`REVIEW_STATE.md` принадлежит reviewer-у. Local executor его не изменяет.
+`REVIEW_STATE.md` принадлежит reviewer-у. Executor его не изменяет.
 
-Observation files после commit являются append-only evidence: executor не редактирует и не удаляет старые records. Если старый record содержит ошибку, создай новый correction observation со ссылкой на старый.
+Committed observations и run bundles являются append-only historical evidence. Если в committed artifact найдена ошибка, публикуй новый correction record/run; не редактируй и не удаляй старый.
 
 ---
 
-## 3. Когда писать record
+## 3. Artifact roles
 
-Для hardware validation/fault/recovery task обычно создавай один observation record на завершённый run, если было фактическое взаимодействие с SerialTerminal/hardware.
+### `serialterminal.log`
 
-Record особенно обязателен при:
+Exact forensic SerialTerminal logfile этого process/run. Это source of truth для JSONL requests/responses, raw RX chunk boundaries, `data_b64`, session seq, TX/state/error records.
+
+Bundle creation только копирует exact logfile. Не нормализуй и не реконструируй его.
+
+### `serialterminal.console.log`
+
+Exact companion human-console logfile того же SerialTerminal run. Это presentation/audit view (`[I]` input, `[O]` completed human-console output), а не delivery proof.
+
+Bundle creation копирует файл, который создал SerialTerminal. Не восстанавливай console log из forensic log.
+
+### `REPORT.md`
+
+Complete curated executor report о выполненной hardware task.
+
+Он отвечает:
+
+- что было поручено;
+- какие exact revisions реально известны;
+- какой hardware/session context фактически использовался;
+- что было выполнено;
+- какой verdict получен по каждому requested scenario;
+- какие anomalies/limitations обнаружены;
+- в каком состоянии оставлены hardware/sessions;
+- где лежат persistent evidence artifacts.
+
+`REPORT.md` не является raw execution log, chain-of-thought или dump всего JSON. Он пишется до final user-facing response; final response кратко суммирует persisted report.
+
+### `OBS_*.md`
+
+Короткий factual reviewer/learning record. Он отвечает: **что этот run установил или наблюдал**, а не «как агент по шагам работал».
+
+Observation не должен дублировать `REPORT.md` и logs.
+
+---
+
+## 4. Run identity и naming
+
+Используй один UTC identity:
+
+```text
+<stamp>_<topic>
+```
+
+где:
+
+```text
+stamp = YYYYMMDDTHHMMSSZ
+topic = lowercase slug: [a-z0-9][a-z0-9-]*
+```
+
+Если observation относится к run, basename должен совпадать:
+
+```text
+observations/OBS_20260908T181500Z_bidirectional-user-smoke.md
+runs/RUN_20260908T181500Z_bidirectional-user-smoke/
+```
+
+Не включай concrete MAC/node IDs в filename. Они разрешены внутри evidence конкретного run.
+
+---
+
+## 5. Когда observation required, optional или отсутствует
+
+Complete hardware run всегда может иметь RUN bundle. Standalone observation — отдельный distilled artifact и нужен не всегда.
+
+Observation особенно обязателен при:
 
 - FAIL/BLOCKED после начала hardware interaction;
 - unexpected behavior;
 - anomaly/regression/bug candidate;
-- расхождении с текущим node skill;
+- расхождении с текущим node skill/expected contract;
 - intentional fault injection;
-- новом hardware scenario, которое может быть полезно reviewer-у.
+- новом или reusable hardware scenario, полезном reviewer-у.
 
-Не создавай record только ради того, чтобы продублировать обычный textual answer без hardware evidence.
+Routine PASS run может не иметь standalone observation, если нет reusable finding сверх полного report/log evidence. Это решение должно быть записано явно в `MANIFEST.json` и кратко в `REPORT.md`; отсутствие OBS нельзя оставлять двусмысленным.
 
----
-
-## 4. Именование
-
-Имя файла:
-
-```text
-observations/OBS_YYYYMMDDTHHMMSSZ_<short-topic>.md
-```
-
-Используй UTC timestamp и короткий slug без конкретных MAC/node IDs, например:
-
-```text
-OBS_20260903T201530Z_bidirectional-user-smoke.md
-OBS_20260903T202410Z_radio-power-absent.md
-OBS_20260903T203005Z_echo-timeout.md
-```
-
-Concrete identifiers можно писать внутри record как evidence конкретного run.
+Standalone observation без RUN остаётся допустимым для маленьких factual observation-only случаев, где полный hardware run bundle не требуется.
 
 ---
 
-## 5. Record должен быть коротким
+## 6. Observation format
 
-Цель — factual evidence, а не рассуждение. Обычно достаточно 10–25 содержательных строк плюс короткие exact excerpts.
+Обычно достаточно 10–25 содержательных строк плюс короткие exact excerpts.
 
-Не выполняй здесь:
-
-- generalization;
-- promotion в skill;
-- дедупликацию knowledge;
-- длинный root-cause analysis;
-- переписывание protocol contract;
-- вывод о постоянных свойствах конкретного экземпляра.
-
-Если увидел странность, зафиксируй expected/observed/evidence и остановись на уровне anomaly/bug candidate.
-
----
-
-## 6. Обязательный формат
-
-Используй этот шаблон:
+Template:
 
 ```markdown
 # Node observation
@@ -303,159 +198,386 @@ SerialTerminal: dreamworkerln/serialterminal@<exact SHA>
 Firmware: dreamworkerln/lora-sack-protocol@<exact SHA or unknown>
 
 ## Setup
-- <actually discovered/used transports and relevant intentional setup/fault state>
+- <relevant actual setup/fault state>
 
 ## Actions
-- <short ordered actions>
+- <minimal stimulus/order needed to understand evidence>
 
 ## Evidence
-- <exact relevant events/output and measured facts>
+- <key exact observed facts>
 
 ## Anomalies / conflicts
 - none
-```
 
-Если anomaly есть:
-
-```markdown
-## Anomalies / conflicts
-- Expected: <what was expected>
-- Observed: <what actually happened>
-- Impact: <current effect>
-```
-
-И завершение:
-
-```markdown
 ## Final state
-- <echo/output/session cleanup; hardware state if intentionally left changed>
-
-## Evidence pointer
-- <SerialTerminal log path / artifact / related report if available>
+- <cleanup/final hardware state>
 ```
+
+Если observation относится к RUN bundle, добавь **ровно одну canonical machine-readable строку**:
+
+```text
+Run bundle: runs/RUN_YYYYMMDDTHHMMSSZ_<short-topic>/
+```
+
+Она должна использовать тот же `<stamp>_<topic>`, что и filename OBS. `commit-node-observation` считает такую запись run-bound и никогда не публикует её отдельно.
 
 Если exact source SHA неизвестен, пиши `unknown`; не угадывай.
 
-Record должен сам содержать ключевое evidence, достаточное для reviewer-а. Local log path является дополнительной ссылкой и не заменяет critical excerpts, потому что reviewer может работать только через Git/GitHub.
+В observation разрешены run-specific IDs, MAC, USB path, session IDs, RSSI/SNR/Q, timing/counters, fault state, payload и exact excerpts. Не превращай эти значения в постоянные свойства класса/экземпляра.
 
 ---
 
-## 7. Что можно писать в observation
+## 7. `MANIFEST.json` schema v1
 
-В raw observation разрешены run-specific данные:
+Canonical schema для `RUN_<stamp>_<topic>/MANIFEST.json`:
 
-- concrete node identity;
-- MAC/BLE address;
-- USB path;
-- session IDs;
-- current discovery result;
-- RSSI/SNR/Q/timing/counters;
-- intentional power/fault state;
-- exact payload;
-- exact relevant event excerpts.
-
-Это historical evidence конкретного run, а не class-level skill.
-
-Не формулируй такие данные как постоянные свойства класса или экземпляра.
-
-Правильно:
-
-```text
-Observed in this run: USB endpoint was absent from discovery.
+```json
+{
+  "schema": 1,
+  "observed_at": "YYYY-MM-DDTHH:MM:SSZ",
+  "topic": "short-topic",
+  "result": "PASS",
+  "serialterminal": {
+    "repo": "dreamworkerln/serialterminal",
+    "sha": "<exact 40-hex SHA>"
+  },
+  "firmware": {
+    "repo": "dreamworkerln/lora-sack-protocol",
+    "sha": "<exact 40-hex SHA or unknown>"
+  },
+  "observation": {
+    "state": "recorded",
+    "path": "../../observations/OBS_YYYYMMDDTHHMMSSZ_short-topic.md"
+  },
+  "files": {
+    "report": "REPORT.md",
+    "console": "serialterminal.console.log",
+    "serialterminal_log": "serialterminal.log"
+  }
+}
 ```
 
-Неправильно:
+Для run без observation:
 
-```text
-This node has no USB transport.
+```json
+"observation": {
+  "state": "not-required",
+  "path": null,
+  "reason": "<short explicit reason>"
+}
 ```
+
+Validation rules:
+
+- `observed_at` и `topic` должны точно соответствовать `RUN_<stamp>_<topic>`;
+- `result` только `PASS | FAIL | BLOCKED | INCONCLUSIVE`;
+- SerialTerminal SHA всегда exact 40-hex;
+- firmware SHA exact 40-hex или literal `unknown`;
+- `files` mapping canonical и не содержит произвольных external paths;
+- `recorded` требует matching OBS с тем же identity и обратной `Run bundle:` ссылкой;
+- `not-required` требует `path: null` и non-empty `reason`.
+
+Helper валидирует форму/связность, но не решает, семантически оправдан ли `not-required`; это ответственность executor/policy.
 
 ---
 
-## 8. Anomaly / bug reporting
+## 8. Executor создаёт artifacts; helpers только публикуют
 
-Если обнаружено потенциально неправильное поведение, record должен содержать минимум:
+Главный invariant:
 
 ```text
-expected
-observed
-evidence
-short reproduction steps
-current impact
+executor
+    -> creates/interprets evidence
+
+publication helper
+    -> validates already prepared artifacts
+    -> stages exact allowlist
+    -> commits
+    -> normal-pushes
+    -> verifies local/remote state
 ```
 
-Не исправляй `node-agent/SKILL.md` под единичный observation и не объявляй новое поведение правильным contract.
+Helpers никогда не должны:
 
-Если anomaly серьёзная, также явно сообщи о ней пользователю в основном task report.
+- придумывать/пересказывать evidence;
+- писать или чинить `REPORT.md`;
+- писать или чинить observation;
+- выбирать, какой local logfile относится к run;
+- copy/move source logs в bundle;
+- угадывать source revisions;
+- достраивать incomplete bundle.
 
----
-
-## 9. Executor workflow: сохранить observation
+### Canonical executor order для RUN
 
 После hardware interaction:
 
-1. Main `serialterminal` clone оставь на `dev`.
-2. Используй уже подготовленный sibling clone `../serialterminal-observations`; не создавай его сам.
-3. Проверь:
+1. восстанови требуемый final hardware state;
+2. закрой sessions и заверши SerialTerminal process, чтобы оба logs были final;
+3. выбери один UTC `<stamp>_<topic>`;
+4. создай `runs/RUN_<stamp>_<topic>/`;
+5. напиши `REPORT.md`;
+6. скопируй exact forensic log как `serialterminal.log`;
+7. скопируй exact companion log как `serialterminal.console.log`;
+8. реши по policy, нужен ли OBS;
+9. если нужен — создай matching `observations/OBS_<stamp>_<topic>.md` с canonical `Run bundle:` pointer;
+10. напиши `MANIFEST.json` последним, когда остальные artifact paths уже определены;
+11. вызови `commit-node-run`.
 
-   ```bash
-   git -C ../serialterminal-observations status --short --branch
-   git -C ../serialterminal-observations branch --show-current
-   ```
-
-4. Если есть tracked modifications/deletions, staged changes или изменение `REVIEW_STATE.md`, не исправляй и не перезаписывай их; сообщи проблему.
-5. Создай новый record текущего run:
-
-   ```text
-   ../serialterminal-observations/observations/OBS_YYYYMMDDTHHMMSSZ_<short-topic>.md
-   ```
-
-   Если в clone уже лежат другие untracked валидные `OBS_*.md` от предыдущего interrupted/failed commit attempt, не удаляй и не переписывай их. Helper отправит весь pending batch одним commit.
-6. Не изменяй `REVIEW_STATE.md`, предыдущие committed observation files **или `scripts/commit-node-observation`**.
-7. Из корня main `serialterminal` clone сразу запроси **elevated execution** guarded helper без аргументов отдельной командой:
-
-   ```bash
-   python3 -I scripts/commit-node-observation
-   ```
-
-   Не запускай helper сначала в обычном sandbox и не chaining-уй к нему другие команды.
-8. Проверь exit code и сохрани stdout/stderr helper-а. При non-zero передай пользователю exact diagnostic; не пытайся исправлять helper в рамках hardware task.
-9. Не выполняй вместо helper-а raw `git add`, `git commit`, `git push`, `git reset`, `git rebase`, merge или force-push в observation clone.
-10. После `exit 0` возьми `commit: <SHA>` из stdout helper-а и **сразу запроси elevated execution** отдельной неизменной команды:
-
-   ```bash
-   git -C ../serialterminal-observations ls-remote origin refs/heads/node_observations
-   ```
-
-   Не запускай её сначала sandboxed и не добавляй к ней другие shell-команды. Сравни первый SHA из stdout с helper commit SHA. Только при совпадении рапортуй `remote verification: verified`; при mismatch или невозможности проверки рапортуй соответствующую проблему.
-
-Commit message helper формирует автоматически:
-
-```text
-one pending observation:
-    obs: <short topic>
-
-multiple pending observations:
-    obs: record node observations
-```
-
-Если helper завершился с `OBSERVATION COMMIT FAILED`, не обходи его guards. Сохрани factual hardware result в основном report и сообщи конкретную storage/Git проблему пользователю.
+Можно сначала собирать bundle во временном local staging dir и только после completeness копировать в sibling clone. Это уменьшает incomplete staging, но не является correctness requirement.
 
 ---
 
-## 10. Что executor возвращает пользователю
+## 9. Guarded publication helpers
 
-В основном отчёте достаточно:
+Repository содержит два стабильных no-argument helpers:
 
-```text
-hardware result: PASS/FAIL/BLOCKED/INCONCLUSIVE
-observation: <filename or not recorded>
-observation commit: <SHA if committed+pushed, otherwise not committed>
-remote verification: <verified / not verified>
-anomaly: <none or one-line summary>
+```bash
+python3 -I scripts/commit-node-observation
+python3 -I scripts/commit-node-run
 ```
 
-Не нужно пересказывать reviewer learning model.
+Оба вызываются только из корня main `serialterminal` clone отдельным standalone shell execution. Не добавляй `&&`, `;`, pipe, subshell, command substitution или другие команды до/после helper-а.
+
+В `workspace-write` `.git` sibling clone может быть read-only, поэтому executor должен сразу запрашивать elevated execution для helper command, а не сначала получать ожидаемый sandbox failure.
+
+Human/operator может один раз разрешить stable prefixes:
+
+```python
+prefix_rule(
+    pattern = ["python3", "-I", "scripts/commit-node-observation"],
+    decision = "allow",
+    justification = "Allow guarded standalone observation publication.",
+)
+
+prefix_rule(
+    pattern = ["python3", "-I", "scripts/commit-node-run"],
+    decision = "allow",
+    justification = "Allow guarded complete node run publication.",
+)
+```
+
+Executor не модифицирует helpers/common publication module во время hardware task. Их изменение — отдельная code-maintenance задача.
+
+### `commit-node-observation`
+
+Публикует только eligible standalone observations.
+
+Run-bound OBS с canonical `Run bundle:` pointer игнорируется и не может быть случайно опубликован отдельно.
+
+### `commit-node-run`
+
+Публикует только complete valid RUN bundles. Если manifest `observation.state=recorded`, matching OBS входит в тот же commit. Если `not-required`, commit содержит RUN без OBS.
+
+Оба helpers используют exact-path staging, normal push only и никогда не force-push.
+
+---
+
+## 10. Pending backlog и coexistence
+
+Sibling clone одновременно является append-only branch checkout и local staging area. Поэтому valid untracked artifacts могут законно пережить executor run.
+
+Нормальные состояния:
+
+- несколько pending standalone observations;
+- несколько complete pending RUN bundles;
+- incomplete RUN от interrupted/crashed executor;
+- run-bound OBS, bundle которого ещё не complete;
+- standalone OBS и RUN artifacts одновременно.
+
+Rules:
+
+```text
+commit-node-observation
+    -> публикует все eligible standalone OBS одним commit
+    -> оставляет RUN/incomplete/run-bound artifacts pending
+
+commit-node-run
+    -> публикует все complete valid RUN bundles одним commit
+    -> включает matching OBS для recorded runs
+    -> оставляет standalone OBS и incomplete RUN pending
+```
+
+Incomplete/invalid-but-canonical run A не должен блокировать публикацию complete unrelated run B. Helper оставляет A pending и не чинит/не удаляет его.
+
+Любой untracked path вне canonical `observations/OBS_...md` или разрешённых четырёх files внутри canonical `runs/RUN_.../` вызывает hard guard failure. Helpers не делают broad staging.
+
+После successful publication storage clone может всё ещё иметь recognized untracked pending artifacts. Допустимый final state:
+
+```text
+no tracked modifications/deletions
+no staged changes
+published paths no longer pending
+local/remote refs synchronized
+remaining untracked paths only recognized pending artifacts
+```
+
+Stale/abandoned incomplete staging удаляется только отдельной явной maintenance-задачей; helper никогда не удаляет evidence-like files сам.
+
+---
+
+## 11. Push failure и retry-safe recovery
+
+Network failure может произойти после local commit, но до push.
+
+При push failure helper обязан:
+
+- сохранить созданный local commit;
+- вывести exact local commit SHA и Git diagnostic;
+- не делать reset/amend/rebase/merge/force-push;
+- оставить новые untracked backlog artifacts нетронутыми.
+
+На следующем invocation helper сначала fetch-ит `origin/node_observations`.
+
+Автоматический retry разрешён только если:
+
+```text
+remote not ahead
+local branch ahead only
+all local-ahead commits are validated append-only publication commits
+all changed paths are canonical observation/run additions
+```
+
+Тогда helper сначала normal-push-ит existing local-ahead commit(s), проверяет synchronization и только затем может опубликовать новый accumulated backlog.
+
+Hard failure без destructive recovery:
+
+- remote ahead при unpublished local work;
+- divergence;
+- local-ahead commit меняет/удаляет historical evidence;
+- local-ahead commit содержит path вне publication namespaces;
+- tracked/staged working-tree residue.
+
+Executor не обходит этот guard raw Git-командами.
+
+---
+
+## 12. Helper result contract
+
+Invalid invocation:
+
+```text
+exit code: 2
+usage: python3 -I scripts/commit-node-observation
+```
+
+или:
+
+```text
+usage: python3 -I scripts/commit-node-run
+```
+
+Guard/Git failure:
+
+```text
+exit code: 1
+OBSERVATION COMMIT FAILED: <concrete reason>
+```
+
+или:
+
+```text
+RUN COMMIT FAILED: <concrete reason>
+```
+
+Standalone observation success:
+
+```text
+exit code: 0
+observations committed and pushed: <N>
+observation: observations/OBS_....md
+commit: <SHA>
+```
+
+Run success:
+
+```text
+exit code: 0
+runs committed and pushed: <N>
+run: runs/RUN_.../
+observation: observations/OBS_....md   # only when recorded
+commit: <SHA>
+```
+
+При non-zero передавай пользователю exact diagnostic text; не ограничивайся «helper failed».
+
+---
+
+## 13. Independent remote verification
+
+После helper `exit 0` executor обязан отдельно подтвердить actual remote ref одной неизменной standalone-командой:
+
+```bash
+git -C ../serialterminal-observations ls-remote origin refs/heads/node_observations
+```
+
+Запрашивай elevated execution сразу. Не chaining-уй `grep`, `awk`, `test`, `&&`, pipe или другие команды.
+
+Сравни первый SHA stdout с `commit: <SHA>` helper-а. Только при совпадении рапортуй:
+
+```text
+remote verification: verified
+```
+
+При mismatch:
+
+```text
+remote verification: mismatch
+```
+
+Если remote read невозможен из-за network/tool restriction, успешный helper result не отменяется, но рапортуй:
+
+```text
+remote verification: not verified
+```
+
+Не заменяй independent check локальным `origin/node_observations`.
+
+---
+
+## 14. Storage/config failures
+
+Если sibling clone отсутствует/неверно настроен:
+
+```text
+OBSERVATION STORAGE NOT CONFIGURED
+```
+
+Если sandbox не позволяет executor создать run/observation files:
+
+```text
+OBSERVATION STORAGE NOT WRITABLE
+```
+
+Не создавай/перенастраивай clone и не меняй permissions в hardware task.
+
+Если helper отказывается из-за dirty/diverged/unsafe state, не делай raw `git add/commit/push`, merge, rebase, reset или force-push для обхода guard.
+
+---
+
+## 15. Final user-facing report
+
+После successful run publication final chat response — только completion/pointer layer; подробный narrative уже в `REPORT.md`.
+
+Пример:
+
+```text
+Result: PASS
+Observation: observations/OBS_...          # when recorded
+Run bundle: runs/RUN_.../
+Commit: <SHA>
+Remote verification: verified
+```
+
+Для observation-only case:
+
+```text
+Result: PASS/FAIL/BLOCKED/INCONCLUSIVE
+Observation: observations/OBS_...
+Commit: <SHA>
+Remote verification: verified
+```
+
+Не перепечатывай full `observe.result.lines`, весь console transcript или forensic JSON, если exact artifacts уже опубликованы в RUN bundle. Ключевые anomalies/limitations всё равно кратко сообщи пользователю.
 
 ---
 
@@ -463,23 +585,25 @@ anomaly: <none or one-line summary>
 
 ```text
 AGENT_API.md
-    generic SerialTerminal API
+    generic SerialTerminal machine API + run-log semantics
 
 .agents/skills/serialterminal-agent/SKILL.md
-    generic tool usage
+    concise generic SerialTerminal operation
 
 .agents/skills/node-agent/SKILL.md
-    current class-level LoRa-Chatter operating guidance
+    concise LoRa-Chatter operation + pointer to this publication policy
 
 NODE_OBSERVATION_RECORDING_POLICY.md
-    executor rule for raw observation recording
+    canonical executor/storage/report/run/observation/publication/recovery policy
 
 scripts/commit-node-observation
-    guarded commit/push path for all pending new observations; executor must not modify it during hardware tasks
+scripts/commit-node-run
+scripts/node-publication-common.py
+    guarded validation/publication implementation; never semantic evidence authoring
 
 NODE_SKILL_LEARNING_POLICY.md
-    reviewer rule for processing observations and updating node skill
+    reviewer processing/promotion rules
 
 node_observations branch
-    run-specific historical evidence and REVIEW_STATE.md
+    run-specific historical evidence + REVIEW_STATE.md
 ```
