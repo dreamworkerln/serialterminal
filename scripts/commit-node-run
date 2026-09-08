@@ -1,0 +1,76 @@
+#!/usr/bin/env python3
+"""Safely commit and push complete pending node run bundles."""
+
+from __future__ import annotations
+
+import importlib.util
+import subprocess
+import sys
+from pathlib import Path
+
+MAIN_BRANCH = "dev"
+HELPER_PATH = "scripts/commit-node-run"
+COMMON_PATH = "scripts/node-publication-common.py"
+
+
+def bootstrap_git(repo: Path, *args: str) -> subprocess.CompletedProcess[str]:
+    return subprocess.run(
+        ["git", *args],
+        cwd=repo,
+        text=True,
+        stdout=subprocess.PIPE,
+        stderr=subprocess.PIPE,
+        check=False,
+    )
+
+
+def fail(message: str) -> int:
+    print(f"RUN COMMIT FAILED: {message}", file=sys.stderr)
+    return 1
+
+
+def load_common(main_repo: Path):
+    branch = bootstrap_git(main_repo, "branch", "--show-current")
+    if branch.returncode != 0:
+        raise RuntimeError(branch.stderr.strip() or "cannot determine main branch")
+    if branch.stdout.strip() != MAIN_BRANCH:
+        raise RuntimeError(
+            f"main SerialTerminal clone must be on {MAIN_BRANCH}, "
+            f"found {branch.stdout.strip() or '<detached>'}"
+        )
+
+    for path in (HELPER_PATH, COMMON_PATH):
+        tracked = bootstrap_git(main_repo, "ls-files", "--error-unmatch", "--", path)
+        if tracked.returncode != 0:
+            raise RuntimeError(f"trusted publication source is not tracked: {path}")
+        clean = bootstrap_git(main_repo, "diff", "--quiet", "HEAD", "--", path)
+        if clean.returncode != 0:
+            raise RuntimeError(
+                f"refusing elevated Git workflow because {path} differs from current HEAD"
+            )
+
+    common_file = main_repo / COMMON_PATH
+    spec = importlib.util.spec_from_file_location("serialterminal_node_publication", common_file)
+    if spec is None or spec.loader is None:
+        raise RuntimeError(f"cannot load trusted publication module: {COMMON_PATH}")
+    module = importlib.util.module_from_spec(spec)
+    sys.modules[spec.name] = module
+    spec.loader.exec_module(module)
+    return module
+
+
+def main() -> int:
+    if len(sys.argv) != 1:
+        print("usage: python3 -I scripts/commit-node-run", file=sys.stderr)
+        return 2
+
+    main_repo = Path(__file__).resolve().parent.parent
+    try:
+        common = load_common(main_repo)
+        return common.publish("run", main_repo, HELPER_PATH)
+    except (RuntimeError, OSError) as exc:
+        return fail(str(exc))
+
+
+if __name__ == "__main__":
+    raise SystemExit(main())
