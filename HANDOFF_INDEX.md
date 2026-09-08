@@ -21,89 +21,91 @@ This file is the mutable stable recovery entry point for the `serialterminal` wo
 ## Current latest snapshot
 
 ```text
-Snapshot: 005
-File: HANDOFF_005.md
-Snapshot verified file checkpoint: dreamworkerln/serialterminal/dev_handoff@d85d962db5ca8157dd3a53f047bf10abece95fe3
-Snapshot blob: 4ed8464e8a479d6f26d9841b41857ae0a0097a5d
+Snapshot: 006
+File: HANDOFF_006.md
+Snapshot verified file checkpoint: dreamworkerln/serialterminal/dev_handoff@1f2ce6be19e27621557de1f14c6d5278ecbb12cc
+Snapshot blob: 10a7c9edb1f765ae6bd886351126b4042c90d531
 ```
 
-`HANDOFF_005.md` was created and read back before this index was advanced. `HANDOFF_001.md` through `HANDOFF_004.md` remain immutable historical snapshots.
+`HANDOFF_006.md` was created and read back before this index was advanced. `HANDOFF_001.md` through `HANDOFF_005.md` remain immutable historical snapshots.
 
-## Current source roles recorded by snapshot 005
+## Current source roles recorded by snapshot 006
 
 ```text
 SerialTerminal source/docs:
-  dreamworkerln/serialterminal/dev@e6e74a45237abaf488cb815c2bba185810215c9d
-  GitHub Actions run 33959407933: SUCCESS
+  dreamworkerln/serialterminal/dev@edeb4061d60a80768f38ddada0c6620798070d87
+  GitHub Actions run 33980831322: SUCCESS
 
 Node observation evidence:
-  dreamworkerln/serialterminal/node_observations@b024b43ef43d1e9fbe0806ef3996f1a4bc549198
+  dreamworkerln/serialterminal/node_observations@301751038847f8416d5f6bab617185eee41f7f0a
 
-Snapshot 005 pre-creation handoff checkpoint:
-  dreamworkerln/serialterminal/dev_handoff@20893774c60171d6d27d61f42031dcd67aae7951
+Snapshot 006 pre-creation handoff checkpoint:
+  dreamworkerln/serialterminal/dev_handoff@56c1533eb1ea2922a15e29e06a9ea0dde663ce6a
 ```
 
-Before new work, refetch moving `dev` and any relevant evidence/protocol refs; the SHAs above are snapshot state.
+Before new work, refetch moving `dev`, `node_observations`, and any relevant firmware/protocol refs; the SHAs above are snapshot state.
 
 ## Current state summary
 
-- `observe` is now the only generic machine receive/cursor operation. Former `events` and `wait_events` operations are removed and return `unknown_operation` through normal dispatch.
-- One raw per-session cursor drives both `observe.result.events` and `observe.result.lines`.
-- Raw events remain forensic source of truth with actual transport/session chunk boundaries and `data_b64`.
-- Completed LF-terminated logical lines are assembled once in `ManagedSession`, independently per stream, with `seq_first`/`seq_last` correlation; callers should not manually rebuild lines already present in `result.lines`.
-- Agent runs now produce paired forensic and human-console logs: `serialterminal-...log` and `serialterminal-...console.log`.
-- The main forensic log no longer emits separate `[RX LINE ...]` / `[RX PARTIAL ...]` records.
-- Companion `.console.log` records `send_line` as `[session] > ...` and completed human-console RX lines as `[session] < ...`; separate BLE machine telemetry is excluded unless equivalent output actually arrives through the human-console stream.
-- `AGENT_API.md`, generic skill, node skill and README are synchronized with the accepted `observe`/line/logging model.
-- `TODO_004 — Automated node run bundles` is present in the active inventory with status `DEFERRED`. Its stated dependency/return condition is now satisfied by `dev@e6e74a4...`, but the TODO has not been resumed by this handoff.
-- `node_observations` remains at `b024b43e...`; `REVIEW_STATE.md` is still unadvanced (`none`).
-- Chatter USER/ECHO guidance still uses `1..200` UTF-8 bytes, while generic SerialTerminal intentionally does not hard-code that firmware/application limit.
-- `queued`, `written`, local TX markers and console-log presentation remain insufficient as peer/application delivery proof.
+- `observe` remains the only generic machine receive/cursor operation; one raw per-session cursor drives both raw `result.events` and completed `result.lines`.
+- Raw events remain forensic transport/session truth; logical lines are assembled once in `ManagedSession`, independently per stream.
+- Agent runs produce paired forensic `.log` and human-console `.console.log` files. The forensic log has raw `[RX <stream>]` records and no separate `[RX LINE ...]` / `[RX PARTIAL ...]` records.
+- Companion `.console.log` now uses explicit host-side markers: `[session] [I] ...` for text accepted through `send_line`, and `[session] [O] ...` for completed human-console RX lines.
+- Firmware-owned leading `>` / `<` remain part of firmware output, e.g. `[s1] [O] > payload`; they are not replaced by the host markers.
+- Separate BLE machine telemetry remains excluded from `.console.log` unless equivalent text actually arrives through the human-console stream.
+- Marker change accepted at `dev@e6c02580...` with Actions `33969326449: SUCCESS`; current `dev@edeb4061...` adds documentation/planning refinement for TODO_004 and also has green CI.
+- `TODO_004 — Automated node run bundles` remains `DEFERRED` and implementation is still not started. Its design now covers append-only RUN bundles, manifest/report/log artifacts, helper coexistence/backlog classification, and retry-safe normal-push recovery.
+- `node_observations` advanced to `30175103...` with three new observation records and `runs/.gitkeep`; this scaffolding does not mean run-bundle automation is implemented.
+- `REVIEW_STATE.md` remains unadvanced (`none`); do not infer review/promotion from new observation files.
+- Chatter USER/ECHO still has a firmware/application 200 UTF-8 byte limit; generic SerialTerminal intentionally does not synchronously enforce it.
+- `queued`, `written`, `[I]`, `[O]`, local TX markers and firmware-owned `>` alone are not peer/application delivery proof.
 
 ## Knowledge base
 
-Primary current SerialTerminal docs/source at the recorded `dev` checkpoint:
+Primary SerialTerminal source/docs at the recorded `dev` checkpoint:
 
 ```text
 AGENTS.md
 AGENT_API.md
+README.md
 .agents/skills/serialterminal-agent/SKILL.md
 .agents/skills/node-agent/SKILL.md
 TODO_INVENTORY.md
 todos/TODO_004_NODE_RUN_BUNDLES.md
+TODO_MANAGEMENT_POLICY.md
 NODE_OBSERVATION_RECORDING_POLICY.md
 NODE_SKILL_LEARNING_POLICY.md
 src/serialterminal/session.py
 src/serialterminal/agent.py
 src/serialterminal/runlog.py
-related tests / CI configuration
+tests/test_agent_console_log.py
 ```
 
-Evidence state at the recorded `node_observations` checkpoint:
+Evidence state at the recorded `node_observations` checkpoint includes:
 
 ```text
 REVIEW_STATE.md
-observations/OBS_20260904T075106Z_max-text-payload.md
-observations/OBS_20260904T085207Z_oversized-payload.md
-observations/OBS_20260904T134143Z_empty-and-size-speed.md
+observations/OBS_20260904T201422Z_ack-normal-presentation.md
+observations/OBS_20260905T130038Z_radio-discovery-empty.md
+observations/OBS_20260905T161000Z_bidirectional-user-smoke.md
+runs/.gitkeep
 ```
 
-Firmware/protocol implementation truth remains the actual relevant `lora-sack-protocol` source/docs revision; snapshot 005 does not invent an exact firmware SHA that was not established.
+Firmware/protocol implementation truth remains the actual relevant `lora-sack-protocol` source/docs revision when a future task involves firmware; snapshot 006 does not invent a flashed firmware SHA that was not established.
 
 ## Immediate continuation
 
-1. Refetch `dev` before source/docs changes.
-2. Use `observe` as the canonical receive workflow; use `result.lines` for completed firmware-line reasoning and `result.events` for raw/chunk/byte forensics.
-3. Preserve the one-assembler boundary: transport keeps raw chunks; session layer assembles logical lines; logging does not create a second assembler.
-4. If resuming TODO_004, first record the exact accepted dependency checkpoint, then implement bundle publication without redesigning `observe` or reconstructing the console log.
+1. Refetch `dev`, `node_observations`, and relevant firmware/protocol refs before changes.
+2. Use `observe.result.lines` for completed firmware-line reasoning and `observe.result.events` for raw/chunk/byte forensics.
+3. Preserve the one-assembler boundary and `[I]` / `[O]` console-log semantics; preserve firmware-owned `>` / `<` inside output text.
+4. If resuming TODO_004, record the exact accepted dependency checkpoint and deliberately change TODO state according to TODO policy before implementation.
 5. For hardware execution, follow `NODE_OBSERVATION_RECORDING_POLICY.md`; for observation review/promotion, separately follow `NODE_SKILL_LEARNING_POLICY.md`.
-6. For firmware-specific delivery/ACK/size behavior, refetch the actual relevant firmware source/docs and require protocol/application evidence rather than generic queue/write success.
+6. Do not claim review of the new observations until `REVIEW_STATE.md` is actually advanced.
 
 ## Standing reminders
 
 - Preserve source/evidence/recovery separation: `dev` / `node_observations` / `dev_handoff`.
-- `TODO_004` remains `DEFERRED`; dependency satisfied does not itself change TODO status.
+- `TODO_004` remains `DEFERRED`; expanded design and `runs/.gitkeep` are not implementation completion.
 - Do not put concrete run IDs, addresses, measurements or topology into the class-level node skill.
-- `.console.log` is presentation/audit convenience; the main `.log` and raw events remain forensic truth.
-- Do not overclaim peer delivery from `queued`, `written`, local TX markers or console-log lines.
+- `.console.log` is presentation/audit convenience; main `.log` and raw events remain forensic truth.
 - Published snapshots stay immutable.
