@@ -6,32 +6,47 @@ This file is the authoritative current-state index for engineering TODOs in this
 
 ### TODO_004 — `todos/TODO_004_NODE_RUN_BUNDLES.md`
 
-Status: DEFERRED
+Status: IMPLEMENTED / physical validation OPEN
 
-Goal: automate complete hardware-run publication so a reviewer can fetch the short observation, full executor report, exact SerialTerminal forensic log, and human-console companion log directly from GitHub without operator copy/paste.
+Goal: automate complete hardware-run publication so a reviewer can fetch the concise observation when present, curated executor report, exact SerialTerminal forensic log, and human-console companion log directly from GitHub without operator copy/paste.
 
 Current state:
 
 ```text
-run-bundle design                         DEFERRED / planning captured
-observation + bundle append-only model    DEFERRED / design captured
-guarded publication helper                DEFERRED / design captured
-manifest/report/log packaging              DEFERRED / design captured
-hardware validation                        NOT STARTED
+accepted observe+console dependency       PASS / dev@e6c025805d39c95b959272cb8a9d8c74ddc6eb23
+run-bundle schema/storage model           IMPLEMENTED
+commit-node-run guarded publisher         IMPLEMENTED
+commit-node-observation coexistence       IMPLEMENTED
+backlog/incomplete staging support        IMPLEMENTED
+push-failure safe local-ahead retry       IMPLEMENTED
+executor policy + node skill              IMPLEMENTED
+automated CI validation                   PASS / GitHub Actions 34262220113
+physical publication validation           OPEN
 ```
 
-Return condition:
+Implementation checkpoint:
 
 ```text
-start after the in-progress SerialTerminal observation refactor has an accepted dev checkpoint providing:
-- one canonical observation API with raw events + completed logical firmware lines
-- one companion human-console SerialTerminal logfile from the same canonical line/session model
+dev@fe6bfaad107bc696a5b33a04aec6488f467fa8af
 ```
 
-Planning baseline:
+Accepted dependency evidence:
 
 ```text
-dev@fe6ad62a1d72daf2b385e6abc980d633a883f270
+SerialTerminal dev@e6c025805d39c95b959272cb8a9d8c74ddc6eb23
+GitHub Actions 33969326449 SUCCESS
+node_observations@d57640bd4c2cc1b871e0c5012aae41ef985dacd9
+OBS_20260905T161000Z_bidirectional-user-smoke.md PASS
+```
+
+Remaining gate:
+
+```text
+real hardware executor run
+    -> create complete RUN bundle
+    -> publish through commit-node-run
+    -> independent ls-remote verification
+    -> reviewer can inspect from GitHub alone
 ```
 
 ## Post-closure validation history
@@ -119,7 +134,7 @@ Exact checkpoints:
 ```text
 Baseline:
   dev@33f9719f0dd048084a4423de83babd1ab2d76ee7
-  GitHub Actions 33775808413 SUCCESS
+  GitHub Actions 33775808586 SUCCESS
 
 Stage 1 accepted checkpoint:
   dev@faf42369ef58660189608ecc16befdcee59c488a
@@ -158,7 +173,7 @@ Exact checkpoints:
 
 ```text
 Baseline:
-  dev@1e2f7632e7ea6d0cd20283ef713d811ca32dd178
+  dev@1e2f7632e7ea6d0cd20283babd1ab2d76ee7
 
 Human session-core regression checkpoint:
   dev@b9cebddfad326dc902d3adc94b773d39c0407605
