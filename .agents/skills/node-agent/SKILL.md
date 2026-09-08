@@ -92,6 +92,46 @@ ACK, `WAIT_ACK`, attempt number, timeout, backoff, retry/defer, queue depth, ACK
 
 После обычного smoke верни output mode в `/chat`, если задача не требует другого финального состояния.
 
+## Run evidence publication
+
+После hardware interaction следуй [NODE_OBSERVATION_RECORDING_POLICY.md](../../../NODE_OBSERVATION_RECORDING_POLICY.md). Этот policy является source of truth для `REPORT.md`, optional `OBS_*.md`, `RUN_.../`, manifest, backlog и Git recovery semantics.
+
+Обычный complete hardware run публикуй как immutable run bundle:
+
+```text
+runs/RUN_<stamp>_<topic>/
+    MANIFEST.json
+    REPORT.md
+    serialterminal.log
+    serialterminal.console.log
+```
+
+Executor сам создаёт содержимое artifacts. Publication helpers ничего не интерпретируют и не чинят:
+
+```text
+complete RUN (+ matching OBS when required)
+    -> python3 -I scripts/commit-node-run
+
+standalone observation-only case
+    -> python3 -I scripts/commit-node-observation
+```
+
+Если observation относится к RUN, используй тот же `<stamp>_<topic>` и canonical строку:
+
+```text
+Run bundle: runs/RUN_<stamp>_<topic>/
+```
+
+Такой OBS является run-bound и не должен публиковаться через `commit-node-observation`.
+
+Observation нужен прежде всего для reusable finding/anomaly/fault/recovery/FAIL/BLOCKED. Routine PASS run может быть RUN-only, но `MANIFEST.json` обязан явно указать `observation.state=not-required` и причину.
+
+Перед bundle creation восстанови safe final state, закрой sessions и заверши SerialTerminal process, чтобы forensic и console logs были final. Скопируй exact `log_path` и `console_log_path` в bundle; не реконструируй их.
+
+`REPORT.md` — полный curated executor report. `OBS_*.md` — короткое factual наблюдение. Final chat response после successful publication должен быть коротким pointer layer: result, observation path если есть, run path, commit SHA и independent remote verification.
+
+Если helper оставил/нашёл incomplete canonical backlog от старого interrupted run, не удаляй его. Complete unrelated run может публиковаться отдельно. При push failure не делай reset/rebase/force-push: следующий helper invocation умеет retry только safe validated local-ahead publication commits; divergence остаётся hard failure.
+
 ## Local command matching и payload
 
 Для распознавания local command firmware нормализует только boundary whitespace/control bytes. Если строка не распознана как local command, в USER/ECHO payload должен идти исходный текст, а не нормализованная копия.
