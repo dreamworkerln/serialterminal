@@ -284,7 +284,8 @@ AGENT_API.md
 - [x] update `NODE_OBSERVATION_RECORDING_POLICY.md` as canonical executor policy;
 - [x] update `.agents/skills/node-agent/SKILL.md` with concise publication/reporting rules;
 - [x] extend CI compile/static-analysis/complexity scope to publication scripts;
-- [x] keep reviewer/learning responsibilities separate from executor capture.
+- [x] keep reviewer/learning responsibilities separate from executor capture;
+- [x] refactor publication core so TODO_004 adds no new Lizard threshold warnings.
 
 ## Automated validation
 
@@ -309,11 +310,17 @@ Deterministic test coverage in `tests/test_node_publication.py` currently proves
 Repository validation checkpoint:
 
 ```text
-Implementation/docs checkpoint:
-  dev@fe6bfaad107bc696a5b33a04aec6488f467fa8af
+Implementation/static-analysis checkpoint:
+  dev@4d50eb1aec50bfb4a71d1d8e63f95fbc7a0f436c
 
 GitHub Actions:
-  34262220113 SUCCESS
+  34263084088 SUCCESS
+
+Compile: PASS
+Ruff: PASS
+Tests: 106 passed
+Lizard: NON-BLOCKING / exit 1 / 13 threshold warnings
+         TODO_004 publication scripts add 0 warnings; warning count restored to pre-TODO baseline
 ```
 
 CI includes compile, Ruff static analysis, non-blocking Lizard complexity and full pytest.
@@ -363,13 +370,13 @@ hardware executor run
 Exact implementation checkpoint:
 
 ```text
-dev@fe6bfaad107bc696a5b33a04aec6488f467fa8af
+dev@4d50eb1aec50bfb4a71d1d8e63f95fbc7a0f436c
 ```
 
 Exact automated validation checkpoint:
 
 ```text
-GitHub Actions 34262220113 SUCCESS
+GitHub Actions 34263084088 SUCCESS
 ```
 
 Exact physical publication validation checkpoint: not started.
