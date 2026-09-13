@@ -1,0 +1,23 @@
+{
+  "schema": 1,
+  "observed_at": "2026-09-13T20:50:14Z",
+  "topic": "ack-normal-delivery",
+  "result": "PASS",
+  "serialterminal": {
+    "repo": "dreamworkerln/serialterminal",
+    "sha": "c9c6d4099c3532494bac8bfecb9fead37e27fe1e"
+  },
+  "firmware": {
+    "repo": "dreamworkerln/lora-sack-protocol",
+    "sha": "unknown"
+  },
+  "observation": {
+    "state": "recorded",
+    "path": "../../observations/OBS_20260913T205014Z_ack-normal-delivery.md"
+  },
+  "files": {
+    "report": "REPORT.md",
+    "console": "serialterminal.console.log",
+    "serialterminal_log": "serialterminal.log"
+  }
+}
