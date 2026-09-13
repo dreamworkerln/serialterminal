@@ -272,7 +272,7 @@ Ctrl+T e       Chatter echo mode toggle
 Ctrl+T ?       local help + Chatter /help
 ```
 
-Важно: текущие Chatter shortcut actions пока представлены внутри profile как `SendLine("\x141")`, `SendLine("\x142")`, `SendLine("\x143")`, `SendLine("\x14e")`. Поэтому human terminal добавляет configured EOL. Firmware-side raw ABI `14 31/32/33/65` без EOL остаётся отдельным интерфейсом; перевод human shortcuts на exact `SendBytes` является отдельным будущим behavior change и в текущем refactor ещё не выполнен.
+Chatter shortcut actions `Ctrl+T 1/2/3/e` (и aliases `c/t/b`) теперь используют `SendBytes` и отправляют exact two-byte raw ABI `14 31/32/33/65` без configured EOL. Human-readable `/chat`, `/tele`, `/both` и `/echo` остаются обычными line-oriented командами и отправляются после Enter с выбранным line ending.
 
 ## Chatter profile
 
