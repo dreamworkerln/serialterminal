@@ -12,21 +12,18 @@ from prompt_toolkit import PromptSession
 from prompt_toolkit.key_binding import KeyBindings
 from prompt_toolkit.patch_stdout import patch_stdout
 
-from .presentation import PresentationTracker, recognized_chatter_command
+from .profiles import ProfileAction, SendBytes, SendLine, TerminalProfile
+from .profiles.chatter import (
+    CHATTER_ECHO_TOGGLE as CHATTER_ECHO_TOGGLE,
+    CHATTER_HELP_COMMAND as CHATTER_HELP_COMMAND,
+    CHATTER_ID_COMMAND as CHATTER_ID_COMMAND,
+    CHATTER_OUTPUT_MODE_COMMANDS as CHATTER_OUTPUT_MODE_COMMANDS,
+    CHATTER_PROFILE,
+    CHATTER_SYSTEM_PREFIX as CHATTER_SYSTEM_PREFIX,
+)
 from .session import ManagedSession, SessionClosedError, encode_line
 from .transports.base import ReceivedChunk, Transport
 from .transports.serial import SerialTransport
-
-
-CHATTER_ECHO_TOGGLE = "\x14e"
-CHATTER_OUTPUT_MODE_COMMANDS = {
-    "output_chat": "\x141",
-    "output_telemetry": "\x142",
-    "output_both": "\x143",
-}
-CHATTER_HELP_COMMAND = "/help"
-CHATTER_ID_COMMAND = "/id"
-CHATTER_SYSTEM_PREFIX = "[SYS]"
 
 
 @dataclass(frozen=True)
@@ -45,7 +42,9 @@ class TerminalSession(ManagedSession):
         line_ending: str = "\n",
         reconnect_delay: float = 0.5,
         device_chooser: Callable[[], Transport | None] | None = None,
+        profile: TerminalProfile = CHATTER_PROFILE,
     ):
+        self.profile = profile
         super().__init__(
             transport,
             line_ending=line_ending,
@@ -57,7 +56,7 @@ class TerminalSession(ManagedSession):
 
         self.output_lock = threading.Lock()
         self.decode_lock = threading.Lock()
-        self._presentation = PresentationTracker()
+        self._presentation = self.profile.make_presentation()
         self._received_decoders = {}
         self._received_line_buffers = {}
         self._hidden_chat_line_buffer = ""
@@ -72,12 +71,23 @@ class TerminalSession(ManagedSession):
         self.log_file.write(f"\n===== serialterminal session {stamp} =====\n")
         self.log_file.flush()
 
+    def _profile_action_bytes(self, action: ProfileAction) -> bytes:
+        if isinstance(action, SendLine):
+            return encode_line(action.text, self.line_ending)
+        if isinstance(action, SendBytes):
+            return action.data
+        raise TypeError(f"unsupported profile action: {type(action)!r}")
+
     def _human_connect_preamble(self, transport: Transport) -> bytes | None:
-        # Сохраняем прежнее human-поведение: автоматический /id выполнялся
+        # Сохраняем прежнее human-поведение: profile preamble выполнялся
         # только для Serial, а BLE/SPP не получали дополнительную команду.
-        if isinstance(transport, SerialTransport):
-            return encode_line(CHATTER_ID_COMMAND, self.line_ending)
-        return None
+        if not isinstance(transport, SerialTransport):
+            return None
+        payload = b"".join(
+            self._profile_action_bytes(action)
+            for action in self.profile.connect_preamble()
+        )
+        return payload or None
 
     def write_output(self, text: str) -> None:
         """Write local terminal/status output to both screen and transcript."""
@@ -133,16 +143,20 @@ class TerminalSession(ManagedSession):
         """Compatibility helper for complete [SYS] lines from a hidden CHAT stream."""
         if stream != "chat" or not text:
             return ""
+        prefix = self.profile.system_line_prefix
+        if prefix is None:
+            return ""
         return "".join(
             line
             for line in text.splitlines(keepends=True)
-            if line.startswith(CHATTER_SYSTEM_PREFIX)
+            if line.startswith(prefix)
         )
 
     def _received_line_visible(self, stream: str, line: str) -> bool:
         if self._received_visible(stream):
             return True
-        return stream == "chat" and line.startswith(CHATTER_SYSTEM_PREFIX)
+        prefix = self.profile.system_line_prefix
+        return bool(prefix and stream == "chat" and line.startswith(prefix))
 
     def write_received(self, chunk: ReceivedChunk) -> None:
         if not chunk.data:
@@ -162,7 +176,7 @@ class TerminalSession(ManagedSession):
                 # Only the human/main firmware stream owns presentation
                 # outcomes. Background BLE 0004 telemetry must not resolve or
                 # reject pending USER/ECHO presentation state.
-                if chunk.stream != "telemetry":
+                if self._presentation is not None and chunk.stream != "telemetry":
                     reveal = self._presentation.consume_firmware_line(line)
                     if reveal is not None:
                         sys.stdout.write(reveal + "\n")
@@ -176,6 +190,8 @@ class TerminalSession(ManagedSession):
             self.log_file.flush()
 
     def _reveal_sent_presentations(self) -> None:
+        if self._presentation is None:
+            return
         reveal = self._presentation.consume_sent_on_disconnect()
         if not reveal:
             return
@@ -201,7 +217,7 @@ class TerminalSession(ManagedSession):
         self.write_output(f"\n[disconnected: {description}]\n\n")
 
     def on_tx_written(self, item) -> None:
-        if isinstance(item, str):
+        if self._presentation is not None and isinstance(item, str):
             self._presentation.mark_sent(str(item))
 
     def on_send_failed(self, error: str | None) -> None:
@@ -215,14 +231,25 @@ class TerminalSession(ManagedSession):
         except SessionClosedError:
             return False
 
+    def _queue_profile_action(self, action: ProfileAction) -> bool:
+        if isinstance(action, SendLine):
+            return self.send_line(action.text)
+        if isinstance(action, SendBytes):
+            try:
+                self.queue_bytes(action.data)
+                return True
+            except SessionClosedError:
+                return False
+        raise TypeError(f"unsupported profile action: {type(action)!r}")
+
     def _submit_interactive_line(self, line: str) -> None:
         """Log one accepted line and choose command or pending-payload presentation."""
         self.log_input(line)
 
-        command = recognized_chatter_command(line)
+        command = self.profile.recognized_command(line)
         if command is not None:
             self._write_console_only(line + "\n")
-            if command == CHATTER_HELP_COMMAND:
+            if command == self.profile.device_help_command:
                 self._show_full_help()
             elif not self.send_line(line):
                 self.write_output("[Chatter command was not queued]\n")
@@ -230,6 +257,12 @@ class TerminalSession(ManagedSession):
 
         if line == "":
             self.send_line(line)
+            return
+
+        if self._presentation is None:
+            if not self.send_line(line):
+                self._write_console_only(line + "\n")
+                self.write_output("[serialterminal] line was not queued\n")
             return
 
         if not self._presentation.submit_payload(line):
@@ -257,13 +290,8 @@ class TerminalSession(ManagedSession):
                     )
                 )
 
-        add_control("1", "output_chat")
-        add_control("2", "output_telemetry")
-        add_control("3", "output_both")
-        add_control("c", "output_chat")
-        add_control("t", "output_telemetry")
-        add_control("b", "output_both")
-        add_control("e", "echo")
+        for sequence, action in self.profile.human_hotkeys():
+            add_control(sequence, action)
         add_control("d", "device")
         add_control("s", "scanner")
         add_control("i", "info")
@@ -320,7 +348,8 @@ class TerminalSession(ManagedSession):
 
     def _show_full_help(self) -> None:
         self._print_hotkey_help()
-        if not self.send_line(CHATTER_HELP_COMMAND):
+        action = self.profile.device_help_action()
+        if action is not None and not self._queue_profile_action(action):
             self.write_output("[Chatter help request was not queued]\n\n")
 
     def _change_device(self) -> None:
@@ -388,17 +417,17 @@ class TerminalSession(ManagedSession):
         if action in {"chat", "telemetry", "both"}:
             self._set_view_mode(action)
             return
-        if action in CHATTER_OUTPUT_MODE_COMMANDS:
-            self.send_line(CHATTER_OUTPUT_MODE_COMMANDS[action])
+
+        profile_action = self.profile.human_actions().get(action)
+        if profile_action is not None:
+            self._queue_profile_action(profile_action)
             return
+
         if action == "device":
             self._change_device()
             return
         if action == "scanner":
             self._run_bluetooth_scanner()
-            return
-        if action == "echo":
-            self.send_line(CHATTER_ECHO_TOGGLE)
             return
         if action == "info":
             self._print_status()
