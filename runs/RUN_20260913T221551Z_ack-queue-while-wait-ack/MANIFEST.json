@@ -1,0 +1,23 @@
+{
+  "schema": 1,
+  "observed_at": "2026-09-13T22:15:51Z",
+  "topic": "ack-queue-while-wait-ack",
+  "result": "FAIL",
+  "serialterminal": {
+    "repo": "dreamworkerln/serialterminal",
+    "sha": "5b98a61716b28d2b127370be94708890e59b5d21"
+  },
+  "firmware": {
+    "repo": "dreamworkerln/lora-sack-protocol",
+    "sha": "unknown"
+  },
+  "observation": {
+    "state": "recorded",
+    "path": "../../observations/OBS_20260913T221551Z_ack-queue-while-wait-ack.md"
+  },
+  "files": {
+    "report": "REPORT.md",
+    "console": "serialterminal.console.log",
+    "serialterminal_log": "serialterminal.log"
+  }
+}
