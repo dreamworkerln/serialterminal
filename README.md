@@ -246,7 +246,7 @@ SHOW_ALL_BLE_DEVICES = False
 
 После выбора reconnect идёт только к той же physical identity. Сменить target можно через `Ctrl+T d`.
 
-Discovery всё ещё сохраняет `LoRa-*` compatibility hint. Его дальнейшая изоляция от generic BLE transport — отдельный compatibility slice и не меняет physical identity/sticky reconnect semantics.
+Discovery сохраняет `LoRa-*` compatibility hint через Chatter compatibility layer; generic `BleNusTransport` больше не владеет project-specific name filtering/discovery. Physical identity и sticky reconnect semantics от этого не меняются. Legacy `normalize_ble_target()` в transport-модуле оставлен только как import compatibility shim для старых callers.
 
 ## Human hotkeys
 
