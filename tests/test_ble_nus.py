@@ -24,9 +24,10 @@ def test_normalize_ble_target():
     assert normalize_ble_target("other") is None
 
 
-def test_ble_log_slug():
-    assert ble_log_slug(PINGER_NAME) == "pinger"
-    assert ble_log_slug("LoRa-Chatter-72E0") == "chatter-72e0"
+def test_ble_log_slug_is_generic():
+    assert ble_log_slug(PINGER_NAME) == "lora-pinger"
+    assert ble_log_slug("LoRa-Chatter-72E0") == "lora-chatter-72e0"
+    assert ble_log_slug("Plain Controller") == "plain-controller"
 
 
 def test_transport_module_owns_only_standard_nus_characteristics():
@@ -108,6 +109,17 @@ def _multi_stream_transport(identity, *, scan_timeout=0.05, connect_timeout=0.05
             ),
         ),
     )
+
+
+def test_name_only_transport_uses_exact_arbitrary_advertised_name(monkeypatch):
+    _install_fake_ble(monkeypatch)
+    transport = ble_nus.BleNusTransport("Plain Controller")
+    try:
+        assert transport.target_name == "Plain Controller"
+        assert transport.target_address is None
+        assert transport.device_key == "ble-name:plain controller"
+    finally:
+        transport.close()
 
 
 def test_discovery_preserves_multiple_same_name(monkeypatch):

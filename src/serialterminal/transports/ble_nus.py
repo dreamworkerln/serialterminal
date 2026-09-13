@@ -64,7 +64,7 @@ def normalize_ble_target(value: str) -> str | None:
 
 
 def ble_log_slug(target_name: str) -> str:
-    slug = target_name.replace("LoRa-", "").lower()
+    slug = target_name.lower()
     return "".join(ch if ch.isalnum() or ch in "-_" else "-" for ch in slug)
 
 
@@ -128,12 +128,13 @@ class BleNusTransport(Transport):
             self.target_name = target.name
             self.target_address: str | None = target.address
         else:
-            # Compatibility path for old callers. CLI selection now always locks
-            # a concrete address before constructing the transport.
-            normalized = normalize_ble_target(target)
-            if normalized is None:
-                raise ValueError(f"unsupported BLE target: {target}")
-            self.target_name = normalized
+            # Name-only compatibility mode теперь трактует строку как точное
+            # advertised name. Project-specific aliases разрешает CLI до
+            # создания generic transport.
+            target_name = target.strip()
+            if not target_name:
+                raise ValueError("BLE target name must not be empty")
+            self.target_name = target_name
             self.target_address = None
 
         configured_streams = (
