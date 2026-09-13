@@ -52,6 +52,31 @@ def test_ble_scanner_uses_one_asyncio_loop(monkeypatch):
     assert loops[0] is loops[1]
 
 
+def test_scanner_all_separates_ble_and_spp_phases(monkeypatch, capsys):
+    calls = []
+
+    def fake_scan_ble(**kwargs):
+        calls.append("ble")
+        print("BLE phase done")
+        return bluetooth_scanner.ScannerSummary(ble_total=1, ble_nus=1)
+
+    def fake_scan_spp(**kwargs):
+        calls.append("spp")
+        print("SPP phase start")
+        return bluetooth_scanner.ScannerSummary(spp_total=1, spp_confirmed=1)
+
+    monkeypatch.setattr(bluetooth_scanner, "scan_ble", fake_scan_ble)
+    monkeypatch.setattr(bluetooth_scanner, "scan_spp", fake_scan_spp)
+
+    result = bluetooth_scanner.run_scanner("all")
+    output = capsys.readouterr().out
+
+    assert calls == ["ble", "spp"]
+    assert "BLE phase done\n\nSPP phase start\n" in output
+    assert result.ble_nus == 1
+    assert result.spp_confirmed == 1
+
+
 def test_scanner_numeric_keybindings_exit_immediately():
     bindings = bluetooth_scanner._scan_key_bindings()
 
@@ -92,3 +117,4 @@ def test_scanner_menu_flushes_before_prompt(monkeypatch):
 
     assert bluetooth_scanner.choose_scan_mode() == "all"
     assert fake_stdout.flush_count >= 1
+    assert "Selected: 3\n" in "".join(fake_stdout.text)

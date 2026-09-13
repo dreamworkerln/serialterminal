@@ -181,6 +181,8 @@ def run_scanner(
         )
 
     if mode in {"spp", "all"}:
+        if mode == "all":
+            print()
         spp = scan_spp(
             scan_seconds=scan_seconds,
             probe_timeout=probe_timeout,
@@ -255,6 +257,7 @@ def choose_scan_mode(*, allow_cancel: bool = True) -> str | None:
         if allow_cancel and answer == "":
             return None
         if answer in mapping:
+            print(f"Selected: {answer}")
             return mapping[answer]
         print("Please enter 1, 2 or 3.")
 
