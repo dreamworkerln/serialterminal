@@ -1,0 +1,23 @@
+{
+  "schema": 1,
+  "observed_at": "2026-09-13T22:10:23Z",
+  "topic": "ack-peer-return-recovery-take2",
+  "result": "PASS",
+  "serialterminal": {
+    "repo": "dreamworkerln/serialterminal",
+    "sha": "5b98a61716b28d2b127370be94708890e59b5d21"
+  },
+  "firmware": {
+    "repo": "dreamworkerln/lora-sack-protocol",
+    "sha": "unknown"
+  },
+  "observation": {
+    "state": "recorded",
+    "path": "../../observations/OBS_20260913T221023Z_ack-peer-return-recovery-take2.md"
+  },
+  "files": {
+    "report": "REPORT.md",
+    "console": "serialterminal.console.log",
+    "serialterminal_log": "serialterminal.log"
+  }
+}
