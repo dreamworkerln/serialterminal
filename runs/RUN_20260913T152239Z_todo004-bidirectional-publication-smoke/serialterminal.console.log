@@ -1,0 +1,98 @@
+2026-09-13T18:17:16.382+03:00 [s1] [O] [SYS] CHATTER NODE LoRa-Chatter-1B44
+2026-09-13T18:17:22.555+03:00 [s2] [O] [SYS] CHATTER NODE LoRa-Chatter-72E0
+2026-09-13T18:17:25.339+03:00 [s1] [O] [SYS] CHATTER NODE LoRa-Chatter-1B44
+2026-09-13T18:17:29.347+03:00 [s2] [O] [SYS] CHATTER NODE LoRa-Chatter-72E0
+2026-09-13T18:17:41.265+03:00 [s1] [O] [SYS] CHATTER NODE LoRa-Chatter-1B44
+2026-09-13T18:17:43.472+03:00 [s1] [I] /id
+2026-09-13T18:17:43.473+03:00 [s2] [I] /id
+2026-09-13T18:17:43.696+03:00 [s1] [O] [SYS] CHATTER NODE LoRa-Chatter-1B44
+2026-09-13T18:17:43.746+03:00 [s2] [O] [SYS] CHATTER NODE LoRa-Chatter-72E0
+2026-09-13T18:17:58.628+03:00 [s1] [I] /both
+2026-09-13T18:17:58.629+03:00 [s2] [I] /both
+2026-09-13T18:17:58.775+03:00 [s2] [O] 
+2026-09-13T18:17:58.777+03:00 [s2] [O] OUTPUT MODE source=2 state=BOTH
+2026-09-13T18:17:58.778+03:00 [s2] [O] [SYS] OUTPUT BOTH
+2026-09-13T18:18:01.335+03:00 [s1] [O] [SYS] CHATTER NODE LoRa-Chatter-1B44
+2026-09-13T18:18:01.336+03:00 [s1] [O] 
+2026-09-13T18:18:01.337+03:00 [s1] [O] OUTPUT MODE source=2 state=BOTH
+2026-09-13T18:18:01.339+03:00 [s1] [O] [SYS] OUTPUT BOTH
+2026-09-13T18:18:03.590+03:00 [s2] [O] 
+2026-09-13T18:18:03.642+03:00 [s2] [O] SESSION t=480s TX ok=0 user=0 echo_req=0 echo_rep=0 hb=0(idle=0) err=0 started=0 RX ok=0 user=0 echo_req=0 echo_rep=0 hb=0 crc=0 hdr=0 bad=1 readerr=0 reports=0 Q=0% drops=0 fatal=0
+2026-09-13T18:18:03.686+03:00 [s2] [O] SESSION COURTESY window=9123ms peer_release=0 expired=0 yielding=0
+2026-09-13T18:18:03.770+03:00 [s2] [O] SESSION DIO0_TX affected=0/0 episodes=0 avg_all=0.00 avg_affected=0.00 high_polls=0
+2026-09-13T18:18:03.773+03:00 [s2] [O] s=477587 rxdone=1 interval=1000us DIO0_RX false_high_ep=0 high_polls=0 rxdone_low=0 isr=disabled
+2026-09-13T18:18:13.936+03:00 [s1] [O] [SYS] CHATTER NODE LoRa-Chatter-1B44
+2026-09-13T18:18:23.612+03:00 [s1] [O] [SYS] CHATTER NODE LoRa-Chatter-1B44
+2026-09-13T18:19:03.576+03:00 [s2] [O] 
+2026-09-13T18:19:03.668+03:00 [s2] [O] SESSION t=540s TX ok=0 user=0 echo_req=0 echo_rep=0 hb=0(idle=0) err=0 started=0 RX ok=0 user=0 echo_req=0 echo_rep=0 hb=0 crc=0 hdr=0 bad=1 readerr=0 reports=0 Q=0% drops=0 fatal=0
+2026-09-13T18:19:03.678+03:00 [s2] [O] SESSION COURTESY window=9123ms peer_release=0 expired=0 yielding=0
+2026-09-13T18:19:03.760+03:00 [s2] [O] SESSION DIO0_TX affected=0/0 episodes=0 avg_all=0.00 avg_affected=0.00 high_polls=0
+2026-09-13T18:19:03.762+03:00 [s2] [O] w=0 isr=disabled
+2026-09-13T18:19:04.281+03:00 [s1] [I] T004_AB_20260913T1830Z
+2026-09-13T18:19:04.380+03:00 [s1] [O] DELIVERY QUEUED source=2 bytes=22 waiting=1/8 in_flight=0
+2026-09-13T18:19:06.186+03:00 [s2] [O] 
+2026-09-13T18:19:06.189+03:00 [s2] [O] RX USER session=EC14 seq=0 frame=34B user=22B RSSI=-30.0 dBm SNR=+9.0 dB Q=100% disposition=0
+2026-09-13T18:19:06.230+03:00 [s2] [O] < [-30/+9 Q100] T004_AB_20260913T1830Z
+2026-09-13T18:19:06.360+03:00 [s1] [O] 
+2026-09-13T18:19:06.405+03:00 [s1] [O] TX USER seq=0 frame=34B user=22B attempt=1/5 OK time=1812 ms
+2026-09-13T18:19:06.452+03:00 [s1] [O] > T004_AB_20260913T1830Z
+2026-09-13T18:19:06.541+03:00 [s1] [O] DELIVERY WAIT_ACK user=EC14/0 attempt=1/5 timeout=1856ms queue=0
+2026-09-13T18:19:07.575+03:00 [s1] [O] PEER_REPORT our_seq=0 RSSI=-30 dBm SNR=+9 dB Q=100%
+2026-09-13T18:19:07.578+03:00 [s1] [O] 
+2026-09-13T18:19:07.624+03:00 [s1] [O] RX ACK session=85BC seq=0 ack_to=EC14/0 frame=14B RSSI=-25.0 dBm SNR=+9.5 dB Q=100%
+2026-09-13T18:19:07.668+03:00 [s1] [O] DELIVERY ACK user=EC14/0 attempts=1/5 elapsed=1457ms queue=0
+2026-09-13T18:19:07.761+03:00 [s2] [O] 
+2026-09-13T18:19:07.762+03:00 [s2] [O] TX ACK seq=0 ack_to=EC14/0 frame=14B OK time=1157 ms guard=500ms
+2026-09-13T18:19:18.240+03:00 [s1] [O] 
+2026-09-13T18:19:18.378+03:00 [s1] [O] SESSION t=540s TX ok=1 user=1 echo_req=0 echo_rep=0 hb=0(idle=0) err=0 started=1 RX ok=1 user=0 echo_req=0 echo_rep=0 hb=0 crc=0 hdr=0 bad=0 readerr=0 reports=1 Q=100% drops=0 fatal=0
+2026-09-13T18:19:18.386+03:00 [s1] [O] SESSION COURTESY window=9123ms peer_release=0 expired=0 yielding=0
+2026-09-13T18:19:18.423+03:00 [s1] [O] SESSION DIO0_TX affected=0/1 episodes=0 avg_all=0.00 avg_affected=0.00 high_polls=0
+2026-09-13T18:19:44.026+03:00 [s1] [O] [SYS] CHATTER NODE LoRa-Chatter-1B44
+2026-09-13T18:19:50.956+03:00 [s1] [O] [SYS] CHATTER NODE LoRa-Chatter-1B44
+2026-09-13T18:19:53.751+03:00 [s2] [I] T004_BA_20260913T1835Z
+2026-09-13T18:19:53.976+03:00 [s2] [O] DELIVERY QUEUED source=2 bytes=22 waiting=1/8 in_flight=0
+2026-09-13T18:19:55.731+03:00 [s2] [O] 
+2026-09-13T18:19:55.732+03:00 [s2] [O] TX USER seq=1 frame=34B user=22B attempt=1/5 OK time=1812 ms
+2026-09-13T18:19:55.736+03:00 [s2] [O] > T004_BA_20260913T1835Z
+2026-09-13T18:19:55.740+03:00 [s2] [O] DELIVERY WAIT_ACK user=85BC/1 attempt=1/5 timeout=1856ms queue=0
+2026-09-13T18:19:57.706+03:00 [s1] [O] [SYS] CHATTER NODE LoRa-Chatter-1B44
+2026-09-13T18:20:01.986+03:00 [s2] [O] [SYS] CHATTER NODE LoRa-Chatter-72E0
+2026-09-13T18:20:03.607+03:00 [s2] [O] 
+2026-09-13T18:20:03.616+03:00 [s2] [O] SESSION t=600s TX ok=2 user=1 echo_req=0 echo_rep=0 hb=0(idle=0) err=0 started=2 RX ok=2 user=1 echo_req=0 echo_rep=0 hb=0 crc=0 hdr=0 bad=1 readerr=0 reports=1 Q=100% drops=0 fatal=0
+2026-09-13T18:20:03.623+03:00 [s2] [O] SESSION COURTESY window=9123ms peer_release=0 expired=0 yielding=0
+2026-09-13T18:20:03.651+03:00 [s2] [O] SESSION DIO0_TX affected=0/2 episodes=0 avg_all=0.00 avg_affected=0.00 high_polls=0
+2026-09-13T18:20:03.655+03:00 [s2] [O] SESSION RX_POLL polls=593601 rxdone=3 interval=1000us DIO0_RX false_high_ep=0 high_polls=0 rxdone_low=0 isr=disabled
+2026-09-13T18:20:08.415+03:00 [s1] [O] [SYS] CHATTER NODE LoRa-Chatter-1B44
+2026-09-13T18:20:17.820+03:00 [s1] [O] [SYS] CHATTER NODE LoRa-Chatter-1B44
+2026-09-13T18:20:18.045+03:00 [s1] [O] 
+2026-09-13T18:20:18.051+03:00 [s1] [O] SESSION t=600s TX ok=2 user=1 echo_req=0 echo_rep=0 hb=0(idle=0) err=0 started=2 RX ok=2 user=1 echo_req=0 echo_rep=0 hb=0 crc=0 hdr=0 bad=0 readerr=0 reports=2 Q=100% drops=0 fatal=0
+2026-09-13T18:20:18.094+03:00 [s1] [O] SESSION COURTESY window=9123ms peer_release=0 expired=0 yielding=0
+2026-09-13T18:20:18.135+03:00 [s1] [O] SESSION DIO0_TX affected=0/2 episodes=0 avg_all=0.00 avg_affected=0.00 high_polls=0
+2026-09-13T18:20:18.185+03:00 [s1] [O] SESSION RX_POLL polls=592946 rxdone=2 interval=1000us DIO0_RX false_high_ep=0 high_polls=0 rxdone_low=0 isr=disabled
+2026-09-13T18:20:28.716+03:00 [s2] [O] [SYS] CHATTER NODE LoRa-Chatter-72E0
+2026-09-13T18:20:39.422+03:00 [s1] [O] [SYS] CHATTER NODE LoRa-Chatter-1B44
+2026-09-13T18:20:40.640+03:00 [s2] [O] [SYS] CHATTER NODE LoRa-Chatter-72E0
+2026-09-13T18:20:52.157+03:00 [s1] [O] [SYS] CHATTER NODE LoRa-Chatter-1B44
+2026-09-13T18:21:01.786+03:00 [s1] [O] [SYS] CHATTER NODE LoRa-Chatter-1B44
+2026-09-13T18:21:03.547+03:00 [s2] [O] 
+2026-09-13T18:21:03.551+03:00 [s2] [O] SESSION t=660s TX ok=2 user=1 echo_req=0 echo_rep=0 hb=0(idle=0) err=0 started=2 RX ok=2 user=1 echo_req=0 echo_rep=0 hb=0 crc=0 hdr=0 bad=1 readerr=0 reports=1 Q=100% drops=0 fatal=0
+2026-09-13T18:21:03.597+03:00 [s2] [O] SESSION COURTESY window=9123ms peer_release=0 expired=0 yielding=0
+2026-09-13T18:21:03.601+03:00 [s2] [O] SESSION DIO0_TX affected=0/2 episodes=0 avg_all=0.00 avg_affected=0.00 high_polls=0
+2026-09-13T18:21:03.610+03:00 [s2] [O] SESSION RX_POLL polls=653160 rxdone=3 interval=1000us DIO0_RX false_high_ep=0 high_polls=0 rxdone_low=0 isr=disabled
+2026-09-13T18:21:18.038+03:00 [s1] [O] 
+2026-09-13T18:21:18.038+03:00 [s1] [O] SESSION t=660s TX ok=2 user=1 echo_req=0 echo_rep=0 hb=0(idle=0) err=0 started=2 RX ok=2 user=1 echo_req=0 echo_rep=0 hb=0 crc=0 hdr=0 bad=0 readerr=0 reports=2 Q=100% drops=0 fatal=0
+2026-09-13T18:21:18.077+03:00 [s1] [O] SESSION COURTESY window=9123ms peer_release=0 expired=0 yielding=0
+2026-09-13T18:21:18.128+03:00 [s1] [O] SESSION DIO0_TX affected=0/2 episodes=0 avg_all=0.00 avg_affected=0.00 high_polls=0
+2026-09-13T18:21:18.134+03:00 [s1] [O] SESSION RX_POLL polls=652496 rxdone=2 interval=1000us DIO0_RX false_high_ep=0 high_polls=0 rxdone_low=0 isr=disabled
+2026-09-13T18:21:18.166+03:00 [s1] [O] [SYS] CHATTER NODE LoRa-Chatter-1B44
+2026-09-13T18:21:30.271+03:00 [s1] [O] [SYS] CHATTER NODE LoRa-Chatter-1B44
+2026-09-13T18:21:38.507+03:00 [s1] [O] [SYS] CHATTER NODE LoRa-Chatter-1B44
+2026-09-13T18:21:46.246+03:00 [s1] [O] [SYS] CHATTER NODE LoRa-Chatter-1B44
+2026-09-13T18:21:53.007+03:00 [s1] [I] /chat
+2026-09-13T18:21:53.007+03:00 [s2] [I] /chat
+2026-09-13T18:21:53.138+03:00 [s2] [O] [SYS] OUTPUT CHAT
+2026-09-13T18:21:56.012+03:00 [s1] [O] [SYS] CHATTER NODE LoRa-Chatter-1B44
+2026-09-13T18:21:56.015+03:00 [s1] [O] [SYS] OUTPUT CHAT
+2026-09-13T18:22:04.337+03:00 [s1] [O] [SYS] CHATTER NODE LoRa-Chatter-1B44
+2026-09-13T18:22:15.181+03:00 [s1] [O] [SYS] CHATTER NODE LoRa-Chatter-1B44
+2026-09-13T18:22:20.228+03:00 [s2] [O] [SYS] CHATTER NODE LoRa-Chatter-72E0
