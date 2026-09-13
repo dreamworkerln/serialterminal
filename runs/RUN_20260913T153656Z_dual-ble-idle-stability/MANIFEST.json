@@ -1,0 +1,23 @@
+{
+  "schema": 1,
+  "observed_at": "2026-09-13T15:36:56Z",
+  "topic": "dual-ble-idle-stability",
+  "result": "FAIL",
+  "serialterminal": {
+    "repo": "dreamworkerln/serialterminal",
+    "sha": "c9c6d4099c3532494bac8bfecb9fead37e27fe1e"
+  },
+  "firmware": {
+    "repo": "dreamworkerln/lora-sack-protocol",
+    "sha": "unknown"
+  },
+  "observation": {
+    "state": "recorded",
+    "path": "../../observations/OBS_20260913T153656Z_dual-ble-idle-stability.md"
+  },
+  "files": {
+    "report": "REPORT.md",
+    "console": "serialterminal.console.log",
+    "serialterminal_log": "serialterminal.log"
+  }
+}
