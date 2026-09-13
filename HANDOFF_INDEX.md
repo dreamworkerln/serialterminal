@@ -9,7 +9,7 @@ This file is the mutable stable recovery entry point for the `serialterminal` wo
 3. `HANDOFF_INDEX.md`.
 4. Latest verified snapshot named below.
 5. Project knowledge/docs/evidence referenced by that snapshot.
-6. Refetch the actual moving source/evidence refs before current work.
+6. Refetch the actual moving source/evidence/firmware refs before current work.
 
 ## Snapshot rules
 
@@ -21,91 +21,106 @@ This file is the mutable stable recovery entry point for the `serialterminal` wo
 ## Current latest snapshot
 
 ```text
-Snapshot: 006
-File: HANDOFF_006.md
-Snapshot verified file checkpoint: dreamworkerln/serialterminal/dev_handoff@1f2ce6be19e27621557de1f14c6d5278ecbb12cc
-Snapshot blob: 10a7c9edb1f765ae6bd886351126b4042c90d531
+Snapshot: 007
+File: HANDOFF_007.md
+Snapshot verified file checkpoint: dreamworkerln/serialterminal/dev_handoff@faf4c2dcfabfc1b47ecf3926924a89bd3e38e49b
+Snapshot blob: 594f42f22a403249977a8b01fad5c224c9f9bada
 ```
 
-`HANDOFF_006.md` was created and read back before this index was advanced. `HANDOFF_001.md` through `HANDOFF_005.md` remain immutable historical snapshots.
+`HANDOFF_007.md` was created and read back before this index was advanced. `HANDOFF_001.md` through `HANDOFF_006.md` remain immutable historical snapshots.
 
-## Current source roles recorded by snapshot 006
+## Current source roles recorded by snapshot 007
 
 ```text
 SerialTerminal source/docs:
-  dreamworkerln/serialterminal/dev@edeb4061d60a80768f38ddada0c6620798070d87
-  GitHub Actions run 33980831322: SUCCESS
+  dreamworkerln/serialterminal/dev@ab8dfde761e06649bdbb89173401e4054f9e8c18
+  GitHub Actions run 34787938656: SUCCESS
+  compile PASS / Ruff PASS / pytest 122 passed
+  Lizard non-blocking: 14 threshold warnings
 
 Node observation evidence:
-  dreamworkerln/serialterminal/node_observations@301751038847f8416d5f6bab617185eee41f7f0a
+  dreamworkerln/serialterminal/node_observations@761712ae7a7892764fbf47c1649710a1ef3e270f
+  REVIEW_STATE.md remains unadvanced (none)
 
-Snapshot 006 pre-creation handoff checkpoint:
-  dreamworkerln/serialterminal/dev_handoff@56c1533eb1ea2922a15e29e06a9ea0dde663ce6a
+Chatter firmware/controller reference used for profile-boundary review:
+  dreamworkerln/lora-sack-protocol/dev_chat@49fcd72a26efa7f9f7029735242fa62d4fe66c1e
+
+Snapshot 007 pre-creation handoff checkpoint:
+  dreamworkerln/serialterminal/dev_handoff@f624c5495ad48056f272144482187918ab568805
 ```
 
-Before new work, refetch moving `dev`, `node_observations`, and any relevant firmware/protocol refs; the SHAs above are snapshot state.
+Before new work, refetch all relevant moving refs; these SHAs are snapshot state.
 
 ## Current state summary
 
-- `observe` remains the only generic machine receive/cursor operation; one raw per-session cursor drives both raw `result.events` and completed `result.lines`.
-- Raw events remain forensic transport/session truth; logical lines are assembled once in `ManagedSession`, independently per stream.
-- Agent runs produce paired forensic `.log` and human-console `.console.log` files. The forensic log has raw `[RX <stream>]` records and no separate `[RX LINE ...]` / `[RX PARTIAL ...]` records.
-- Companion `.console.log` now uses explicit host-side markers: `[session] [I] ...` for text accepted through `send_line`, and `[session] [O] ...` for completed human-console RX lines.
-- Firmware-owned leading `>` / `<` remain part of firmware output, e.g. `[s1] [O] > payload`; they are not replaced by the host markers.
-- Separate BLE machine telemetry remains excluded from `.console.log` unless equivalent text actually arrives through the human-console stream.
-- Marker change accepted at `dev@e6c02580...` with Actions `33969326449: SUCCESS`; current `dev@edeb4061...` adds documentation/planning refinement for TODO_004 and also has green CI.
-- `TODO_004 — Automated node run bundles` remains `DEFERRED` and implementation is still not started. Its design now covers append-only RUN bundles, manifest/report/log artifacts, helper coexistence/backlog classification, and retry-safe normal-push recovery.
-- `node_observations` advanced to `30175103...` with three new observation records and `runs/.gitkeep`; this scaffolding does not mean run-bundle automation is implemented.
-- `REVIEW_STATE.md` remains unadvanced (`none`); do not infer review/promotion from new observation files.
-- Chatter USER/ECHO still has a firmware/application 200 UTF-8 byte limit; generic SerialTerminal intentionally does not synchronously enforce it.
-- `queued`, `written`, `[I]`, `[O]`, local TX markers and firmware-owned `>` alone are not peer/application delivery proof.
+- TODO_004 is CLOSED; snapshot 006's deferred/unimplemented description is historical only. Current `TODO_INVENTORY.md` reports no active TODOs.
+- `ManagedSession`, `observe`, raw cursor model, per-stream logical-line assembly and `RunLog` remain invariants of the profile refactor.
+- SerialTerminal now has a small profile seam: generic core/session mechanics do not need firmware lifecycle callbacks.
+- Human CLI accepts `--profile generic|chatter` and defaults to `generic`.
+- Generic profile sends no connect preamble, has no controller-specific hotkeys/presentation semantics, and uses standard BLE NUS `0002` write + `0003` receive as stream `main`.
+- Chatter profile carries controller conveniences: `/id` preamble, `/help` forwarding, Chatter presentation, and BLE `0003 -> chat` plus optional `0004 -> telemetry`.
+- Agent `open` is per-session profile-aware and defaults to `generic`; Chatter node workflows must explicitly use `"profile":"chatter"`. One process may mix profiles.
+- Legacy `auto_id` remains only as a compatibility override; it is no longer the generic default behavior.
+- `BleNusTransport` receive/write layout is injected; the transport no longer owns Chatter `0004` stream semantics.
+- Generic decoupling is not complete: LoRa/Chatter discovery hints, Pinger/Repeater aliases, scanner `CHAT/TELEMETRY` capability labels and some constants still live outside the Chatter profile.
+- Chatter raw shortcut actions are still `SendLine` and therefore still append EOL; exact no-EOL `SendBytes(14 31/32/33/65)` conversion remains pending as a deliberate behavior change.
+- `README.md` is materially stale relative to current profile defaults. `AGENT_API.md` and both active agent skills were updated; README synchronization is immediate follow-up source/docs work.
+- Current profile-refactor head has automated CI but no current-revision physical hardware proof. The latest evidence head contains runs performed with older SerialTerminal revisions; do not treat them as hardware validation of `dev@ab8dfde...`.
+- `REVIEW_STATE.md` remains unadvanced; do not infer review/promotion from published run bundles.
 
 ## Knowledge base
 
-Primary SerialTerminal source/docs at the recorded `dev` checkpoint:
+Primary source/docs at the recorded `dev` checkpoint:
 
 ```text
 AGENTS.md
 AGENT_API.md
-README.md
+README.md                              # known stale profile sections
 .agents/skills/serialterminal-agent/SKILL.md
 .agents/skills/node-agent/SKILL.md
 TODO_INVENTORY.md
-todos/TODO_004_NODE_RUN_BUNDLES.md
-TODO_MANAGEMENT_POLICY.md
 NODE_OBSERVATION_RECORDING_POLICY.md
-NODE_SKILL_LEARNING_POLICY.md
-src/serialterminal/session.py
+src/serialterminal/profiles/
+src/serialterminal/terminal.py
 src/serialterminal/agent.py
-src/serialterminal/runlog.py
-tests/test_agent_console_log.py
+src/serialterminal/cli.py
+src/serialterminal/transports/ble_nus.py
+src/serialterminal/ble_discovery.py
+tests/test_generic_profile.py
+tests/test_profiles.py
+tests/test_ble_nus.py
+tests/test_agent.py
 ```
 
-Evidence state at the recorded `node_observations` checkpoint includes:
+Evidence state at the recorded `node_observations` checkpoint:
 
 ```text
 REVIEW_STATE.md
-observations/OBS_20260904T201422Z_ack-normal-presentation.md
-observations/OBS_20260905T130038Z_radio-discovery-empty.md
-observations/OBS_20260905T161000Z_bidirectional-user-smoke.md
-runs/.gitkeep
+observations/
+runs/
 ```
 
-Firmware/protocol implementation truth remains the actual relevant `lora-sack-protocol` source/docs revision when a future task involves firmware; snapshot 006 does not invent a flashed firmware SHA that was not established.
+Firmware/controller source reference for this architectural boundary:
+
+```text
+dreamworkerln/lora-sack-protocol/dev_chat@49fcd72a26efa7f9f7029735242fa62d4fe66c1e
+```
 
 ## Immediate continuation
 
-1. Refetch `dev`, `node_observations`, and relevant firmware/protocol refs before changes.
-2. Use `observe.result.lines` for completed firmware-line reasoning and `observe.result.events` for raw/chunk/byte forensics.
-3. Preserve the one-assembler boundary and `[I]` / `[O]` console-log semantics; preserve firmware-owned `>` / `<` inside output text.
-4. If resuming TODO_004, record the exact accepted dependency checkpoint and deliberately change TODO state according to TODO policy before implementation.
-5. For hardware execution, follow `NODE_OBSERVATION_RECORDING_POLICY.md`; for observation review/promotion, separately follow `NODE_SKILL_LEARNING_POLICY.md`.
-6. Do not claim review of the new observations until `REVIEW_STATE.md` is actually advanced.
+1. Refetch `dev`, `node_observations`, and relevant firmware refs.
+2. Synchronize `README.md` on `dev` with the generic-default / explicit-Chatter profile behavior.
+3. Continue the deliberate audit of Chatter/LoRa assumptions still present in BLE discovery/scanner/name aliases without pulling `ManagedSession` or `observe` into a plugin framework.
+4. Treat raw Chatter shortcut conversion to exact `SendBytes` without EOL as a separate tested behavior change.
+5. Run a current-revision hardware regression through the real agent API with `open(profile="chatter")`; verify identity/help, expected BLE streams, and a narrow real node communication path before claiming physical validation of the profile refactor.
+6. Preserve generic regression: connect/reconnect must emit zero controller-specific unsolicited bytes and arbitrary controller output must not be interpreted as Chatter.
 
 ## Standing reminders
 
 - Preserve source/evidence/recovery separation: `dev` / `node_observations` / `dev_handoff`.
-- `TODO_004` remains `DEFERRED`; expanded design and `runs/.gitkeep` are not implementation completion.
+- TODO_004 is CLOSED.
+- Published snapshots stay immutable.
+- Profiles configure controller compatibility/convenience; firmware owns Chatter command/radio semantics.
 - Do not put concrete run IDs, addresses, measurements or topology into the class-level node skill.
 - `.console.log` is presentation/audit convenience; main `.log` and raw events remain forensic truth.
-- Published snapshots stay immutable.
+- Do not infer observation review/promotion while `REVIEW_STATE.md` remains unadvanced.
