@@ -1,4 +1,4 @@
-from serialterminal.profiles import SendLine
+from serialterminal.profiles import SendBytes, SendLine
 from serialterminal.profiles.chatter import (
     CHATTER_ECHO_TOGGLE,
     CHATTER_HELP_COMMAND,
@@ -52,12 +52,29 @@ def test_chatter_profile_preserves_current_controller_conveniences():
 
     actions = CHATTER_PROFILE.human_actions()
     for action, command in CHATTER_OUTPUT_MODE_COMMANDS.items():
-        assert actions[action] == SendLine(command)
-    assert actions["echo"] == SendLine(CHATTER_ECHO_TOGGLE)
+        assert actions[action] == SendBytes(command.encode("ascii"))
+    assert actions["echo"] == SendBytes(CHATTER_ECHO_TOGGLE.encode("ascii"))
 
     assert CHATTER_PROFILE.recognized_command("  /reboot  ") == "/reboot"
     assert CHATTER_PROFILE.recognized_command("  /echo x  ") is None
     assert isinstance(CHATTER_PROFILE.make_presentation(), ChatterPresentation)
+
+
+def test_chatter_raw_hotkey_actions_do_not_append_configured_eol(tmp_path):
+    session = TerminalSession(
+        DummyTransport(),
+        log_path=tmp_path / "terminal.log",
+        line_ending="\r\n",
+        profile=CHATTER_PROFILE,
+    )
+    try:
+        actions = CHATTER_PROFILE.human_actions()
+        assert session._profile_action_bytes(actions["output_chat"]) == b"\x141"
+        assert session._profile_action_bytes(actions["output_telemetry"]) == b"\x142"
+        assert session._profile_action_bytes(actions["output_both"]) == b"\x143"
+        assert session._profile_action_bytes(actions["echo"]) == b"\x14e"
+    finally:
+        session.log_file.close()
 
 
 def test_chatter_profile_describes_existing_ble_layout():

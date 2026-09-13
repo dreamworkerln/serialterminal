@@ -10,6 +10,7 @@ from ..base import (
     PresentationAdapter,
     ProfileAction,
     ReceiveCharacteristic,
+    SendBytes,
     SendLine,
 )
 from .presentation import ChatterPresentation, recognized_chatter_command
@@ -26,15 +27,16 @@ CHATTER_ID_COMMAND = "/id"
 CHATTER_SYSTEM_PREFIX = "[SYS]"
 CHATTER_TELEMETRY_TX_UUID = "6e400004-b5a3-f393-e0a9-e50e24dcca9e"
 
-# Эти control sequences намеренно остаются SendLine: текущий human UI
-# добавляет configured EOL, и этот compatibility slice не меняет wire bytes.
+# Raw Chatter controls являются двухбайтовым wire ABI. Human hotkeys отправляют
+# их как exact bytes без configured EOL; текстовые /chat, /tele, /both и /echo
+# по-прежнему идут через обычный line-oriented input path.
 _HUMAN_ACTIONS = MappingProxyType(
     {
         **{
-            action: SendLine(command)
+            action: SendBytes(command.encode("ascii"))
             for action, command in CHATTER_OUTPUT_MODE_COMMANDS.items()
         },
-        "echo": SendLine(CHATTER_ECHO_TOGGLE),
+        "echo": SendBytes(CHATTER_ECHO_TOGGLE.encode("ascii")),
     }
 )
 _HUMAN_HOTKEYS = (
