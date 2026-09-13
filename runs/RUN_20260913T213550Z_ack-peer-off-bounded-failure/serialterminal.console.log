@@ -1,0 +1,78 @@
+2026-09-14T00:36:12.907+03:00 [s1] [O] [SYS] CHATTER NODE LoRa-Chatter-1B44
+2026-09-14T00:36:18.177+03:00 [s2] [O] [SYS] CHATTER NODE LoRa-Chatter-72E0
+2026-09-14T00:36:37.977+03:00 [s1] [I] /id
+2026-09-14T00:36:37.979+03:00 [s2] [I] /id
+2026-09-14T00:36:37.984+03:00 [s1] [I] /both
+2026-09-14T00:36:37.986+03:00 [s2] [I] /both
+2026-09-14T00:36:38.060+03:00 [s1] [O] [SYS] CHATTER NODE LoRa-Chatter-1B44
+2026-09-14T00:36:38.061+03:00 [s1] [O] 
+2026-09-14T00:36:38.065+03:00 [s1] [O] OUTPUT MODE source=2 state=BOTH
+2026-09-14T00:36:38.065+03:00 [s1] [O] [SYS] OUTPUT BOTH
+2026-09-14T00:36:38.156+03:00 [s2] [O] [SYS] CHATTER NODE LoRa-Chatter-72E0
+2026-09-14T00:36:38.157+03:00 [s2] [O] 
+2026-09-14T00:36:38.158+03:00 [s2] [O] OUTPUT MODE source=2 state=BOTH
+2026-09-14T00:36:38.160+03:00 [s2] [O] [SYS] OUTPUT BOTH
+2026-09-14T00:36:54.221+03:00 [s2] [O] 
+2026-09-14T00:36:54.273+03:00 [s2] [O] SESSION t=180s TX ok=0 user=0 echo_req=0 echo_rep=0 hb=0(idle=0) err=0 started=0 RX ok=0 user=0 echo_req=0 echo_rep=0 hb=0 crc=0 hdr=0 bad=0 readerr=0 reports=0 Q=0% drops=0 fatal=0
+2026-09-14T00:36:54.311+03:00 [s2] [O] SESSION COURTESY window=9123ms peer_release=0 expired=0 yielding=0
+2026-09-14T00:36:54.319+03:00 [s2] [O] SESSION DIO0_TX affected=0/0 episodes=0 avg_all=0.00 avg_affected=0.00 high_polls=0
+2026-09-14T00:36:54.360+03:00 [s2] [O] SESSION RX_POLL polls=178532 rxdone=0 interval=1000us DIO0_RX false_high_ep=0 high_polls=0 rxdone_low=0 isr=disabled
+2026-09-14T00:37:18.112+03:00 [s1] [O] 
+2026-09-14T00:37:18.118+03:00 [s1] [O] SESSION t=23220s TX ok=13 user=7 echo_req=0 echo_rep=0 hb=0(idle=0) err=0 started=13 RX ok=11 user=6 echo_req=0 echo_rep=0 hb=0 crc=0 hdr=0 bad=2 readerr=0 reports=11 Q=92% drops=0 fatal=0
+2026-09-14T00:37:18.164+03:00 [s1] [O] SESSION COURTESY window=9123ms peer_release=0 expired=0 yielding=0
+2026-09-14T00:37:18.170+03:00 [s1] [O] SESSION DIO0_TX affected=0/13 episodes=0 avg_all=0.00 avg_affected=0.00 high_polls=0
+2026-09-14T00:37:18.256+03:00 [s1] [O] SESSION RX_POLL polls=23129474 rxdone=13 interval=1000us DIO0_RX false_high_ep=0 high_polls=0 rxdone_low=0 isr=disabled
+2026-09-14T00:37:54.254+03:00 [s2] [O] 
+2026-09-14T00:37:54.260+03:00 [s2] [O] SESSION t=240s TX ok=0 user=0 echo_req=0 echo_rep=0 hb=0(idle=0) err=0 started=0 RX ok=0 user=0 echo_req=0 echo_rep=0 hb=0 crc=0 hdr=0 bad=0 readerr=0 reports=0 Q=0% drops=0 fatal=0
+2026-09-14T00:37:54.298+03:00 [s2] [O] SESSION COURTESY window=9123ms peer_release=0 expired=0 yielding=0
+2026-09-14T00:37:54.305+03:00 [s2] [O] SESSION DIO0_TX affected=0/0 episodes=0 avg_all=0.00 avg_affected=0.00 high_polls=0
+2026-09-14T00:37:54.349+03:00 [s2] [O] SESSION RX_POLL polls=238196 rxdone=0 interval=1000us DIO0_RX false_high_ep=0 high_polls=0 rxdone_low=0 isr=disabled
+2026-09-14T00:38:18.095+03:00 [s1] [O] 
+2026-09-14T00:38:18.104+03:00 [s1] [O] SESSION t=23280s TX ok=13 user=7 echo_req=0 echo_rep=0 hb=0(idle=0) err=0 started=13 RX ok=11 user=6 echo_req=0 echo_rep=0 hb=0 crc=0 hdr=0 bad=2 readerr=0 reports=11 Q=92% drops=0 fatal=0
+2026-09-14T00:38:18.152+03:00 [s1] [O] SESSION COURTESY window=9123ms peer_release=0 expired=0 yielding=0
+2026-09-14T00:38:18.188+03:00 [s1] [O] SESSION DIO0_TX affected=0/13 episodes=0 avg_all=0.00 avg_affected=0.00 high_polls=0
+2026-09-14T00:38:18.277+03:00 [s1] [O] SESSION RX_POLL polls=23189199 rxdone=13 interval=1000us DIO0_RX false_high_ep=0 high_polls=0 rxdone_low=0 isr=disabled
+2026-09-14T00:38:27.419+03:00 [s1] [I] PEER_OFF_FAIL_20260914T0001
+2026-09-14T00:38:27.553+03:00 [s1] [O] DELIVERY QUEUED source=2 bytes=27 waiting=1/8 in_flight=0
+2026-09-14T00:38:29.485+03:00 [s1] [O] 
+2026-09-14T00:38:29.486+03:00 [s1] [O] TX USER seq=11 frame=39B user=27B attempt=1/5 OK time=1976 ms
+2026-09-14T00:38:29.490+03:00 [s1] [O] > PEER_OFF_FAIL_20260914T0001
+2026-09-14T00:38:29.526+03:00 [s1] [O] DELIVERY WAIT_ACK user=EC14/11 attempt=1/5 timeout=1856ms queue=0
+2026-09-14T00:38:31.330+03:00 [s1] [O] DELIVERY ACK TIMEOUT user=EC14/11 attempt=1/5
+2026-09-14T00:38:31.371+03:00 [s1] [O] DELIVERY RETRY user=EC14/11 next_attempt=2/5 in=1249ms
+2026-09-14T00:38:34.570+03:00 [s1] [O] 
+2026-09-14T00:38:34.615+03:00 [s1] [O] TX USER RETRY seq=11 frame=39B user=27B attempt=2/5 OK time=1975 ms
+2026-09-14T00:38:34.618+03:00 [s1] [O] DELIVERY WAIT_ACK user=EC14/11 attempt=2/5 timeout=1856ms queue=0
+2026-09-14T00:38:36.418+03:00 [s1] [O] DELIVERY ACK TIMEOUT user=EC14/11 attempt=2/5
+2026-09-14T00:38:36.418+03:00 [s1] [O] DELIVERY RETRY user=EC14/11 next_attempt=3/5 in=3161ms
+2026-09-14T00:38:41.543+03:00 [s1] [O] 
+2026-09-14T00:38:41.588+03:00 [s1] [O] TX USER RETRY seq=11 frame=39B user=27B attempt=3/5 OK time=1975 ms
+2026-09-14T00:38:41.597+03:00 [s1] [O] DELIVERY WAIT_ACK user=EC14/11 attempt=3/5 timeout=1856ms queue=0
+2026-09-14T00:38:43.478+03:00 [s1] [O] DELIVERY ACK TIMEOUT user=EC14/11 attempt=3/5
+2026-09-14T00:38:43.570+03:00 [s1] [O] DELIVERY RETRY user=EC14/11 next_attempt=4/5 in=9137ms
+2026-09-14T00:38:54.503+03:00 [s1] [O] 
+2026-09-14T00:38:54.547+03:00 [s1] [O] TX USER RETRY seq=11 frame=39B user=27B attempt=4/5 OK time=1975 ms
+2026-09-14T00:38:54.552+03:00 [s1] [O] DELIVERY WAIT_ACK user=EC14/11 attempt=4/5 timeout=1856ms queue=0
+2026-09-14T00:38:56.438+03:00 [s1] [O] DELIVERY ACK TIMEOUT user=EC14/11 attempt=4/5
+2026-09-14T00:38:56.441+03:00 [s1] [O] DELIVERY RETRY user=EC14/11 next_attempt=5/5 in=6071ms
+2026-09-14T00:39:04.447+03:00 [s1] [O] 
+2026-09-14T00:39:04.448+03:00 [s1] [O] TX USER RETRY seq=11 frame=39B user=27B attempt=5/5 OK time=1975 ms
+2026-09-14T00:39:04.453+03:00 [s1] [O] DELIVERY WAIT_ACK user=EC14/11 attempt=5/5 timeout=1856ms queue=0
+2026-09-14T00:39:06.338+03:00 [s1] [O] DELIVERY ACK TIMEOUT user=EC14/11 attempt=5/5
+2026-09-14T00:39:06.383+03:00 [s1] [O] DELIVERY FAILED user=EC14/11 attempts=5/5 elapsed=36822ms queue=0
+2026-09-14T00:39:06.387+03:00 [s1] [O] [SYS] DELIVERY FAILED: no ACK
+2026-09-14T00:39:18.084+03:00 [s1] [O] 
+2026-09-14T00:39:18.132+03:00 [s1] [O] SESSION t=23340s TX ok=18 user=12 echo_req=0 echo_rep=0 hb=0(idle=0) err=0 started=18 RX ok=11 user=6 echo_req=0 echo_rep=0 hb=0 crc=0 hdr=0 bad=2 readerr=0 reports=11 Q=92% drops=0 fatal=0
+2026-09-14T00:39:18.177+03:00 [s1] [O] SESSION COURTESY window=9123ms peer_release=0 expired=0 yielding=0
+2026-09-14T00:39:18.181+03:00 [s1] [O] SESSION DIO0_TX affected=0/18 episodes=0 avg_all=0.00 avg_affected=0.00 high_polls=0
+2026-09-14T00:39:18.263+03:00 [s1] [O] SESSION RX_POLL polls=23238587 rxdone=13 interval=1000us DIO0_RX false_high_ep=0 high_polls=0 rxdone_low=0 isr=disabled
+2026-09-14T00:40:18.115+03:00 [s1] [O] 
+2026-09-14T00:40:18.121+03:00 [s1] [O] SESSION t=23400s TX ok=18 user=12 echo_req=0 echo_rep=0 hb=0(idle=0) err=0 started=18 RX ok=11 user=6 echo_req=0 echo_rep=0 hb=0 crc=0 hdr=0 bad=2 readerr=0 reports=11 Q=92% drops=0 fatal=0
+2026-09-14T00:40:18.163+03:00 [s1] [O] SESSION COURTESY window=9123ms peer_release=0 expired=0 yielding=0
+2026-09-14T00:40:18.214+03:00 [s1] [O] SESSION DIO0_TX affected=0/18 episodes=0 avg_all=0.00 avg_affected=0.00 high_polls=0
+2026-09-14T00:40:18.341+03:00 [s1] [O] SESSION RX_POLL polls=23298298 rxdone=13 interval=1000us DIO0_RX false_high_ep=0 high_polls=0 rxdone_low=0 isr=disabled
+2026-09-14T00:40:47.771+03:00 [s1] [I] /chat
+2026-09-14T00:40:47.863+03:00 [s1] [O] [SYS] OUTPUT CHAT
+2026-09-14T00:42:05.491+03:00 [s2] [O] [SYS] CHATTER NODE LoRa-Chatter-72E0
+2026-09-14T00:42:49.880+03:00 [s2] [I] /chat
+2026-09-14T00:42:49.952+03:00 [s2] [O] [SYS] OUTPUT CHAT

@@ -1,0 +1,23 @@
+{
+  "schema": 1,
+  "observed_at": "2026-09-13T21:35:50Z",
+  "topic": "ack-peer-off-bounded-failure",
+  "result": "FAIL",
+  "serialterminal": {
+    "repo": "dreamworkerln/serialterminal",
+    "sha": "5b98a61716b28d2b127370be94708890e59b5d21"
+  },
+  "firmware": {
+    "repo": "dreamworkerln/lora-sack-protocol",
+    "sha": "unknown"
+  },
+  "observation": {
+    "state": "recorded",
+    "path": "../../observations/OBS_20260913T213550Z_ack-peer-off-bounded-failure.md"
+  },
+  "files": {
+    "report": "REPORT.md",
+    "console": "serialterminal.console.log",
+    "serialterminal_log": "serialterminal.log"
+  }
+}
