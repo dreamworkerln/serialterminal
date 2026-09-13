@@ -24,7 +24,7 @@ python3 serialterminal.py agent
 Работай с ним по JSON Lines через stdin/stdout:
 
 1. `discover` — получить текущие `device_key`;
-2. `open` — открыть одну или несколько независимых sessions;
+2. `open` — открыть одну или несколько независимых sessions; generic profile используется по умолчанию, controller-specific profile выбирай явно только когда это требует consuming skill;
 3. сохранить `latest_seq` каждой открытой session;
 4. использовать `send_line` или `send_bytes` для передачи;
 5. использовать `observe` с `cursors` для получения новых raw events и completed logical lines;
@@ -33,6 +33,14 @@ python3 serialterminal.py agent
 8. `close` завершает конкретную session; завершение agent process закрывает оставшиеся sessions.
 
 Предпочитай переиспользовать один agent process и уже открытые sessions вместо повторного запуска discovery/open для каждой команды.
+
+## Profiles
+
+`open` без `profile` использует `generic`. Такой session не отправляет controller-specific connect preamble. Для BLE generic profile использует standard NUS и stream `main`.
+
+Если project-specific skill требует bundled controller profile, передай его явно в соответствующем `open`, например `"profile":"chatter"`. Profile выбирается отдельно для каждой session, поэтому один agent process может одновременно работать с generic и controller-specific устройствами.
+
+Legacy `auto_id` не используй в новом generic workflow. Он оставлен только как compatibility override, описанный в `AGENT_API.md`.
 
 ## Observe и cursors
 
@@ -86,11 +94,11 @@ logs/serialterminal-...-pPID.log
 logs/serialterminal-...-pPID.console.log
 ```
 
-Основной `.log` — forensic/API/transport truth. Companion `.console.log` — presentation/audit view того, что примерно увидел бы человек: `send_line` записывается как `[sN] [I] ...`, completed human-console RX line — как `[sN] [O] ...`. `[I]` означает input, принятый через `send_line`; `[O]` — completed logical line из human-console RX stream.
+Основной `.log` — forensic/API/transport truth. Companion `.console.log` — presentation/audit view того, что примерно увидел бы человек: `send_line` записывается как `[sN] [I] ...`, completed human-console RX line — как `[sN] [O] ...`. `[I]` означает input, принятый через `send_line`; `[O]` — completed logical line из console RX stream выбранного profile.
 
-Firmware-owned leading `>` / `<` остаются частью самой строки и не заменяются этими host-side markers. Например firmware output `> hello` записывается как `[sN] [O] > hello`.
+Firmware-owned leading punctuation/prefixes остаются частью самой строки и не заменяются host-side markers.
 
-BLE background machine telemetry не попадает в `.console.log` только потому, что SerialTerminal подписан на отдельный telemetry stream. Если та же telemetry semantics реально появилась в human-console `chat` stream, например при `/both`, она естественно попадает в companion log. Этот файл не является delivery evidence и не заменяет `result.events`/`result.lines`.
+Profile может иметь дополнительные background streams; они не попадают в `.console.log` только из-за подписки. Все raw stream events остаются в forensic `.log` и доступны через `observe.result.events`.
 
 Startup metadata в forensic log содержит `log_path` и `console_log_path`, чтобы executor мог положить оба файла в один run bundle.
 
@@ -100,7 +108,7 @@ Startup metadata в forensic log содержит `log_path` и `console_log_pat
 
 Последующее raw event `tx_state=written` подтверждает успешный вызов transport `write()`, но не доставку peer-у и не выполнение higher-level protocol operation.
 
-Подтверждение доставки или результата определяй по RX/telemetry/application-level данным конкретного устройства или протокола. Для line-oriented firmware output сначала смотри `observe.result.lines`; при необходимости forensic доказательства проверяй соответствующие `observe.result.events`.
+Подтверждение доставки или результата определяй по RX/application-level данным конкретного устройства или протокола. Для line-oriented firmware output сначала смотри `observe.result.lines`; при необходимости forensic доказательства проверяй соответствующие `observe.result.events`.
 
 Такие firmware-specific acceptance rules не относятся к этому generic skill.
 

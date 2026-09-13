@@ -25,6 +25,8 @@ LoRa-Chatter-XXXX
 
 Discovery показывает текущие доступные transport paths, а не постоянный inventory. Если разные transports возвращают одну и ту же canonical identity, считай их путями к одной физической ноде.
 
+Каждую Chatter session открывай через SerialTerminal agent с явным `"profile":"chatter"`. Не полагайся на generic default profile: именно Chatter profile задаёт controller connect preamble и Chatter BLE stream layout. Legacy `auto_id` для нормального node workflow не нужен; profile сам отправляет `/id` при connect/reconnect.
+
 ## Local commands
 
 Основные human-readable commands:

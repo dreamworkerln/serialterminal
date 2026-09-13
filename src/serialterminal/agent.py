@@ -8,6 +8,7 @@ import threading
 import time
 from typing import Any, Callable, TextIO
 
+from .profiles import SendBytes, SendLine, resolve_profile
 from .runlog import RunLog
 from .session import (
     ManagedSession,
@@ -19,7 +20,6 @@ from .session import (
 )
 
 
-CHATTER_ID_COMMAND = "/id"
 _EOL = {"lf": "\n", "crlf": "\r\n", "cr": "\r"}
 _HUMAN_CONSOLE_STREAMS = frozenset({"main", "chat"})
 
@@ -83,6 +83,18 @@ def _request_id_key(request_id: Any) -> str:
     )
 
 
+def _profile_preamble_bytes(actions, line_ending: str) -> bytes:
+    payload = bytearray()
+    for action in actions:
+        if isinstance(action, SendLine):
+            payload.extend(encode_line(action.text, line_ending))
+        elif isinstance(action, SendBytes):
+            payload.extend(action.data)
+        else:
+            raise TypeError(f"unsupported profile action: {type(action)!r}")
+    return bytes(payload)
+
+
 class SessionManager:
     """Own multiple independent ManagedSession objects for machine clients."""
 
@@ -102,11 +114,13 @@ class SessionManager:
         self.reconnect_delay = reconnect_delay
 
         self._lock = threading.Lock()
+        self._selector_profile_lock = threading.Lock()
         self._observe_condition = threading.Condition()
         self._observe_cancelled = threading.Event()
         self._candidates: dict[str, tuple[Any, Any]] = {}
         self._sessions: dict[str, ManagedSession] = {}
         self._session_device_keys: dict[str, str] = {}
+        self._session_profiles: dict[str, str] = {}
         self._device_sessions: dict[str, str] = {}
         self._event_loggers: dict[str, tuple[threading.Event, threading.Thread]] = {}
         self._next_session_id = 1
@@ -182,9 +196,8 @@ class SessionManager:
     def _log_console_line(self, session_id: str, line: SessionLine) -> None:
         if self.run_log is None or line.stream not in _HUMAN_CONSOLE_STREAMS:
             return
-        # BLE machine telemetry намеренно не попадает в human-console view. Если
-        # firmware в /both сама дублирует telemetry в chat stream, такая строка
-        # естественно попадёт сюда, потому что authority — фактический human stream.
+        # В companion log попадают только console streams. Отдельные background
+        # streams остаются в forensic log независимо от controller profile.
         self.run_log.record_console(
             session_id,
             "<",
@@ -243,13 +256,32 @@ class SessionManager:
         device_key: str,
         *,
         eol: str = "lf",
-        auto_id: bool = True,
+        profile: str = "generic",
+        auto_id: bool | None = None,
         wait_connected_ms: int = 10000,
     ) -> dict[str, Any]:
         if eol not in _EOL:
             raise AgentError("invalid_eol", f"unsupported eol: {eol}")
         if wait_connected_ms < 0:
             raise AgentError("invalid_timeout", "wait_connected_ms must be non-negative")
+        if auto_id is not None and not isinstance(auto_id, bool):
+            raise AgentError(
+                "invalid_profile_option",
+                "auto_id must be boolean when provided",
+            )
+        try:
+            terminal_profile = resolve_profile(profile)
+        except ValueError as exc:
+            raise AgentError("unknown_profile", str(exc)) from exc
+
+        profile_actions = terminal_profile.connect_preamble()
+        if auto_id is False:
+            profile_actions = ()
+        elif auto_id is True and not profile_actions:
+            raise AgentError(
+                "invalid_profile_option",
+                "auto_id=true requires a profile with a connect preamble",
+            )
 
         with self._lock:
             existing = self._device_sessions.get(device_key)
@@ -269,14 +301,20 @@ class SessionManager:
 
         candidate, selector = cached
         try:
-            transport = selector.make_transport(candidate)
+            # Discovery selector хранит transport parameters. Profile задаётся
+            # именно на open, чтобы один agent process мог держать разные
+            # controller profiles без process-global режима.
+            with self._selector_profile_lock:
+                selector.profile = terminal_profile
+                transport = selector.make_transport(candidate)
         except Exception as exc:
             raise AgentError("open_failed", str(exc)) from exc
 
         line_ending = _EOL[eol]
+        preamble_payload = _profile_preamble_bytes(profile_actions, line_ending)
         preamble = (
-            (lambda _transport: encode_line(CHATTER_ID_COMMAND, line_ending))
-            if auto_id
+            (lambda _transport, payload=preamble_payload: payload)
+            if preamble_payload
             else None
         )
         session_id = self._next_session()
@@ -301,6 +339,7 @@ class SessionManager:
                 )
             self._sessions[session_id] = session
             self._session_device_keys[session_id] = device_key
+            self._session_profiles[session_id] = terminal_profile.name
             self._device_sessions[device_key] = session_id
 
         self._start_event_logger(session_id, session)
@@ -311,6 +350,7 @@ class SessionManager:
             with self._lock:
                 self._sessions.pop(session_id, None)
                 self._session_device_keys.pop(session_id, None)
+                self._session_profiles.pop(session_id, None)
                 self._device_sessions.pop(device_key, None)
             transport.close()
             raise
@@ -323,16 +363,20 @@ class SessionManager:
             "state": "connected" if connected else "reconnecting",
             "streams": list(transport.stream_capabilities),
             "latest_seq": session.latest_event_seq(),
-            "auto_id": auto_id,
+            "profile": terminal_profile.name,
+            "auto_id": bool(preamble_payload),
         }
 
     def status(self, session_id: str) -> dict[str, Any]:
         session = self._get_session(session_id)
         transport = session._current_transport()
+        with self._lock:
+            profile = self._session_profiles.get(session_id, "generic")
         return {
             "session": session_id,
             "device_key": transport.device_key,
             "description": transport.description,
+            "profile": profile,
             "connected": session.connected_event.is_set(),
             "state": (
                 "closed"
@@ -541,6 +585,7 @@ class SessionManager:
         with self._lock:
             self._sessions.pop(session_id, None)
             self._session_device_keys.pop(session_id, None)
+            self._session_profiles.pop(session_id, None)
             if device_key is not None:
                 self._device_sessions.pop(device_key, None)
         return {"session": session_id, "state": "closed"}
@@ -602,10 +647,17 @@ class AgentProtocol:
         device_key = request.get("device_key")
         if not isinstance(device_key, str) or not device_key:
             raise AgentError("invalid_request", "open requires device_key")
+        profile = request.get("profile", "generic")
+        if not isinstance(profile, str) or not profile:
+            raise AgentError("invalid_request", "open profile must be a non-empty string")
+        auto_id = request.get("auto_id")
+        if auto_id is not None and not isinstance(auto_id, bool):
+            raise AgentError("invalid_request", "open auto_id must be boolean")
         return self.manager.open(
             device_key,
             eol=request.get("eol", "lf"),
-            auto_id=bool(request.get("auto_id", True)),
+            profile=profile,
+            auto_id=auto_id,
             wait_connected_ms=int(request.get("wait_connected_ms", 10000)),
         )
 

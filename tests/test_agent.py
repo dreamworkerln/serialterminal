@@ -75,12 +75,18 @@ class FakeSelector:
         self.scope = scope
         self.baud = baud
         self.scan_seconds = scan_seconds
+        self.profile = None
 
     def discover(self):
         return list(self.owner.candidates)
 
     def make_transport(self, candidate):
-        streams = ("chat", "telemetry") if candidate.kind == "ble" else ("main",)
+        profile_name = getattr(self.profile, "name", "generic")
+        streams = (
+            ("chat", "telemetry")
+            if candidate.kind == "ble" and profile_name == "chatter"
+            else ("main",)
+        )
         transport = FakeTransport(candidate.key, streams=streams)
         self.owner.transports[candidate.key] = transport
         return transport
@@ -194,7 +200,7 @@ def _start_blocking_agent(monkeypatch, tmp_path):
     return holder["manager"], input_stream, output_stream, thread
 
 
-def test_manager_discovers_opens_multiple_sessions_and_auto_ids():
+def test_manager_open_defaults_to_generic_profile_without_preamble():
     factory = FakeSelectorFactory()
     manager = SessionManager(selector_factory=factory, reconnect_delay=0.01)
     try:
@@ -208,11 +214,14 @@ def test_manager_discovers_opens_multiple_sessions_and_auto_ids():
         second = manager.open("serial:b", wait_connected_ms=500)
         assert first["session"] != second["session"]
         assert first["state"] == "connected"
-        assert first["streams"] == ["chat", "telemetry"]
+        assert first["streams"] == ["main"]
         assert second["streams"] == ["main"]
-
-        assert _wait_until(lambda: factory.transports["ble:a"].writes == [b"/id\n"])
-        assert _wait_until(lambda: factory.transports["serial:b"].writes == [b"/id\n"])
+        assert first["profile"] == "generic"
+        assert second["profile"] == "generic"
+        assert first["auto_id"] is False
+        assert second["auto_id"] is False
+        assert factory.transports["ble:a"].writes == []
+        assert factory.transports["serial:b"].writes == []
         assert len(manager.list_sessions()["sessions"]) == 2
 
         with pytest.raises(AgentError) as caught:
@@ -222,12 +231,61 @@ def test_manager_discovers_opens_multiple_sessions_and_auto_ids():
         manager.close_all()
 
 
+def test_manager_chatter_profile_preserves_connect_preamble_and_ble_streams():
+    factory = FakeSelectorFactory()
+    manager = SessionManager(selector_factory=factory, reconnect_delay=0.01)
+    try:
+        manager.discover()
+        first = manager.open("ble:a", profile="chatter", wait_connected_ms=500)
+        second = manager.open("serial:b", profile="chatter", wait_connected_ms=500)
+
+        assert first["profile"] == "chatter"
+        assert first["streams"] == ["chat", "telemetry"]
+        assert first["auto_id"] is True
+        assert second["profile"] == "chatter"
+        assert second["streams"] == ["main"]
+        assert second["auto_id"] is True
+        assert _wait_until(lambda: factory.transports["ble:a"].writes == [b"/id\n"])
+        assert _wait_until(lambda: factory.transports["serial:b"].writes == [b"/id\n"])
+        assert manager.status(first["session"])["profile"] == "chatter"
+        assert manager.status(second["session"])["profile"] == "chatter"
+    finally:
+        manager.close_all()
+
+
+def test_profile_auto_id_compatibility_override_is_explicit():
+    factory = FakeSelectorFactory()
+    manager = SessionManager(selector_factory=factory, reconnect_delay=0.01)
+    try:
+        manager.discover()
+        with pytest.raises(AgentError) as caught:
+            manager.open("ble:a", auto_id=True, wait_connected_ms=0)
+        assert caught.value.code == "invalid_profile_option"
+
+        opened = manager.open(
+            "ble:a",
+            profile="chatter",
+            auto_id=False,
+            wait_connected_ms=500,
+        )
+        assert opened["profile"] == "chatter"
+        assert opened["auto_id"] is False
+        assert factory.transports["ble:a"].writes == []
+    finally:
+        manager.close_all()
+
+
 def test_observe_one_session_returns_raw_event_and_completed_line():
     factory = FakeSelectorFactory()
     manager = SessionManager(selector_factory=factory, reconnect_delay=0.01)
     try:
         manager.discover()
-        opened = manager.open("ble:a", auto_id=False, wait_connected_ms=500)
+        opened = manager.open(
+            "ble:a",
+            profile="chatter",
+            auto_id=False,
+            wait_connected_ms=500,
+        )
         session_id = opened["session"]
         cursor = opened["latest_seq"]
         transport = factory.transports["ble:a"]
@@ -263,7 +321,12 @@ def test_observe_two_sessions_wakes_for_either_session():
     manager = SessionManager(selector_factory=factory, reconnect_delay=0.01)
     try:
         manager.discover()
-        first = manager.open("ble:a", auto_id=False, wait_connected_ms=500)
+        first = manager.open(
+            "ble:a",
+            profile="chatter",
+            auto_id=False,
+            wait_connected_ms=500,
+        )
         second = manager.open("serial:b", auto_id=False, wait_connected_ms=500)
         cursors = {
             first["session"]: first["latest_seq"],
@@ -392,7 +455,12 @@ def test_protocol_dispatches_observe_and_rejects_old_operations(tmp_path):
         protocol = AgentProtocol(manager, run_log=run_log)
         try:
             manager.discover()
-            opened = manager.open("ble:a", auto_id=False, wait_connected_ms=500)
+            opened = manager.open(
+                "ble:a",
+                profile="chatter",
+                auto_id=False,
+                wait_connected_ms=500,
+            )
             session_id = opened["session"]
             response = json.loads(
                 protocol.process_line(
@@ -440,6 +508,47 @@ def test_protocol_dispatches_observe_and_rejects_old_operations(tmp_path):
                 )
                 assert old["ok"] is False
                 assert old["error"]["code"] == "unknown_operation"
+        finally:
+            manager.close_all()
+
+
+def test_protocol_open_defaults_generic_and_accepts_chatter_profile(tmp_path):
+    factory = FakeSelectorFactory()
+    log_path = tmp_path / "agent.log"
+    with RunLog(log_path) as run_log:
+        manager = SessionManager(
+            selector_factory=factory,
+            run_log=run_log,
+            reconnect_delay=0.01,
+        )
+        protocol = AgentProtocol(manager, run_log=run_log)
+        try:
+            manager.discover()
+            generic = protocol.handle(
+                {
+                    "id": 1,
+                    "op": "open",
+                    "device_key": "serial:b",
+                    "wait_connected_ms": 500,
+                }
+            )
+            assert generic["ok"] is True
+            assert generic["result"]["profile"] == "generic"
+            assert generic["result"]["auto_id"] is False
+            manager.close(generic["result"]["session"])
+
+            chatter = protocol.handle(
+                {
+                    "id": 2,
+                    "op": "open",
+                    "device_key": "serial:b",
+                    "profile": "chatter",
+                    "wait_connected_ms": 500,
+                }
+            )
+            assert chatter["ok"] is True
+            assert chatter["result"]["profile"] == "chatter"
+            assert chatter["result"]["auto_id"] is True
         finally:
             manager.close_all()
 
@@ -593,7 +702,11 @@ def test_session_events_are_written_to_same_agent_log_without_line_tags(tmp_path
         )
         try:
             manager.discover()
-            opened = manager.open("ble:a", wait_connected_ms=500)
+            opened = manager.open(
+                "ble:a",
+                profile="chatter",
+                wait_connected_ms=500,
+            )
             session_id = opened["session"]
             transport = factory.transports["ble:a"]
             manager.send_line(session_id, "hello")

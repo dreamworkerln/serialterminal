@@ -2,7 +2,7 @@
 
 `serialterminal agent` is a local machine-facing JSON Lines frontend over the same discovery, transports and reconnect/session logic used by the normal human terminal.
 
-It is intentionally generic. Device-, firmware- and project-specific test scenarios belong in consuming agent skills, not in this API.
+It is intentionally generic. Device-, firmware- and project-specific test scenarios belong in consuming agent skills, not in this API. Controller-specific convenience behavior is selected explicitly per session through `profile`; the default profile is `generic`.
 
 ## Start
 
@@ -57,22 +57,22 @@ There are no separate `[RX LINE ...]` or `[RX PARTIAL ...]` records in the foren
 The companion `.console.log` is only a human-oriented presentation/audit view. Records look like:
 
 ```text
-2026-09-05T08:23:01.100+00:00 [s1] [I] /both
-2026-09-05T08:23:01.420+00:00 [s1] [O] [SYS] OUTPUT BOTH
-2026-09-05T08:23:05.100+00:00 [s2] [I] hello
-2026-09-05T08:23:06.750+00:00 [s2] [O] < [-33/+10 Q100] hello
+2026-09-05T08:23:01.100+00:00 [s1] [I] status
+2026-09-05T08:23:01.420+00:00 [s1] [O] READY
+2026-09-05T08:23:05.100+00:00 [s2] [I] ping
+2026-09-05T08:23:05.250+00:00 [s2] [O] pong
 ```
 
 Semantics:
 
 - `[I]` is text accepted through `send_line` for that session;
 - `[O]` is a completed logical line from that session's human-console RX stream;
-- firmware-owned leading `>` / `<` remain part of the firmware line itself and are not replaced by the host-side `[I]` / `[O]` markers;
+- firmware-owned punctuation and prefixes remain part of the firmware line itself and are not replaced by host-side `[I]` / `[O]` markers;
 - all sessions share one chronological companion file and every record contains its session ID;
 - `send_bytes` is not represented as ordinary human input;
 - the companion log is presentation/audit convenience, not transport-write or protocol-delivery evidence.
 
-For BLE, the separate machine telemetry stream is **not** written to `.console.log` merely because SerialTerminal is subscribed to it. The BLE human-console/chat stream is written. If firmware output mode such as `/both` causes telemetry text to appear in the human-console stream itself, that line naturally appears in `.console.log` because it is what a human console would have received.
+The generic BLE profile has one standard NUS receive stream named `main`. A controller profile may expose another console stream name, such as `chat`, plus background streams. Background streams such as a profile-provided `telemetry` stream are not written to `.console.log` merely because SerialTerminal is subscribed to them.
 
 Console RX lines come from the same canonical `ManagedSession` logical-line model used by `observe.result.lines`; there is no second line assembler in logging.
 
@@ -187,7 +187,11 @@ Example response:
 
 `device_key` is the existing SerialTerminal sticky physical identity. The agent frontend does not create a second identity system.
 
+Discovery identifies candidate transport paths. Controller profile selection happens later, independently for each `open` request.
+
 ## Open a long-lived session
+
+Generic/default:
 
 ```json
 {
@@ -197,21 +201,66 @@ Example response:
 }
 ```
 
+Equivalent explicit form:
+
+```json
+{
+  "id":2,
+  "op":"open",
+  "device_key":"ble-address:...",
+  "profile":"generic"
+}
+```
+
 The returned `session` remains alive until `close` or process exit. Its internal `ManagedSession` keeps retrying the same physical target after a disconnect.
 
 Default open behavior:
 
 ```text
 eol=lf
-auto_id=true
+profile=generic
 wait_connected_ms=10000
 ```
 
-`auto_id=true` sends the SerialTerminal `/id` connect preamble after every successful transport connect/reconnect and before the session is published as connected. For a target where this preamble is undesirable, use:
+The `generic` profile sends no connect preamble and makes no controller-command assumptions. For BLE it uses standard Nordic UART Service layout: `0002` for writes and `0003` as receive stream `main`.
+
+Bundled controller profiles are explicit. For example:
 
 ```json
-{"id":2,"op":"open","device_key":"...","auto_id":false}
+{
+  "id":2,
+  "op":"open",
+  "device_key":"ble-address:...",
+  "profile":"chatter"
+}
 ```
+
+The `chatter` profile supplies its controller-defined connect preamble and BLE receive layout. Its connect preamble includes `/id`; it is sent after every successful transport connect/reconnect and before the session is published as connected. Its BLE layout exposes `chat` and optional `telemetry` streams.
+
+`profile` is per session, not process-global. One agent process may therefore hold generic and controller-profile sessions simultaneously.
+
+`auto_id` remains only as a compatibility override for callers migrating from the earlier API. New callers should select a profile and omit it. `auto_id:false` suppresses the selected profile's connect preamble. `auto_id:true` is accepted only when the selected profile actually defines a connect preamble; using it with `profile:"generic"` fails with `invalid_profile_option`.
+
+Examples:
+
+```json
+{"id":2,"op":"open","device_key":"...","profile":"chatter","auto_id":false}
+```
+
+```json
+{
+  "id":2,
+  "ok":false,
+  "error":{
+    "code":"invalid_profile_option",
+    "message":"auto_id=true requires a profile with a connect preamble"
+  }
+}
+```
+
+An unknown profile fails with `unknown_profile`.
+
+The successful `open` result includes `profile`. It also retains the compatibility field `auto_id`, which reports whether the selected connect preamble is active for that session.
 
 If the target does not connect within `wait_connected_ms`, `open` still returns the live session with:
 
@@ -237,12 +286,15 @@ Typical result fields:
 session
 device_key
 description
+profile
 connected
 state
 streams
 latest_seq
 queued_tx
 ```
+
+`streams` is the transport layout selected for that session's profile. Generic serial/SPP and generic standard-NUS sessions normally expose `main`; controller profiles may expose additional or differently named streams.
 
 List all sessions:
 
@@ -346,7 +398,7 @@ There is intentionally one cursor model. A single watched session still uses a `
         "session":"s1",
         "seq":43,
         "kind":"rx",
-        "stream":"chat",
+        "stream":"main",
         "data_b64":"U0VTU0lPTiBUWCBvaw==",
         "text":"SESSION TX ok"
       },
@@ -354,7 +406,7 @@ There is intentionally one cursor model. A single watched session still uses a `
         "session":"s1",
         "seq":44,
         "kind":"rx",
-        "stream":"chat",
+        "stream":"main",
         "data_b64":"PTEK",
         "text":"=1\n"
       }
@@ -362,7 +414,7 @@ There is intentionally one cursor model. A single watched session still uses a `
     "lines":[
       {
         "session":"s1",
-        "stream":"chat",
+        "stream":"main",
         "seq_first":43,
         "seq_last":44,
         "text":"SESSION TX ok=1"
@@ -403,7 +455,7 @@ BLE notifications remain BLE-sized chunks. SerialTerminal does not make a transp
 
 ### Logical lines
 
-Logical line assembly lives once on `ManagedSession`, above the transport layer. Each receive stream has independent assembly state, so `main`, `chat`, `telemetry`, or future streams are never concatenated with one another.
+Logical line assembly lives once on `ManagedSession`, above the transport layer. Each receive stream has independent assembly state, so `main`, profile-defined streams such as `chat`/`telemetry`, or future streams are never concatenated with one another.
 
 Assembly uses the same incremental UTF-8 decoded text already produced for the raw RX event. It does not run a second independent decoder over raw chunks.
 
@@ -444,13 +496,13 @@ Its `seq_first` may be less than or equal to the input cursor. This is deliberat
 For example, suppose the first observation returns:
 
 ```text
-seq 100  RX text="DELIVERY WA"
+seq 100  RX text="STATUS PA"
 ```
 
 The caller advances its raw cursor to 100. Later the next raw RX event is:
 
 ```text
-seq 101  RX text="IT_ACK...\n"
+seq 101  RX text="SS\n"
 ```
 
 Then:
@@ -464,10 +516,10 @@ returns raw event 101 and the complete line spanning both chunks:
 ```json
 {
   "session":"s1",
-  "stream":"telemetry",
+  "stream":"main",
   "seq_first":100,
   "seq_last":101,
-  "text":"DELIVERY WAIT_ACK..."
+  "text":"STATUS PASS"
 }
 ```
 
@@ -575,14 +627,14 @@ Process EOF cancels pending `observe` calls, lets them finish with their correla
 
 The forensic and companion console logs close together when the agent run ends.
 
-## Multiple devices
+## Multiple devices and profiles
 
-A single agent process can keep independent sessions open simultaneously:
+A single agent process can keep independent sessions open simultaneously, and each `open` may choose its own controller profile:
 
 ```text
 discover
-open Device A -> s1
-open Device B -> s2
+open Device A profile=generic -> s1
+open Device B profile=chatter -> s2
 send_line s1
 observe {s1,s2}
 ...
