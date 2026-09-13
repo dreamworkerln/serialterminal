@@ -125,7 +125,9 @@ def test_device_output_hotkeys_queue_matching_chatter_commands(tmp_path):
         for action in ("output_chat", "output_telemetry", "output_both"):
             session._handle_control(action)
             assert session.view_mode == "chat"
-            assert session.outgoing.get_nowait() == CHATTER_OUTPUT_MODE_COMMANDS[action]
+            assert session.outgoing.get_nowait() == (
+                CHATTER_OUTPUT_MODE_COMMANDS[action].encode("ascii")
+            )
 
         transcript = (tmp_path / "terminal.log").read_text()
         assert "Chatter output" not in transcript
@@ -141,7 +143,7 @@ def test_echo_hotkey_queues_chatter_control_sequence(tmp_path):
     )
     try:
         session._handle_control("echo")
-        assert session.outgoing.get_nowait() == CHATTER_ECHO_TOGGLE
+        assert session.outgoing.get_nowait() == CHATTER_ECHO_TOGGLE.encode("ascii")
         transcript = (tmp_path / "terminal.log").read_text()
         assert "Chatter echo toggle queued" not in transcript
     finally:
