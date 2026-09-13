@@ -1,6 +1,6 @@
 # TODO_004 — Automated node run bundles
 
-Status: IMPLEMENTED / physical validation OPEN
+Status: CLOSED
 
 ## Purpose
 
@@ -325,18 +325,72 @@ Lizard: NON-BLOCKING / exit 1 / 13 threshold warnings
 
 CI includes compile, Ruff static analysis, non-blocking Lizard complexity and full pytest.
 
-## Remaining validation
+## Physical publication validation
 
-TODO remains `IMPLEMENTED`, not `CLOSED`, until production-like publication is exercised from the actual local executor/storage environment.
+Production-like publication was exercised from the actual local executor/storage environment.
 
-Still required:
+Completed gates:
 
-- [ ] one physical hardware run creates `REPORT.md`, exact forensic log, exact console log and `MANIFEST.json` in a real `RUN_.../`;
-- [ ] that run is published through `commit-node-run` with a matching observation;
-- [ ] one intentional RUN-only publication is exercised physically, or an equivalent accepted hardware run explicitly uses `observation.state=not-required`;
-- [ ] independent `ls-remote` verification matches the helper-reported commit SHA;
-- [ ] reviewer confirms the published run is inspectable from GitHub alone without operator copy/paste;
-- [ ] final physical validation checkpoint is recorded here and in `TODO_INVENTORY.md`.
+- [x] a physical hardware run created `REPORT.md`, exact forensic log, exact console log and `MANIFEST.json` in a real `RUN_.../`;
+- [x] a physical run was published through `commit-node-run` with a matching recorded observation;
+- [x] an intentional physical RUN-only publication used `observation.state=not-required`;
+- [x] independent `ls-remote` verification matched the helper-reported publication commit;
+- [x] reviewer fetched the published manifest, report, forensic log and console log directly from GitHub without operator copy/paste;
+- [x] final physical validation checkpoints are recorded here and in `TODO_INVENTORY.md`.
+
+Recorded-observation publication checkpoint:
+
+```text
+SerialTerminal source:
+  dev@c9c6d4099c3532494bac8bfecb9fead37e27fe1e
+
+node_observations publication:
+  f5020fd63e3cfdcf45244ff2dd6b0d86b963d7a0
+
+run:
+  runs/RUN_20260913T152239Z_todo004-bidirectional-publication-smoke/
+
+observation:
+  observations/OBS_20260913T152239Z_todo004-bidirectional-publication-smoke.md
+
+result:
+  INCONCLUSIVE
+
+publication validation:
+  complete RUN + matching OBS published atomically
+  helper-reported commit matched independent ls-remote verification
+```
+
+The run verdict was `INCONCLUSIVE` because the hardware exercise encountered BLE disconnect/reconnect during one direction; that did not invalidate the publication-path validation because the executor preserved the actual result and exact evidence instead of rewriting it as PASS.
+
+RUN-only accepted hardware checkpoint:
+
+```text
+SerialTerminal source:
+  dev@c9c6d4099c3532494bac8bfecb9fead37e27fe1e
+
+node_observations publication:
+  b22ee446d96e9fa9047d52f4d309830fca688893
+
+run:
+  runs/RUN_20260913T182004Z_post-reboot-bidirectional-smoke/
+
+result:
+  PASS
+  A->B PASS
+  B->A PASS
+  BLE stability PASS
+
+observation:
+  state=not-required
+  reason=Routine post-reboot bidirectional smoke passed with no new reusable finding.
+
+publication validation:
+  helper-reported commit matched independent ls-remote verification
+  node_observations remote head confirmed at b22ee446d96e9fa9047d52f4d309830fca688893
+```
+
+Reviewer inspection from GitHub alone confirmed that the RUN-only bundle exposes the canonical `MANIFEST.json`, curated `REPORT.md`, exact `serialterminal.log` and exact `serialterminal.console.log` directly from the published commit.
 
 ## Non-goals preserved
 
@@ -351,11 +405,11 @@ Still required:
 - no silent deletion of abandoned staging;
 - no automatic merge/rebase/reset/force-push recovery.
 
-## Closure criteria
+## Closure
 
-Close only after the remaining real hardware/publication validation gates pass.
+All implementation and required validation gates are complete. TODO_004 is closed.
 
-Expected final state:
+Expected final state was exercised:
 
 ```text
 hardware executor run
@@ -367,16 +421,37 @@ hardware executor run
     -> reviewer fetches report + console + forensic log directly from GitHub
 ```
 
-Exact implementation checkpoint:
+Implemented:
 
 ```text
 dev@4d50eb1aec50bfb4a71d1d8e63f95fbc7a0f436c
 ```
 
-Exact automated validation checkpoint:
+Validated automatically:
 
 ```text
 GitHub Actions 34263084088 SUCCESS
+Compile PASS
+Ruff PASS
+Tests 106 passed
+Lizard NON-BLOCKING / exit 1 / 13 threshold warnings
+TODO_004 publication scripts add 0 warnings
 ```
 
-Exact physical publication validation checkpoint: not started.
+Validated physically:
+
+```text
+RUN + OBS publication:
+  node_observations@f5020fd63e3cfdcf45244ff2dd6b0d86b963d7a0
+
+RUN-only publication:
+  node_observations@b22ee446d96e9fa9047d52f4d309830fca688893
+
+remote verification:
+  PASS
+
+GitHub-only reviewer inspection:
+  PASS
+```
+
+Remaining follow-ups: none in TODO_004. Future hardware runs continue to use `NODE_OBSERVATION_RECORDING_POLICY.md` and `.agents/skills/node-agent/SKILL.md`.
