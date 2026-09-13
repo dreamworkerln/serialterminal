@@ -1,0 +1,78 @@
+2026-09-13T21:20:44.032+03:00 [s1] [I] /id
+2026-09-13T21:20:44.039+03:00 [s2] [I] /id
+2026-09-13T21:20:44.146+03:00 [s1] [O] [SYS] CHATTER NODE LoRa-Chatter-1B44
+2026-09-13T21:20:44.155+03:00 [s2] [O] [SYS] CHATTER NODE LoRa-Chatter-72E0
+2026-09-13T21:21:50.272+03:00 [s1] [I] /both
+2026-09-13T21:21:50.274+03:00 [s2] [I] /both
+2026-09-13T21:21:50.370+03:00 [s1] [O] 
+2026-09-13T21:21:50.371+03:00 [s1] [O] OUTPUT MODE source=2 state=BOTH
+2026-09-13T21:21:50.372+03:00 [s1] [O] [SYS] OUTPUT BOTH
+2026-09-13T21:21:50.372+03:00 [s2] [O] 
+2026-09-13T21:21:50.373+03:00 [s2] [O] OUTPUT MODE source=2 state=BOTH
+2026-09-13T21:21:50.374+03:00 [s2] [O] [SYS] OUTPUT BOTH
+2026-09-13T21:22:03.286+03:00 [s2] [O] 
+2026-09-13T21:22:03.340+03:00 [s2] [O] SESSION t=11520s TX ok=6 user=3 echo_req=0 echo_rep=0 hb=0(idle=0) err=0 started=6 RX ok=6 user=3 echo_req=0 echo_rep=0 hb=0 crc=0 hdr=0 bad=1 readerr=0 reports=5 Q=100% drops=0 fatal=0
+2026-09-13T21:22:03.379+03:00 [s2] [O] SESSION COURTESY window=9123ms peer_release=0 expired=0 yielding=0
+2026-09-13T21:22:03.383+03:00 [s2] [O] SESSION DIO0_TX affected=0/6 episodes=0 avg_all=0.00 avg_affected=0.00 high_polls=0
+2026-09-13T21:22:03.425+03:00 [s2] [O] SESSION RX_POLL polls=11474013 rxdone=7 interval=1000us DIO0_RX false_high_ep=0 high_polls=0 rxdone_low=0 isr=disabled
+2026-09-13T21:22:18.402+03:00 [s1] [O] 
+2026-09-13T21:22:18.449+03:00 [s1] [O] SESSION t=11520s TX ok=6 user=3 echo_req=0 echo_rep=0 hb=0(idle=0) err=0 started=6 RX ok=5 user=3 echo_req=0 echo_rep=0 hb=0 crc=0 hdr=0 bad=0 readerr=0 reports=5 Q=83% drops=0 fatal=0
+2026-09-13T21:22:18.456+03:00 [s1] [O] SESSION COURTESY window=9123ms peer_release=0 expired=0 yielding=0
+2026-09-13T21:22:18.542+03:00 [s1] [O] SESSION DIO0_TX affected=0/6 episodes=0 avg_all=0.00 avg_affected=0.00 high_polls=0
+2026-09-13T21:22:18.549+03:00 [s1] [O] SESSION RX_POLL polls=11474380 rxdone=5 interval=1000us DIO0_RX false_high_ep=0 high_polls=0 rxdone_low=0 isr=disabled
+2026-09-13T21:22:21.782+03:00 [s1] [I] SMOKE A2B 20260913 001
+2026-09-13T21:22:21.957+03:00 [s1] [O] DELIVERY QUEUED source=2 bytes=22 waiting=1/8 in_flight=0
+2026-09-13T21:22:23.668+03:00 [s1] [O] 
+2026-09-13T21:22:23.670+03:00 [s1] [O] TX USER seq=5 frame=34B user=22B attempt=1/5 OK time=1813 ms
+2026-09-13T21:22:23.714+03:00 [s1] [O] > SMOKE A2B 20260913 001
+2026-09-13T21:22:23.715+03:00 [s1] [O] DELIVERY WAIT_ACK user=EC14/5 attempt=1/5 timeout=1856ms queue=0
+2026-09-13T21:22:23.764+03:00 [s2] [O] PEER_REPORT our_seq=5 RSSI=-22 dBm SNR=+10 dB Q=83%
+2026-09-13T21:22:23.765+03:00 [s2] [O] 
+2026-09-13T21:22:23.767+03:00 [s2] [O] RX USER session=EC14 seq=5 frame=34B user=22B RSSI=-33.0 dBm SNR=+7.5 dB Q=100% disposition=0
+2026-09-13T21:22:23.774+03:00 [s2] [O] < [-33/+8 Q100] SMOKE A2B 20260913 001
+2026-09-13T21:22:25.066+03:00 [s2] [O] 
+2026-09-13T21:22:25.068+03:00 [s2] [O] TX ACK seq=6 ack_to=EC14/5 frame=14B OK time=1157 ms guard=500ms
+2026-09-13T21:22:25.107+03:00 [s1] [O] PEER_REPORT our_seq=5 RSSI=-33 dBm SNR=+8 dB Q=100%
+2026-09-13T21:22:25.198+03:00 [s1] [O] 
+2026-09-13T21:22:25.242+03:00 [s1] [O] RX ACK session=85BC seq=6 ack_to=EC14/5 frame=14B RSSI=-27.0 dBm SNR=+9.5 dB Q=86%
+2026-09-13T21:22:25.333+03:00 [s1] [O] DELIVERY ACK user=EC14/5 attempts=1/5 elapsed=1457ms queue=0
+2026-09-13T21:23:03.407+03:00 [s2] [O] 
+2026-09-13T21:23:03.413+03:00 [s2] [O] SESSION t=11580s TX ok=7 user=3 echo_req=0 echo_rep=0 hb=0(idle=0) err=0 started=7 RX ok=7 user=4 echo_req=0 echo_rep=0 hb=0 crc=0 hdr=0 bad=1 readerr=0 reports=6 Q=100% drops=0 fatal=0
+2026-09-13T21:23:03.450+03:00 [s2] [O] SESSION COURTESY window=9123ms peer_release=0 expired=0 yielding=0
+2026-09-13T21:23:03.460+03:00 [s2] [O] SESSION DIO0_TX affected=0/7 episodes=0 avg_all=0.00 avg_affected=0.00 high_polls=0
+2026-09-13T21:23:03.462+03:00 [s2] [O] SESSION RX_POLL polls=11532395 rxdone=8 interval=1000us DIO0_RX false_high_ep=0 high_polls=0 rxdone_low=0 isr=disabled
+2026-09-13T21:23:04.319+03:00 [s2] [I] SMOKE B2A 20260913 002
+2026-09-13T21:23:04.397+03:00 [s2] [O] DELIVERY QUEUED source=2 bytes=22 waiting=1/8 in_flight=0
+2026-09-13T21:23:06.290+03:00 [s2] [O] 
+2026-09-13T21:23:06.291+03:00 [s2] [O] TX USER seq=7 frame=34B user=22B attempt=1/5 OK time=1812 ms
+2026-09-13T21:23:06.293+03:00 [s2] [O] > SMOKE B2A 20260913 002
+2026-09-13T21:23:06.294+03:00 [s2] [O] DELIVERY WAIT_ACK user=85BC/7 attempt=1/5 timeout=1856ms queue=0
+2026-09-13T21:23:06.327+03:00 [s1] [O] PEER_REPORT our_seq=5 RSSI=-33 dBm SNR=+8 dB Q=100%
+2026-09-13T21:23:06.416+03:00 [s1] [O] 
+2026-09-13T21:23:06.464+03:00 [s1] [O] RX USER session=85BC seq=7 frame=34B user=22B RSSI=-31.0 dBm SNR=+11.5 dB Q=88% disposition=0
+2026-09-13T21:23:06.553+03:00 [s1] [O] < [-31/+12 Q88] SMOKE B2A 20260913 002
+2026-09-13T21:23:07.587+03:00 [s1] [O] 
+2026-09-13T21:23:07.589+03:00 [s1] [O] TX ACK seq=6 ack_to=85BC/7 frame=14B OK time=1156 ms guard=500ms
+2026-09-13T21:23:07.640+03:00 [s2] [O] PEER_REPORT our_seq=7 RSSI=-31 dBm SNR=+12 dB Q=88%
+2026-09-13T21:23:07.641+03:00 [s2] [O] 
+2026-09-13T21:23:07.642+03:00 [s2] [O] RX ACK session=EC14 seq=6 ack_to=85BC/7 frame=14B RSSI=-25.0 dBm SNR=+7.0 dB Q=100%
+2026-09-13T21:23:07.728+03:00 [s2] [O] DELIVERY ACK user=85BC/7 attempts=1/5 elapsed=1458ms queue=0
+2026-09-13T21:23:18.386+03:00 [s1] [O] 
+2026-09-13T21:23:18.435+03:00 [s1] [O] SESSION t=11580s TX ok=8 user=4 echo_req=0 echo_rep=0 hb=0(idle=0) err=0 started=8 RX ok=7 user=4 echo_req=0 echo_rep=0 hb=0 crc=0 hdr=0 bad=0 readerr=0 reports=7 Q=88% drops=0 fatal=0
+2026-09-13T21:23:18.479+03:00 [s1] [O] SESSION COURTESY window=9123ms peer_release=0 expired=0 yielding=0
+2026-09-13T21:23:18.483+03:00 [s1] [O] SESSION DIO0_TX affected=0/8 episodes=0 avg_all=0.00 avg_affected=0.00 high_polls=0
+2026-09-13T21:23:18.572+03:00 [s1] [O] SESSION RX_POLL polls=11530844 rxdone=7 interval=1000us DIO0_RX false_high_ep=0 high_polls=0 rxdone_low=0 isr=disabled
+2026-09-13T21:24:03.301+03:00 [s2] [O] 
+2026-09-13T21:24:03.307+03:00 [s2] [O] SESSION t=11640s TX ok=8 user=4 echo_req=0 echo_rep=0 hb=0(idle=0) err=0 started=8 RX ok=8 user=4 echo_req=0 echo_rep=0 hb=0 crc=0 hdr=0 bad=1 readerr=0 reports=7 Q=100% drops=0 fatal=0
+2026-09-13T21:24:03.353+03:00 [s2] [O] SESSION COURTESY window=9123ms peer_release=0 expired=0 yielding=0
+2026-09-13T21:24:03.392+03:00 [s2] [O] SESSION DIO0_TX affected=0/8 episodes=0 avg_all=0.00 avg_affected=0.00 high_polls=0
+2026-09-13T21:24:03.400+03:00 [s2] [O] SESSION RX_POLL polls=11589988 rxdone=9 interval=1000us DIO0_RX false_high_ep=0 high_polls=0 rxdone_low=0 isr=disabled
+2026-09-13T21:24:18.420+03:00 [s1] [O] 
+2026-09-13T21:24:18.423+03:00 [s1] [O] SESSION t=11640s TX ok=8 user=4 echo_req=0 echo_rep=0 hb=0(idle=0) err=0 started=8 RX ok=7 user=4 echo_req=0 echo_rep=0 hb=0 crc=0 hdr=0 bad=0 readerr=0 reports=7 Q=88% drops=0 fatal=0
+2026-09-13T21:24:18.467+03:00 [s1] [O] SESSION COURTESY window=9123ms peer_release=0 expired=0 yielding=0
+2026-09-13T21:24:18.506+03:00 [s1] [O] SESSION DIO0_TX affected=0/8 episodes=0 avg_all=0.00 avg_affected=0.00 high_polls=0
+2026-09-13T21:24:18.556+03:00 [s1] [O] SESSION RX_POLL polls=11590525 rxdone=7 interval=1000us DIO0_RX false_high_ep=0 high_polls=0 rxdone_low=0 isr=disabled
+2026-09-13T21:24:28.786+03:00 [s1] [I] /chat
+2026-09-13T21:24:28.787+03:00 [s2] [I] /chat
+2026-09-13T21:24:28.862+03:00 [s2] [O] [SYS] OUTPUT CHAT
+2026-09-13T21:24:28.904+03:00 [s1] [O] [SYS] OUTPUT CHAT
