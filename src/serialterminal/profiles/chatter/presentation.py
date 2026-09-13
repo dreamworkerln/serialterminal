@@ -53,7 +53,7 @@ class _PendingPresentation:
     sent: bool = False
 
 
-class PresentationTracker:
+class ChatterPresentation:
     """Track submitted payloads separately from the transport retry queue."""
 
     def __init__(self, limit: int = PENDING_PRESENTATION_LIMIT):

@@ -1,7 +1,7 @@
 import pytest
 
-from serialterminal.presentation import (
-    PresentationTracker,
+from serialterminal.profiles.chatter.presentation import (
+    ChatterPresentation,
     recognized_chatter_command,
 )
 
@@ -15,7 +15,7 @@ def test_command_recognition_matches_firmware_boundary_trim():
 
 
 def test_success_marker_resolves_sent_user_payload():
-    tracker = PresentationTracker()
+    tracker = ChatterPresentation()
     assert tracker.submit_payload("hello")
     tracker.mark_sent("hello")
 
@@ -24,7 +24,7 @@ def test_success_marker_resolves_sent_user_payload():
 
 
 def test_echo_success_marker_resolves_sent_payload():
-    tracker = PresentationTracker()
+    tracker = ChatterPresentation()
     assert tracker.submit_payload("hello")
     tracker.mark_sent("hello")
 
@@ -33,7 +33,7 @@ def test_echo_success_marker_resolves_sent_payload():
 
 
 def test_user_payload_that_looks_like_echo_marker_still_resolves():
-    tracker = PresentationTracker()
+    tracker = ChatterPresentation()
     payload = "[ECHO TX] hello"
     assert tracker.submit_payload(payload)
     tracker.mark_sent(payload)
@@ -43,7 +43,7 @@ def test_user_payload_that_looks_like_echo_marker_still_resolves():
 
 
 def test_success_marker_does_not_resolve_unsent_payload():
-    tracker = PresentationTracker()
+    tracker = ChatterPresentation()
     assert tracker.submit_payload("hello")
 
     assert tracker.consume_firmware_line("> hello\n") is None
@@ -51,7 +51,7 @@ def test_success_marker_does_not_resolve_unsent_payload():
 
 
 def test_rejection_reveals_oldest_sent_payload_only():
-    tracker = PresentationTracker()
+    tracker = ChatterPresentation()
     assert tracker.submit_payload("first")
     assert tracker.submit_payload("second")
     assert tracker.submit_payload("third")
@@ -76,7 +76,7 @@ def test_rejection_reveals_oldest_sent_payload_only():
 
 
 def test_unrelated_telemetry_does_not_change_pending_state():
-    tracker = PresentationTracker()
+    tracker = ChatterPresentation()
     assert tracker.submit_payload("hello")
     tracker.mark_sent("hello")
 
@@ -85,7 +85,7 @@ def test_unrelated_telemetry_does_not_change_pending_state():
 
 
 def test_disconnect_reveals_sent_and_preserves_unsent():
-    tracker = PresentationTracker()
+    tracker = ChatterPresentation()
     assert tracker.submit_payload("sent")
     assert tracker.submit_payload("queued")
     tracker.mark_sent("sent")
@@ -99,7 +99,7 @@ def test_disconnect_reveals_sent_and_preserves_unsent():
 
 
 def test_duplicate_payloads_resolve_one_at_a_time():
-    tracker = PresentationTracker()
+    tracker = ChatterPresentation()
     assert tracker.submit_payload("same")
     assert tracker.submit_payload("same")
     tracker.mark_sent("same")
@@ -112,11 +112,11 @@ def test_duplicate_payloads_resolve_one_at_a_time():
 
 
 def test_presentation_queue_is_bounded():
-    tracker = PresentationTracker(limit=2)
+    tracker = ChatterPresentation(limit=2)
     assert tracker.submit_payload("one")
     assert tracker.submit_payload("two")
     assert not tracker.submit_payload("three")
     assert tracker.pending_count() == 2
 
     with pytest.raises(ValueError):
-        PresentationTracker(limit=0)
+        ChatterPresentation(limit=0)

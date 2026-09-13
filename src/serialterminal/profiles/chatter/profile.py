@@ -4,7 +4,6 @@ from collections.abc import Mapping
 from dataclasses import dataclass
 from types import MappingProxyType
 
-from ...presentation import PresentationTracker, recognized_chatter_command
 from ...transports.ble_nus import (
     NUS_CHAT_TX_UUID,
     NUS_RX_UUID,
@@ -17,6 +16,7 @@ from ..base import (
     ReceiveCharacteristic,
     SendLine,
 )
+from .presentation import ChatterPresentation, recognized_chatter_command
 
 
 CHATTER_ECHO_TOGGLE = "\x14e"
@@ -80,7 +80,7 @@ class ChatterProfile:
         return _BLE_CONFIG
 
     def make_presentation(self) -> PresentationAdapter | None:
-        return PresentationTracker()
+        return ChatterPresentation()
 
     def recognized_command(self, line: str) -> str | None:
         return recognized_chatter_command(line)

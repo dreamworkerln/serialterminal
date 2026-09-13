@@ -1,4 +1,3 @@
-from serialterminal.presentation import PresentationTracker
 from serialterminal.profiles import SendLine
 from serialterminal.profiles.chatter import (
     CHATTER_ECHO_TOGGLE,
@@ -7,6 +6,7 @@ from serialterminal.profiles.chatter import (
     CHATTER_OUTPUT_MODE_COMMANDS,
     CHATTER_PROFILE,
 )
+from serialterminal.profiles.chatter.presentation import ChatterPresentation
 from serialterminal.terminal import TerminalSession
 from serialterminal.transports.base import Transport
 from serialterminal.transports.ble_nus import (
@@ -60,7 +60,7 @@ def test_chatter_profile_preserves_current_controller_conveniences():
 
     assert CHATTER_PROFILE.recognized_command("  /reboot  ") == "/reboot"
     assert CHATTER_PROFILE.recognized_command("  /echo x  ") is None
-    assert isinstance(CHATTER_PROFILE.make_presentation(), PresentationTracker)
+    assert isinstance(CHATTER_PROFILE.make_presentation(), ChatterPresentation)
 
 
 def test_chatter_profile_describes_existing_ble_layout():
