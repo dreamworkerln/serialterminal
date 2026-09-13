@@ -22,6 +22,7 @@ ProfileAction: TypeAlias = SendLine | SendBytes
 class ReceiveCharacteristic:
     uuid: str
     stream: str
+    required: bool = True
 
 
 @dataclass(frozen=True)

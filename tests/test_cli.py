@@ -108,6 +108,42 @@ def test_initial_discovery_scanner_hotkey_retries_after_scanner(monkeypatch):
     assert scanner_runs == [True]
 
 
+def test_ble_selector_passes_chatter_profile_layout(monkeypatch):
+    import serialterminal.transports.ble_nus as ble_nus_module
+    from serialterminal.profiles.chatter import CHATTER_PROFILE
+
+    captured = {}
+
+    class FakeBleNusTransport:
+        def __init__(self, identity, **kwargs):
+            captured["identity"] = identity
+            captured.update(kwargs)
+
+    monkeypatch.setattr(
+        ble_nus_module,
+        "BleNusTransport",
+        FakeBleNusTransport,
+    )
+
+    selector = DeviceSelector("ble", scan_seconds=1.25)
+    candidate = _candidate(1)
+    transport = selector.make_transport(candidate)
+    config = CHATTER_PROFILE.ble_config()
+
+    assert isinstance(transport, FakeBleNusTransport)
+    assert config is not None
+    assert captured["identity"] is candidate.identity
+    assert captured["scan_timeout"] == 1.25
+    assert captured["write_characteristic"] == config.write_characteristic
+    assert tuple(
+        (item.uuid, item.stream, item.required)
+        for item in captured["receive_streams"]
+    ) == tuple(
+        (item.uuid, item.stream, item.required)
+        for item in config.receive_streams
+    )
+
+
 def test_agent_subcommand_dispatches_to_jsonl_frontend(monkeypatch, tmp_path):
     import serialterminal.agent as agent_module
 

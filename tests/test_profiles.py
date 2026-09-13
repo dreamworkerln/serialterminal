@@ -67,9 +67,12 @@ def test_chatter_profile_describes_existing_ble_layout():
     config = CHATTER_PROFILE.ble_config()
     assert config is not None
     assert config.write_characteristic == NUS_RX_UUID
-    assert tuple((item.uuid, item.stream) for item in config.receive_streams) == (
-        (NUS_CHAT_TX_UUID, "chat"),
-        (NUS_TELEMETRY_TX_UUID, "telemetry"),
+    assert tuple(
+        (item.uuid, item.stream, item.required)
+        for item in config.receive_streams
+    ) == (
+        (NUS_CHAT_TX_UUID, "chat", True),
+        (NUS_TELEMETRY_TX_UUID, "telemetry", False),
     )
 
 

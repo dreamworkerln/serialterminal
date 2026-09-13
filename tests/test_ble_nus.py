@@ -3,8 +3,11 @@ import asyncio
 from serialterminal.transports import ble_nus
 from serialterminal.transports.ble_nus import (
     BleDeviceIdentity,
+    BleReceiveStream,
     NUS_CHAT_TX_UUID,
+    NUS_RX_UUID,
     NUS_TELEMETRY_TX_UUID,
+    NUS_TX_UUID,
     PINGER_NAME,
     REPEATER_NAME,
     ble_log_slug,
@@ -67,8 +70,8 @@ def _install_fake_ble(monkeypatch):
             self.stop_calls.append(uuid)
             self.notify.pop(uuid, None)
 
-        async def write_gatt_char(self, _uuid, data, response=False):
-            self.writes.append(bytes(data))
+        async def write_gatt_char(self, uuid, data, response=False):
+            self.writes.append((uuid, bytes(data), response))
 
         async def disconnect(self):
             was_connected = self.is_connected
@@ -86,6 +89,22 @@ def _install_fake_ble(monkeypatch):
     return FakeDevice, FakeScanner, FakeClient
 
 
+def _chatter_transport(identity, *, scan_timeout=0.05, connect_timeout=0.05):
+    return ble_nus.BleNusTransport(
+        identity,
+        scan_timeout=scan_timeout,
+        connect_timeout=connect_timeout,
+        receive_streams=(
+            BleReceiveStream(NUS_CHAT_TX_UUID, "chat"),
+            BleReceiveStream(
+                NUS_TELEMETRY_TX_UUID,
+                "telemetry",
+                required=False,
+            ),
+        ),
+    )
+
+
 def test_discovery_preserves_multiple_same_name(monkeypatch):
     FakeDevice, FakeScanner, _ = _install_fake_ble(monkeypatch)
     FakeScanner.devices = [
@@ -101,11 +120,10 @@ def test_discovery_preserves_multiple_same_name(monkeypatch):
     ]
 
 
-def test_ble_transport_streams_and_sticky_reconnect(monkeypatch):
+def test_ble_transport_defaults_to_standard_nus_main_stream(monkeypatch):
     FakeDevice, FakeScanner, FakeClient = _install_fake_ble(monkeypatch)
-    selected = FakeDevice("LoRa-Chatter-72E0", "AA:01")
-    other = FakeDevice("LoRa-Chatter-A193", "AA:02")
-    FakeScanner.devices = [selected, other]
+    selected = FakeDevice("Controller", "AA:01")
+    FakeScanner.devices = [selected]
 
     transport = ble_nus.BleNusTransport(
         BleDeviceIdentity(selected.name, selected.address),
@@ -113,10 +131,38 @@ def test_ble_transport_streams_and_sticky_reconnect(monkeypatch):
         connect_timeout=0.05,
     )
     try:
+        assert transport.stream_capabilities == ("main",)
+        assert transport.connect()
+        assert transport.available_streams == ("main",)
+        assert set(FakeClient.last.notify) == {NUS_TX_UUID}
+
+        FakeClient.last.notify[NUS_TX_UUID](None, bytearray(b"ready\n"))
+        chunk = transport.read_chunk(512)
+        assert (chunk.stream, chunk.data) == ("main", b"ready\n")
+
+        transport.write(b"hello\n")
+        assert FakeClient.last.writes == [
+            (NUS_RX_UUID, b"hello\n", False),
+        ]
+    finally:
+        transport.close()
+
+
+def test_ble_transport_streams_and_sticky_reconnect(monkeypatch):
+    FakeDevice, FakeScanner, FakeClient = _install_fake_ble(monkeypatch)
+    selected = FakeDevice("LoRa-Chatter-72E0", "AA:01")
+    other = FakeDevice("LoRa-Chatter-A193", "AA:02")
+    FakeScanner.devices = [selected, other]
+
+    transport = _chatter_transport(
+        BleDeviceIdentity(selected.name, selected.address),
+    )
+    try:
         assert transport.connect()
         assert transport.is_connected
         assert FakeClient.last.device.address == "AA:01"
-        assert transport.telemetry_available
+        assert transport.stream_capabilities == ("chat", "telemetry")
+        assert transport.available_streams == ("chat", "telemetry")
 
         FakeClient.last.notify[NUS_CHAT_TX_UUID](None, bytearray(b"chat\n"))
         FakeClient.last.notify[NUS_TELEMETRY_TX_UUID](
@@ -129,7 +175,9 @@ def test_ble_transport_streams_and_sticky_reconnect(monkeypatch):
         assert second.data == b"telemetry\n"
 
         transport.write(b"hello\n")
-        assert FakeClient.last.writes == [b"hello\n"]
+        assert FakeClient.last.writes == [
+            (NUS_RX_UUID, b"hello\n", False),
+        ]
 
         transport.disconnect()
         assert not transport.is_connected
@@ -146,21 +194,21 @@ def test_ble_transport_streams_and_sticky_reconnect(monkeypatch):
         transport.close()
 
 
-def test_ble_connect_keeps_primary_when_telemetry_notify_is_missing(monkeypatch):
+def test_ble_connect_keeps_required_stream_when_optional_notify_is_missing(
+    monkeypatch,
+):
     FakeDevice, FakeScanner, FakeClient = _install_fake_ble(monkeypatch)
     selected = FakeDevice("LoRa-Echo", "AA:01")
     FakeScanner.devices = [selected]
     FakeClient.fail_notify_uuids = {NUS_TELEMETRY_TX_UUID}
 
-    transport = ble_nus.BleNusTransport(
+    transport = _chatter_transport(
         BleDeviceIdentity(selected.name, selected.address),
-        scan_timeout=0.05,
-        connect_timeout=0.05,
     )
     try:
         assert transport.connect()
         assert transport.is_connected
-        assert not transport.telemetry_available
+        assert transport.available_streams == ("chat",)
         assert NUS_CHAT_TX_UUID in FakeClient.last.notify
         assert NUS_TELEMETRY_TX_UUID not in FakeClient.last.notify
     finally:
@@ -172,10 +220,8 @@ def test_power_cycle_reconnect_ignores_stale_ble_callbacks(monkeypatch):
     selected = FakeDevice("LoRa-Chatter-72E0", "AA:01")
     FakeScanner.devices = [selected]
 
-    transport = ble_nus.BleNusTransport(
+    transport = _chatter_transport(
         BleDeviceIdentity(selected.name, selected.address),
-        scan_timeout=0.05,
-        connect_timeout=0.05,
     )
     try:
         assert transport.connect()

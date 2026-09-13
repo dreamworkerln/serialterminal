@@ -152,11 +152,23 @@ class DeviceSelector:
             )
 
         if candidate.kind == "ble":
-            from .transports.ble_nus import BleNusTransport
+            from .profiles.chatter import CHATTER_PROFILE
+            from .transports.ble_nus import BleNusTransport, BleReceiveStream
 
+            config = CHATTER_PROFILE.ble_config()
+            if config is None:
+                raise ValueError("Chatter profile has no BLE configuration")
+            # Текущий CLI по-прежнему запускает Chatter compatibility profile;
+            # transport получает layout явно, а не знает про 0004 сам.
+            receive_streams = tuple(
+                BleReceiveStream(item.uuid, item.stream, item.required)
+                for item in config.receive_streams
+            )
             return BleNusTransport(
                 candidate.identity,
                 scan_timeout=self.scan_seconds,
+                write_characteristic=config.write_characteristic,
+                receive_streams=receive_streams,
             )
 
         if candidate.kind == "spp":

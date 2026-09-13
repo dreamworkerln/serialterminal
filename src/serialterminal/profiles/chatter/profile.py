@@ -53,7 +53,13 @@ _BLE_CONFIG = BleProfileConfig(
     write_characteristic=NUS_RX_UUID,
     receive_streams=(
         ReceiveCharacteristic(NUS_CHAT_TX_UUID, "chat"),
-        ReceiveCharacteristic(NUS_TELEMETRY_TX_UUID, "telemetry"),
+        # 0004 опционален: старые совместимые firmware могут иметь только
+        # standard NUS TX, и отсутствие telemetry не должно ронять connection.
+        ReceiveCharacteristic(
+            NUS_TELEMETRY_TX_UUID,
+            "telemetry",
+            required=False,
+        ),
     ),
 )
 

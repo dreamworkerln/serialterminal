@@ -36,6 +36,13 @@ class BleDeviceIdentity:
         return f"ble-address:{self.address.lower()}"
 
 
+@dataclass(frozen=True)
+class BleReceiveStream:
+    uuid: str
+    stream: str
+    required: bool = True
+
+
 def _require_bleak() -> None:
     if BleakClient is None or BleakScanner is None:
         raise TransportError(
@@ -116,6 +123,8 @@ class BleNusTransport(Transport):
         connect_timeout: float = 10.0,
         read_timeout: float = 0.20,
         write_timeout: float = 5.0,
+        write_characteristic: str = NUS_RX_UUID,
+        receive_streams: tuple[BleReceiveStream, ...] | None = None,
     ):
         _require_bleak()
 
@@ -131,16 +140,27 @@ class BleNusTransport(Transport):
             self.target_name = normalized
             self.target_address = None
 
+        configured_streams = (
+            (BleReceiveStream(NUS_TX_UUID, "main"),)
+            if receive_streams is None
+            else tuple(receive_streams)
+        )
+        if not configured_streams:
+            raise ValueError("BLE transport requires at least one receive stream")
+
         self.scan_timeout = scan_timeout
         self.connect_timeout = connect_timeout
         self.read_timeout = read_timeout
         self.write_timeout = write_timeout
+        self.write_characteristic = write_characteristic
+        self.receive_streams = configured_streams
+        self._default_stream = configured_streams[0].stream
 
         self._connected = threading.Event()
         self._state_lock = threading.Lock()
         self._client: Any | None = None
         self._address: str | None = self.target_address
-        self._telemetry_available = False
+        self._available_streams: set[str] = set()
 
         # Some BLE backends can keep an old notification callback alive across
         # an unexpected disconnect/reconnect. Give every connection a unique
@@ -175,17 +195,20 @@ class BleNusTransport(Transport):
 
     @property
     def stream_capabilities(self) -> tuple[str, ...]:
-        return ("chat", "telemetry")
+        return tuple(dict.fromkeys(item.stream for item in self.receive_streams))
 
     @property
-    def telemetry_available(self) -> bool:
-        return self._telemetry_available
+    def available_streams(self) -> tuple[str, ...]:
+        return tuple(
+            stream
+            for stream in self.stream_capabilities
+            if stream in self._available_streams
+        )
 
     @property
     def description(self) -> str:
         address = self._address or self.target_address or "waiting"
-        suffix = " telemetry=on" if self._telemetry_available else " telemetry=off"
-        return f"ble:{self.target_name} {address}{suffix}"
+        return f"ble:{self.target_name} {address}"
 
     def _loop_main(self) -> None:
         loop = asyncio.new_event_loop()
@@ -216,7 +239,7 @@ class BleNusTransport(Transport):
                 return
             self._active_generation = None
             self._connected.clear()
-            self._telemetry_available = False
+            self._available_streams.clear()
 
     def _queue_notify(self, generation: int, stream: str, data: bytearray) -> None:
         if not data:
@@ -228,21 +251,11 @@ class BleNusTransport(Transport):
 
         self._rx_queue.put(ReceivedChunk(stream, bytes(data)))
 
-    def _on_chat_notify(
-        self,
-        generation: int,
-        _characteristic,
-        data: bytearray,
-    ) -> None:
-        self._queue_notify(generation, "chat", data)
-
-    def _on_telemetry_notify(
-        self,
-        generation: int,
-        _characteristic,
-        data: bytearray,
-    ) -> None:
-        self._queue_notify(generation, "telemetry", data)
+    def _notify_callback(self, generation: int, stream: str):
+        return (
+            lambda _characteristic, data, generation=generation, stream=stream:
+                self._queue_notify(generation, stream, data)
+        )
 
     async def _find_target_device(self) -> Any | None:
         devices = await _scan_raw_devices(self.scan_timeout)
@@ -266,9 +279,9 @@ class BleNusTransport(Transport):
         # stop_notify() is best-effort because an abrupt peripheral power loss
         # means the GATT link may already be gone. The generation guard above is
         # still the correctness boundary if the backend retains a stale callback.
-        for uuid in (NUS_CHAT_TX_UUID, NUS_TELEMETRY_TX_UUID):
+        for receive_stream in self.receive_streams:
             try:
-                await client.stop_notify(uuid)
+                await client.stop_notify(receive_stream.uuid)
             except Exception:
                 pass
 
@@ -304,47 +317,36 @@ class BleNusTransport(Transport):
             self._client = client
         return client, generation
 
-    def _chat_notify_callback(self, generation: int):
-        return (
-            lambda characteristic, data, generation=generation:
-                self._on_chat_notify(generation, characteristic, data)
-        )
-
-    def _telemetry_notify_callback(self, generation: int):
-        return (
-            lambda characteristic, data, generation=generation:
-                self._on_telemetry_notify(generation, characteristic, data)
-        )
-
-    async def _connect_primary_async(self, client: Any, generation: int) -> bool:
+    async def _connect_receive_streams_async(
+        self,
+        client: Any,
+        generation: int,
+    ) -> set[str] | None:
         try:
             await client.connect()
-            await client.start_notify(
-                NUS_CHAT_TX_UUID,
-                self._chat_notify_callback(generation),
-            )
-            return True
         except Exception:
-            return False
+            return None
 
-    async def _enable_telemetry_async(self, client: Any, generation: int) -> bool:
-        try:
-            await client.start_notify(
-                NUS_TELEMETRY_TX_UUID,
-                self._telemetry_notify_callback(generation),
-            )
-            return True
-        except Exception:
-            # Echo-era firmware only exposes standard NUS TX (0003). That is
-            # still a valid connection; only Chatter telemetry view is absent.
-            return False
+        available: set[str] = set()
+        for receive_stream in self.receive_streams:
+            try:
+                await client.start_notify(
+                    receive_stream.uuid,
+                    self._notify_callback(generation, receive_stream.stream),
+                )
+            except Exception:
+                if receive_stream.required:
+                    return None
+            else:
+                available.add(receive_stream.stream)
+        return available
 
     def _publish_connected_state(
         self,
         device: Any,
         client: Any,
         generation: int,
-        telemetry_available: bool,
+        available_streams: set[str],
     ) -> bool:
         with self._state_lock:
             if self._client is not client:
@@ -359,7 +361,7 @@ class BleNusTransport(Transport):
                 # Legacy name-only construction becomes sticky after first
                 # unambiguous connection.
                 self.target_address = str(self._address)
-            self._telemetry_available = telemetry_available
+            self._available_streams = set(available_streams)
             self._connected.set()
             return True
 
@@ -376,7 +378,7 @@ class BleNusTransport(Transport):
 
         if current:
             self._connected.clear()
-            self._telemetry_available = False
+            self._available_streams.clear()
 
     async def _fail_connection_async(self, client: Any, generation: int) -> bool:
         await self._cleanup_client_async(client)
@@ -394,15 +396,18 @@ class BleNusTransport(Transport):
             return False
 
         client, generation = self._begin_connection(device)
-        if not await self._connect_primary_async(client, generation):
+        available_streams = await self._connect_receive_streams_async(
+            client,
+            generation,
+        )
+        if available_streams is None:
             return await self._fail_connection_async(client, generation)
 
-        telemetry_available = await self._enable_telemetry_async(client, generation)
         if not self._publish_connected_state(
             device,
             client,
             generation,
-            telemetry_available,
+            available_streams,
         ):
             return await self._fail_connection_async(client, generation)
 
@@ -431,7 +436,7 @@ class BleNusTransport(Transport):
             self._active_generation = None
 
         self._connected.clear()
-        self._telemetry_available = False
+        self._available_streams.clear()
 
         if client is not None:
             await self._cleanup_client_async(client)
@@ -439,7 +444,7 @@ class BleNusTransport(Transport):
     def disconnect(self) -> None:
         if self._loop is None or not self._loop.is_running():
             self._connected.clear()
-            self._telemetry_available = False
+            self._available_streams.clear()
             with self._state_lock:
                 self._client = None
                 self._active_generation = None
@@ -450,7 +455,7 @@ class BleNusTransport(Transport):
             future.result(timeout=5.0)
         except Exception:
             self._connected.clear()
-            self._telemetry_available = False
+            self._available_streams.clear()
             with self._state_lock:
                 self._client = None
                 self._active_generation = None
@@ -469,7 +474,7 @@ class BleNusTransport(Transport):
         except queue.Empty:
             if not self._connected.is_set():
                 raise TransportError(f"{self.target_name} is disconnected")
-            return ReceivedChunk("chat", b"")
+            return ReceivedChunk(self._default_stream, b"")
 
         if len(chunk.data) <= size:
             return chunk
@@ -491,7 +496,11 @@ class BleNusTransport(Transport):
         if client is None or not self._connected.is_set():
             raise TransportError(f"{self.target_name} is disconnected")
 
-        await client.write_gatt_char(NUS_RX_UUID, data, response=False)
+        await client.write_gatt_char(
+            self.write_characteristic,
+            data,
+            response=False,
+        )
 
     def write(self, data: bytes) -> None:
         if not self._connected.is_set():
