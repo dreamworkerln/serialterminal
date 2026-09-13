@@ -20,14 +20,14 @@ commit-node-observation coexistence       IMPLEMENTED
 backlog/incomplete staging support        IMPLEMENTED
 push-failure safe local-ahead retry       IMPLEMENTED
 executor policy + node skill              IMPLEMENTED
-automated CI validation                   PASS / GitHub Actions 34262220113
+automated CI validation                   PASS / GitHub Actions 34263084088
 physical publication validation           OPEN
 ```
 
 Implementation checkpoint:
 
 ```text
-dev@fe6bfaad107bc696a5b33a04aec6488f467fa8af
+dev@4d50eb1aec50bfb4a71d1d8e63f95fbc7a0f436c
 ```
 
 Accepted dependency evidence:
