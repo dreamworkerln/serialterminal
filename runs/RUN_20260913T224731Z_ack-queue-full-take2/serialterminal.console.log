@@ -1,0 +1,164 @@
+2026-09-14T01:47:52.845+03:00 [s1] [O] [SYS] CHATTER NODE LoRa-Chatter-1B44
+2026-09-14T01:47:58.114+03:00 [s2] [O] [SYS] CHATTER NODE LoRa-Chatter-72E0
+2026-09-14T01:48:37.888+03:00 [s1] [I] /both
+2026-09-14T01:48:37.890+03:00 [s2] [I] /both
+2026-09-14T01:48:38.027+03:00 [s2] [O] 
+2026-09-14T01:48:38.028+03:00 [s2] [O] OUTPUT MODE source=2 state=BOTH
+2026-09-14T01:48:38.035+03:00 [s2] [O] [SYS] OUTPUT BOTH
+2026-09-14T01:48:38.068+03:00 [s1] [O] 
+2026-09-14T01:48:38.069+03:00 [s1] [O] OUTPUT MODE source=2 state=BOTH
+2026-09-14T01:48:38.115+03:00 [s1] [O] [SYS] OUTPUT BOTH
+2026-09-14T01:49:07.893+03:00 [s1] [I] /help
+2026-09-14T01:49:07.898+03:00 [s2] [I] /help
+2026-09-14T01:49:07.994+03:00 [s1] [O] 
+2026-09-14T01:49:07.994+03:00 [s1] [O] [SYS] CHATTER HELP
+2026-09-14T01:49:07.995+03:00 [s1] [O] [SYS] CHATTER NODE LoRa-Chatter-1B44
+2026-09-14T01:49:07.998+03:00 [s1] [O] [SYS] CHAT OUTPUT:
+2026-09-14T01:49:08.004+03:00 [s1] [O] [SYS]   > text                       local USER TX confirmed
+2026-09-14T01:49:08.008+03:00 [s1] [O] [SYS]   < [RSSI/SNR Q%] text         USER received from peer
+2026-09-14T01:49:08.038+03:00 [s1] [O] [SYS]   > [ECHO TX] text             local echo TX confirmed
+2026-09-14T01:49:08.041+03:00 [s1] [O] [SYS]   < [ECHO RSSI/SNR Q%] text    matching echo reply received
+2026-09-14T01:49:08.056+03:00 [s1] [O] [SYS]   [ECHO] NO RESPONSE           matching echo reply timed out
+2026-09-14T01:49:08.061+03:00 [s1] [O] [SYS]   delivery retry details       TELEMETRY only
+2026-09-14T01:49:08.068+03:00 [s1] [O] [SYS]   RSSI=dBm, SNR=dB, Q=rolling receive quality %
+2026-09-14T01:49:08.068+03:00 [s1] [O] [SYS] HUMAN CONSOLE MODES:
+2026-09-14T01:49:08.071+03:00 [s1] [O] [SYS]   CHAT       chat + SYSTEM
+2026-09-14T01:49:08.089+03:00 [s1] [O] [SYS]   TELEMETRY  telemetry + SYSTEM
+2026-09-14T01:49:08.093+03:00 [s2] [O] 
+2026-09-14T01:49:08.093+03:00 [s2] [O] [SYS] CHATTER HELP
+2026-09-14T01:49:08.097+03:00 [s2] [O] [SYS] CHATTER NODE LoRa-Chatter-72E0
+2026-09-14T01:49:08.097+03:00 [s2] [O] [SYS] CHAT OUTPUT:
+2026-09-14T01:49:08.103+03:00 [s2] [O] [SYS]   > text                       local USER TX confirmed
+2026-09-14T01:49:08.106+03:00 [s2] [O] [SYS]   < [RSSI/SNR Q%] text         USER received from peer
+2026-09-14T01:49:08.108+03:00 [s2] [O] [SYS]   > [ECHO TX] text             local echo TX confirmed
+2026-09-14T01:49:08.128+03:00 [s1] [O] [SYS]   BOTH       chat + telemetry + SYSTEM
+2026-09-14T01:49:08.138+03:00 [s2] [O] [SYS]   < [ECHO RSSI/SNR Q%] text    matching echo reply received
+2026-09-14T01:49:08.142+03:00 [s2] [O] [SYS]   [ECHO] NO RESPONSE           matching echo reply timed out
+2026-09-14T01:49:08.146+03:00 [s2] [O] [SYS]   delivery retry details       TELEMETRY only
+2026-09-14T01:49:08.147+03:00 [s2] [O] [SYS]   RSSI=dBm, SNR=dB, Q=rolling receive quality %
+2026-09-14T01:49:08.147+03:00 [s2] [O] [SYS] HUMAN CONSOLE MODES:
+2026-09-14T01:49:08.150+03:00 [s2] [O] [SYS]   CHAT       chat + telemetry + SYSTEM
+2026-09-14T01:49:08.175+03:00 [s1] [O] [SYS]   BLE 0004 machine telemetry is independent when subscribed
+2026-09-14T01:49:08.175+03:00 [s1] [O] [SYS]   current=BOTH echo=OFF
+2026-09-14T01:49:08.181+03:00 [s2] [O] [SYS]   BLE 0004 machine telemetry is independent when subscribed
+2026-09-14T01:49:08.185+03:00 [s2] [O] [SYS]   current=BOTH echo=OFF
+2026-09-14T01:49:08.187+03:00 [s2] [O] [SYS] COMMANDS:
+2026-09-14T01:49:08.187+03:00 [s2] [O] [SYS]   /help       show this help
+2026-09-14T01:49:08.219+03:00 [s1] [O] [SYS] COMMANDS:
+2026-09-14T01:49:08.221+03:00 [s1] [O] [SYS]   /help       show this help
+2026-09-14T01:49:08.224+03:00 [s2] [O] [SYS]   /id         show node identity
+2026-09-14T01:49:08.227+03:00 [s2] [O] [SYS]   /chat       human console CHAT
+2026-09-14T01:49:08.230+03:00 [s2] [O] [SYS]   /tele       human console TELEMETRY
+2026-09-14T01:49:08.236+03:00 [s2] [O] [SYS]   /both       human console BOTH
+2026-09-14T01:49:08.236+03:00 [s2] [O] [SYS]   /echo       toggle echo mode
+2026-09-14T01:49:08.237+03:00 [s2] [O] [SYS]   /cancel     stop current USER delivery/retries
+2026-09-14T01:49:08.239+03:00 [s2] [O] [SYS]   /cancel all stop current USER and discard queued USERs
+2026-09-14T01:49:08.242+03:00 [s2] [O] [SYS]   /reboot     reboot ESP32 controller
+2026-09-14T01:49:08.244+03:00 [s2] [O] [SYS] RAW CONTROLS (HEX):
+2026-09-14T01:49:08.264+03:00 [s1] [O] [SYS]   /id         show node identity
+2026-09-14T01:49:08.269+03:00 [s2] [O] [SYS]   14 31=CHAT  14 32=TELEMETRY  14 33=BOTH  14 65=ECHO toggle
+2026-09-14T01:49:08.271+03:00 [s2] [O] [SYS] ANDROID BLE TERMINAL MACROS:
+2026-09-14T01:49:08.273+03:00 [s2] [O] [SYS]   HEX macro, no EOL: 14 31 / 14 32 / 14 33 / 14 65
+2026-09-14T01:49:08.278+03:00 [s2] [O] [SYS]   or TEXT macrhat /tele /both /echo /cancel /cancel all /reboot
+2026-09-14T01:49:08.279+03:00 [s2] [O] [SYS]   Nordic UART human console=0003; machine telemetry=0004 optional
+2026-09-14T01:49:08.282+03:00 [s2] [O] [SYS] BLE CLIENT: machine telemetry 0004 subscribed in background
+2026-09-14T01:49:08.309+03:00 [s1] [O] [SYS]   /chat       human console CHAT
+2026-09-14T01:49:08.353+03:00 [s1] [O] [SYS]   /tele       human console TELEMETRY
+2026-09-14T01:49:08.355+03:00 [s1] [O] [SYS]   /both       human console BOTH
+2026-09-14T01:49:08.404+03:00 [s1] [O] [SYS]   /echo       toggle echo mode
+2026-09-14T01:49:08.445+03:00 [s1] [O] [SYS]   /cancel     stop current USER delivery/retries
+2026-09-14T01:49:08.490+03:00 [s1] [O] [SYS]   /cancel all stop current USER and discard queued USERs
+2026-09-14T01:49:08.537+03:00 [s1] [O] [SYS]   /reboot     reboot ESP32 controller
+2026-09-14T01:49:08.539+03:00 [s1] [O] [SYS] RAW CONTROLS (HEX):
+2026-09-14T01:49:08.623+03:00 [s1] [O] [SYS]   14 31=CHAT  14 32=TELEMETRY  14 [SYS]   Nordic UART human console=0003; machine telemetry=0004 optional
+2026-09-14T01:49:08.671+03:00 [s1] [O] [SYS] BLE CLIENT: machine telemetry 0004 subscribed in background
+2026-09-14T01:49:18.031+03:00 [s1] [O] 
+2026-09-14T01:49:18.036+03:00 [s1] [O] SESSION t=27540s TX ok=52 user=46 echo_req=0 echo_rep=0 hb=0(idle=0) err=0 started=52 RX ok=14 user=6 echo_req=0 echo_rep=0 hb=0 crc=0 hdr=0 bad=6 readerr=0 reports=14 Q=100% drops=0 fatal=0
+2026-09-14T01:49:18.119+03:00 [s1] [O] SESSION COURTESY window=9123ms peer_release=0 expired=0 yielding=0
+2026-09-14T01:49:18.124+03:00 [s1] [O] SESSION DIO0_TX affected=0/52 episodes=0 avg_all=0.00 avg_affected=0.00 high_polls=0
+2026-09-14T01:49:18.169+03:00 [s1] [O] SESSION RX_POLL polls=27354431 rxdone=20 interval=1000us DIO0_RX false_high_ep=0 high_polls=0 rxdone_low=0 isr=disabled
+2026-09-14T01:49:34.952+03:00 [s2] [O] 
+2026-09-14T01:49:34.961+03:00 [s2] [O] SESSION t=1140s TX ok=1 user=0 echo_req=0 echo_rep=0 hb=0(idle=0) err=0 started=1 RX ok=1 user=1 echo_req=0 echo_rep=0 hb=0 crc=0 hdr=0 bad=0 readerr=0 reports=1 Q=100% drops=0 fatal=0
+2026-09-14T01:49:35.009+03:00 [s2] [O] SESSION COURTESY window=9123ms peer_release=0 expired=0 yielding=0
+2026-09-14T01:49:35.046+03:00 [s2] [O] SESSION DIO0_TX affected=0/1 episodes=0 avg_all=0.00 avg_affected=0.00 high_polls=0
+2026-09-14T01:49:35.055+03:00 [s2] [O] SESSION RX_POLL polls=1133316 rxdone=1 interval=1000us DIO0_RX false_high_ep=0 high_polls=0 rxdone_low=0 isr=disabled
+2026-09-14T01:50:17.968+03:00 [s1] [O] 
+2026-09-14T01:50:17.973+03:00 [s1] [O] SESSION t=27600s TX ok=52 user=46 echo_req=0 echo_rep=0 hb=0(idle=0) err=0 started=52 RX ok=14 user=6 echo_req=0 echo_rep=0 hb=0 crc=0 hdr=0 bad=6 readerr=0 reports=14 Q=100% drops=0 fatal=0
+2026-09-14T01:50:18.063+03:00 [s1] [O] SESSION COURTESY window=9123ms peer_release=0 expired=0 yielding=0
+2026-09-14T01:50:18.070+03:00 [s1] [O] SESSION DIO0_TX affected=0/52 episodes=0 avg_all=0.00 avg_affected=0.00 high_polls=0
+2026-09-14T01:50:18.106+03:00 [s1] [O] SESSION RX_POLL polls=27414148 rxdone=20 interval=1000us DIO0_RX false_high_ep=0 high_polls=0 rxdone_low=0 isr=disabled
+2026-09-14T01:50:25.087+03:00 [s1] [I] QFULL_INFLIGHT_20260914T
+2026-09-14T01:50:25.170+03:00 [s1] [O] DELIVERY QUEUED source=2 bytes=24 waiting=1/8 in_flight=0
+2026-09-14T01:50:27.150+03:00 [s1] [O] 
+2026-09-14T01:50:27.152+03:00 [s1] [O] TX USER seq=19 frame=36B user=24B attempt=1/5 OK time=1976 ms
+2026-09-14T01:50:27.155+03:00 [s1] [O] > QFULL_INFLIGHT_20260914T
+2026-09-14T01:50:27.193+03:00 [s1] [O] DELIVERY WAIT_ACK user=EC14/19 attempt=1/5 timeout=1856ms queue=0
+2026-09-14T01:50:28.995+03:00 [s1] [O] DELIVERY ACK TIMEOUT user=EC14/19 attempt=1/5
+2026-09-14T01:50:29.037+03:00 [s1] [O] DELIVERY RETRY user=EC14/19 next_attempt=2/5 in=1863ms
+2026-09-14T01:50:32.912+03:00 [s1] [O] 
+2026-09-14T01:50:32.914+03:00 [s1] [O] TX USER RETRY seq=19 frame=36B user=24B attempt=2/5 OK time=1975 ms
+2026-09-14T01:50:32.917+03:00 [s1] [O] DELIVERY WAIT_ACK user=EC14/19 attempt=2/5 timeout=1856ms queue=0
+2026-09-14T01:50:34.712+03:00 [s1] [O] DELIVERY ACK TIMEOUT user=EC14/19 attempt=2/5
+2026-09-14T01:50:34.720+03:00 [s1] [O] DELIVERY RETRY user=EC14/19 next_attempt=3/5 in=4446ms
+2026-09-14T01:50:41.144+03:00 [s1] [O] 
+2026-09-14T01:50:41.146+03:00 [s1] [O] TX USER RETRY seq=19 frame=36B user=24B attempt=3/5 OK time=1975 ms
+2026-09-14T01:50:41.189+03:00 [s1] [O] DELIVERY WAIT_ACK user=EC14/19 attempt=3/5 timeout=1856ms queue=0
+2026-09-14T01:50:42.994+03:00 [s1] [O] DELIVERY ACK TIMEOUT user=EC14/19 attempt=3/5
+2026-09-14T01:50:42.996+03:00 [s1] [O] DELIVERY RETRY user=EC14/19 next_attempt=4/5 in=5535ms
+2026-09-14T01:50:50.500+03:00 [s1] [O] 
+2026-09-14T01:50:50.505+03:00 [s1] [O] TX USER RETRY seq=19 frame=36B user=24B attempt=4/5 OK time=1976 ms
+2026-09-14T01:50:50.510+03:00 [s1] [O] DELIVERY WAIT_ACK user=EC14/19 attempt=4/5 timeout=1856ms queue=0
+2026-09-14T01:50:52.351+03:00 [s1] [O] DELIVERY ACK TIMEOUT user=EC14/19 attempt=4/5
+2026-09-14T01:50:52.356+03:00 [s1] [O] DELIVERY RETRY user=EC14/19 next_attempt=5/5 in=5053ms
+2026-09-14T01:50:59.415+03:00 [s1] [O] 
+2026-09-14T01:50:59.416+03:00 [s1] [O] TX USER RETRY seq=19 frame=36B user=24B attempt=5/5 OK time=1975 ms
+2026-09-14T01:50:59.421+03:00 [s1] [O] DELIVERY WAIT_ACK user=EC14/19 attempt=5/5 timeout=1856ms queue=0
+2026-09-14T01:51:01.260+03:00 [s1] [O] DELIVERY ACK TIMEOUT user=EC14/19 attempt=5/5
+2026-09-14T01:51:01.264+03:00 [s1] [O] DELIVERY FAILED user=EC14/19 attempts=5/5 elapsed=34104ms queue=0
+2026-09-14T01:51:01.266+03:00 [s1] [O] [SYS] DELIVERY FAILED: no ACK
+2026-09-14T01:51:04.085+03:00 [s1] [I] QFULL_WAIT_01_20260914T
+2026-09-14T01:51:04.085+03:00 [s1] [I] QFULL_WAIT_02_20260914T
+2026-09-14T01:51:04.086+03:00 [s1] [I] QFULL_WAIT_03_20260914T
+2026-09-14T01:51:04.086+03:00 [s1] [I] QFULL_WAIT_04_20260914T
+2026-09-14T01:51:04.089+03:00 [s1] [I] QFULL_WAIT_05_20260914T
+2026-09-14T01:51:04.090+03:00 [s1] [I] QFULL_WAIT_06_20260914T
+2026-09-14T01:51:04.091+03:00 [s1] [I] QFULL_WAIT_07_20260914T
+2026-09-14T01:51:04.091+03:00 [s1] [I] QFULL_WAIT_08_20260914T
+2026-09-14T01:51:04.140+03:00 [s1] [O] DELIVERY QUEUED source=2 bytes=23 waiting=1/8 in_flight=0
+2026-09-14T01:51:05.982+03:00 [s1] [O] 
+2026-09-14T01:51:05.984+03:00 [s1] [O] TX USER seq=20 frame=35B user=23B attempt=1/5 OK time=1812 ms
+2026-09-14T01:51:05.989+03:00 [s1] [O] > QFULL_WAIT_01_20260914T
+2026-09-14T01:51:05.991+03:00 [s1] [O] DELIVERY WAIT_ACK user=EC14/20 attempt=1/5 timeout=1856ms queue=0
+2026-09-14T01:51:05.993+03:00 [s1] [O] 
+2026-09-14T01:51:05.994+03:00 [s1] [O] INPUT QUEUE FULL dropped=3
+2026-09-14T01:51:06.076+03:00 [s1] [O] DELIVERY QUEUED source=2 bytes=23 waiting=1/8 in_flight=1
+2026-09-14T01:51:06.079+03:00 [s1] [O] DELIVERY QUEUED source=2 bytes=23 waiting=2/8 in_flight=1
+2026-09-14T01:51:06.082+03:00 [s1] [O] DELIVERY QUEUED source=2 bytes=23 waiting=3/8 in_flight=1
+2026-09-14T01:51:06.084+03:00 [s1] [O] DELIVERY QUEUED source=2 bytes=23 waiting=4/8 in_flight=1
+2026-09-14T01:51:07.923+03:00 [s1] [O] DELIVERY ACK TIMEOUT user=EC14/20 attempt=1/5
+2026-09-14T01:51:07.927+03:00 [s1] [O] DELIVERY RETRY user=EC14/20 next_attempt=2/5 in=907ms
+2026-09-14T01:51:10.527+03:00 [s1] [O] 
+2026-09-14T01:51:10.529+03:00 [s1] [O] TX USER RETRY seq=20 frame=35B user=23B attempt=2/5 OK time=1812 ms
+2026-09-14T01:51:10.574+03:00 [s1] [O] DELIVERY WAIT_ACK user=EC14/20 attempt=2/5 timeout=1856ms queue=4
+2026-09-14T01:51:12.419+03:00 [s1] [O] DELIVERY ACK TIMEOUT user=EC14/20 attempt=2/5
+2026-09-14T01:51:12.423+03:00 [s1] [O] DELIVERY RETRY user=EC14/20 next_attempt=3/5 in=2698ms
+2026-09-14T01:51:16.921+03:00 [s1] [O] 
+2026-09-14T01:51:16.924+03:00 [s1] [O] TX USER RETRY seq=20 frame=35B user=23B attempt=3/5 OK time=1812 ms
+2026-09-14T01:51:16.928+03:00 [s1] [O] DELIVERY WAIT_ACK user=EC14/20 attempt=3/5 timeout=1856ms queue=4
+2026-09-14T01:51:17.952+03:00 [s1] [O] 
+2026-09-14T01:51:17.998+03:00 [s1] [O] SESSION t=27660s TX ok=60 user=54 echo_req=0 echo_rep=0 hb=0(idle=0) err=0 started=60 RX ok=14 user=6 echo_req=0 echo_rep=0 hb=0 crc=0 hdr=0 bad=6 readerr=0 reports=14 Q=100% drops=3 fatal=0
+2026-09-14T01:51:18.009+03:00 [s1] [O] SESSION COURTESY window=9123ms peer_release=0 expired=0 yielding=0
+2026-09-14T01:51:18.048+03:00 [s1] [O] SESSION DIO0_TX affected=0/60 episodes=0 avg_all=0.00 avg_affected=0.00 high_polls=0
+2026-09-14T01:51:18.177+03:00 [s1] [O] SESSION RX_POLL polls=27457796 rxdone=20 interval=1000us DIO0_RX false_high_ep=0 high_polls=0 rxdone_low=0 isr=disabled
+2026-09-14T01:51:18.764+03:00 [s1] [O] DELIVERY ACK TIMEOUT user=EC14/20 attempt=3/5
+2026-09-14T01:51:18.766+03:00 [s1] [O] DELIVERY RETRY user=EC14/20 next_attempt=4/5 in=3734ms
+2026-09-14T01:51:24.297+03:00 [s1] [O] 
+2026-09-14T01:51:24.389+03:00 [s1] [O] TX USER RETRY seq=20 frame=35B user=23B attempt=4/5 OK time=1812 ms
+2026-09-14T01:51:24.438+03:00 [s1] [O] DELIVERY WAIT_ACK user=EC14/20 attempt=4/5 timeout=1856ms queue=4
+2026-09-14T01:51:26.144+03:00 [s1] [O] DELIVERY ACK TIMEOUT user=EC14/20 attempt=4/5
+2026-09-14T01:51:26.190+03:00 [s1] [O] DELIVERY RETRY user=EC14/20 next_attempt=5/5 in=10401ms
+2026-09-14T01:51:29.119+03:00 [s1] [I] /cancel all
+2026-09-14T01:51:29.120+03:00 [s1] [I] /chat
+2026-09-14T01:51:29.206+03:00 [s1] [O] DELIVERY CANCEL user=EC14/20 attempts=4 status=unknown queue_removed=4
+2026-09-14T01:51:29.210+03:00 [s1] [O] [SYS] DELIVERY CANCELLED: status unknown; queue cleared
+2026-09-14T01:51:29.212+03:00 [s1] [O] [SYS] OUTPUT CHAT
