@@ -62,6 +62,9 @@ class TerminalProfile(Protocol):
     def human_actions(self) -> Mapping[str, ProfileAction]:
         ...
 
+    def human_help_lines(self) -> tuple[str, ...]:
+        ...
+
     def device_help_action(self) -> ProfileAction | None:
         ...
 

@@ -5,6 +5,13 @@ import sys
 from dataclasses import dataclass
 from typing import Any
 
+from .profiles import (
+    GENERIC_PROFILE,
+    PROFILE_NAMES,
+    TerminalProfile,
+    resolve_profile,
+)
+from .profiles.chatter import CHATTER_PROFILE
 from .runlog import default_log_path
 from .startup_controls import InitialControlReader
 from .terminal import TerminalSession
@@ -33,12 +40,14 @@ class DeviceSelector:
         scope: str,
         baud: int = 115200,
         scan_seconds: float = 3.0,
+        profile: TerminalProfile = CHATTER_PROFILE,
     ):
         if scope not in {"auto", "serial", "ble", "spp"}:
             raise ValueError(f"unknown device selector scope: {scope}")
         self.scope = scope
         self.baud = baud
         self.scan_seconds = scan_seconds
+        self.profile = profile
 
     @staticmethod
     def _serial_candidate(item: SerialDeviceIdentity) -> DeviceCandidate:
@@ -152,14 +161,13 @@ class DeviceSelector:
             )
 
         if candidate.kind == "ble":
-            from .profiles.chatter import CHATTER_PROFILE
             from .transports.ble_nus import BleNusTransport, BleReceiveStream
 
-            config = CHATTER_PROFILE.ble_config()
+            config = self.profile.ble_config()
             if config is None:
-                raise ValueError("Chatter profile has no BLE configuration")
-            # Текущий CLI по-прежнему запускает Chatter compatibility profile;
-            # transport получает layout явно, а не знает про 0004 сам.
+                raise ValueError(
+                    f"profile {self.profile.name!r} has no BLE configuration"
+                )
             receive_streams = tuple(
                 BleReceiveStream(item.uuid, item.stream, item.required)
                 for item in config.receive_streams
@@ -367,6 +375,15 @@ class DeviceSelector:
         return self.make_transport(selected)
 
 
+def _add_profile_argument(parser: argparse.ArgumentParser) -> None:
+    parser.add_argument(
+        "--profile",
+        choices=PROFILE_NAMES,
+        default="generic",
+        help="controller convenience profile; default: generic",
+    )
+
+
 def _serial_parser(prog: str) -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(
         prog=prog,
@@ -391,6 +408,7 @@ def _serial_parser(prog: str) -> argparse.ArgumentParser:
         choices=("lf", "crlf", "cr"),
         default="lf",
     )
+    _add_profile_argument(parser)
     return parser
 
 
@@ -418,6 +436,7 @@ def _ble_parser(prog: str) -> argparse.ArgumentParser:
         type=float,
         default=3.0,
     )
+    _add_profile_argument(parser)
     return parser
 
 
@@ -437,6 +456,7 @@ def _spp_parser(prog: str) -> argparse.ArgumentParser:
         type=float,
         default=3.0,
     )
+    _add_profile_argument(parser)
     return parser
 
 
@@ -518,6 +538,7 @@ def _auto_parser(prog: str) -> argparse.ArgumentParser:
         action="store_true",
         help="List visible terminal-capable devices and exit",
     )
+    _add_profile_argument(parser)
     return parser
 
 
@@ -532,6 +553,7 @@ def _run_session(
     eol: str,
     selector: DeviceSelector,
     reconnect_delay: float = 0.5,
+    profile: TerminalProfile = GENERIC_PROFILE,
 ) -> int:
     actual_log_path = str(default_log_path()) if log_path is None else log_path
     print(f"Locked target: {transport.description}")
@@ -546,12 +568,14 @@ def _run_session(
         line_ending=_line_ending(eol),
         reconnect_delay=reconnect_delay,
         device_chooser=selector.choose_transport_menu,
+        profile=profile,
     ).run()
     return 0
 
 
 def _run_serial(argv: list[str], prog: str) -> int:
     args = _serial_parser(prog).parse_args(argv)
+    profile = resolve_profile(args.profile)
 
     if args.list:
         devices = discover_serial_devices()
@@ -562,7 +586,7 @@ def _run_serial(argv: list[str], prog: str) -> int:
             print(f"{index}. {item.path}  {item.description}")
         return 0
 
-    selector = DeviceSelector("serial", baud=args.baud)
+    selector = DeviceSelector("serial", baud=args.baud, profile=profile)
     if args.device is not None:
         transport = SerialTransport(
             device=args.device,
@@ -576,12 +600,14 @@ def _run_serial(argv: list[str], prog: str) -> int:
         log_path=args.log,
         eol=args.eol,
         selector=selector,
+        profile=profile,
     )
 
 
 def _run_ble(argv: list[str], prog: str) -> int:
     parser = _ble_parser(prog)
     args = parser.parse_args(argv)
+    profile = resolve_profile(args.profile)
 
     try:
         from .transports.ble_nus import normalize_ble_target
@@ -596,6 +622,7 @@ def _run_ble(argv: list[str], prog: str) -> int:
     selector = DeviceSelector(
         "ble",
         scan_seconds=args.scan_seconds,
+        profile=profile,
     )
     try:
         candidate = selector.choose_initial(name_filter=name_filter)
@@ -609,15 +636,18 @@ def _run_ble(argv: list[str], prog: str) -> int:
         eol=args.eol,
         selector=selector,
         reconnect_delay=1.0,
+        profile=profile,
     )
 
 
 def _run_spp(argv: list[str], prog: str) -> int:
     parser = _spp_parser(prog)
     args = parser.parse_args(argv)
+    profile = resolve_profile(args.profile)
     selector = DeviceSelector(
         "spp",
         scan_seconds=args.scan_seconds,
+        profile=profile,
     )
 
     try:
@@ -632,6 +662,7 @@ def _run_spp(argv: list[str], prog: str) -> int:
         eol=args.eol,
         selector=selector,
         reconnect_delay=1.0,
+        profile=profile,
     )
 
 
@@ -690,9 +721,14 @@ def _run_agent(argv: list[str], prog: str) -> int:
 
 def _run_auto(argv: list[str], prog: str) -> int:
     args = _auto_parser(prog).parse_args(argv)
+    profile = resolve_profile(args.profile)
 
     if args.device is not None:
-        selector = DeviceSelector("serial", baud=args.baud)
+        selector = DeviceSelector(
+            "serial",
+            baud=args.baud,
+            profile=profile,
+        )
         return _run_session(
             SerialTransport(
                 device=args.device,
@@ -701,12 +737,14 @@ def _run_auto(argv: list[str], prog: str) -> int:
             log_path=args.log,
             eol=args.eol,
             selector=selector,
+            profile=profile,
         )
 
     selector = DeviceSelector(
         "auto",
         baud=args.baud,
         scan_seconds=args.scan_seconds,
+        profile=profile,
     )
 
     if args.list:
@@ -723,6 +761,7 @@ def _run_auto(argv: list[str], prog: str) -> int:
         log_path=args.log,
         eol=args.eol,
         selector=selector,
+        profile=profile,
     )
 
 

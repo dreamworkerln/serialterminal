@@ -252,7 +252,7 @@ class TerminalSession(ManagedSession):
             if command == self.profile.device_help_command:
                 self._show_full_help()
             elif not self.send_line(line):
-                self.write_output("[Chatter command was not queued]\n")
+                self.write_output("[serialterminal] command was not queued\n")
             return
 
         if line == "":
@@ -319,38 +319,39 @@ class TerminalSession(ManagedSession):
         streams = ", ".join(transport.stream_capabilities)
         self.write_output(
             "\n[status]\n"
+            f"  profile   : {self.profile.name}\n"
             f"  connected : {'yes' if self.connected_event.is_set() else 'no'}\n"
             f"  device    : {transport.description}\n"
             f"  device key: {transport.device_key}\n"
             f"  streams   : {streams}\n"
-            "  telemetry : BLE 0004 is background/transcript-only\n"
             "\n"
         )
 
     def _print_hotkey_help(self) -> None:
-        self.write_output(
-            "\n[serialterminal hotkeys]\n"
-            "  BLE 0004 telemetry is background/transcript-only; normal console follows 0003\n"
-            "  /chat /tele /both /echo /reboot are sent unchanged to Chatter\n"
-            "  /id requests the canonical Chatter node identity\n"
-            "  /help shows this list and requests Chatter /help\n"
-            "  Ctrl+C       quit immediately\n"
-            "  Ctrl+T 1/c   Chatter human console: CHAT\n"
-            "  Ctrl+T 2/t   Chatter human console: TELEMETRY\n"
-            "  Ctrl+T 3/b   Chatter human console: BOTH\n"
-            "  Ctrl+T e     Chatter echo mode toggle\n"
-            "  Ctrl+T d     device chooser\n"
-            "  Ctrl+T s     Bluetooth capability scanner\n"
-            "  Ctrl+T i     connection/status\n"
-            "  Ctrl+T ?     full help (this list + Chatter /help)\n"
-            "\n"
+        lines = [
+            "\n[serialterminal hotkeys]",
+            f"  profile       {self.profile.name}",
+        ]
+        lines.extend(f"  {line}" for line in self.profile.human_help_lines())
+        lines.extend(
+            (
+                "  Ctrl+C       quit immediately",
+                "  Ctrl+T d     device chooser",
+                "  Ctrl+T s     Bluetooth capability scanner",
+                "  Ctrl+T i     connection/status",
+            )
         )
+        if self.profile.device_help_action() is None:
+            lines.append("  Ctrl+T ?     SerialTerminal help")
+        else:
+            lines.append("  Ctrl+T ?     SerialTerminal help + device help")
+        self.write_output("\n".join(lines) + "\n\n")
 
     def _show_full_help(self) -> None:
         self._print_hotkey_help()
         action = self.profile.device_help_action()
         if action is not None and not self._queue_profile_action(action):
-            self.write_output("[Chatter help request was not queued]\n\n")
+            self.write_output("[serialterminal] device help request was not queued\n\n")
 
     def _change_device(self) -> None:
         if self.device_chooser is None:
@@ -440,9 +441,10 @@ class TerminalSession(ManagedSession):
         self.start()
 
         self.write_output("serialterminal\n")
-        self.write_output("Type /help or press Ctrl+T ? for full help.\n")
+        self.write_output(f"Profile: {self.profile.name}\n")
+        self.write_output("Press Ctrl+T ? for SerialTerminal help.\n")
         self.write_output("Ctrl+C exits immediately.\n")
-        self.write_output("Commands are sent only after Enter and survive reconnects.\n")
+        self.write_output("Input is sent only after Enter and survives reconnects.\n")
         self.write_output(f"Log: {self.log_path}\n\n")
 
         prompt = self._make_prompt_session()

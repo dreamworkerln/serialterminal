@@ -49,6 +49,17 @@ _HUMAN_HOTKEYS = (
     ("b", "output_both"),
     ("e", "echo"),
 )
+_HUMAN_HELP_LINES = (
+    "BLE 0004 telemetry is background/transcript-only; normal console follows 0003",
+    "/chat /tele /both /echo /reboot are sent unchanged to Chatter",
+    "/id requests the canonical Chatter node identity",
+    "/help shows this list and requests Chatter /help",
+    "Ctrl+T 1/c   Chatter human console: CHAT",
+    "Ctrl+T 2/t   Chatter human console: TELEMETRY",
+    "Ctrl+T 3/b   Chatter human console: BOTH",
+    "Ctrl+T e     Chatter echo mode toggle",
+    "Ctrl+T ?     full help (this list + Chatter /help)",
+)
 _BLE_CONFIG = BleProfileConfig(
     write_characteristic=NUS_RX_UUID,
     receive_streams=(
@@ -78,6 +89,9 @@ class ChatterProfile:
 
     def human_actions(self) -> Mapping[str, ProfileAction]:
         return _HUMAN_ACTIONS
+
+    def human_help_lines(self) -> tuple[str, ...]:
+        return _HUMAN_HELP_LINES
 
     def device_help_action(self) -> ProfileAction | None:
         return SendLine(CHATTER_HELP_COMMAND)
