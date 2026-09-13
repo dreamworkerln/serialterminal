@@ -4,50 +4,7 @@ This file is the authoritative current-state index for engineering TODOs in this
 
 ## Active
 
-### TODO_004 — `todos/TODO_004_NODE_RUN_BUNDLES.md`
-
-Status: IMPLEMENTED / physical validation OPEN
-
-Goal: automate complete hardware-run publication so a reviewer can fetch the concise observation when present, curated executor report, exact SerialTerminal forensic log, and human-console companion log directly from GitHub without operator copy/paste.
-
-Current state:
-
-```text
-accepted observe+console dependency       PASS / dev@e6c025805d39c95b959272cb8a9d8c74ddc6eb23
-run-bundle schema/storage model           IMPLEMENTED
-commit-node-run guarded publisher         IMPLEMENTED
-commit-node-observation coexistence       IMPLEMENTED
-backlog/incomplete staging support        IMPLEMENTED
-push-failure safe local-ahead retry       IMPLEMENTED
-executor policy + node skill              IMPLEMENTED
-automated CI validation                   PASS / GitHub Actions 34263084088
-physical publication validation           OPEN
-```
-
-Implementation checkpoint:
-
-```text
-dev@4d50eb1aec50bfb4a71d1d8e63f95fbc7a0f436c
-```
-
-Accepted dependency evidence:
-
-```text
-SerialTerminal dev@e6c025805d39c95b959272cb8a9d8c74ddc6eb23
-GitHub Actions 33969326449 SUCCESS
-node_observations@d57640bd4c2cc1b871e0c5012aae41ef985dacd9
-OBS_20260905T161000Z_bidirectional-user-smoke.md PASS
-```
-
-Remaining gate:
-
-```text
-real hardware executor run
-    -> create complete RUN bundle
-    -> publish through commit-node-run
-    -> independent ls-remote verification
-    -> reviewer can inspect from GitHub alone
-```
+No active TODOs.
 
 ## Post-closure validation history
 
@@ -65,6 +22,61 @@ simultaneous-LoRa peer delivery               NOT CLAIMED without peer RX/teleme
 The active project-specific node/hardware guidance is `.agents/skills/node-agent/SKILL.md`. It is intentionally stored in `serialterminal` so it does not disappear when a different `lora-sack-protocol` branch/worktree is selected. `AGENT_API.md` remains the canonical generic SerialTerminal JSONL contract.
 
 ## Closed
+
+### TODO_004 — `todos/TODO_004_NODE_RUN_BUNDLES.md`
+
+Status: CLOSED
+
+Goal: automate complete hardware-run publication so a reviewer can fetch the concise observation when present, curated executor report, exact SerialTerminal forensic log, and human-console companion log directly from GitHub without operator copy/paste.
+
+Current state:
+
+```text
+accepted observe+console dependency       PASS / dev@e6c025805d39c95b959272cb8a9d8c74ddc6eb23
+run-bundle schema/storage model           CLOSED
+commit-node-run guarded publisher         CLOSED
+commit-node-observation coexistence       CLOSED
+backlog/incomplete staging support        CLOSED
+push-failure safe local-ahead retry       CLOSED
+executor policy + node skill              CLOSED
+automated CI validation                   PASS / GitHub Actions 34263084088
+physical RUN + OBS publication            PASS / node_observations@f5020fd63e3cfdcf45244ff2dd6b0d86b963d7a0
+physical RUN-only publication             PASS / node_observations@b22ee446d96e9fa9047d52f4d309830fca688893
+independent remote verification           PASS
+GitHub-only reviewer inspection           PASS
+```
+
+Exact checkpoints:
+
+```text
+Implementation/static-analysis:
+  dev@4d50eb1aec50bfb4a71d1d8e63f95fbc7a0f436c
+  GitHub Actions 34263084088 SUCCESS
+  Compile PASS
+  Ruff PASS
+  Tests 106 passed
+  Lizard NON-BLOCKING / exit 1 / 13 threshold warnings
+  TODO_004 publication scripts add 0 warnings
+
+Recorded-observation hardware publication:
+  SerialTerminal dev@c9c6d4099c3532494bac8bfecb9fead37e27fe1e
+  node_observations@f5020fd63e3cfdcf45244ff2dd6b0d86b963d7a0
+  runs/RUN_20260913T152239Z_todo004-bidirectional-publication-smoke/
+  observations/OBS_20260913T152239Z_todo004-bidirectional-publication-smoke.md
+  result INCONCLUSIVE; publication path PASS and independently remote-verified
+
+RUN-only hardware publication:
+  SerialTerminal dev@c9c6d4099c3532494bac8bfecb9fead37e27fe1e
+  node_observations@b22ee446d96e9fa9047d52f4d309830fca688893
+  runs/RUN_20260913T182004Z_post-reboot-bidirectional-smoke/
+  result PASS; A->B PASS; B->A PASS; BLE stability PASS
+  observation.state=not-required
+  independently remote-verified
+```
+
+The recorded-observation run preserved an `INCONCLUSIVE` hardware verdict caused by BLE disconnect/reconnect instead of rewriting the evidence. That environmental anomaly did not block TODO_004 closure because the publication workflow itself succeeded and the later RUN-only post-reboot hardware smoke completed cleanly. A reviewer subsequently fetched the canonical manifest, curated report, forensic log and console log directly from the published GitHub run bundle.
+
+Remaining follow-ups: none in TODO_004. Future hardware evidence continues under `NODE_OBSERVATION_RECORDING_POLICY.md` and `.agents/skills/node-agent/SKILL.md`.
 
 ### TODO_003 — `todos/TODO_003_AGENT_CODE_QUALITY.md`
 
