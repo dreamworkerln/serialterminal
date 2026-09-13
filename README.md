@@ -246,7 +246,7 @@ SHOW_ALL_BLE_DEVICES = False
 
 После выбора reconnect идёт только к той же physical identity. Сменить target можно через `Ctrl+T d`.
 
-Discovery/scanner всё ещё сохраняет некоторые LoRa/Chatter compatibility hints и capability labels. Profile selection не меняет physical identity и sticky reconnect semantics.
+Discovery всё ещё сохраняет `LoRa-*` compatibility hint. Его дальнейшая изоляция от generic BLE transport — отдельный compatibility slice и не меняет physical identity/sticky reconnect semantics.
 
 ## Human hotkeys
 
@@ -441,7 +441,7 @@ Bluetooth scanner
 
 На время scanner текущий transport отключается и reconnect ставится на паузу. После выхода terminal снова пытается подключиться к тому же sticky target. Набранная, но ещё не отправленная строка сохраняется.
 
-BLE scanner ищет standard NUS RX `0002` / TX `0003` и по текущему compatibility behavior отдельно отмечает optional `0004` telemetry capability. Scanner/discovery cleanup от оставшихся Chatter-specific labels является отдельной архитектурной работой и не меняет profile/session core.
+BLE scanner активно подтверждает только standard NUS compatibility: наличие RX `0002` и TX `0003`. Он не классифицирует Chatter `0004` и не хранит generic `CHAT`/`TELEMETRY` capabilities; optional `0004` остаётся runtime concern профиля `chatter` при реальном open.
 
 Classic scanner делает BR/EDR discovery через BlueZ (`bluetoothctl`, fallback `hcitool`), SDP browse через `sdptool` и ищет Serial Port Profile / UUID `0x1101` и RFCOMM channel.
 
@@ -455,7 +455,7 @@ Scanner сохраняет результаты в:
 
 или под `$XDG_CACHE_HOME`.
 
-Cache хранит capability state, время probe, имя/address, NUS streams и RFCOMM channel. Обычный chooser использует подтверждённые capabilities.
+Cache хранит NUS/SPP capability state, время probe, имя/address и RFCOMM channel. Обычный chooser использует подтверждённые capabilities.
 
 ## Sticky identity
 
