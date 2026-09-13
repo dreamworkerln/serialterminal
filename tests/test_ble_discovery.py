@@ -1,6 +1,5 @@
 from serialterminal import ble_discovery
 from serialterminal.device_cache import update_cached_device
-from serialterminal.profiles.chatter import CHATTER_TELEMETRY_TX_UUID
 from serialterminal.transports import ble_nus
 
 
@@ -55,7 +54,6 @@ class Client:
                 [
                     ble_nus.NUS_RX_UUID,
                     ble_nus.NUS_TX_UUID,
-                    CHATTER_TELEMETRY_TX_UUID,
                 ],
             )
         ]
@@ -119,8 +117,35 @@ def test_probe_nus_resolves_device_fresh(monkeypatch):
     assert Client.last_device is fresh
     assert Client.last_device is not stale
     assert result.nus is True
-    assert result.chat is True
-    assert result.telemetry is True
+    assert result.error is None
+
+
+def test_probe_requires_both_standard_nus_characteristics(monkeypatch):
+    class RxOnlyClient(Client):
+        def __init__(self, device, timeout=8.0):
+            super().__init__(device, timeout=timeout)
+            self.services = [
+                Service(
+                    ble_discovery.NUS_SERVICE_UUID,
+                    [ble_nus.NUS_RX_UUID],
+                )
+            ]
+
+    device = Dev("Any", "AA:07")
+    Scanner.devices = [device]
+    Scanner.find_calls = []
+
+    monkeypatch.setattr(ble_nus, "BleakScanner", Scanner)
+    monkeypatch.setattr(ble_nus, "BleakClient", RxOnlyClient)
+    item = ble_discovery.BleDiscoveryItem(
+        ble_nus.BleDeviceIdentity("Any", "AA:07"),
+    )
+
+    result = ble_discovery.probe_ble_nus(item, 0.1)
+
+    assert result.status == "ok"
+    assert result.nus is False
+    assert result.error is None
 
 
 def test_probe_missing_device_is_unknown_without_stale_bluez_path(monkeypatch):

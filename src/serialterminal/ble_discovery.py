@@ -5,7 +5,6 @@ from dataclasses import dataclass, field
 from typing import Any, Iterable
 
 from .device_cache import capability_confirmed, get_cached_device
-from .profiles.chatter import CHATTER_TELEMETRY_TX_UUID
 from .transports import ble_nus
 from .transports.ble_nus import (
     BleDeviceIdentity,
@@ -34,8 +33,6 @@ class BleDiscoveryItem:
 class BleProbeResult:
     status: str
     nus: bool | None
-    chat: bool | None
-    telemetry: bool | None
     error: str | None = None
 
 
@@ -195,7 +192,7 @@ async def probe_ble_nus_async(
     item: BleDiscoveryItem,
     timeout: float,
 ) -> BleProbeResult:
-    """Actively connect and inspect GATT capabilities of one BLE device."""
+    """Активно подключиться и проверить standard NUS capability BLE-устройства."""
     ble_nus._require_bleak()
 
     try:
@@ -211,12 +208,10 @@ async def probe_ble_nus_async(
             return BleProbeResult(
                 "unknown",
                 None,
-                None,
-                None,
                 f"device {item.identity.address} is not visible now",
             )
     except Exception as exc:
-        return BleProbeResult("unknown", None, None, None, str(exc))
+        return BleProbeResult("unknown", None, str(exc))
 
     client = ble_nus.BleakClient(fresh_device, timeout=timeout)
 
@@ -228,18 +223,16 @@ async def probe_ble_nus_async(
 
         _service_uuids, characteristic_uuids = _collect_gatt_uuids(services)
         rx = _normalize_uuid(NUS_RX_UUID) in characteristic_uuids
-        chat = _normalize_uuid(NUS_TX_UUID) in characteristic_uuids
-        telemetry = (
-            _normalize_uuid(CHATTER_TELEMETRY_TX_UUID) in characteristic_uuids
-        )
+        tx = _normalize_uuid(NUS_TX_UUID) in characteristic_uuids
 
-        # RX+CHAT is the actual terminal compatibility boundary. A few bridges
-        # expose NUS-compatible characteristics below a vendor service UUID.
-        nus = rx and chat
-        return BleProbeResult("ok", nus, chat, telemetry)
+        # Для generic NUS terminal нужны обе standard characteristics:
+        # host->device RX и device->host TX. Vendor-specific extensions сюда
+        # намеренно не входят.
+        nus = rx and tx
+        return BleProbeResult("ok", nus)
     except Exception as exc:
         # Timeout/refusal/authentication is UNKNOWN, not proof of capability NO.
-        return BleProbeResult("unknown", None, None, None, str(exc))
+        return BleProbeResult("unknown", None, str(exc))
     finally:
         try:
             await client.disconnect()

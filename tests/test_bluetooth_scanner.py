@@ -5,11 +5,12 @@ from serialterminal import ble_discovery, bluetooth_scanner
 from serialterminal.transports.ble_nus import BleDeviceIdentity
 
 
-def test_ble_scanner_uses_one_asyncio_loop(monkeypatch):
+def test_ble_scanner_uses_one_asyncio_loop(monkeypatch, capsys):
     item = ble_discovery.BleDiscoveryItem(
         BleDeviceIdentity("LoRa-Test", "AA:BB:CC:DD:EE:01")
     )
     loops = []
+    cached = []
 
     async def fake_scan(timeout):
         loops.append(asyncio.get_running_loop())
@@ -21,8 +22,6 @@ def test_ble_scanner_uses_one_asyncio_loop(monkeypatch):
         return ble_discovery.BleProbeResult(
             status="ok",
             nus=True,
-            chat=True,
-            telemetry=True,
         )
 
     monkeypatch.setattr(
@@ -38,18 +37,23 @@ def test_ble_scanner_uses_one_asyncio_loop(monkeypatch):
     monkeypatch.setattr(
         bluetooth_scanner,
         "update_cached_device",
-        lambda **kwargs: None,
+        lambda **kwargs: cached.append(kwargs),
     )
 
     result = bluetooth_scanner.scan_ble(
         scan_seconds=0.01,
         probe_timeout=0.01,
     )
+    output = capsys.readouterr().out
 
     assert result.ble_total == 1
     assert result.ble_nus == 1
     assert len(loops) == 2
     assert loops[0] is loops[1]
+    assert "NUS=YES" in output
+    assert "CHAT=" not in output
+    assert "TELEMETRY=" not in output
+    assert cached[0]["capabilities"] == {"nus": True}
 
 
 def test_scanner_all_separates_ble_and_spp_phases(monkeypatch, capsys):

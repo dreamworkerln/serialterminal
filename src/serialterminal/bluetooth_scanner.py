@@ -50,11 +50,7 @@ async def _scan_ble_async(
             f"{identity.name}  {identity.address}"
         )
         result = await probe_ble_nus_async(item, probe_timeout)
-        print(
-            f"      NUS={_yn(result.nus)}  "
-            f"CHAT={_yn(result.chat)}  "
-            f"TELEMETRY={_yn(result.telemetry)}"
-        )
+        print(f"      NUS={_yn(result.nus)}")
         if result.error:
             print(f"      probe: {result.error}")
 
@@ -62,11 +58,7 @@ async def _scan_ble_async(
             kind="ble",
             address=identity.address,
             name=identity.name,
-            capabilities={
-                "nus": result.nus,
-                "chat": result.chat,
-                "telemetry": result.telemetry,
-            },
+            capabilities={"nus": result.nus},
             probe_status=result.status,
             error=result.error,
             metadata={
