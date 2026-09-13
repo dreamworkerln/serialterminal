@@ -5,6 +5,7 @@ from dataclasses import dataclass, field
 from typing import Any, Iterable
 
 from .device_cache import capability_confirmed, get_cached_device
+from .profiles.chatter.ble_compat import is_chatter_ble_name
 from .transports import ble_nus
 from .transports.ble_nus import (
     BleDeviceIdentity,
@@ -111,7 +112,7 @@ async def scan_all_ble_devices(timeout: float = 3.0) -> list[BleDiscoveryItem]:
 def _default_visible(item: BleDiscoveryItem) -> bool:
     if SHOW_ALL_BLE_DEVICES:
         return True
-    if ble_nus.is_supported_ble_name(item.identity.name):
+    if is_chatter_ble_name(item.identity.name):
         return True
     if NUS_SERVICE_UUID in item.advertised_services:
         return True
