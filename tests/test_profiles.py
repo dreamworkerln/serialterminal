@@ -5,15 +5,12 @@ from serialterminal.profiles.chatter import (
     CHATTER_ID_COMMAND,
     CHATTER_OUTPUT_MODE_COMMANDS,
     CHATTER_PROFILE,
+    CHATTER_TELEMETRY_TX_UUID,
 )
 from serialterminal.profiles.chatter.presentation import ChatterPresentation
 from serialterminal.terminal import TerminalSession
 from serialterminal.transports.base import Transport
-from serialterminal.transports.ble_nus import (
-    NUS_CHAT_TX_UUID,
-    NUS_RX_UUID,
-    NUS_TELEMETRY_TX_UUID,
-)
+from serialterminal.transports.ble_nus import NUS_RX_UUID, NUS_TX_UUID
 from serialterminal.transports.serial import SerialTransport
 
 
@@ -71,8 +68,8 @@ def test_chatter_profile_describes_existing_ble_layout():
         (item.uuid, item.stream, item.required)
         for item in config.receive_streams
     ) == (
-        (NUS_CHAT_TX_UUID, "chat", True),
-        (NUS_TELEMETRY_TX_UUID, "telemetry", False),
+        (NUS_TX_UUID, "chat", True),
+        (CHATTER_TELEMETRY_TX_UUID, "telemetry", False),
     )
 
 

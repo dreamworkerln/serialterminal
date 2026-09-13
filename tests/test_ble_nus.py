@@ -4,15 +4,15 @@ from serialterminal.transports import ble_nus
 from serialterminal.transports.ble_nus import (
     BleDeviceIdentity,
     BleReceiveStream,
-    NUS_CHAT_TX_UUID,
     NUS_RX_UUID,
-    NUS_TELEMETRY_TX_UUID,
     NUS_TX_UUID,
     PINGER_NAME,
     REPEATER_NAME,
     ble_log_slug,
     normalize_ble_target,
 )
+
+SECONDARY_TX_UUID = "12345678-1234-5678-1234-56789abcdef0"
 
 
 def test_normalize_ble_target():
@@ -27,6 +27,11 @@ def test_normalize_ble_target():
 def test_ble_log_slug():
     assert ble_log_slug(PINGER_NAME) == "pinger"
     assert ble_log_slug("LoRa-Chatter-72E0") == "chatter-72e0"
+
+
+def test_transport_module_owns_only_standard_nus_characteristics():
+    assert not hasattr(ble_nus, "NUS_CHAT_TX_UUID")
+    assert not hasattr(ble_nus, "NUS_TELEMETRY_TX_UUID")
 
 
 def _install_fake_ble(monkeypatch):
@@ -89,16 +94,16 @@ def _install_fake_ble(monkeypatch):
     return FakeDevice, FakeScanner, FakeClient
 
 
-def _chatter_transport(identity, *, scan_timeout=0.05, connect_timeout=0.05):
+def _multi_stream_transport(identity, *, scan_timeout=0.05, connect_timeout=0.05):
     return ble_nus.BleNusTransport(
         identity,
         scan_timeout=scan_timeout,
         connect_timeout=connect_timeout,
         receive_streams=(
-            BleReceiveStream(NUS_CHAT_TX_UUID, "chat"),
+            BleReceiveStream(NUS_TX_UUID, "primary"),
             BleReceiveStream(
-                NUS_TELEMETRY_TX_UUID,
-                "telemetry",
+                SECONDARY_TX_UUID,
+                "secondary",
                 required=False,
             ),
         ),
@@ -154,25 +159,25 @@ def test_ble_transport_streams_and_sticky_reconnect(monkeypatch):
     other = FakeDevice("LoRa-Chatter-A193", "AA:02")
     FakeScanner.devices = [selected, other]
 
-    transport = _chatter_transport(
+    transport = _multi_stream_transport(
         BleDeviceIdentity(selected.name, selected.address),
     )
     try:
         assert transport.connect()
         assert transport.is_connected
         assert FakeClient.last.device.address == "AA:01"
-        assert transport.stream_capabilities == ("chat", "telemetry")
-        assert transport.available_streams == ("chat", "telemetry")
+        assert transport.stream_capabilities == ("primary", "secondary")
+        assert transport.available_streams == ("primary", "secondary")
 
-        FakeClient.last.notify[NUS_CHAT_TX_UUID](None, bytearray(b"chat\n"))
-        FakeClient.last.notify[NUS_TELEMETRY_TX_UUID](
+        FakeClient.last.notify[NUS_TX_UUID](None, bytearray(b"primary\n"))
+        FakeClient.last.notify[SECONDARY_TX_UUID](
             None,
-            bytearray(b"telemetry\n"),
+            bytearray(b"secondary\n"),
         )
-        assert transport.read_chunk(512).stream == "chat"
+        assert transport.read_chunk(512).stream == "primary"
         second = transport.read_chunk(512)
-        assert second.stream == "telemetry"
-        assert second.data == b"telemetry\n"
+        assert second.stream == "secondary"
+        assert second.data == b"secondary\n"
 
         transport.write(b"hello\n")
         assert FakeClient.last.writes == [
@@ -200,17 +205,17 @@ def test_ble_connect_keeps_required_stream_when_optional_notify_is_missing(
     FakeDevice, FakeScanner, FakeClient = _install_fake_ble(monkeypatch)
     selected = FakeDevice("LoRa-Echo", "AA:01")
     FakeScanner.devices = [selected]
-    FakeClient.fail_notify_uuids = {NUS_TELEMETRY_TX_UUID}
+    FakeClient.fail_notify_uuids = {SECONDARY_TX_UUID}
 
-    transport = _chatter_transport(
+    transport = _multi_stream_transport(
         BleDeviceIdentity(selected.name, selected.address),
     )
     try:
         assert transport.connect()
         assert transport.is_connected
-        assert transport.available_streams == ("chat",)
-        assert NUS_CHAT_TX_UUID in FakeClient.last.notify
-        assert NUS_TELEMETRY_TX_UUID not in FakeClient.last.notify
+        assert transport.available_streams == ("primary",)
+        assert NUS_TX_UUID in FakeClient.last.notify
+        assert SECONDARY_TX_UUID not in FakeClient.last.notify
     finally:
         transport.close()
 
@@ -220,14 +225,14 @@ def test_power_cycle_reconnect_ignores_stale_ble_callbacks(monkeypatch):
     selected = FakeDevice("LoRa-Chatter-72E0", "AA:01")
     FakeScanner.devices = [selected]
 
-    transport = _chatter_transport(
+    transport = _multi_stream_transport(
         BleDeviceIdentity(selected.name, selected.address),
     )
     try:
         assert transport.connect()
         first = FakeClient.last
-        first_chat = first.notify[NUS_CHAT_TX_UUID]
-        first_telemetry = first.notify[NUS_TELEMETRY_TX_UUID]
+        first_primary = first.notify[NUS_TX_UUID]
+        first_secondary = first.notify[SECONDARY_TX_UUID]
 
         # Reproduce the real failure shape: the peripheral disappears without
         # serialterminal being closed, so Bleak reports a remote disconnect.
@@ -236,14 +241,14 @@ def test_power_cycle_reconnect_ignores_stale_ble_callbacks(monkeypatch):
 
         # Even before normal cleanup runs, callbacks from the dead connection
         # must no longer be allowed to enqueue bytes.
-        first_chat(None, bytearray(b"stale-before-reconnect\n"))
-        first_telemetry(None, bytearray(b"stale-before-reconnect\n"))
+        first_primary(None, bytearray(b"stale-before-reconnect\n"))
+        first_secondary(None, bytearray(b"stale-before-reconnect\n"))
 
         # TerminalSession does this after read_chunk notices the disconnect.
         transport.disconnect()
         assert set(first.stop_calls) == {
-            NUS_CHAT_TX_UUID,
-            NUS_TELEMETRY_TX_UUID,
+            NUS_TX_UUID,
+            SECONDARY_TX_UUID,
         }
 
         assert transport.connect()
@@ -254,29 +259,29 @@ def test_power_cycle_reconnect_ignores_stale_ble_callbacks(monkeypatch):
         # Model a backend retaining the old notify registrations across the
         # reconnect. These callbacks must be ignored instead of producing the
         # observed 2x/3x copies after successive board power cycles.
-        first_chat(None, bytearray(b"stale-chat\n"))
-        first_telemetry(None, bytearray(b"stale-telemetry\n"))
+        first_primary(None, bytearray(b"stale-primary\n"))
+        first_secondary(None, bytearray(b"stale-secondary\n"))
 
         # A delayed disconnect callback from the old BleakClient must also not
         # clear the state of the current connection.
         first.disconnected_callback(first)
         assert transport.is_connected
 
-        second.notify[NUS_CHAT_TX_UUID](None, bytearray(b"fresh-chat\n"))
-        second.notify[NUS_TELEMETRY_TX_UUID](
+        second.notify[NUS_TX_UUID](None, bytearray(b"fresh-primary\n"))
+        second.notify[SECONDARY_TX_UUID](
             None,
-            bytearray(b"fresh-telemetry\n"),
+            bytearray(b"fresh-secondary\n"),
         )
 
         first_chunk = transport.read_chunk(512)
         second_chunk = transport.read_chunk(512)
         assert (first_chunk.stream, first_chunk.data) == (
-            "chat",
-            b"fresh-chat\n",
+            "primary",
+            b"fresh-primary\n",
         )
         assert (second_chunk.stream, second_chunk.data) == (
-            "telemetry",
-            b"fresh-telemetry\n",
+            "secondary",
+            b"fresh-secondary\n",
         )
     finally:
         transport.close()

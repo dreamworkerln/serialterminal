@@ -4,11 +4,7 @@ from collections.abc import Mapping
 from dataclasses import dataclass
 from types import MappingProxyType
 
-from ...transports.ble_nus import (
-    NUS_CHAT_TX_UUID,
-    NUS_RX_UUID,
-    NUS_TELEMETRY_TX_UUID,
-)
+from ...transports.ble_nus import NUS_RX_UUID, NUS_TX_UUID
 from ..base import (
     BleProfileConfig,
     PresentationAdapter,
@@ -28,6 +24,7 @@ CHATTER_OUTPUT_MODE_COMMANDS = {
 CHATTER_HELP_COMMAND = "/help"
 CHATTER_ID_COMMAND = "/id"
 CHATTER_SYSTEM_PREFIX = "[SYS]"
+CHATTER_TELEMETRY_TX_UUID = "6e400004-b5a3-f393-e0a9-e50e24dcca9e"
 
 # Эти control sequences намеренно остаются SendLine: текущий human UI
 # добавляет configured EOL, и этот compatibility slice не меняет wire bytes.
@@ -63,11 +60,11 @@ _HUMAN_HELP_LINES = (
 _BLE_CONFIG = BleProfileConfig(
     write_characteristic=NUS_RX_UUID,
     receive_streams=(
-        ReceiveCharacteristic(NUS_CHAT_TX_UUID, "chat"),
+        ReceiveCharacteristic(NUS_TX_UUID, "chat"),
         # 0004 опционален: старые совместимые firmware могут иметь только
         # standard NUS TX, и отсутствие telemetry не должно ронять connection.
         ReceiveCharacteristic(
-            NUS_TELEMETRY_TX_UUID,
+            CHATTER_TELEMETRY_TX_UUID,
             "telemetry",
             required=False,
         ),

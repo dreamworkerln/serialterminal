@@ -1,5 +1,6 @@
 from serialterminal import ble_discovery
 from serialterminal.device_cache import update_cached_device
+from serialterminal.profiles.chatter import CHATTER_TELEMETRY_TX_UUID
 from serialterminal.transports import ble_nus
 
 
@@ -53,8 +54,8 @@ class Client:
                 ble_discovery.NUS_SERVICE_UUID,
                 [
                     ble_nus.NUS_RX_UUID,
-                    ble_nus.NUS_CHAT_TX_UUID,
-                    ble_nus.NUS_TELEMETRY_TX_UUID,
+                    ble_nus.NUS_TX_UUID,
+                    CHATTER_TELEMETRY_TX_UUID,
                 ],
             )
         ]

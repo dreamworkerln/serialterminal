@@ -9,12 +9,8 @@ from typing import Any
 
 from .base import ReceivedChunk, Transport, TransportError
 
-NUS_RX_UUID = "6e400002-b5a3-f393-e0a9-e50e24dcca9e"  # PC -> ESP32
-NUS_CHAT_TX_UUID = "6e400003-b5a3-f393-e0a9-e50e24dcca9e"  # ESP32 -> PC chat
-NUS_TELEMETRY_TX_UUID = "6e400004-b5a3-f393-e0a9-e50e24dcca9e"  # engineering telemetry
-
-# Backward-compatible alias used by older tests/callers.
-NUS_TX_UUID = NUS_CHAT_TX_UUID
+NUS_RX_UUID = "6e400002-b5a3-f393-e0a9-e50e24dcca9e"  # стандартный NUS: host -> peripheral
+NUS_TX_UUID = "6e400003-b5a3-f393-e0a9-e50e24dcca9e"  # стандартный NUS: peripheral -> host
 
 PINGER_NAME = "LoRa-Pinger"
 REPEATER_NAME = "LoRa-Repeater"

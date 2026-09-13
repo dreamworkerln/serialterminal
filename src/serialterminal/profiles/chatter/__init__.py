@@ -5,6 +5,7 @@ from .profile import (
     CHATTER_OUTPUT_MODE_COMMANDS,
     CHATTER_PROFILE,
     CHATTER_SYSTEM_PREFIX,
+    CHATTER_TELEMETRY_TX_UUID,
     ChatterProfile,
 )
 
@@ -15,5 +16,6 @@ __all__ = [
     "CHATTER_OUTPUT_MODE_COMMANDS",
     "CHATTER_PROFILE",
     "CHATTER_SYSTEM_PREFIX",
+    "CHATTER_TELEMETRY_TX_UUID",
     "ChatterProfile",
 ]

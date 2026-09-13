@@ -5,12 +5,12 @@ from dataclasses import dataclass, field
 from typing import Any, Iterable
 
 from .device_cache import capability_confirmed, get_cached_device
+from .profiles.chatter import CHATTER_TELEMETRY_TX_UUID
 from .transports import ble_nus
 from .transports.ble_nus import (
     BleDeviceIdentity,
-    NUS_CHAT_TX_UUID,
     NUS_RX_UUID,
-    NUS_TELEMETRY_TX_UUID,
+    NUS_TX_UUID,
 )
 
 NUS_SERVICE_UUID = "6e400001-b5a3-f393-e0a9-e50e24dcca9e"
@@ -228,9 +228,9 @@ async def probe_ble_nus_async(
 
         _service_uuids, characteristic_uuids = _collect_gatt_uuids(services)
         rx = _normalize_uuid(NUS_RX_UUID) in characteristic_uuids
-        chat = _normalize_uuid(NUS_CHAT_TX_UUID) in characteristic_uuids
+        chat = _normalize_uuid(NUS_TX_UUID) in characteristic_uuids
         telemetry = (
-            _normalize_uuid(NUS_TELEMETRY_TX_UUID) in characteristic_uuids
+            _normalize_uuid(CHATTER_TELEMETRY_TX_UUID) in characteristic_uuids
         )
 
         # RX+CHAT is the actual terminal compatibility boundary. A few bridges
