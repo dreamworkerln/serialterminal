@@ -1,13 +1,15 @@
 import asyncio
 
+from serialterminal.profiles.chatter.ble_compat import (
+    PINGER_NAME,
+    REPEATER_NAME,
+)
 from serialterminal.transports import ble_nus
 from serialterminal.transports.ble_nus import (
     BleDeviceIdentity,
     BleReceiveStream,
     NUS_RX_UUID,
     NUS_TX_UUID,
-    PINGER_NAME,
-    REPEATER_NAME,
     ble_log_slug,
     normalize_ble_target,
 )
@@ -15,7 +17,7 @@ from serialterminal.transports.ble_nus import (
 SECONDARY_TX_UUID = "12345678-1234-5678-1234-56789abcdef0"
 
 
-def test_normalize_ble_target():
+def test_normalize_ble_target_compatibility_shim():
     assert normalize_ble_target("p") == PINGER_NAME
     assert normalize_ble_target("PINGER") == PINGER_NAME
     assert normalize_ble_target("r") == REPEATER_NAME
@@ -30,9 +32,15 @@ def test_ble_log_slug_is_generic():
     assert ble_log_slug("Plain Controller") == "plain-controller"
 
 
-def test_transport_module_owns_only_standard_nus_characteristics():
+def test_transport_module_owns_only_generic_nus_runtime():
     assert not hasattr(ble_nus, "NUS_CHAT_TX_UUID")
     assert not hasattr(ble_nus, "NUS_TELEMETRY_TX_UUID")
+    assert not hasattr(ble_nus, "PINGER_NAME")
+    assert not hasattr(ble_nus, "REPEATER_NAME")
+    assert not hasattr(ble_nus, "is_supported_ble_name")
+    assert not hasattr(ble_nus, "scan_nus_devices")
+    assert not hasattr(ble_nus, "discover_nus_devices")
+    assert not hasattr(ble_nus, "discover_echo_nodes")
 
 
 def _install_fake_ble(monkeypatch):
@@ -120,21 +128,6 @@ def test_name_only_transport_uses_exact_arbitrary_advertised_name(monkeypatch):
         assert transport.device_key == "ble-name:plain controller"
     finally:
         transport.close()
-
-
-def test_discovery_preserves_multiple_same_name(monkeypatch):
-    FakeDevice, FakeScanner, _ = _install_fake_ble(monkeypatch)
-    FakeScanner.devices = [
-        FakeDevice("LoRa-Chatter-72E0", "AA:01"),
-        FakeDevice("LoRa-Chatter-72E0", "AA:02"),
-        FakeDevice("unrelated", "AA:03"),
-    ]
-
-    found = ble_nus.discover_nus_devices(0.01)
-    assert [(item.name, item.address) for item in found] == [
-        ("LoRa-Chatter-72E0", "AA:01"),
-        ("LoRa-Chatter-72E0", "AA:02"),
-    ]
 
 
 def test_ble_transport_defaults_to_standard_nus_main_stream(monkeypatch):

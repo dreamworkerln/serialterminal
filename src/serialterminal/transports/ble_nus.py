@@ -12,9 +12,6 @@ from .base import ReceivedChunk, Transport, TransportError
 NUS_RX_UUID = "6e400002-b5a3-f393-e0a9-e50e24dcca9e"  # стандартный NUS: host -> peripheral
 NUS_TX_UUID = "6e400003-b5a3-f393-e0a9-e50e24dcca9e"  # стандартный NUS: peripheral -> host
 
-PINGER_NAME = "LoRa-Pinger"
-REPEATER_NAME = "LoRa-Repeater"
-
 try:
     from bleak import BleakClient, BleakScanner
 except ImportError:  # Serial-only imports must still work before BLE is requested.
@@ -46,21 +43,11 @@ def _require_bleak() -> None:
         )
 
 
-def is_supported_ble_name(name: str | None) -> bool:
-    """Accept current and future project BLE nodes using the LoRa-* namespace."""
-    return bool(name and name.startswith("LoRa-"))
-
-
 def normalize_ble_target(value: str) -> str | None:
-    value = value.strip()
-    lower = value.lower()
-    if lower in {"p", "ping", "pinger", PINGER_NAME.lower()}:
-        return PINGER_NAME
-    if lower in {"r", "rep", "repeater", REPEATER_NAME.lower()}:
-        return REPEATER_NAME
-    if lower.startswith("lora-"):
-        return value
-    return None
+    """Legacy import shim; project-specific alias policy живёт в chatter profile."""
+    from ..profiles.chatter.ble_compat import normalize_chatter_ble_target
+
+    return normalize_chatter_ble_target(value)
 
 
 def ble_log_slug(target_name: str) -> str:
@@ -71,42 +58,6 @@ def ble_log_slug(target_name: str) -> str:
 async def _scan_raw_devices(timeout: float = 3.0) -> list[Any]:
     _require_bleak()
     return list(await BleakScanner.discover(timeout=timeout))
-
-
-async def scan_nus_devices(timeout: float = 3.0) -> list[BleDeviceIdentity]:
-    """Return visible project BLE devices, preserving multiple devices per name."""
-    devices = await _scan_raw_devices(timeout)
-    result: list[BleDeviceIdentity] = []
-    seen: set[str] = set()
-
-    for device in devices:
-        name = getattr(device, "name", None)
-        address = getattr(device, "address", None)
-        if not is_supported_ble_name(name) or not address:
-            continue
-
-        key = str(address).lower()
-        if key in seen:
-            continue
-        seen.add(key)
-        result.append(BleDeviceIdentity(str(name), str(address)))
-
-    result.sort(key=lambda item: (item.name.lower(), item.address.lower()))
-    return result
-
-
-def discover_nus_devices(timeout: float = 3.0) -> list[BleDeviceIdentity]:
-    """Synchronous discovery helper used by the interactive device chooser."""
-    return asyncio.run(scan_nus_devices(timeout))
-
-
-def discover_echo_nodes(timeout: float = 3.0) -> dict[str, Any]:
-    """Legacy helper: visible Pinger/Repeater identities keyed by advertised name."""
-    found: dict[str, Any] = {}
-    for item in discover_nus_devices(timeout):
-        if item.name in {PINGER_NAME, REPEATER_NAME}:
-            found[item.name] = item
-    return found
 
 
 class BleNusTransport(Transport):
