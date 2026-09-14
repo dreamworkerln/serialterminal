@@ -4,7 +4,53 @@ This file is the authoritative current-state index for engineering TODOs in this
 
 ## Active
 
-No active TODOs.
+### TODO_005 — `todos/TODO_005_CHATTER_PRESENTATION_OUTCOMES.md`
+
+Status: OPEN
+
+Goal: align Chatter human presentation with the current controller command/outcome contract so supported local controls are not tracked as USER/ECHO payloads and rejection/cancellation outcomes cannot leave stale presentation state.
+
+Finding checkpoint: `dev@1490078c85bde05ce54ded0c96752ff24d0ca7c1`.
+
+### TODO_006 — `todos/TODO_006_BLE_CAPABILITY_CACHE_UNKNOWN.md`
+
+Status: OPEN
+
+Goal: preserve prior confirmed BLE NUS capability across a transient UNKNOWN probe while keeping definitive probe results and diagnostic metadata accurate.
+
+Finding checkpoint: `dev@1490078c85bde05ce54ded0c96752ff24d0ca7c1`.
+
+### TODO_007 — `todos/TODO_007_FORENSIC_LOG_CURSOR_GAPS.md`
+
+Status: OPEN
+
+Goal: ensure bounded session-event retention can never create a silently incomplete agent forensic log; event loss must be impossible or explicitly represented.
+
+Finding checkpoint: `dev@1490078c85bde05ce54ded0c96752ff24d0ca7c1`.
+
+### TODO_008 — `todos/TODO_008_BLE_WRITE_TIMEOUT_AMBIGUITY.md`
+
+Status: OPEN
+
+Goal: define safe completion ownership for timed-out BLE GATT writes so a late write cannot be silently treated as a definite failure followed by an unqualified reconnect retry.
+
+Finding checkpoint: `dev@1490078c85bde05ce54ded0c96752ff24d0ca7c1`; static-analysis risk, no physical duplicate write claimed.
+
+### TODO_009 — `todos/TODO_009_BLE_RX_CHUNK_ORDERING.md`
+
+Status: OPEN
+
+Goal: preserve receive ordering when an oversized BLE chunk is split by `read_chunk(size)`; the unread tail must remain ahead of later notifications.
+
+Finding checkpoint: `dev@1490078c85bde05ce54ded0c96752ff24d0ca7c1`.
+
+### TODO_010 — `todos/TODO_010_TERMINAL_VISIBILITY_PREDICATE.md`
+
+Status: OPEN
+
+Goal: remove or deliberately define the unreachable `system_line_prefix` fallback in terminal line-visibility logic and lock the intended stream-visibility contract with tests.
+
+Finding checkpoint: `dev@1490078c85bde05ce54ded0c96752ff24d0ca7c1`; internal contract/dead-logic finding, no user-visible regression claimed.
 
 ## Post-closure validation history
 
