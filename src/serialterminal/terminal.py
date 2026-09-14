@@ -12,7 +12,13 @@ from prompt_toolkit import PromptSession
 from prompt_toolkit.key_binding import KeyBindings
 from prompt_toolkit.patch_stdout import patch_stdout
 
-from .profiles import ProfileAction, SendBytes, SendLine, TerminalProfile
+from .profiles import (
+    GENERIC_PROFILE,
+    ProfileAction,
+    SendBytes,
+    SendLine,
+    TerminalProfile,
+)
 from .profiles.chatter import (
     CHATTER_ECHO_TOGGLE as CHATTER_ECHO_TOGGLE,
     CHATTER_HELP_COMMAND as CHATTER_HELP_COMMAND,
@@ -42,7 +48,7 @@ class TerminalSession(ManagedSession):
         line_ending: str = "\n",
         reconnect_delay: float = 0.5,
         device_chooser: Callable[[], Transport | None] | None = None,
-        profile: TerminalProfile = CHATTER_PROFILE,
+        profile: TerminalProfile = GENERIC_PROFILE,
     ):
         self.profile = profile
         super().__init__(

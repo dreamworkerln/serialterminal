@@ -64,6 +64,21 @@ def test_generic_profile_is_transport_only_by_default():
     )
 
 
+def test_terminal_session_defaults_to_generic_profile(tmp_path):
+    session = TerminalSession(
+        DummyTransport(),
+        log_path=tmp_path / "terminal.log",
+    )
+    try:
+        assert session.profile is GENERIC_PROFILE
+        assert session._human_connect_preamble(DummyTransport()) is None
+        assert session._human_connect_preamble(
+            SerialTransport(device="/dev/ttyGENERIC-DEFAULT-TEST")
+        ) is None
+    finally:
+        session.log_file.close()
+
+
 def test_generic_human_profile_sends_no_connect_preamble(tmp_path):
     session = TerminalSession(
         DummyTransport(),
