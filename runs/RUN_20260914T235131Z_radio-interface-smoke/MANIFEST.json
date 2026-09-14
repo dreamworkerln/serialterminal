@@ -1,0 +1,23 @@
+{
+  "schema": 1,
+  "observed_at": "2026-09-14T23:51:31Z",
+  "topic": "radio-interface-smoke",
+  "result": "INCONCLUSIVE",
+  "serialterminal": {
+    "repo": "dreamworkerln/serialterminal",
+    "sha": "159f7a1ab52fb8f615af33b175545f13e04dd989"
+  },
+  "firmware": {
+    "repo": "dreamworkerln/lora-sack-protocol",
+    "sha": "unknown"
+  },
+  "observation": {
+    "state": "recorded",
+    "path": "../../observations/OBS_20260914T235131Z_radio-interface-smoke.md"
+  },
+  "files": {
+    "report": "REPORT.md",
+    "console": "serialterminal.console.log",
+    "serialterminal_log": "serialterminal.log"
+  }
+}
