@@ -37,6 +37,7 @@ class RunLog:
         self.path.parent.mkdir(parents=True, exist_ok=True)
         self.console_path.parent.mkdir(parents=True, exist_ok=True)
         self._lock = threading.Lock()
+        self._event_sequences: dict[str, int] = {}
         self._file = self.path.open("a", encoding="utf-8", buffering=1)
         self._console_file = self.console_path.open(
             "a", encoding="utf-8", buffering=1
@@ -68,6 +69,43 @@ class RunLog:
             f"{self._timestamp()} [{tag}] {self._render_payload(payload)}\n"
         )
 
+    @staticmethod
+    def _event_position(tag: str, payload: Any) -> tuple[str, int] | None:
+        if not isinstance(payload, dict):
+            return None
+        if tag not in {"STATE", "TX", "ERROR"} and not tag.startswith("RX "):
+            return None
+        session = payload.get("session")
+        seq = payload.get("seq")
+        if (
+            not isinstance(session, str)
+            or isinstance(seq, bool)
+            or not isinstance(seq, int)
+        ):
+            return None
+        return session, seq
+
+    def _record_gap_if_needed_unlocked(self, tag: str, payload: Any) -> None:
+        position = self._event_position(tag, payload)
+        if position is None:
+            return
+        session, seq = position
+        previous = self._event_sequences.get(session, 0)
+        if seq > previous + 1:
+            self._write_record_unlocked(
+                "ERROR",
+                {
+                    "event": "forensic_gap",
+                    "session": session,
+                    "last_logged_seq": previous,
+                    "next_logged_seq": seq,
+                    "lost_seq_first": previous + 1,
+                    "lost_seq_last": seq - 1,
+                },
+            )
+        if seq > previous:
+            self._event_sequences[session] = seq
+
     def write(self, text: str) -> None:
         with self._lock:
             self._file.write(text)
@@ -75,6 +113,7 @@ class RunLog:
 
     def record(self, tag: str, payload: Any) -> None:
         with self._lock:
+            self._record_gap_if_needed_unlocked(tag, payload)
             self._write_record_unlocked(tag, payload)
             self._file.flush()
 
