@@ -4,250 +4,153 @@ This file is the authoritative current-state index for engineering TODOs in this
 
 ## Active
 
-### TODO_005 — `todos/TODO_005_CHATTER_PRESENTATION_OUTCOMES.md`
+No active engineering TODOs.
 
-Status: OPEN
+The next validation phase is intentionally consolidated rather than duplicating manual UI checks after every small host change: existing repository CI remains the per-change smoke gate, while node/firmware behavior should be exercised through a larger autonomous agent/API scenario run where possible. Manual terminal/hotkey checks are reserved for behavior that cannot be established through the machine interface or automated host tests.
 
-Goal: align Chatter human presentation with the current controller command/outcome contract so supported local controls are not tracked as USER/ECHO payloads and rejection/cancellation outcomes cannot leave stale presentation state.
+The active project-specific node/hardware guidance is `.agents/skills/node-agent/SKILL.md`. `AGENT_API.md` remains the canonical generic SerialTerminal JSONL contract.
 
-Finding checkpoint: `dev@1490078c85bde05ce54ded0c96752ff24d0ca7c1`.
-
-### TODO_006 — `todos/TODO_006_BLE_CAPABILITY_CACHE_UNKNOWN.md`
-
-Status: OPEN
-
-Goal: preserve prior confirmed BLE NUS capability across a transient UNKNOWN probe while keeping definitive probe results and diagnostic metadata accurate.
-
-Finding checkpoint: `dev@1490078c85bde05ce54ded0c96752ff24d0ca7c1`.
-
-### TODO_007 — `todos/TODO_007_FORENSIC_LOG_CURSOR_GAPS.md`
-
-Status: OPEN
-
-Goal: ensure bounded session-event retention can never create a silently incomplete agent forensic log; event loss must be impossible or explicitly represented.
-
-Finding checkpoint: `dev@1490078c85bde05ce54ded0c96752ff24d0ca7c1`.
-
-### TODO_008 — `todos/TODO_008_BLE_WRITE_TIMEOUT_AMBIGUITY.md`
-
-Status: OPEN
-
-Goal: define safe completion ownership for timed-out BLE GATT writes so a late write cannot be silently treated as a definite failure followed by an unqualified reconnect retry.
-
-Finding checkpoint: `dev@1490078c85bde05ce54ded0c96752ff24d0ca7c1`; static-analysis risk, no physical duplicate write claimed.
-
-### TODO_009 — `todos/TODO_009_BLE_RX_CHUNK_ORDERING.md`
-
-Status: OPEN
-
-Goal: preserve receive ordering when an oversized BLE chunk is split by `read_chunk(size)`; the unread tail must remain ahead of later notifications.
-
-Finding checkpoint: `dev@1490078c85bde05ce54ded0c96752ff24d0ca7c1`.
+## Closed
 
 ### TODO_010 — `todos/TODO_010_TERMINAL_VISIBILITY_PREDICATE.md`
 
-Status: OPEN
+Status: CLOSED
 
-Goal: remove or deliberately define the unreachable `system_line_prefix` fallback in terminal line-visibility logic and lock the intended stream-visibility contract with tests.
-
-Finding checkpoint: `dev@1490078c85bde05ce54ded0c96752ff24d0ca7c1`; internal contract/dead-logic finding, no user-visible regression claimed.
-
-## Post-closure validation history
-
-2026-09-03 live Codex/hardware smoke:
+Goal: remove the unreachable terminal `system_line_prefix` visibility fallback and keep stream visibility explicitly owned by profiles.
 
 ```text
-physical BLE LoRa-Chatter sessions           OBSERVED / two nodes in one agent process
-Codex node /help self-discovery               OBSERVED
-multi-session wait_events                     OBSERVED
-ordinary commands while wait pending          OBSERVED
-independent TX from both physical sessions    OBSERVED
-simultaneous-LoRa peer delivery               NOT CLAIMED without peer RX/telemetry
+accepted checkpoint: dev@a8a6c48b807865713412389bd61e1bb5bfb6f575
+GitHub Actions:      34909003012 SUCCESS
+manual/hardware:     NOT RUN
 ```
 
-The active project-specific node/hardware guidance is `.agents/skills/node-agent/SKILL.md`. It is intentionally stored in `serialterminal` so it does not disappear when a different `lora-sack-protocol` branch/worktree is selected. `AGENT_API.md` remains the canonical generic SerialTerminal JSONL contract.
+No new dedicated regression test was added for this dead-logic removal; existing terminal/profile tests and full CI were used as the checkpoint smoke.
 
-## Closed
+### TODO_009 — `todos/TODO_009_BLE_RX_CHUNK_ORDERING.md`
+
+Status: CLOSED
+
+Goal: preserve arrival order when an oversized BLE notification is split by `read_chunk(size)`.
+
+```text
+accepted checkpoint: dev@69cc1e4157471f69718dbb9fbb46ef5b8d945ab7
+GitHub Actions:      34908096672 SUCCESS
+hardware:            NOT RUN
+```
+
+### TODO_008 — `todos/TODO_008_BLE_WRITE_TIMEOUT_AMBIGUITY.md`
+
+Status: CLOSED
+
+Goal: make timed-out BLE write ownership explicit so a possibly-late GATT side effect is not silently treated as a definite failure followed by automatic duplicate retry.
+
+```text
+accepted checkpoint: dev@441fc99d3f123e9133253c820f59f54e37d23f88
+GitHub Actions:      34907924472 SUCCESS
+hardware:            NOT RUN
+```
+
+Selected contract: BLE write timeout may produce `tx_state="unknown"`; that TX is not automatically retried. Ordinary definite transport failures retain reconnect-safe retry.
+
+### TODO_007 — `todos/TODO_007_FORENSIC_LOG_CURSOR_GAPS.md`
+
+Status: CLOSED
+
+Goal: ensure bounded event retention cannot produce a silently incomplete persisted forensic log.
+
+```text
+accepted checkpoint: dev@4182390d73d9a8a5d02c6fd9b6b601e40fb5ae63
+GitHub Actions:      34907393048 SUCCESS
+hardware:            NOT RUN
+```
+
+Persisted event sequence discontinuities now emit an explicit `forensic_gap` error record with the lost sequence range.
+
+### TODO_006 — `todos/TODO_006_BLE_CAPABILITY_CACHE_UNKNOWN.md`
+
+Status: CLOSED
+
+Goal: preserve prior definitive BLE NUS capability across a transient UNKNOWN probe while keeping newest diagnostics truthful.
+
+```text
+accepted checkpoint: dev@522180cf92d573a51020eeb6e84c2edb528ad5d3
+GitHub Actions:      34907044192 SUCCESS
+hardware:            NOT RUN
+```
+
+### TODO_005 — `todos/TODO_005_CHATTER_PRESENTATION_OUTCOMES.md`
+
+Status: CLOSED
+
+Goal: align Chatter human presentation with current local-command and SYSTEM-outcome behavior so supported controls are not tracked as payloads and rejection/cancellation cannot leave stale pending state.
+
+```text
+accepted checkpoint: dev@4f06f9a21dfd4263a0729e8ade5c58132f8ecdc4
+GitHub Actions:      34906863308 SUCCESS
+hardware:            NOT RUN
+```
 
 ### TODO_004 — `todos/TODO_004_NODE_RUN_BUNDLES.md`
 
 Status: CLOSED
 
-Goal: automate complete hardware-run publication so a reviewer can fetch the concise observation when present, curated executor report, exact SerialTerminal forensic log, and human-console companion log directly from GitHub without operator copy/paste.
-
-Current state:
+Goal: automate complete hardware-run publication so a reviewer can fetch the curated report, exact SerialTerminal forensic log, human-console companion log, manifest, and optional observation directly from GitHub.
 
 ```text
-accepted observe+console dependency       PASS / dev@e6c025805d39c95b959272cb8a9d8c74ddc6eb23
-run-bundle schema/storage model           CLOSED
-commit-node-run guarded publisher         CLOSED
-commit-node-observation coexistence       CLOSED
-backlog/incomplete staging support        CLOSED
-push-failure safe local-ahead retry       CLOSED
-executor policy + node skill              CLOSED
-automated CI validation                   PASS / GitHub Actions 34263084088
-physical RUN + OBS publication            PASS / node_observations@f5020fd63e3cfdcf45244ff2dd6b0d86b963d7a0
-physical RUN-only publication             PASS / node_observations@b22ee446d96e9fa9047d52f4d309830fca688893
-independent remote verification           PASS
-GitHub-only reviewer inspection           PASS
-```
-
-Exact checkpoints:
-
-```text
-Implementation/static-analysis:
+accepted implementation/static checkpoint:
   dev@4d50eb1aec50bfb4a71d1d8e63f95fbc7a0f436c
   GitHub Actions 34263084088 SUCCESS
-  Compile PASS
-  Ruff PASS
-  Tests 106 passed
-  Lizard NON-BLOCKING / exit 1 / 13 threshold warnings
-  TODO_004 publication scripts add 0 warnings
 
-Recorded-observation hardware publication:
+recorded-observation hardware publication:
   SerialTerminal dev@c9c6d4099c3532494bac8bfecb9fead37e27fe1e
   node_observations@f5020fd63e3cfdcf45244ff2dd6b0d86b963d7a0
-  runs/RUN_20260913T152239Z_todo004-bidirectional-publication-smoke/
-  observations/OBS_20260913T152239Z_todo004-bidirectional-publication-smoke.md
-  result INCONCLUSIVE; publication path PASS and independently remote-verified
+  result INCONCLUSIVE; publication path PASS
 
 RUN-only hardware publication:
   SerialTerminal dev@c9c6d4099c3532494bac8bfecb9fead37e27fe1e
   node_observations@b22ee446d96e9fa9047d52f4d309830fca688893
-  runs/RUN_20260913T182004Z_post-reboot-bidirectional-smoke/
   result PASS; A->B PASS; B->A PASS; BLE stability PASS
-  observation.state=not-required
-  independently remote-verified
 ```
 
-The recorded-observation run preserved an `INCONCLUSIVE` hardware verdict caused by BLE disconnect/reconnect instead of rewriting the evidence. That environmental anomaly did not block TODO_004 closure because the publication workflow itself succeeded and the later RUN-only post-reboot hardware smoke completed cleanly. A reviewer subsequently fetched the canonical manifest, curated report, forensic log and console log directly from the published GitHub run bundle.
-
-Remaining follow-ups: none in TODO_004. Future hardware evidence continues under `NODE_OBSERVATION_RECORDING_POLICY.md` and `.agents/skills/node-agent/SKILL.md`.
+Future hardware evidence continues under `NODE_OBSERVATION_RECORDING_POLICY.md` and `.agents/skills/node-agent/SKILL.md`.
 
 ### TODO_003 — `todos/TODO_003_AGENT_CODE_QUALITY.md`
 
 Status: CLOSED
 
-Goal: reduce accidental complexity in agent `wait_events`, JSON operation dispatch, and JSONL runner lifecycle without changing the documented machine API.
-
-Current state:
+Goal: reduce accidental complexity in agent receive/wait orchestration, JSON dispatch, and JSONL runner lifecycle without changing the documented machine API.
 
 ```text
-wait_events decomposition                 CLOSED
-per-operation protocol handlers           CLOSED
-JSONL runner lifecycle extraction         CLOSED
-dead-import/local cleanup                  CLOSED
-Ruff F401/F841 hard gate                   CLOSED
-AGENT_API.md consistency review            CLOSED / no content change required
-GitHub Actions validation                  CLOSED / PASS
-```
-
-Complexity change:
-
-```text
-SessionManager.wait_events   CCN 28 -> 10   length 116 -> 53
-AgentProtocol._dispatch      CCN 33 -> 3    length 108 -> 20
-run_agent                    CCN 14 -> 3    length 110 -> 21
-project Lizard warnings      15 -> 13
-```
-
-Exact checkpoints:
-
-```text
-Baseline:
-  dev@b6133990e020a64e59ecf76236b6c1de9f59ce5a
-  GitHub Actions 33783101850 SUCCESS
-
-Agent orchestration refactor:
-  dev@741b1d926c68ba2e8d811a201b01c235616687c8
-  GitHub Actions 33785313698 SUCCESS
-
-Accepted implementation/static-analysis checkpoint:
-  dev@a74b46585b3f2c0e032b6b444b2d1089b4fde1e9
-  GitHub Actions 33785730259 SUCCESS
+accepted checkpoint: dev@a74b46585b3f2c0e032b6b444b2d1089b4fde1e9
+GitHub Actions:      33785730259 SUCCESS
 ```
 
 ### TODO_002 — `todos/TODO_002_AGENT_EVENT_WAIT.md`
 
 Status: CLOSED
 
-Goal: add multi-session long-poll `wait_events`, then allow ordinary JSONL commands to proceed while waits are pending, without unsolicited stdout push.
+Goal: provide multi-session asynchronous receive waiting while ordinary JSONL commands continue and responses remain correlated by request ID.
 
-Current state:
-
-```text
-Stage 1 multi-session wait_events                 CLOSED
-Stage 1 AGENT_API.md + deterministic tests        CLOSED
-Stage 1 GitHub Actions validation                  CLOSED / PASS
-Stage 2 concurrent pending wait requests           CLOSED
-Stage 2 request-id correlation/duplicate handling  CLOSED
-Stage 2 AGENT_API.md + deterministic tests         CLOSED
-README agent summary synchronization               CLOSED
-final implementation CI validation                 CLOSED / PASS
-hardware/Codex concurrency smoke                   PASS / post-closure physical two-node smoke 2026-09-03
-```
-
-Exact checkpoints:
+The historical `wait_events` operation was later superseded by canonical `observe`; current machine clients must follow `AGENT_API.md`.
 
 ```text
-Baseline:
-  dev@33f9719f0dd048084a4423de83babd1ab2d76ee7
-  GitHub Actions 33775808413 SUCCESS
-
-Stage 1 accepted checkpoint:
-  dev@faf42369ef58660189608ecc16befdcee59c488a
-  GitHub Actions 33781308586 SUCCESS
-
-Stage 2 implementation + AGENT_API checkpoint:
-  dev@c2167099ad6b6fb9aa8ee07cdba9c724b5b368c4
-  GitHub Actions 33782053409 SUCCESS
-
-Accepted implementation/documentation checkpoint:
-  dev@aaeab3002e60bd1e85595d73e3248d42c3141c1f
-  GitHub Actions 33782252791 SUCCESS
+accepted historical checkpoint: dev@aaeab3002e60bd1e85595d73e3248d42c3141c1f
+GitHub Actions:              33782252791 SUCCESS
+post-closure physical smoke: PASS / two BLE nodes / 2026-09-03
 ```
 
 ### TODO_001 — `todos/TODO_001_AGENT_INTERFACE.md`
 
 Status: CLOSED
 
-Goal: provide a generic Codex/agent interface over shared SerialTerminal session logic without duplicating Serial/BLE/SPP transports or changing normal human-console behavior.
-
-Current state:
+Goal: provide a generic machine-facing interface over shared SerialTerminal session/transport logic without duplicating Serial/BLE/SPP implementations or changing normal human-console ownership.
 
 ```text
-ManagedSession shared reconnect/RX/TX core       CLOSED
-human TerminalSession migration                  CLOSED / regression CI PASS
-SessionManager multi-device ownership            CLOSED
-JSONL agent frontend                             CLOSED
-cursor-based RX/wait + line/raw TX               CLOSED
-unique default run logs + agent/session logging  CLOSED
-API documentation                                CLOSED
-hardware/Codex multi-device smoke                PASS / post-closure physical BLE validation 2026-09-03
-node-agent project skill                         ACTIVE / .agents/skills/node-agent/SKILL.md
+accepted documented checkpoint: dev@396f499305c7ab1c425483b5a5f10e8521125f4f
+GitHub Actions:               33764159009 SUCCESS
+post-closure hardware smoke:  PASS / physical BLE multi-device / 2026-09-03
 ```
 
-Exact checkpoints:
+## Current validation posture
 
-```text
-Baseline:
-  dev@1e2f7632e7ea6d0cd20283ef713d811ca32dd178
-
-Human session-core regression checkpoint:
-  dev@b9cebddfad326dc902d3adc94b773d39c0407605
-  GitHub Actions 33763211529 SUCCESS
-
-Agent implementation/tests checkpoint:
-  dev@f9fae4c9ab0ae169fa44a29d6343f7425a5655a3
-  GitHub Actions 33763807326 SUCCESS
-
-Accepted documented implementation checkpoint:
-  dev@396f499305c7ab1c425483b5a5f10e8521125f4f
-  GitHub Actions 33764159009 SUCCESS
-```
-
-Next work is intentionally outside TODO_001 closure:
-
-1. generic agent hardware/Codex multi-device smoke is now completed post-closure; no additional generic terminal feature is implied by that validation;
-2. maintain LoRa/Chatter node observations and acceptance guidance in `.agents/skills/node-agent/SKILL.md` while keeping firmware/protocol source authority in the relevant `lora-sack-protocol` source state;
-3. future MCP adapter only if required, wrapping the same `SessionManager` API.
+Repository CI is the normal per-change clean-environment gate. Physical-node claims remain separate: do not infer current-head hardware validity from older run bundles. For the next build-level validation pass, prefer one long-lived `serialterminal agent` process and a broad scenario matrix over repeated manual operator actions; only UI-specific behavior that the machine API cannot exercise should require a separate human pass.

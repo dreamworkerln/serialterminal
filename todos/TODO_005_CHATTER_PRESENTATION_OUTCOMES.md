@@ -1,6 +1,6 @@
 # TODO_005 — Chatter presentation command/outcome alignment
 
-Status: OPEN
+Status: CLOSED
 
 ## Purpose
 
@@ -14,47 +14,33 @@ Static source review:
 dev@1490078c85bde05ce54ded0c96752ff24d0ca7c1
 ```
 
-Observed facts at that checkpoint:
+At that checkpoint `/cancel` and `/cancel all` were not classified as Chatter local commands, and queue-full/cancellation SYSTEM outcomes could leave stale human presentation state.
 
-- `CHATTER_TEXT_COMMANDS` recognizes `/help`, `/id`, `/chat`, `/tele`, `/both`, `/echo`, and `/reboot`, but does not recognize `/cancel` or `/cancel all`;
-- `TerminalSession._submit_interactive_line()` routes any non-empty unrecognized line through `ChatterPresentation.submit_payload()` before transport queueing;
-- the presentation failure resolver does not currently include queue-full or cancellation SYSTEM outcomes;
-- therefore a supported Chatter control can be tracked as if it were a USER/ECHO payload, and a rejected/cancelled item can leave stale presentation state until a later unrelated resolution or disconnect.
+## Implemented
 
-This is a human-frontend/profile issue. The JSONL agent path does not use `ChatterPresentation` for request semantics.
-
-## Scope
-
-- Chatter text-command classification used by the human frontend;
-- Chatter presentation pending-state resolution for currently supported controller outcomes;
-- deterministic regression coverage for local commands, queue-full rejection, and cancellation presentation behavior;
-- consistency review against current authoritative Chatter firmware/docs before implementation.
-
-## Non-goals
-
-- no firmware behavior change;
-- no generic agent API change;
-- no Chatter command knowledge in `ManagedSession`, generic transports, or generic discovery;
-- no inference that a transport `written` event means RF delivery.
-
-## Implementation
-
-- [ ] Re-read the current authoritative Chatter command/outcome contract before editing code.
-- [ ] Ensure every supported local text control, including `/cancel` and `/cancel all` if still authoritative, is classified as a command rather than a presentation payload.
-- [ ] Define presentation handling for queue-full and cancellation outcomes so pending human presentation state cannot remain stale.
-- [ ] Preserve the distinction between an in-flight USER already physically transmitted and a queued unsent USER cancelled before TX.
-- [ ] Keep background telemetry unable to resolve or mutate human presentation state merely because text resembles a human-console outcome.
-- [ ] Review affected operator/help documentation and Chatter skill guidance for consistency; update only if behavior/documentation actually becomes inaccurate.
+- `/cancel` and `/cancel all` are classified as local Chatter controls and bypass USER/ECHO presentation tracking.
+- Queue-full rejection resolves pending human presentation state instead of leaving a stale entry.
+- Cancellation outcomes resolve pending presentation through the stable `[SYS] DELIVERY CANCELLED:` prefix; the host does not invent an unverified controller suffix.
+- Background telemetry cannot mutate human presentation state merely because its text resembles a console outcome.
+- Chatter behavior remains profile-local; generic `ManagedSession`, transports, discovery and JSONL request semantics were not given controller-specific knowledge.
+- Human help includes the cancellation controls while retaining the previous help text used by existing callers/tests.
 
 ## Validation
 
-- [ ] Deterministic tests cover command boundary trimming for `/cancel` and `/cancel all`.
-- [ ] Deterministic tests cover queue-full rejection without leaving a stale pending presentation entry.
-- [ ] Deterministic tests cover both cancellation shapes that the authoritative firmware exposes.
-- [ ] Existing success, duplicate-payload, disconnect, and background-telemetry presentation tests remain PASS.
-- [ ] Relevant pytest suite PASS.
-- [ ] GitHub Actions PASS on the implementation checkpoint.
+The implementation was validated by the existing and added host-side test suite. The first CI attempt exposed one stale help-text assertion; the compatibility help wording was restored and the repeated full CI passed.
 
-## Closure criteria
+```text
+accepted checkpoint: dev@4f06f9a21dfd4263a0729e8ade5c58132f8ecdc4
+GitHub Actions:      34906863308 SUCCESS
+compile:             PASS
+static/Ruff:         PASS
+complexity:          PASS
+pytest:              PASS
+hardware:            NOT RUN
+```
 
-`CLOSED` requires all currently supported Chatter local controls to bypass USER/ECHO presentation tracking, all authoritative rejection/cancellation outcomes to leave presentation state coherent, regression tests to cover the cases above, and profile segregation to remain intact.
+Physical-node validation was not required to establish this host presentation-state fix and is intentionally not claimed.
+
+## Closure
+
+`CLOSED`: supported Chatter local controls no longer enter payload presentation tracking, queue-full/cancellation outcomes cannot silently leave stale pending state, and profile segregation remains intact.

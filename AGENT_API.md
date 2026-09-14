@@ -1,132 +1,34 @@
 # SerialTerminal agent interface
 
-`serialterminal agent` is a local machine-facing JSON Lines frontend over the same discovery, transports and reconnect/session logic used by the normal human terminal.
+`serialterminal agent` is the canonical local machine-facing JSON Lines frontend over the same discovery, transports and reconnect/session core used by the human terminal.
 
-It is intentionally generic. Device-, firmware- and project-specific test scenarios belong in consuming agent skills, not in this API. Controller-specific behavior is selected explicitly per session through `profile`; the default profile is `generic`.
+The interface is intentionally generic. Firmware/project-specific scenarios and acceptance rules belong in consuming skills. Controller-specific behavior is selected explicitly per session through `profile`; the default is `generic`.
 
-## Start
-
-Run this tool with elevated privileges when the host Bluetooth/serial environment requires them:
+## Start and JSONL rules
 
 ```bash
 python3 serialterminal.py agent
 ```
 
-The process reads one JSON object per line from stdin and writes exactly one JSON response per request to stdout.
+Use the privileges required by the host serial/Bluetooth environment.
 
-`observe` requests may remain pending while later ordinary requests are accepted. Responses are therefore correlated by `id` and are not globally guaranteed to appear in request order.
+The process reads one JSON object per stdin line and writes one correlated JSON response per request. It emits no unsolicited JSON events. `observe` may remain pending while later ordinary requests are accepted, so stdout response order is not globally request order; correlate by `id`.
 
-SerialTerminal does not emit unsolicited JSON event messages on stdout. Every stdout line is a response to a request.
-
-## Run logs
-
-By default every agent process creates a paired forensic log and human-console companion log with the same timestamp/PID prefix:
-
-```text
-logs/serialterminal-YYYYMMDD-HHMMSS-ffffff-pPID.log
-logs/serialterminal-YYYYMMDD-HHMMSS-ffffff-pPID.console.log
-```
-
-An explicit forensic path can be supplied:
-
-```bash
-python3 serialterminal.py agent --log /tmp/serialterminal-agent.log
-```
-
-Its companion path is derived from that path:
-
-```text
-/tmp/serialterminal-agent.console.log
-```
-
-The main `.log` is the forensic/API/transport truth. Its chronological records include:
-
-```text
-[RUN]
-[AGENT]
-[AGENT REQUEST]
-[AGENT RESPONSE]
-[STATE]
-[TX]
-[RX <stream>]
-[ERROR]
-```
-
-There are no separate `[RX LINE ...]` or `[RX PARTIAL ...]` records in the forensic log. Raw `[RX <stream>]` records preserve transport/session chunk boundaries, raw event `seq`, incremental chunk-level `text`, and byte-accurate `data_b64`.
-
-The companion `.console.log` is only a human-oriented presentation/audit view. Records look like:
-
-```text
-2026-09-05T08:23:01.100+00:00 [s1] [I] status
-2026-09-05T08:23:01.420+00:00 [s1] [O] READY
-2026-09-05T08:23:05.100+00:00 [s2] [I] ping
-2026-09-05T08:23:05.250+00:00 [s2] [O] pong
-```
-
-Semantics:
-
-- `[I]` is text accepted through `send_line` for that session;
-- `[O]` is a completed logical line from that session's human-console RX stream;
-- firmware-owned punctuation and prefixes remain part of the firmware line itself and are not replaced by host-side `[I]` / `[O]` markers;
-- all sessions share one chronological companion file and every record contains its session ID;
-- `send_bytes` is not represented as ordinary human input;
-- the companion log is presentation/audit convenience, not transport-write or protocol-delivery evidence.
-
-The generic BLE profile has one standard NUS receive stream named `main`. A controller profile may expose another console stream name, such as `chat`, plus background streams. Background streams such as a profile-provided `telemetry` stream are not written to `.console.log` merely because SerialTerminal is subscribed to them.
-
-Console RX lines come from the same canonical `ManagedSession` logical-line model used by `observe.result.lines`; there is no second line assembler in logging.
-
-The forensic startup `[AGENT]` ready record contains both paths:
-
-```json
-{
-  "event":"ready",
-  "log_path":"logs/serialterminal-...-pPID.log",
-  "console_log_path":"logs/serialterminal-...-pPID.console.log"
-}
-```
-
-Both files are opened and closed with the same `RunLog` lifetime.
-
-## Response envelope and request IDs
-
-Success:
+Success envelope:
 
 ```json
 {"id":1,"ok":true,"result":{}}
 ```
 
-Error:
+Error envelope:
 
 ```json
 {"id":1,"ok":false,"error":{"code":"unknown_session","message":"unknown session: s1"}}
 ```
 
-For ordinary synchronous operations, `id` is copied from the request and may be any JSON value.
-
-`observe` is asynchronous at the JSONL frontend and requires a non-null request `id`. Clients should use unique IDs and must not reuse an ID while an `observe` request with that ID is still pending.
-
-A request that reuses an ID owned by a pending `observe` is rejected without cancelling the original request:
-
-```json
-{
-  "id":100,
-  "ok":false,
-  "error":{
-    "code":"request_id_busy",
-    "message":"request id is already pending: 100",
-    "details":{"id":100}
-  }
-}
-```
-
-Once the pending request finishes, that ID is no longer busy. Monotonically increasing IDs are recommended because they simplify correlation and log inspection.
-
-A positive observation timeout expiring without a new raw event is not an error; the response has `timed_out:true`.
+`observe` is asynchronous at the JSONL frontend and requires a non-null `id`. Do not reuse an ID while an `observe` with that ID is pending. Duplicate use returns `request_id_busy` without cancelling the original request.
 
 ## Operations
-
-The machine-facing operations are:
 
 ```text
 discover
@@ -139,11 +41,67 @@ observe
 close
 ```
 
-`observe` is the only receive/cursor operation. The former machine operations `events` and `wait_events` are removed and return `unknown_operation`.
+`observe` is the only receive/cursor operation. Historical `events` and `wait_events` operations are removed and return `unknown_operation`.
 
-The cursor shape is always a `cursors` object, including when exactly one session is watched.
+## Run logs
 
-## Device discovery
+Every agent process creates a paired forensic and human-console log unless an explicit forensic path is supplied:
+
+```text
+logs/serialterminal-YYYYMMDD-HHMMSS-ffffff-pPID.log
+logs/serialterminal-YYYYMMDD-HHMMSS-ffffff-pPID.console.log
+```
+
+With:
+
+```bash
+python3 serialterminal.py agent --log /tmp/serialterminal-agent.log
+```
+
+the companion is `/tmp/serialterminal-agent.console.log`.
+
+The main `.log` is forensic/API/transport evidence and contains chronological records such as:
+
+```text
+[RUN]
+[AGENT]
+[AGENT REQUEST]
+[AGENT RESPONSE]
+[STATE]
+[TX]
+[RX <stream>]
+[ERROR]
+```
+
+Raw RX records preserve event `seq`, stream, transport/session chunk boundaries, incremental decoded `text`, and byte-accurate `data_b64`. There are no separate forensic `[RX LINE]` or `[RX PARTIAL]` records.
+
+The event ring is bounded. If the persisted logger observes a sequence discontinuity because retained events were lost, it writes an explicit error record before the next retained event:
+
+```json
+{
+  "event":"forensic_gap",
+  "session":"s1",
+  "last_logged_seq":100,
+  "next_logged_seq":105,
+  "lost_seq_first":101,
+  "lost_seq_last":104
+}
+```
+
+A log containing `forensic_gap` is explicitly incomplete for that session/range; never treat it as silently continuous evidence.
+
+The companion `.console.log` is presentation/audit convenience:
+
+```text
+2026-09-05T08:23:01.100+00:00 [s1] [I] status
+2026-09-05T08:23:01.420+00:00 [s1] [O] READY
+```
+
+`[I]` is text accepted through `send_line`. `[O]` is a completed logical line from a human-console stream declared by the selected profile. `send_bytes` is not rendered as ordinary human input. Background streams remain absent from the companion log even though their raw events remain in the forensic log and `observe.result.events`.
+
+Startup `[AGENT]` metadata records both paths.
+
+## Discovery
 
 Request:
 
@@ -151,7 +109,7 @@ Request:
 {"id":1,"op":"discover","scope":"auto"}
 ```
 
-Supported scopes:
+Scopes:
 
 ```text
 auto
@@ -160,63 +118,29 @@ ble
 spp
 ```
 
-Optional discovery settings:
+Optional `baud` and `scan_seconds` may be supplied.
 
-```json
-{"id":1,"op":"discover","scope":"serial","baud":115200,"scan_seconds":3.0}
-```
+Discovery returns transport candidates with stable-enough `device_key`, `kind`, `label`, and `detail`. The agent frontend uses the same sticky physical identity as the rest of SerialTerminal.
 
-Example response:
+Default BLE discovery is capability-based. A device is eligible when it advertises standard Nordic UART Service or its address has cached confirmed NUS capability. Advertised name and controller profile do not whitelist a device. A transient scanner/probe result with unknown NUS status does not erase prior definitive cached NUS knowledge; definitive probe YES/NO remains authoritative.
 
-```json
-{
-  "id":1,
-  "ok":true,
-  "result":{
-    "devices":[
-      {
-        "key":"ble-address:...",
-        "kind":"ble",
-        "label":"BLE Device",
-        "detail":"..."
-      }
-    ]
-  }
-}
-```
+If an expected BLE target is absent, use the Bluetooth capability scanner/prober, then run `discover` again. Machine clients open the returned `device_key`; there are no BLE name aliases in the JSONL API.
 
-`device_key` is the existing SerialTerminal sticky physical identity. The agent frontend does not create a second identity system.
-
-Default BLE discovery is capability-based. A BLE device is returned when it advertises the standard Nordic UART Service or when a prior capability probe cached NUS support for that address. Advertised names and controller profiles do not whitelist BLE devices. If an expected BLE target is absent, use the Bluetooth capability scanner/prober to confirm NUS support, then run `discover` again.
-
-Discovery identifies candidate transport paths. Controller profile selection happens later, independently for each `open` request. Agents open the returned `device_key`; there are no BLE name aliases in the machine interface.
-
-## Open a long-lived session
+## Open
 
 Generic/default:
 
 ```json
-{
-  "id":2,
-  "op":"open",
-  "device_key":"ble-address:..."
-}
+{"id":2,"op":"open","device_key":"ble-address:..."}
 ```
 
 Equivalent explicit form:
 
 ```json
-{
-  "id":2,
-  "op":"open",
-  "device_key":"ble-address:...",
-  "profile":"generic"
-}
+{"id":2,"op":"open","device_key":"ble-address:...","profile":"generic"}
 ```
 
-The returned `session` remains alive until `close` or process exit. Its internal `ManagedSession` keeps retrying the same physical target after a disconnect.
-
-Default open behavior:
+Defaults:
 
 ```text
 eol=lf
@@ -224,45 +148,28 @@ profile=generic
 wait_connected_ms=10000
 ```
 
-The `generic` profile sends no connect preamble and makes no controller-command assumptions. For BLE it uses standard Nordic UART Service layout: `0002` for writes and `0003` as receive stream `main`.
+The returned session is long-lived until `close` or process shutdown. If the target is not connected within `wait_connected_ms`, `open` still returns the live session with `state:"reconnecting"`; reconnect continues in the background against the same physical target.
 
-Bundled controller profiles are explicit. For example:
+The `generic` profile sends no controller preamble. Generic BLE uses standard NUS: `0002` write and `0003` receive stream `main`.
+
+Bundled controller profiles are explicit, for example:
 
 ```json
-{
-  "id":2,
-  "op":"open",
-  "device_key":"ble-address:...",
-  "profile":"chatter"
-}
+{"id":3,"op":"open","device_key":"ble-address:...","profile":"chatter"}
 ```
 
-The `chatter` profile supplies its controller-defined connect preamble and BLE receive layout. Its connect preamble includes `/id`; it is sent after every successful transport connect/reconnect and before the session is published as connected. Its BLE layout exposes `chat` and optional `telemetry` streams.
+The Chatter profile supplies its controller preamble (including `/id`) and profile-defined BLE receive layout (`chat` plus optional `telemetry`). Profile selection is per session, not process-global. One process may hold sessions with different profiles simultaneously.
 
-`profile` is per session, not process-global. One agent process may therefore hold generic and controller-profile sessions simultaneously.
+`open` does not accept the legacy `auto_id` toggle. Unknown profile names return `unknown_profile`.
 
-The connect preamble is defined only by the selected profile. `open` has no separate preamble toggle. A request containing `auto_id` is rejected with `invalid_request` rather than changing profile behavior.
+The successful result includes `session`, `device_key`, `description`, `state`, `streams`, `latest_seq`, and `profile`. Save `latest_seq` when earlier startup activity should be ignored by later `observe` calls.
 
-An unknown profile fails with `unknown_profile`.
+The same `device_key` cannot be owned by two sessions in one `SessionManager`.
 
-The successful `open` result includes `profile` and does not duplicate profile state in a separate compatibility field.
-
-If the target does not connect within `wait_connected_ms`, `open` still returns the live session with:
+## Status and session list
 
 ```json
-{"state":"reconnecting"}
-```
-
-The background session continues retrying the same device.
-
-One `SessionManager` does not allow the same `device_key` to be opened twice. Different devices may be held simultaneously.
-
-The response includes `latest_seq`. Save it as the initial raw cursor for subsequent `observe` calls when activity before completion of `open` has already been inspected or should be ignored.
-
-## Session status
-
-```json
-{"id":3,"op":"status","session":"s1"}
+{"id":4,"op":"status","session":"s1"}
 ```
 
 Typical result fields:
@@ -279,27 +186,17 @@ latest_seq
 queued_tx
 ```
 
-`streams` is the transport layout selected for that session's profile. Generic serial/SPP and generic standard-NUS sessions normally expose `main`; controller profiles may expose additional or differently named streams.
-
-List all sessions:
-
 ```json
-{"id":4,"op":"list_sessions"}
+{"id":5,"op":"list_sessions"}
 ```
 
-## Send a line
+## Send text
 
 ```json
-{"id":5,"op":"send_line","session":"s1","text":"hello"}
+{"id":6,"op":"send_line","session":"s1","text":"hello"}
 ```
 
-Optional per-message EOL override:
-
-```json
-{"id":5,"op":"send_line","session":"s1","text":"AT","eol":"crlf"}
-```
-
-Supported EOL values:
+Optional per-message EOL:
 
 ```text
 lf
@@ -307,144 +204,76 @@ crlf
 cr
 ```
 
-Response:
+Example response:
 
 ```json
-{"id":5,"ok":true,"result":{"tx_id":12,"state":"queued"}}
+{"id":6,"ok":true,"result":{"tx_id":12,"state":"queued"}}
 ```
 
-`queued` means the reconnect-safe SerialTerminal TX queue accepted the item. The same accepted text is also written to the companion console log as `[session] [I] text` when run logging is enabled.
+`queued` proves only that the reconnect-safe SerialTerminal TX queue accepted the item.
 
-A later raw observation event with:
+A later raw event:
 
 ```json
 {"kind":"tx","tx_id":12,"tx_state":"written"}
 ```
 
-means the existing transport `write()` completed successfully. It does **not** mean a peer received the data or that a higher-level protocol accepted or completed the requested operation.
+means the transport `write()` call completed successfully. It does **not** prove peer receipt, RF delivery, firmware acceptance, ACK, or higher-level operation completion.
+
+Ordinary transport failures that are known safe to repeat remain reconnect/retry ordered by the session queue.
+
+A transport may instead report an ambiguous write outcome. BLE GATT write timeout is the current example: cancellation can be requested, but SerialTerminal cannot prove that the backend/native side effect did not already occur. The session then records:
+
+```json
+{"kind":"tx","tx_id":12,"tx_state":"unknown"}
+```
+
+and an associated error event with:
+
+```json
+{"kind":"error","tx_id":12,"state":"send-outcome-unknown"}
+```
+
+`tx_state:"unknown"` is terminal for that queued item: SerialTerminal does **not** automatically resend it after reconnect because doing so could create a duplicate side effect. A machine scenario must decide success/failure from later application/protocol evidence or classify the case as ambiguous/inconclusive. Do not reinterpret `unknown` as either `written` or definitely-not-written.
 
 ## Send raw bytes
 
-Raw bytes use base64:
+```json
+{"id":7,"op":"send_bytes","session":"s1","data_b64":"FDE="}
+```
+
+Raw and line sends share the same ordered TX queue. `send_bytes` does not create ordinary companion-console input records.
+
+## Observe
+
+One session:
+
+```json
+{"id":20,"op":"observe","cursors":{"s1":42},"timeout_ms":15000}
+```
+
+Multiple sessions use the same shape:
+
+```json
+{"id":21,"op":"observe","cursors":{"s1":42,"s2":75},"timeout_ms":15000}
+```
+
+`cursors` is required and non-empty. Each value is the last raw `SessionEvent.seq` already processed for that session. Sequence spaces are independent per session. There is intentionally one raw cursor model and no separate line cursor.
+
+Result shape:
 
 ```json
 {
-  "id":6,
-  "op":"send_bytes",
-  "session":"s1",
-  "data_b64":"FDE="
+  "events":[...],
+  "lines":[...],
+  "cursors":{"s1":44,"s2":75},
+  "timed_out":false
 }
 ```
 
-Line and raw-byte sends use the same ordered reconnect-safe TX queue. `send_bytes` is not rendered as ordinary human input in the companion console log.
+`events` are forensic raw session events (`state`, `tx`, `rx`, `error`). Exact bytes are in `data_b64`. BLE notifications remain transport-sized chunks; SerialTerminal does not make transports pretend to be line-oriented.
 
-## Observe raw events and logical lines
-
-Request for one session:
-
-```json
-{
-  "id":20,
-  "op":"observe",
-  "cursors":{
-    "s1":42
-  },
-  "timeout_ms":15000
-}
-```
-
-Request for multiple sessions uses exactly the same shape:
-
-```json
-{
-  "id":21,
-  "op":"observe",
-  "cursors":{
-    "s1":42,
-    "s2":75
-  },
-  "timeout_ms":15000
-}
-```
-
-`cursors` is required and must be a non-empty object. Each key is a session ID and each value is the last raw `SessionEvent.seq` already processed by the caller for that session. Sequence numbers are independent per session.
-
-There is intentionally one cursor model. A single watched session still uses a `cursors` object; there is no separate single-session receive shape.
-
-### Result
-
-```json
-{
-  "id":21,
-  "ok":true,
-  "result":{
-    "events":[
-      {
-        "session":"s1",
-        "seq":43,
-        "kind":"rx",
-        "stream":"main",
-        "data_b64":"U0VTU0lPTiBUWCBvaw==",
-        "text":"SESSION TX ok"
-      },
-      {
-        "session":"s1",
-        "seq":44,
-        "kind":"rx",
-        "stream":"main",
-        "data_b64":"PTEK",
-        "text":"=1\n"
-      }
-    ],
-    "lines":[
-      {
-        "session":"s1",
-        "stream":"main",
-        "seq_first":43,
-        "seq_last":44,
-        "text":"SESSION TX ok=1"
-      }
-    ],
-    "cursors":{
-      "s1":44,
-      "s2":75
-    },
-    "timed_out":false
-  }
-}
-```
-
-`events` and `lines` are two views over the same session receive history:
-
-```text
-events = forensic raw SessionEvent/chunk truth
-lines  = completed LF-terminated logical firmware lines
-```
-
-The caller should use `result.lines` for line-oriented protocol/human-readable reasoning and `result.events` when exact transport/session evidence is required.
-
-### Raw events
-
-`result.events` preserves the existing `SessionEvent` representation. It may contain:
-
-```text
-state
-tx
-rx
-error
-```
-
-Fields already present on those events remain unchanged, including exact `seq`, `stream`, `data_b64`, chunk-level incremental UTF-8 `text`, `tx_id`, `tx_state`, timestamp and device/description metadata where applicable.
-
-BLE notifications remain BLE-sized chunks. SerialTerminal does not make a transport pretend to be line-oriented. `data_b64` is the byte-accurate source of truth.
-
-### Logical lines
-
-Logical line assembly lives once on `ManagedSession`, above the transport layer. Each receive stream has independent assembly state, so `main`, profile-defined streams such as `chat`/`telemetry`, or future streams are never concatenated with one another.
-
-Assembly uses the same incremental UTF-8 decoded text already produced for the raw RX event. It does not run a second independent decoder over raw chunks.
-
-A line record has:
+`lines` are completed LF-terminated logical firmware lines assembled once on `ManagedSession`. Each stream has independent UTF-8/line state. A line record contains:
 
 ```text
 session
@@ -454,185 +283,87 @@ seq_last
 text
 ```
 
-Rules:
+LF is omitted from `text`; CR immediately before LF is removed for the logical line view. Raw event bytes/text are not normalized. Empty LF-terminated lines are retained.
 
-- LF terminates a logical line and is omitted from `text`;
-- a CR immediately before the terminating LF is removed from line-view `text`, so CRLF is one logical boundary;
-- raw event bytes and raw event text are not normalized;
-- empty LF-terminated lines are retained;
-- `seq_first` is the first raw RX event participating in the line;
-- `seq_last` is the raw RX event containing the terminating LF;
-- if the first raw chunk contains only the beginning of a split UTF-8 code point and incremental decoding yields empty text, that raw event still becomes `seq_first`.
-
-The same completed `SessionLine` objects feed `observe.result.lines` and the companion console logger. The logger merely selects human-console streams; it does not assemble text independently.
-
-### One raw cursor controls both views
-
-There is no line cursor.
-
-A completed line is returned when:
+Use:
 
 ```text
-line.seq_last > input_cursor_for_that_session
+firmware/protocol reasoning   -> result.lines
+transport/chunk forensics     -> result.events / data_b64
 ```
 
-Its `seq_first` may be less than or equal to the input cursor. This is deliberate and lets the session retain an incomplete line across observation calls without forcing the caller to assemble RX fragments itself.
+Do not manually join RX chunks when the completed logical line is already present.
 
-For example, suppose the first observation returns:
+A completed line is returned when `line.seq_last` is newer than the input cursor. Its `seq_first` may be at or before that cursor because the line may have begun in a previous observation.
 
-```text
-seq 100  RX text="STATUS PA"
-```
+For each watched session, event and line views come from one cursor-consistent snapshot under the same session lock.
 
-The caller advances its raw cursor to 100. Later the next raw RX event is:
+### Cursor expiry
 
-```text
-seq 101  RX text="SS\n"
-```
+The finite raw event ring defines the cursor window. If a requested cursor is older than retained history, the whole request fails with `cursor_expired`, including `session`, `requested_seq`, and `oldest_seq` in error details. There is no separate line-cursor error.
 
-Then:
+Unknown watched sessions fail with `unknown_session`.
 
-```json
-{"id":30,"op":"observe","cursors":{"s1":100},"timeout_ms":0}
-```
+### Lifecycle boundaries
 
-returns raw event 101 and the complete line spanning both chunks:
+Only LF-terminated lines become `result.lines`. Incomplete line state is discarded at connection lifecycle boundaries so bytes from different transport connections cannot be joined. Raw retained events remain the forensic evidence.
 
-```json
-{
-  "session":"s1",
-  "stream":"main",
-  "seq_first":100,
-  "seq_last":101,
-  "text":"STATUS PASS"
-}
-```
-
-Do not manually join raw RX chunks when the required completed logical line is already present in `result.lines`.
-
-### Cursor-consistent snapshot
-
-For each watched session, raw events and completed lines are read from one `ManagedSession` snapshot under the same session lock. An observation therefore cannot expose the raw event that terminates a logical line while accidentally omitting the line that the same event completed.
-
-Across multiple sessions the manager merges the per-session snapshots and returns independent cursors for each session.
-
-### Retention and cursor expiry
-
-The finite raw `SessionEvent` ring is the authoritative cursor window. Completed logical lines are retained in relation to that same window so every still-valid raw cursor can retrieve completed lines whose `seq_last` is newer than the cursor.
-
-If a requested raw cursor has fallen before the retained event window, the whole `observe` request fails with `cursor_expired`. There is no separate line-cursor error.
-
-Example:
-
-```json
-{
-  "id":25,
-  "ok":false,
-  "error":{
-    "code":"cursor_expired",
-    "message":"s2: event cursor 10 expired; oldest available seq is 57",
-    "details":{
-      "session":"s2",
-      "requested_seq":10,
-      "oldest_seq":57
-    }
-  }
-}
-```
-
-An unknown watched session similarly fails the request with `unknown_session` and identifies the session in `details`.
-
-### Lifecycle boundaries and incomplete lines
-
-Only LF-terminated lines become first-class `result.lines` records.
-
-An incomplete line is not promoted to a separate API record on disconnect, reconnect or close. Its raw bytes/text remain available in `result.events`. Incomplete assembly state is cleared at connection lifecycle boundaries so text from one transport connection cannot be joined to bytes received after reconnect.
-
-The forensic log likewise does not create partial-line records.
-
-### Timeout semantics
+### Timeouts
 
 `timeout_ms` must be non-negative.
 
-`timeout_ms:0` is an immediate snapshot. If no new raw event exists:
+`timeout_ms:0` returns an immediate snapshot. If no event exists, `timed_out:false` with empty arrays.
 
-```json
-{
-  "events":[],
-  "lines":[],
-  "cursors":{"s1":42},
-  "timed_out":false
-}
-```
+A positive timeout long-polls until the first new raw event on any watched session. If nothing arrives by expiry, it returns empty arrays with `timed_out:true`.
 
-A positive timeout long-polls until the first new raw event on any watched session. If no raw event appears before expiry:
+If an event arrives without completing a logical line, the request returns immediately with non-empty `events` and possibly empty `lines`; issue the next `observe` using returned cursors.
 
-```json
-{
-  "events":[],
-  "lines":[],
-  "cursors":{"s1":42},
-  "timed_out":true
-}
-```
-
-If a raw event arrives but does not complete a logical line, the request returns immediately with non-empty `events` and empty `lines`. A caller waiting for a specific firmware line should issue the next `observe` using the returned `cursors`.
-
-There are no receive filters in `observe`; it returns all raw events after the watched cursors and all completed logical lines whose `seq_last` is newer than the corresponding input cursor. Callers may filter the returned arrays themselves.
+There are no receive filters in `observe`; callers may filter returned arrays.
 
 ## Concurrent JSONL behavior
 
-Only `observe` requests are dispatched asynchronously. Ordinary operations remain serialized by the main JSONL reader in input order. This preserves mutation ordering while allowing one or more long-poll observations to remain pending.
+Only `observe` is asynchronous. Ordinary commands are serialized by the main reader, preserving mutation order while one or more observations remain pending.
 
-Example timeline:
+Example:
 
 ```text
-request id=100  observe(s1,s2, 30s)         -> pending
-request id=101  send_line(s1,"hello")       -> response id=101
-request id=102  status(s1)                   -> response id=102
-... raw event arrives on s2 ...
-                                           -> response id=100
+id=100 observe(s1,s2) -> pending
+id=101 send_line(s1)  -> response 101
+id=102 status(s1)     -> response 102
+... event on s2 ...   -> response 100
 ```
 
-The exact result fields depend on current activity; correlation is by request `id`, not stdout position.
+Multiple observations may pend under different IDs. stdout JSON lines are serialized and cannot interleave. `[AGENT RESPONSE]` ordering in the forensic log matches stdout response ordering.
 
-Multiple `observe` requests with different IDs may be pending simultaneously. Reusing any still-pending ID is rejected with `request_id_busy` and does not cancel the original request.
+Continuous observation means issuing a new `observe` after each response using the returned cursors; there is no unsolicited push.
 
-stdout writes are serialized, so concurrent completions cannot interleave fragments of JSON objects. The forensic log uses the same response emission lock for `[AGENT RESPONSE]`, so response-line order in the log matches response-line order on stdout. `[AGENT REQUEST]` entries remain in input order and may appear before responses to earlier pending observations.
-
-There is no unsolicited push. Continuous observation is implemented by issuing a new `observe` after each completed response, using its returned `cursors`.
-
-## Close and process shutdown
+## Close and shutdown
 
 ```json
-{"id":10,"op":"close","session":"s1"}
+{"id":30,"op":"close","session":"s1"}
 ```
 
-Process EOF cancels pending `observe` calls, lets them finish with their correlated response, then closes remaining sessions. An observation cancelled specifically because the agent process is stopping may complete with structured `agent_stopping` before stdout closes.
+EOF/process shutdown cancels pending observations, allows correlated shutdown responses, then closes remaining sessions while logs/stdout are still available. A pending observation cancelled by process shutdown may return structured `agent_stopping`.
 
-The forensic and companion console logs close together when the agent run ends.
+## Multiple devices
 
-## Multiple devices and profiles
-
-A single agent process can keep independent sessions open simultaneously, and each `open` may choose its own controller profile:
+A single process may keep independent sessions open simultaneously:
 
 ```text
 discover
 open Device A profile=generic -> s1
 open Device B profile=chatter -> s2
-send_line s1
-observe {s1,s2}
-...
+send/observe using {s1,s2}
 close s1
 close s2
 ```
 
-SerialTerminal assigns no application-specific roles or acceptance rules to those devices. Such semantics belong in the calling agent skill.
+SerialTerminal assigns no application-specific roles or acceptance rules. Those belong in the consuming project skill/test scenario.
 
 ## Architecture boundary
 
 ```text
-Codex / future MCP
+Codex / future MCP / scenario runner
         ↓
 JSONL adapter / future MCP adapter
         ↓
@@ -643,9 +374,9 @@ ManagedSession
         └─ canonical logical lines ──────> observe.result.lines
                                       └──> human-console companion logger
         ↓
-existing Transport abstraction
+Transport abstraction
         ↓
 SerialTransport / BleNusTransport / BluetoothSppTransport
 ```
 
-The agent layer must not directly open serial ports, create Bleak clients or RFCOMM sockets. A future MCP frontend should wrap `SessionManager` rather than add another transport/session implementation.
+The agent layer must not directly open serial ports, create Bleak clients, or create RFCOMM sockets. A future adapter or broad autonomous test harness should wrap the same `SessionManager`/JSONL contract instead of duplicating transport/session logic.

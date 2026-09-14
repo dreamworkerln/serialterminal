@@ -1,6 +1,6 @@
 # TODO_009 — BLE oversized RX chunk ordering
 
-Status: OPEN
+Status: CLOSED
 
 ## Purpose
 
@@ -8,56 +8,34 @@ Preserve byte/notification order when `BleNusTransport.read_chunk(size)` must sp
 
 ## Finding checkpoint
 
-Static source review:
-
 ```text
 dev@1490078c85bde05ce54ded0c96752ff24d0ca7c1
 ```
 
-Observed facts at that checkpoint:
+At that checkpoint an oversized notification returned its head and appended the unread tail back to the normal FIFO, allowing a later notification to overtake that tail.
 
-- BLE notifications are queued in `_rx_queue` in arrival order;
-- when one queued chunk exceeds `size`, `read_chunk()` returns the head and puts the tail back into `_rx_queue` with ordinary FIFO `put()`;
-- if a later notification is already queued, that later notification can be returned before the tail of the earlier oversized notification.
+## Implemented
 
-Example failure shape:
-
-```text
-queue before read:   [A(head+tail), B]
-current behavior:    return A(head), queue becomes [B, A(tail)]
-required ordering:   A(head), A(tail), B
-```
-
-BLE notifications are normally small, so this is an edge-case correctness defect rather than a claim about common hardware behavior.
-
-## Scope
-
-- generic BLE receive buffering/splitting;
-- preservation of per-arrival byte order across repeated small reads;
-- stream tag preservation for split tails.
-
-## Non-goals
-
-- no change to BLE characteristic/profile mapping;
-- no line assembly in the transport layer;
-- no controller-specific receive logic.
-
-## Implementation
-
-- [ ] Change oversized-chunk handling so an unread tail is consumed before any later queued notification.
-- [ ] Preserve the original stream tag on every returned fragment.
-- [ ] Preserve existing behavior when the chunk fits in the requested size.
-- [ ] Keep transport-level chunking separate from `ManagedSession` logical-line assembly.
+- `BleNusTransport` keeps one unread split tail in `_rx_pending` ahead of the normal notification queue.
+- Repeated small reads continue consuming the same notification until its tail is exhausted before any later notification is returned.
+- Every fragment keeps the original stream tag.
+- Chunks that already fit within `size` retain the previous behavior.
+- Transport chunking remains separate from `ManagedSession` logical-line assembly and controller profiles.
 
 ## Validation
 
-- [ ] Regression test queues oversized notification A followed by notification B and reads with a small size; observed order must be A-head, A-tail, B.
-- [ ] Regression test covers an item requiring more than two fragments.
-- [ ] Regression test verifies stream tags remain correct.
-- [ ] Existing BLE notification/reconnect tests remain PASS.
-- [ ] Relevant pytest suite PASS.
-- [ ] GitHub Actions PASS on the implementation checkpoint.
+Host-side tests cover A-head/A-tail/B ordering, a notification requiring more than two fragments, and stream-tag preservation.
 
-## Closure criteria
+```text
+accepted checkpoint: dev@69cc1e4157471f69718dbb9fbb46ef5b8d945ab7
+GitHub Actions:      34908096672 SUCCESS
+compile:             PASS
+static/Ruff:         PASS
+complexity:          PASS
+pytest:              PASS
+hardware:            NOT RUN
+```
 
-`CLOSED` requires deterministic tests proving `read_chunk(size)` never reorders a split tail behind a later notification while preserving the generic transport contract.
+## Closure
+
+`CLOSED`: splitting an oversized BLE receive chunk no longer reorders its unread tail behind later notifications.

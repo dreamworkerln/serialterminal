@@ -1,6 +1,6 @@
 # TODO_007 — Forensic agent log cursor-gap integrity
 
-Status: OPEN
+Status: CLOSED
 
 ## Purpose
 
@@ -8,51 +8,36 @@ Ensure the agent forensic log cannot silently omit retained session events while
 
 ## Finding checkpoint
 
-Static source review:
-
 ```text
 dev@1490078c85bde05ce54ded0c96752ff24d0ca7c1
 ```
 
-Observed facts at that checkpoint:
+At that checkpoint `SessionCursorExpired` in the companion event-logger path advanced directly to the oldest retained event without recording that earlier session events had been lost.
 
-- `ManagedSession` keeps a bounded raw event ring, default `event_limit=4096`;
-- the agent event-logger thread consumes that ring by cursor through `events_after()`;
-- when `SessionCursorExpired` is raised, `_event_logger_loop()` advances its cursor to `oldest_seq - 1` and continues;
-- no explicit gap/loss record is written before continuing;
-- project policy and `AGENT_API.md` treat the main agent log as forensic/API/transport truth.
+## Implemented
 
-Consequence: under sufficient logger lag/event volume, old events may be omitted from the persisted forensic log without an explicit indication that a gap occurred.
+- `RunLog` tracks the last persisted raw event sequence independently for each session.
+- If the next forensic event sequence skips forward, the logger writes an `[ERROR]` record with `event="forensic_gap"` before the next retained event.
+- The marker records `session`, `last_logged_seq`, `next_logged_seq`, `lost_seq_first`, and `lost_seq_last`.
+- Normal `[STATE]`, `[TX]`, `[RX <stream>]`, and `[ERROR]` records remain unchanged when sequences are contiguous.
+- Public `observe` cursor-expiry semantics and bounded `ManagedSession` retention are unchanged.
 
-## Scope
-
-- generic agent event logging and its relationship to bounded `ManagedSession` retention;
-- loss detection/representation for the persisted forensic logfile;
-- shutdown/flush behavior needed to keep the log's completeness claim honest.
-
-## Non-goals
-
-- no change to public `observe` cursor-expiry semantics unless independently required;
-- no controller-specific behavior;
-- no silent increase of retention as the sole correctness fix without proving it eliminates the failure mode.
-
-## Implementation
-
-- [ ] Choose a generic mechanism that makes persisted event loss impossible or explicitly detectable.
-- [ ] If bounded retention can still overrun the logger, persist an unambiguous gap/error record with the lost cursor range or equivalent loss metadata.
-- [ ] Ensure a run cannot present a gap-containing forensic log as silently complete.
-- [ ] Preserve event ordering and current `[STATE]` / `[TX]` / `[RX <stream>]` / `[ERROR]` semantics for non-gap operation.
-- [ ] Review `AGENT_API.md`, recording policy, and generic agent skill wording if the forensic-log completeness contract changes.
+A forensic log may therefore still contain a retention gap under extreme logger lag, but it can no longer present that gap as silent completeness.
 
 ## Validation
 
-- [ ] Deterministic regression test forces logger lag/retention expiry using a small event limit or controlled logger delay.
-- [ ] Test proves the resulting log has no silent hole: either every event is persisted or an explicit loss marker is persisted.
-- [ ] Normal logging-order tests remain PASS.
-- [ ] Shutdown flush/cancel tests remain PASS.
-- [ ] Relevant pytest suite PASS.
-- [ ] GitHub Actions PASS on the implementation checkpoint.
+A deterministic small-ring test forces an overrun and verifies that `forensic_gap` is persisted before the first retained event; contiguous-event logging remains gap-free.
 
-## Closure criteria
+```text
+accepted checkpoint: dev@4182390d73d9a8a5d02c6fd9b6b601e40fb5ae63
+GitHub Actions:      34907393048 SUCCESS
+compile:             PASS
+static/Ruff:         PASS
+complexity:          PASS
+pytest:              PASS
+hardware:            NOT RUN
+```
 
-`CLOSED` requires deterministic proof that event-ring overrun cannot produce a silently incomplete forensic log, plus documentation that accurately describes the resulting integrity contract.
+## Closure
+
+`CLOSED`: persisted forensic event loss is explicitly detectable and range-accounted instead of silently omitted.

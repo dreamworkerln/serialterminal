@@ -1,6 +1,6 @@
 # TODO_008 — BLE write-timeout completion ambiguity
 
-Status: OPEN
+Status: CLOSED
 
 ## Purpose
 
@@ -8,50 +8,37 @@ Define and enforce safe ownership of a BLE GATT write when the synchronous trans
 
 ## Finding checkpoint
 
-Static source review:
-
 ```text
 dev@1490078c85bde05ce54ded0c96752ff24d0ca7c1
 ```
 
-Observed facts at that checkpoint:
+At that checkpoint every BLE write exception/timeout was treated as a definite `TransportError`; `ManagedSession` could then reconnect and retry the same queued item even though a timed-out backend write might still complete late.
 
-- `BleNusTransport.write()` submits `_write_async()` to the BLE event loop and waits with `future.result(timeout=self.write_timeout)`;
-- on any exception/timeout it clears the local connected flag and raises `TransportError`;
-- the timeout path does not establish in code that the submitted future/coroutine can no longer complete the GATT write;
-- `ManagedSession.tx_loop()` treats a transport write failure as reconnect/retry of the same queued item.
+## Implemented
 
-Risk: if the timed-out BLE write completes late after the caller has already classified it as failed, the reconnect-safe retry path can potentially write the same queued item again. This is a static-analysis risk; no physical duplicate write is claimed by this finding.
+- Added generic `TransportWriteOutcomeUnknown`, a `TransportError` subtype for writes whose side effect cannot be proven absent.
+- BLE GATT timeout requests cancellation of the submitted future, clears local connected state, and raises `TransportWriteOutcomeUnknown` with an explicit `outcome unknown` message.
+- `ManagedSession` records a terminal TX event with `tx_state="unknown"` plus an `error` event with `state="send-outcome-unknown"`.
+- An ambiguous TX is consumed and is **not** automatically retried after reconnect.
+- Ordinary definite `TransportError`/`OSError` failures retain the existing reconnect-and-retry behavior and ordering.
+- `tx_state="written"` still means only that transport `write()` completed; it does not prove peer or application delivery.
 
-## Scope
-
-- BLE GATT write timeout/cancellation/completion ownership;
-- interaction with reconnect-safe TX retry semantics;
-- generic transport/session documentation if the achievable guarantee is at-least-once rather than exactly-once-at-write-boundary.
-
-## Non-goals
-
-- no protocol-level deduplication in SerialTerminal;
-- no Chatter-specific retry logic in generic transport/session code;
-- no claim that transport `written` proves firmware acceptance or peer delivery.
-
-## Implementation
-
-- [ ] Establish the exact Bleak/asyncio behavior for cancellation and late completion of `write_gatt_char()` futures.
-- [ ] Choose a transport/session behavior that cannot silently classify an in-progress write as definitely failed and then retry it without accounting for ambiguity.
-- [ ] Preserve reconnect-safe ordering for ordinary definite failures.
-- [ ] If an exactly-once transport-write guarantee is impossible, document and expose the ambiguity accurately instead of overstating failure certainty.
-- [ ] Review `AGENT_API.md` and generic agent skill if TX/write semantics change.
+This is deliberately not an exactly-once guarantee. It is an explicit ambiguity contract that prevents SerialTerminal from turning an uncertain BLE side effect into an unqualified duplicate retry.
 
 ## Validation
 
-- [ ] Deterministic fake-BLE regression test blocks a GATT write past `write_timeout` and then releases it late.
-- [ ] Test covers reconnect/retry behavior after that timeout.
-- [ ] Test proves the selected contract: either the late write is prevented before retry, or the ambiguity is explicitly represented and unsafe duplicate retry is avoided/controlled according to the documented design.
-- [ ] Existing BLE reconnect and TX ordering tests remain PASS.
-- [ ] Relevant pytest suite PASS.
-- [ ] GitHub Actions PASS on the implementation checkpoint.
+The fake BLE test holds a GATT write beyond `write_timeout`, observes cancellation, then deliberately completes the backend side effect late. The session-level test verifies the ambiguous first TX is attempted once, receives `tx_state="unknown"`, is not retried, and the next queued TX proceeds after reconnect.
 
-## Closure criteria
+```text
+accepted checkpoint: dev@441fc99d3f123e9133253c820f59f54e37d23f88
+GitHub Actions:      34907924472 SUCCESS
+compile:             PASS
+static/Ruff:         PASS
+complexity:          PASS
+pytest:              PASS
+hardware:            NOT RUN
+```
 
-`CLOSED` requires a documented, tested completion-ownership rule for timed-out BLE writes that is consistent with reconnect-safe TX ordering and does not silently turn an ambiguous write outcome into an unqualified retry assumption.
+## Closure
+
+`CLOSED`: timed-out BLE write ownership is represented explicitly as unknown when required, unsafe automatic duplicate retry is avoided, and ordinary definite-failure retry semantics remain intact.
