@@ -65,12 +65,12 @@ class TerminalSession(ManagedSession):
         self._presentation = self.profile.make_presentation()
         self._received_decoders = {}
         self._received_line_buffers = {}
-        self._hidden_chat_line_buffer = ""
 
-        # Human console follows the primary/main stream. BLE 0004 telemetry is
-        # still subscribed and retained in the transcript, but is background
-        # machine data rather than a second user-visible VIEW.
-        self.view_mode = "chat"
+        console_streams = self.profile.human_console_streams()
+        self.view_mode = next(
+            (stream for stream in console_streams if stream != "main"),
+            "main",
+        )
 
         self.log_file = self.log_path.open("a", encoding="utf-8", buffering=1)
         stamp = datetime.now().astimezone().strftime("%Y-%m-%d %H:%M:%S %z")
@@ -143,26 +143,16 @@ class TerminalSession(ManagedSession):
         with self.decode_lock:
             self._received_decoders.clear()
             self._received_line_buffers.clear()
-            self._hidden_chat_line_buffer = ""
-
-    def _hidden_chat_system_text(self, stream: str, text: str) -> str:
-        """Compatibility helper for complete [SYS] lines from a hidden CHAT stream."""
-        if stream != "chat" or not text:
-            return ""
-        prefix = self.profile.system_line_prefix
-        if prefix is None:
-            return ""
-        return "".join(
-            line
-            for line in text.splitlines(keepends=True)
-            if line.startswith(prefix)
-        )
 
     def _received_line_visible(self, stream: str, line: str) -> bool:
         if self._received_visible(stream):
             return True
         prefix = self.profile.system_line_prefix
-        return bool(prefix and stream == "chat" and line.startswith(prefix))
+        return bool(
+            prefix
+            and stream in self.profile.human_console_streams()
+            and line.startswith(prefix)
+        )
 
     def write_received(self, chunk: ReceivedChunk) -> None:
         if not chunk.data:
@@ -179,10 +169,12 @@ class TerminalSession(ManagedSession):
             self.log_file.flush()
 
             for line in lines:
-                # Only the human/main firmware stream owns presentation
-                # outcomes. Background BLE 0004 telemetry must not resolve or
-                # reject pending USER/ECHO presentation state.
-                if self._presentation is not None and chunk.stream != "telemetry":
+                # Presentation outcomes принадлежат только human-console streams
+                # выбранного profile. Background streams остаются transcript-only.
+                if (
+                    self._presentation is not None
+                    and chunk.stream in self.profile.human_console_streams()
+                ):
                     reveal = self._presentation.consume_firmware_line(line)
                     if reveal is not None:
                         sys.stdout.write(reveal + "\n")
@@ -316,8 +308,8 @@ class TerminalSession(ManagedSession):
         )
 
     def _set_view_mode(self, mode: str) -> None:
-        # Retained as an internal compatibility helper for old callers/tests;
-        # normal UI no longer exposes a local VIEW selector.
+        # Старый внутренний selector остаётся только как generic compatibility
+        # helper; normal UI не создаёт для него отдельных hotkeys.
         self.view_mode = mode
 
     def _print_status(self) -> None:
@@ -421,13 +413,14 @@ class TerminalSession(ManagedSession):
             self.write_output("\n[Bluetooth scanner closed; reconnecting target]\n\n")
 
     def _handle_control(self, action: str) -> None:
-        if action in {"chat", "telemetry", "both"}:
-            self._set_view_mode(action)
-            return
-
         profile_action = self.profile.human_actions().get(action)
         if profile_action is not None:
             self._queue_profile_action(profile_action)
+            return
+
+        transport = self._current_transport()
+        if action == "both" or action in transport.stream_capabilities:
+            self._set_view_mode(action)
             return
 
         if action == "device":
