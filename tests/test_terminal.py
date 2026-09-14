@@ -1,4 +1,5 @@
 import serialterminal.terminal as terminal_module
+from serialterminal.profiles.chatter import CHATTER_PROFILE
 from serialterminal.terminal import (
     CHATTER_ECHO_TOGGLE,
     CHATTER_HELP_COMMAND,
@@ -49,8 +50,12 @@ class FakeStdout:
         self.flush_count += 1
 
 
+def _chatter_session(transport, **kwargs):
+    return TerminalSession(transport, profile=CHATTER_PROFILE, **kwargs)
+
+
 def test_stream_visibility_and_hotkeys(tmp_path):
-    session = TerminalSession(
+    session = _chatter_session(
         DummyBleLikeTransport(),
         log_path=tmp_path / "terminal.log",
     )
@@ -75,7 +80,7 @@ def test_system_lines_bypass_local_telemetry_view(tmp_path, monkeypatch):
     monkeypatch.setattr(terminal_module.sys, "stdout", fake_stdout)
 
     log_path = tmp_path / "terminal.log"
-    session = TerminalSession(DummyBleLikeTransport(), log_path=log_path)
+    session = _chatter_session(DummyBleLikeTransport(), log_path=log_path)
     try:
         session.view_mode = "telemetry"
 
@@ -102,7 +107,7 @@ def test_system_lines_bypass_local_telemetry_view(tmp_path, monkeypatch):
 
 
 def test_view_hotkeys_do_not_queue_chatter_commands(tmp_path):
-    session = TerminalSession(
+    session = _chatter_session(
         DummyBleLikeTransport(),
         log_path=tmp_path / "terminal.log",
     )
@@ -116,7 +121,7 @@ def test_view_hotkeys_do_not_queue_chatter_commands(tmp_path):
 
 
 def test_device_output_hotkeys_queue_matching_chatter_commands(tmp_path):
-    session = TerminalSession(
+    session = _chatter_session(
         DummyBleLikeTransport(),
         log_path=tmp_path / "terminal.log",
     )
@@ -137,7 +142,7 @@ def test_device_output_hotkeys_queue_matching_chatter_commands(tmp_path):
 
 
 def test_echo_hotkey_queues_chatter_control_sequence(tmp_path):
-    session = TerminalSession(
+    session = _chatter_session(
         DummyBleLikeTransport(),
         log_path=tmp_path / "terminal.log",
     )
@@ -151,7 +156,7 @@ def test_echo_hotkey_queues_chatter_control_sequence(tmp_path):
 
 
 def test_full_help_prints_local_hotkeys_before_requesting_controller(tmp_path):
-    session = TerminalSession(
+    session = _chatter_session(
         DummyBleLikeTransport(),
         log_path=tmp_path / "terminal.log",
     )
@@ -171,7 +176,7 @@ def test_full_help_prints_local_hotkeys_before_requesting_controller(tmp_path):
 
 
 def test_help_hotkey_is_equivalent_to_full_help(tmp_path):
-    session = TerminalSession(
+    session = _chatter_session(
         DummyBleLikeTransport(),
         log_path=tmp_path / "terminal.log",
     )
@@ -196,7 +201,7 @@ def test_chat_prompt_erases_committed_console_echo(tmp_path, monkeypatch):
 
     monkeypatch.setattr(terminal_module, "PromptSession", FakePromptSession)
 
-    session = TerminalSession(
+    session = _chatter_session(
         DummyBleLikeTransport(),
         log_path=tmp_path / "terminal.log",
     )
@@ -211,7 +216,7 @@ def test_chat_prompt_erases_committed_console_echo(tmp_path, monkeypatch):
 
 def test_input_is_still_retained_in_transcript(tmp_path):
     log_path = tmp_path / "terminal.log"
-    session = TerminalSession(
+    session = _chatter_session(
         DummyBleLikeTransport(),
         log_path=log_path,
     )
@@ -226,7 +231,7 @@ def test_scanner_keeps_terminal_reconnect_paused(tmp_path, monkeypatch):
     from serialterminal import bluetooth_scanner
 
     observed = []
-    session = TerminalSession(
+    session = _chatter_session(
         DummyBleLikeTransport(),
         log_path=tmp_path / "terminal.log",
     )
@@ -256,7 +261,7 @@ def test_received_ble_chunks_are_committed_as_complete_lines(tmp_path, monkeypat
     monkeypatch.setattr(terminal_module.sys, "stdout", fake_stdout)
 
     log_path = tmp_path / "terminal.log"
-    session = TerminalSession(
+    session = _chatter_session(
         DummyBleLikeTransport(),
         log_path=log_path,
     )
@@ -277,7 +282,7 @@ def test_received_utf8_survives_ble_notification_boundary(tmp_path, monkeypatch)
     fake_stdout = FakeStdout()
     monkeypatch.setattr(terminal_module.sys, "stdout", fake_stdout)
 
-    session = TerminalSession(
+    session = _chatter_session(
         DummyBleLikeTransport(),
         log_path=tmp_path / "terminal.log",
     )
@@ -306,7 +311,7 @@ def test_utf8_decoder_state_is_separate_per_ble_stream(tmp_path, monkeypatch):
     monkeypatch.setattr(terminal_module.sys, "stdout", fake_stdout)
 
     log_path = tmp_path / "terminal.log"
-    session = TerminalSession(
+    session = _chatter_session(
         DummyBleLikeTransport(),
         log_path=log_path,
     )
@@ -328,7 +333,7 @@ def test_trimmed_command_is_visible_and_queued_unchanged(tmp_path, monkeypatch):
     fake_stdout = FakeStdout()
     monkeypatch.setattr(terminal_module.sys, "stdout", fake_stdout)
 
-    session = TerminalSession(DummyBleLikeTransport(), log_path=tmp_path / "terminal.log")
+    session = _chatter_session(DummyBleLikeTransport(), log_path=tmp_path / "terminal.log")
     try:
         session._submit_interactive_line("  /reboot  ")
 
@@ -344,7 +349,7 @@ def test_unknown_command_like_text_remains_original_pending_payload(tmp_path, mo
     fake_stdout = FakeStdout()
     monkeypatch.setattr(terminal_module.sys, "stdout", fake_stdout)
 
-    session = TerminalSession(DummyBleLikeTransport(), log_path=tmp_path / "terminal.log")
+    session = _chatter_session(DummyBleLikeTransport(), log_path=tmp_path / "terminal.log")
     try:
         line = "  /echo x  "
         session._submit_interactive_line(line)
@@ -362,7 +367,7 @@ def test_successful_payload_appears_once_as_firmware_marker(tmp_path, monkeypatc
     monkeypatch.setattr(terminal_module.sys, "stdout", fake_stdout)
 
     log_path = tmp_path / "terminal.log"
-    session = TerminalSession(DummyBleLikeTransport(), log_path=log_path)
+    session = _chatter_session(DummyBleLikeTransport(), log_path=log_path)
     try:
         session._submit_interactive_line("hello")
         assert fake_stdout.writes == []
@@ -384,7 +389,7 @@ def test_rejected_payload_is_revealed_plain_before_firmware_failure(tmp_path, mo
     monkeypatch.setattr(terminal_module.sys, "stdout", fake_stdout)
 
     log_path = tmp_path / "terminal.log"
-    session = TerminalSession(DummyBleLikeTransport(), log_path=log_path)
+    session = _chatter_session(DummyBleLikeTransport(), log_path=log_path)
     try:
         session._submit_interactive_line("hello")
         assert session.outgoing.get_nowait() == "hello"
@@ -412,7 +417,7 @@ def test_split_rejection_waits_for_complete_line_then_reveals_payload(tmp_path, 
     fake_stdout = FakeStdout()
     monkeypatch.setattr(terminal_module.sys, "stdout", fake_stdout)
 
-    session = TerminalSession(DummyBleLikeTransport(), log_path=tmp_path / "terminal.log")
+    session = _chatter_session(DummyBleLikeTransport(), log_path=tmp_path / "terminal.log")
     try:
         session._submit_interactive_line("hello")
         assert session.outgoing.get_nowait() == "hello"
@@ -436,7 +441,7 @@ def test_interleaved_telemetry_does_not_duplicate_pending_payload(tmp_path, monk
     monkeypatch.setattr(terminal_module.sys, "stdout", fake_stdout)
 
     log_path = tmp_path / "terminal.log"
-    session = TerminalSession(DummyBleLikeTransport(), log_path=log_path)
+    session = _chatter_session(DummyBleLikeTransport(), log_path=log_path)
     try:
         session._submit_interactive_line("hello")
         assert session.outgoing.get_nowait() == "hello"
@@ -457,7 +462,7 @@ def test_disconnect_reveals_sent_pending_payload_without_relogging(tmp_path, mon
     monkeypatch.setattr(terminal_module.sys, "stdout", fake_stdout)
 
     log_path = tmp_path / "terminal.log"
-    session = TerminalSession(DummyBleLikeTransport(), log_path=log_path)
+    session = _chatter_session(DummyBleLikeTransport(), log_path=log_path)
     try:
         session._submit_interactive_line("hello")
         assert session.outgoing.get_nowait() == "hello"

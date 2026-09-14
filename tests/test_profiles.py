@@ -90,10 +90,11 @@ def test_chatter_profile_describes_existing_ble_layout():
     )
 
 
-def test_terminal_defaults_to_chatter_profile_and_preserves_serial_preamble(tmp_path):
+def test_explicit_chatter_terminal_preserves_serial_preamble(tmp_path):
     session = TerminalSession(
         DummyTransport(),
         log_path=tmp_path / "terminal.log",
+        profile=CHATTER_PROFILE,
     )
     try:
         assert session.profile is CHATTER_PROFILE

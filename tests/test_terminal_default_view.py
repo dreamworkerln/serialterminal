@@ -1,3 +1,4 @@
+from serialterminal.profiles.chatter import CHATTER_PROFILE
 from serialterminal.terminal import TerminalSession
 from serialterminal.transports.base import Transport
 
@@ -32,6 +33,7 @@ def test_ble_session_defaults_to_human_console_only(tmp_path):
     session = TerminalSession(
         DummyBleLikeTransport(),
         log_path=tmp_path / "terminal.log",
+        profile=CHATTER_PROFILE,
     )
     try:
         assert session.view_mode == "chat"

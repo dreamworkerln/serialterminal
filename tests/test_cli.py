@@ -125,7 +125,11 @@ def test_ble_selector_passes_chatter_profile_layout(monkeypatch):
         FakeBleNusTransport,
     )
 
-    selector = DeviceSelector("ble", scan_seconds=1.25)
+    selector = DeviceSelector(
+        "ble",
+        scan_seconds=1.25,
+        profile=CHATTER_PROFILE,
+    )
     candidate = _candidate(1)
     transport = selector.make_transport(candidate)
     config = CHATTER_PROFILE.ble_config()

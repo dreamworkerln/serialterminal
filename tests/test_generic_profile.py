@@ -162,5 +162,5 @@ def test_generic_ble_selector_passes_standard_nus_layout(monkeypatch):
     ) == ((NUS_TX_UUID, "main", True),)
 
 
-def test_device_selector_compatibility_default_remains_chatter():
-    assert DeviceSelector("ble").profile is CHATTER_PROFILE
+def test_device_selector_accepts_explicit_chatter_profile():
+    assert DeviceSelector("ble", profile=CHATTER_PROFILE).profile is CHATTER_PROFILE

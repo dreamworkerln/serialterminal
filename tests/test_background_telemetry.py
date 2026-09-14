@@ -1,4 +1,5 @@
 import serialterminal.terminal as terminal_module
+from serialterminal.profiles.chatter import CHATTER_PROFILE
 from serialterminal.terminal import TerminalSession
 from serialterminal.transports.base import ReceivedChunk, Transport
 
@@ -49,7 +50,11 @@ def test_background_telemetry_cannot_resolve_pending_presentation(
     monkeypatch.setattr(terminal_module.sys, "stdout", fake_stdout)
 
     log_path = tmp_path / "terminal.log"
-    session = TerminalSession(DummyBleLikeTransport(), log_path=log_path)
+    session = TerminalSession(
+        DummyBleLikeTransport(),
+        log_path=log_path,
+        profile=CHATTER_PROFILE,
+    )
     try:
         session._submit_interactive_line("hello")
         assert session.outgoing.get_nowait() == "hello"
