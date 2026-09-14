@@ -65,6 +65,9 @@ class TerminalProfile(Protocol):
     def human_help_lines(self) -> tuple[str, ...]:
         ...
 
+    def human_console_streams(self) -> tuple[str, ...]:
+        ...
+
     def device_help_action(self) -> ProfileAction | None:
         ...
 

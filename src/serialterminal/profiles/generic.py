@@ -38,6 +38,9 @@ class GenericProfile:
     def human_help_lines(self) -> tuple[str, ...]:
         return ()
 
+    def human_console_streams(self) -> tuple[str, ...]:
+        return ("main",)
+
     def device_help_action(self) -> ProfileAction | None:
         return None
 

@@ -92,6 +92,9 @@ class ChatterProfile:
     def human_help_lines(self) -> tuple[str, ...]:
         return _HUMAN_HELP_LINES
 
+    def human_console_streams(self) -> tuple[str, ...]:
+        return ("main", "chat")
+
     def device_help_action(self) -> ProfileAction | None:
         return SendLine(CHATTER_HELP_COMMAND)
 
