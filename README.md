@@ -20,7 +20,7 @@ Generic profile не отправляет устройству controller-specif
 python3 serialterminal.py --profile chatter
 ```
 
-Human `chatter` profile сохраняет Chatter-aware presentation/hotkeys и для USB Serial отправляет `/id` как connect/reconnect preamble. Human BLE/SPP не получают автоматический `/id`, как и раньше.
+Human `chatter` profile сохраняет Chatter-aware presentation/hotkeys и для USB Serial отправляет `/id` как connect/reconnect preamble. Human BLE/SPP не получают автоматический `/id`.
 
 По умолчанию каждый отдельный запуск human terminal создаёт отдельный session log:
 
@@ -28,7 +28,7 @@ Human `chatter` profile сохраняет Chatter-aware presentation/hotkeys и
 logs/serialterminal-YYYYMMDD-HHMMSS-ffffff-pPID.log
 ```
 
-Явный `--log <path>` остаётся доступен для отладки/совместимости.
+Явный `--log <path>` доступен для отладки и явного выбора пути.
 
 После запуска terminal показывает выбранный profile и предлагает локальный help:
 
@@ -40,7 +40,7 @@ Press Ctrl+T ? for SerialTerminal help.
 
 ## Profiles
 
-Profile выбирает controller compatibility/configuration и convenience behavior. Transport/session mechanics остаются в generic core, а семантикой controller-команд владеет firmware.
+Profile выбирает controller configuration и convenience behavior. Transport/session mechanics остаются в generic core, а семантикой controller-команд владеет firmware.
 
 Сейчас bundled два profile:
 
@@ -52,7 +52,7 @@ generic
     standard BLE NUS 0002 write + 0003 receive -> stream main
 
 chatter
-    explicit LoRa-Chatter compatibility profile
+    explicit LoRa-Chatter profile
     /id connect preamble
     Chatter help/hotkeys/presentation
     BLE 0003 -> chat
@@ -137,23 +137,7 @@ Generic agent session не отправляет controller-specific connect prea
 
 Chatter profile отправляет `/id` после каждого успешного transport connect/reconnect до публикации session как `connected` и задаёт BLE streams `chat` + optional `telemetry`.
 
-Profile выбирается отдельно для каждой session, поэтому один agent process может одновременно держать generic и controller-specific sessions.
-
-Legacy `auto_id` оставлен только как compatibility override для старых callers. Новому коду следует выбирать profile и не передавать `auto_id`:
-
-```text
-auto_id omitted
-    использовать preamble выбранного profile
-
-auto_id=false
-    подавить preamble выбранного profile
-
-auto_id=true
-    допустим только если profile определяет connect preamble
-
-generic + auto_id=true
-    structured invalid_profile_option
-```
+Profile выбирается отдельно для каждой session, поэтому один agent process может одновременно держать generic и controller-specific sessions. Connect preamble полностью принадлежит выбранному profile; отдельного identity/preamble toggle в machine API нет.
 
 Полный контракт profiles/open/error semantics находится в `AGENT_API.md`.
 
@@ -225,10 +209,11 @@ Generic SerialTerminal API остаётся device-agnostic. Project-specific Lo
 Обычный запуск не подключается подряд ко всем неизвестным Bluetooth-устройствам. В chooser попадают:
 
 - USB Serial;
-- project BLE с именем `LoRa-*` как trusted compatibility hint;
 - BLE, рекламирующие NUS service UUID;
 - BLE с ранее подтверждённым scanner'ом NUS;
 - Classic Bluetooth устройства с ранее подтверждённым scanner'ом SPP.
+
+BLE advertised name не является capability signal и не добавляет устройство в chooser. Если ожидаемый BLE target не рекламирует NUS и ещё не находится в capability cache, используй Bluetooth scanner/prober для подтверждения NUS, затем повтори discovery.
 
 Неизвестный BLE по умолчанию скрыт:
 
@@ -246,7 +231,7 @@ SHOW_ALL_BLE_DEVICES = False
 
 После выбора reconnect идёт только к той же physical identity. Сменить target можно через `Ctrl+T d`.
 
-Discovery сохраняет `LoRa-*` compatibility hint через Chatter compatibility layer; generic `BleNusTransport` больше не владеет project-specific name filtering/discovery. Physical identity и sticky reconnect semantics от этого не меняются. Legacy `normalize_ble_target()` в transport-модуле оставлен только как import compatibility shim для старых callers.
+BLE CLI positional `target` — это только exact advertised name filter. Short aliases и project-specific name normalization отсутствуют. Generic `BleNusTransport` также не содержит project-specific name filtering или alias API.
 
 ## Human hotkeys
 
@@ -272,7 +257,7 @@ Ctrl+T e       Chatter echo mode toggle
 Ctrl+T ?       local help + Chatter /help
 ```
 
-Chatter shortcut actions `Ctrl+T 1/2/3/e` (и aliases `c/t/b`) теперь используют `SendBytes` и отправляют exact two-byte raw ABI `14 31/32/33/65` без configured EOL. Human-readable `/chat`, `/tele`, `/both` и `/echo` остаются обычными line-oriented командами и отправляются после Enter с выбранным line ending.
+Chatter shortcut actions `Ctrl+T 1/2/3/e` (и aliases `c/t/b`) используют `SendBytes` и отправляют exact two-byte raw ABI `14 31/32/33/65` без configured EOL. Human-readable `/chat`, `/tele`, `/both` и `/echo` остаются обычными line-oriented командами и отправляются после Enter с выбранным line ending.
 
 ## Chatter profile
 
@@ -304,7 +289,7 @@ Canonical identity Chatter имеет вид:
 
 Human `chatter` profile после успешного `SerialTransport.connect()` отправляет `/id` до открытия reconnect-safe user TX gate. Human BLE NUS и Bluetooth SPP автоматический `/id` не получают. Agent `profile:"chatter"`, напротив, применяет profile preamble при каждом transport connect/reconnect независимо от transport kind.
 
-При классификации Chatter-команды profile использует ту же boundary-normalization, что и совместимая firmware: ASCII control/space + DEL по краям игнорируются только для command matching. Если после такого trim строка не совпала с известной командой, обычный payload отправляется в исходном виде.
+При классификации Chatter-команды profile использует ту же boundary-normalization, что и актуальная firmware: ASCII control/space + DEL по краям игнорируются только для command matching. Если после такого trim строка не совпала с известной командой, обычный payload отправляется в исходном виде.
 
 `/help` в human Chatter profile дополнительно печатает local help и ставит canonical `/help` контроллеру. Остальные команды идут через обычную reconnect-safe очередь.
 
@@ -317,7 +302,7 @@ SerialTerminal не синтезирует RF marker:
 > [ECHO TX] hello
 ```
 
-Эти строки принадлежат Chatter firmware. На совместимой firmware они означают firmware-side TX outcome, но сами по себе не доказывают peer delivery.
+Эти строки принадлежат Chatter firmware. В текущем Chatter contract они означают firmware-side TX outcome, но сами по себе не доказывают peer delivery.
 
 Interactive USER/ECHO payload в Chatter human profile сначала хранится как pending presentation и сразу записывается в transcript, но не дублируется на экране. Firmware success line показывает payload один раз.
 
@@ -417,7 +402,7 @@ Input отделён от transport I/O. Полная строка попада�
 
 Reconnect-safe queue используется и human, и agent frontends. Profile connect preamble выполняется отдельно после transport connect и до публикации session как connected; queued user/agent TX не должен его обогнать.
 
-Human frontend сохраняет historical behavior: profile preamble выполняется только для USB Serial. Agent frontend применяет выбранный profile preamble на каждом supported transport connect/reconnect.
+Human frontend выполняет profile preamble только для USB Serial. Agent frontend применяет выбранный profile preamble на каждом supported transport connect/reconnect.
 
 Controller state после reboot принадлежит самому устройству. SerialTerminal не обязан автоматически восстанавливать controller-specific mode, если profile явно этого не определяет.
 
@@ -441,7 +426,7 @@ Bluetooth scanner
 
 На время scanner текущий transport отключается и reconnect ставится на паузу. После выхода terminal снова пытается подключиться к тому же sticky target. Набранная, но ещё не отправленная строка сохраняется.
 
-BLE scanner активно подтверждает только standard NUS compatibility: наличие RX `0002` и TX `0003`. Он не классифицирует Chatter `0004` и не хранит generic `CHAT`/`TELEMETRY` capabilities; optional `0004` остаётся runtime concern профиля `chatter` при реальном open.
+BLE scanner активно подтверждает standard NUS capability: наличие RX `0002` и TX `0003`. Он не классифицирует Chatter `0004` и не хранит generic `CHAT`/`TELEMETRY` capabilities; optional `0004` остаётся runtime concern профиля `chatter` при реальном open.
 
 Classic scanner делает BR/EDR discovery через BlueZ (`bluetoothctl`, fallback `hcitool`), SDP browse через `sdptool` и ищет Serial Port Profile / UUID `0x1101` и RFCOMM channel.
 
@@ -493,7 +478,7 @@ lizard -l python -C 10 -L 80 -a 5 src serialterminal.py tools   # advisory
 pytest -q
 ```
 
-Покрыты generic profile zero-preamble behavior, Chatter profile compatibility, human profile selection, BLE injected receive layout, shared `ManagedSession` reconnect/order/stream events, multi-session agent manager, explicit per-session agent profiles, async `observe`, raw-event/logical-line correlation и paired forensic/console run logging.
+Покрыты generic profile zero-preamble behavior, Chatter profile behavior, human profile selection, BLE injected receive layout, shared `ManagedSession` reconnect/order/stream events, multi-session agent manager, explicit per-session agent profiles, async `observe`, raw-event/logical-line correlation и paired forensic/console run logging.
 
 Не фиксируйте в README число тестов как постоянную характеристику: authoritative результат — exact CI run для конкретного commit SHA.
 

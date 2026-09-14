@@ -2,7 +2,7 @@
 
 `serialterminal agent` is a local machine-facing JSON Lines frontend over the same discovery, transports and reconnect/session logic used by the normal human terminal.
 
-It is intentionally generic. Device-, firmware- and project-specific test scenarios belong in consuming agent skills, not in this API. Controller-specific convenience behavior is selected explicitly per session through `profile`; the default profile is `generic`.
+It is intentionally generic. Device-, firmware- and project-specific test scenarios belong in consuming agent skills, not in this API. Controller-specific behavior is selected explicitly per session through `profile`; the default profile is `generic`.
 
 ## Start
 
@@ -187,7 +187,9 @@ Example response:
 
 `device_key` is the existing SerialTerminal sticky physical identity. The agent frontend does not create a second identity system.
 
-Discovery identifies candidate transport paths. Controller profile selection happens later, independently for each `open` request.
+Default BLE discovery is capability-based. A BLE device is returned when it advertises the standard Nordic UART Service or when a prior capability probe cached NUS support for that address. Advertised names and controller profiles do not whitelist BLE devices. If an expected BLE target is absent, use the Bluetooth capability scanner/prober to confirm NUS support, then run `discover` again.
+
+Discovery identifies candidate transport paths. Controller profile selection happens later, independently for each `open` request. Agents open the returned `device_key`; there are no BLE name aliases in the machine interface.
 
 ## Open a long-lived session
 
@@ -239,28 +241,11 @@ The `chatter` profile supplies its controller-defined connect preamble and BLE r
 
 `profile` is per session, not process-global. One agent process may therefore hold generic and controller-profile sessions simultaneously.
 
-`auto_id` remains only as a compatibility override for callers migrating from the earlier API. New callers should select a profile and omit it. `auto_id:false` suppresses the selected profile's connect preamble. `auto_id:true` is accepted only when the selected profile actually defines a connect preamble; using it with `profile:"generic"` fails with `invalid_profile_option`.
-
-Examples:
-
-```json
-{"id":2,"op":"open","device_key":"...","profile":"chatter","auto_id":false}
-```
-
-```json
-{
-  "id":2,
-  "ok":false,
-  "error":{
-    "code":"invalid_profile_option",
-    "message":"auto_id=true requires a profile with a connect preamble"
-  }
-}
-```
+The connect preamble is defined only by the selected profile. `open` has no separate preamble toggle. A request containing `auto_id` is rejected with `invalid_request` rather than changing profile behavior.
 
 An unknown profile fails with `unknown_profile`.
 
-The successful `open` result includes `profile`. It also retains the compatibility field `auto_id`, which reports whether the selected connect preamble is active for that session.
+The successful `open` result includes `profile` and does not duplicate profile state in a separate compatibility field.
 
 If the target does not connect within `wait_connected_ms`, `open` still returns the live session with:
 

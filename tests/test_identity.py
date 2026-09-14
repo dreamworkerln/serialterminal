@@ -1,6 +1,6 @@
-from serialterminal.profiles.chatter import CHATTER_PROFILE
+from serialterminal.profiles.chatter import CHATTER_ID_COMMAND, CHATTER_PROFILE
 from serialterminal.profiles.chatter.presentation import recognized_chatter_command
-from serialterminal.terminal import CHATTER_ID_COMMAND, TerminalSession
+from serialterminal.terminal import TerminalSession
 from serialterminal.transports.base import Transport
 from serialterminal.transports.serial import SerialTransport
 

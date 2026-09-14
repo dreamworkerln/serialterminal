@@ -23,9 +23,11 @@ LoRa-Chatter-XXXX
 
 Получай identity через `/id`.
 
-Discovery показывает текущие доступные transport paths, а не постоянный inventory. Если разные transports возвращают одну и ту же canonical identity, считай их путями к одной физической ноде.
+Discovery показывает текущие доступные transport paths, а не постоянный inventory. Для BLE имя `LoRa-*` само по себе не является capability signal: обычный SerialTerminal discovery показывает advertised-NUS или cached confirmed-NUS targets. Если ожидаемая BLE-нода отсутствует, сначала подтверди NUS через Bluetooth capability scanner/prober, затем повтори `discover`.
 
-Каждую Chatter session открывай через SerialTerminal agent с явным `"profile":"chatter"`. Не полагайся на generic default profile: именно Chatter profile задаёт controller connect preamble и Chatter BLE stream layout. Legacy `auto_id` для нормального node workflow не нужен; profile сам отправляет `/id` при connect/reconnect.
+Если разные transports возвращают одну и ту же canonical identity, считай их путями к одной физической ноде.
+
+Каждую Chatter session открывай по возвращённому `device_key` через SerialTerminal agent с явным `"profile":"chatter"`. Не полагайся на generic default profile: именно Chatter profile задаёт controller connect preamble и Chatter BLE stream layout, включая `/id` при connect/reconnect. Отдельного identity/preamble toggle в agent API нет.
 
 ## Local commands
 

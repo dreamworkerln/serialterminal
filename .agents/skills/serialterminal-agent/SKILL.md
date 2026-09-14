@@ -1,6 +1,6 @@
 ---
 name: serialterminal-agent
-description: Работа с machine-facing SerialTerminal JSONL agent API для discovery, long-lived sessions, send и canonical observe.
+description: Работа с machine-facing SerialTerminal JSONL agent API для capability-based discovery, long-lived sessions, send и canonical observe.
 ---
 
 # SerialTerminal agent
@@ -23,7 +23,7 @@ python3 serialterminal.py agent
 
 Работай с ним по JSON Lines через stdin/stdout:
 
-1. `discover` — получить текущие `device_key`;
+1. `discover` — получить текущие supported `device_key`;
 2. `open` — открыть одну или несколько независимых sessions; generic profile используется по умолчанию, controller-specific profile выбирай явно только когда это требует consuming skill;
 3. сохранить `latest_seq` каждой открытой session;
 4. использовать `send_line` или `send_bytes` для передачи;
@@ -34,13 +34,21 @@ python3 serialterminal.py agent
 
 Предпочитай переиспользовать один agent process и уже открытые sessions вместо повторного запуска discovery/open для каждой команды.
 
+## Discovery
+
+`discover` возвращает transport paths, подтверждённые текущим discovery policy. Для BLE обычный discovery является capability-based: устройство появляется, если оно advertising standard NUS или его адрес уже имеет cached confirmed NUS capability.
+
+Не считай BLE advertised name доказательством NUS capability. Controller profile тоже не добавляет устройство в discovery автоматически.
+
+Если ожидаемого BLE target нет в `discover`, используй Bluetooth capability scanner/prober, подтверди NUS, затем повтори `discover`. После discovery открывай устройство по возвращённому `device_key`; не используй BLE name aliases.
+
 ## Profiles
 
 `open` без `profile` использует `generic`. Такой session не отправляет controller-specific connect preamble. Для BLE generic profile использует standard NUS и stream `main`.
 
 Если project-specific skill требует bundled controller profile, передай его явно в соответствующем `open`, например `"profile":"chatter"`. Profile выбирается отдельно для каждой session, поэтому один agent process может одновременно работать с generic и controller-specific устройствами.
 
-Legacy `auto_id` не используй в новом generic workflow. Он оставлен только как compatibility override, описанный в `AGENT_API.md`.
+Connect preamble полностью принадлежит выбранному profile. Не передавай отдельные preamble/identity toggles: machine API их не имеет.
 
 ## Observe и cursors
 
