@@ -97,6 +97,21 @@ Do not couple UI behavior directly to transport-specific implementation when the
 
 Do not silently change BLE UUIDs, stream semantics, connection behavior, or transport contracts.
 
+## Architecture and profile segregation
+
+[ARCHITECTURE.md](ARCHITECTURE.md) is the durable architecture document for ownership boundaries between generic discovery/session/transport code, controller profiles, frontends, and project-specific consuming skills.
+
+Treat profile segregation as an architectural invariant:
+
+* generic discovery and physical identity must remain controller-agnostic and capability-based;
+* generic transports must not import concrete controller profiles, recognize controller aliases/commands, or re-export controller constants;
+* `ManagedSession` and generic agent/session mechanics must not branch on concrete profile names;
+* controller-specific preamble, command classification, human actions/hotkeys, presentation, console-stream selection, and BLE characteristic-to-stream layout belong to the selected `TerminalProfile`;
+* profile selection is explicit and per session; do not introduce one-off generic API flags that override isolated pieces of profile behavior;
+* project/protocol acceptance semantics belong in consuming skills and authoritative firmware/docs, not in generic transport/session behavior.
+
+When a change touches discovery, profiles, transport construction, session lifecycle, human presentation, or the agent `open` path, explicitly review the dependency direction in `ARCHITECTURE.md`. If the generic core would need to know a controller advertised-name prefix, alias, command, application identity, or protocol result, first move that behavior to a profile or consuming project-specific layer unless the task explicitly changes the architecture.
+
 ## Agent interface documentation
 
 [AGENT_API.md](AGENT_API.md) is the canonical repository documentation for the machine-facing SerialTerminal JSONL interface. It owns the API schema, operations, request/response semantics, errors, session/cursor behavior, concurrency guarantees, logging contract, and CLI invocation.
