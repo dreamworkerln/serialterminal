@@ -8,7 +8,11 @@ from prompt_toolkit import PromptSession
 from prompt_toolkit.key_binding import KeyBindings
 
 from .ble_discovery import probe_ble_nus_async, scan_all_ble_devices
-from .device_cache import default_cache_path, update_cached_device
+from .device_cache import (
+    default_cache_path,
+    get_cached_device,
+    update_cached_device,
+)
 from .transports.bluetooth_spp import (
     discover_classic_devices,
     probe_spp_device,
@@ -30,6 +34,18 @@ def _yn(value: bool | None) -> str:
     if value is False:
         return "NO"
     return "UNKNOWN"
+
+
+def _ble_nus_knowledge(address: str, probed: bool | None) -> bool | None:
+    if probed is not None:
+        return probed
+    previous = get_cached_device("ble", address)
+    if previous is None:
+        return None
+    known = previous.get("capabilities", {}).get("nus")
+    if known is True or known is False:
+        return known
+    return None
 
 
 async def _scan_ble_async(
@@ -58,7 +74,9 @@ async def _scan_ble_async(
             kind="ble",
             address=identity.address,
             name=identity.name,
-            capabilities={"nus": result.nus},
+            capabilities={
+                "nus": _ble_nus_knowledge(identity.address, result.nus),
+            },
             probe_status=result.status,
             error=result.error,
             metadata={
