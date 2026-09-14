@@ -59,7 +59,7 @@ chatter
     optional BLE 0004 -> telemetry
 ```
 
-Normal CLI передаёт выбранный profile явно в terminal/session factory. Некоторые прямые legacy Python-конструкторы пока сохраняют Chatter compatibility defaults; это не меняет CLI default `generic`.
+Normal CLI передаёт выбранный profile явно в terminal/session factory. Прямые `TerminalSession` и `DeviceSelector` constructors тоже используют `generic` по умолчанию; Chatter behavior включается только явным `profile=CHATTER_PROFILE` или `--profile chatter`.
 
 ## Что поддержано
 
