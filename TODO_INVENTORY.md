@@ -19,12 +19,15 @@ Status: CLOSED
 Goal: remove the unreachable terminal `system_line_prefix` visibility fallback and keep stream visibility explicitly owned by profiles.
 
 ```text
-accepted checkpoint: dev@a8a6c48b807865713412389bd61e1bb5bfb6f575
-GitHub Actions:      34909003012 SUCCESS
-manual/hardware:     NOT RUN
+implementation checkpoint: dev@a8a6c48b807865713412389bd61e1bb5bfb6f575
+implementation CI:         34909003012 SUCCESS
+regression checkpoint:     dev@9d9525dc0a0563bff47a6e903c4c39d8aebe91d6
+regression CI:             34909632781 SUCCESS
+manual/hardware:           NOT RUN
+agent/node scenarios:      NOT RUN
 ```
 
-No new dedicated regression test was added for this dead-logic removal; existing terminal/profile tests and full CI were used as the checkpoint smoke.
+Dedicated host-side regression tests now cover ordinary and `[SYS]`-like text on both human-console and background streams, including transcript-only behavior for background SYSTEM-like lines. These tests run automatically in the normal GitHub Actions pytest stage.
 
 ### TODO_009 — `todos/TODO_009_BLE_RX_CHUNK_ORDERING.md`
 
