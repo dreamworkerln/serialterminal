@@ -417,7 +417,7 @@ Input отделён от transport I/O. Полная строка попада�
 
 Reconnect-safe queue используется и human, и agent frontends. Profile connect preamble выполняется отдельно после transport connect и до публикации session как connected; queued user/agent TX не должен его обогнать.
 
-Human frontend сохраняет historical behavior: profile preamble выполняется только для USB Serial. Agent frontend применяет выбранный profile preamble на каждом supported transport connect/reconnect.
+Human frontend сохраняет historical behavior: profile preamble выполнялся только для USB Serial. Agent frontend применяет выбранный profile preamble на каждом supported transport connect/reconnect.
 
 Controller state после reboot принадлежит самому устройству. SerialTerminal не обязан автоматически восстанавливать controller-specific mode, если profile явно этого не определяет.
 
