@@ -1,11 +1,11 @@
 import serialterminal.terminal as terminal_module
-from serialterminal.profiles.chatter import CHATTER_PROFILE
-from serialterminal.terminal import (
+from serialterminal.profiles.chatter import (
     CHATTER_ECHO_TOGGLE,
     CHATTER_HELP_COMMAND,
     CHATTER_OUTPUT_MODE_COMMANDS,
-    TerminalSession,
+    CHATTER_PROFILE,
 )
+from serialterminal.terminal import TerminalSession
 from serialterminal.transports.base import ReceivedChunk, Transport
 
 
@@ -54,68 +54,17 @@ def _chatter_session(transport, **kwargs):
     return TerminalSession(transport, profile=CHATTER_PROFILE, **kwargs)
 
 
-def test_stream_visibility_and_hotkeys(tmp_path):
+def test_stream_visibility_and_hotkeys_are_profile_driven(tmp_path):
     session = _chatter_session(
         DummyBleLikeTransport(),
         log_path=tmp_path / "terminal.log",
     )
     try:
-        assert session.view_mode == "chat"
+        assert not hasattr(session, "view_mode")
         assert session._received_visible("chat")
         assert not session._received_visible("telemetry")
         assert session._received_visible("main")
         assert len(session._build_key_bindings().bindings) == 12
-
-        # Legacy internal view switching remains available for compatibility,
-        # but normal keybindings no longer expose it.
-        session.view_mode = "telemetry"
-        session.write_received(ReceivedChunk("chat", b"hidden chat\n"))
-        assert "hidden chat" in (tmp_path / "terminal.log").read_text()
-    finally:
-        session.log_file.close()
-
-
-def test_system_lines_bypass_local_telemetry_view(tmp_path, monkeypatch):
-    fake_stdout = FakeStdout()
-    monkeypatch.setattr(terminal_module.sys, "stdout", fake_stdout)
-
-    log_path = tmp_path / "terminal.log"
-    session = _chatter_session(DummyBleLikeTransport(), log_path=log_path)
-    try:
-        session.view_mode = "telemetry"
-
-        session.write_received(ReceivedChunk("chat", b"> hidden\n[SY"))
-        assert "".join(fake_stdout.writes) == ""
-
-        session.write_received(
-            ReceivedChunk(
-                "chat",
-                b"S] RADIO FATAL init (-2), rebooting\n< hidden too\n",
-            )
-        )
-
-        assert "".join(fake_stdout.writes) == (
-            "[SYS] RADIO FATAL init (-2), rebooting\n"
-        )
-
-        transcript = log_path.read_text()
-        assert "> hidden\n" in transcript
-        assert "< hidden too\n" in transcript
-        assert "[SYS] RADIO FATAL init (-2), rebooting\n" in transcript
-    finally:
-        session.log_file.close()
-
-
-def test_view_hotkeys_do_not_queue_chatter_commands(tmp_path):
-    session = _chatter_session(
-        DummyBleLikeTransport(),
-        log_path=tmp_path / "terminal.log",
-    )
-    try:
-        for mode in ("chat", "telemetry", "both"):
-            session._handle_control(mode)
-            assert session.view_mode == mode
-            assert session.outgoing.empty()
     finally:
         session.log_file.close()
 
@@ -126,10 +75,8 @@ def test_device_output_hotkeys_queue_matching_chatter_commands(tmp_path):
         log_path=tmp_path / "terminal.log",
     )
     try:
-        session.view_mode = "chat"
         for action in ("output_chat", "output_telemetry", "output_both"):
             session._handle_control(action)
-            assert session.view_mode == "chat"
             assert session.outgoing.get_nowait() == (
                 CHATTER_OUTPUT_MODE_COMMANDS[action].encode("ascii")
             )

@@ -29,14 +29,14 @@ class DummyBleLikeTransport(Transport):
         pass
 
 
-def test_ble_session_defaults_to_human_console_only(tmp_path):
+def test_ble_session_uses_profile_console_streams(tmp_path):
     session = TerminalSession(
         DummyBleLikeTransport(),
         log_path=tmp_path / "terminal.log",
         profile=CHATTER_PROFILE,
     )
     try:
-        assert session.view_mode == "chat"
+        assert not hasattr(session, "view_mode")
         assert session._received_visible("chat")
         assert not session._received_visible("telemetry")
         assert session._received_visible("main")

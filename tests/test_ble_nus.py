@@ -1,9 +1,5 @@
 import asyncio
 
-from serialterminal.profiles.chatter.ble_compat import (
-    PINGER_NAME,
-    REPEATER_NAME,
-)
 from serialterminal.transports import ble_nus
 from serialterminal.transports.ble_nus import (
     BleDeviceIdentity,
@@ -11,28 +7,19 @@ from serialterminal.transports.ble_nus import (
     NUS_RX_UUID,
     NUS_TX_UUID,
     ble_log_slug,
-    normalize_ble_target,
 )
 
 SECONDARY_TX_UUID = "12345678-1234-5678-1234-56789abcdef0"
 
 
-def test_normalize_ble_target_compatibility_shim():
-    assert normalize_ble_target("p") == PINGER_NAME
-    assert normalize_ble_target("PINGER") == PINGER_NAME
-    assert normalize_ble_target("r") == REPEATER_NAME
-    assert normalize_ble_target("repeater") == REPEATER_NAME
-    assert normalize_ble_target("LoRa-Chatter-72E0") == "LoRa-Chatter-72E0"
-    assert normalize_ble_target("other") is None
-
-
 def test_ble_log_slug_is_generic():
-    assert ble_log_slug(PINGER_NAME) == "lora-pinger"
+    assert ble_log_slug("LoRa-Pinger") == "lora-pinger"
     assert ble_log_slug("LoRa-Chatter-72E0") == "lora-chatter-72e0"
     assert ble_log_slug("Plain Controller") == "plain-controller"
 
 
 def test_transport_module_owns_only_generic_nus_runtime():
+    assert not hasattr(ble_nus, "normalize_ble_target")
     assert not hasattr(ble_nus, "NUS_CHAT_TX_UUID")
     assert not hasattr(ble_nus, "NUS_TELEMETRY_TX_UUID")
     assert not hasattr(ble_nus, "PINGER_NAME")

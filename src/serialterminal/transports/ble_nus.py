@@ -43,13 +43,6 @@ def _require_bleak() -> None:
         )
 
 
-def normalize_ble_target(value: str) -> str | None:
-    """Legacy import shim; project-specific alias policy живёт в chatter profile."""
-    from ..profiles.chatter.ble_compat import normalize_chatter_ble_target
-
-    return normalize_chatter_ble_target(value)
-
-
 def ble_log_slug(target_name: str) -> str:
     slug = target_name.lower()
     return "".join(ch if ch.isalnum() or ch in "-_" else "-" for ch in slug)
@@ -79,9 +72,7 @@ class BleNusTransport(Transport):
             self.target_name = target.name
             self.target_address: str | None = target.address
         else:
-            # Name-only compatibility mode теперь трактует строку как точное
-            # advertised name. Project-specific aliases разрешает CLI до
-            # создания generic transport.
+            # Name-only construction treats the string as an exact advertised name.
             target_name = target.strip()
             if not target_name:
                 raise ValueError("BLE target name must not be empty")
@@ -306,7 +297,7 @@ class BleNusTransport(Transport):
 
             self._address = getattr(device, "address", None)
             if self.target_address is None and self._address:
-                # Legacy name-only construction becomes sticky after first
+                # Name-only construction becomes sticky after first
                 # unambiguous connection.
                 self.target_address = str(self._address)
             self._available_streams = set(available_streams)

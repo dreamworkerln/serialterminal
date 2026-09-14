@@ -5,7 +5,6 @@ from dataclasses import dataclass, field
 from typing import Any, Iterable
 
 from .device_cache import capability_confirmed, get_cached_device
-from .profiles.chatter.ble_compat import is_chatter_ble_name
 from .transports import ble_nus
 from .transports.ble_nus import (
     BleDeviceIdentity,
@@ -112,8 +111,6 @@ async def scan_all_ble_devices(timeout: float = 3.0) -> list[BleDiscoveryItem]:
 def _default_visible(item: BleDiscoveryItem) -> bool:
     if SHOW_ALL_BLE_DEVICES:
         return True
-    if is_chatter_ble_name(item.identity.name):
-        return True
     if NUS_SERVICE_UUID in item.advertised_services:
         return True
     cached = get_cached_device("ble", item.identity.address)
@@ -123,7 +120,7 @@ def _default_visible(item: BleDiscoveryItem) -> bool:
 def discover_terminal_ble_devices(
     timeout: float = 3.0,
 ) -> list[BleDeviceIdentity]:
-    """Safe/default BLE discovery: known, advertised-NUS, or cached-NUS only."""
+    """Safe/default BLE discovery: advertised-NUS or cached-NUS only."""
     return [
         item.identity
         for item in asyncio.run(scan_all_ble_devices(timeout))
@@ -246,13 +243,9 @@ async def probe_ble_nus_async(
         await asyncio.sleep(0)
 
 
-# Backward-compatible private name for code/tests that may have imported it.
-_probe_ble_nus_async = probe_ble_nus_async
-
-
 def probe_ble_nus(
     item: BleDiscoveryItem,
     timeout: float = 8.0,
 ) -> BleProbeResult:
-    """Synchronous compatibility wrapper for one-off probes."""
+    """Synchronous wrapper for one-off probes."""
     return asyncio.run(probe_ble_nus_async(item, timeout))

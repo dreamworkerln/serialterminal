@@ -261,18 +261,12 @@ class SessionManager:
         *,
         eol: str = "lf",
         profile: str = "generic",
-        auto_id: bool | None = None,
         wait_connected_ms: int = 10000,
     ) -> dict[str, Any]:
         if eol not in _EOL:
             raise AgentError("invalid_eol", f"unsupported eol: {eol}")
         if wait_connected_ms < 0:
             raise AgentError("invalid_timeout", "wait_connected_ms must be non-negative")
-        if auto_id is not None and not isinstance(auto_id, bool):
-            raise AgentError(
-                "invalid_profile_option",
-                "auto_id must be boolean when provided",
-            )
         try:
             terminal_profile = resolve_profile(profile)
         except ValueError as exc:
@@ -280,13 +274,6 @@ class SessionManager:
 
         profile_actions = terminal_profile.connect_preamble()
         console_streams = frozenset(terminal_profile.human_console_streams())
-        if auto_id is False:
-            profile_actions = ()
-        elif auto_id is True and not profile_actions:
-            raise AgentError(
-                "invalid_profile_option",
-                "auto_id=true requires a profile with a connect preamble",
-            )
 
         with self._lock:
             existing = self._device_sessions.get(device_key)
@@ -373,7 +360,6 @@ class SessionManager:
             "streams": list(transport.stream_capabilities),
             "latest_seq": session.latest_event_seq(),
             "profile": terminal_profile.name,
-            "auto_id": bool(preamble_payload),
         }
 
     def status(self, session_id: str) -> dict[str, Any]:
@@ -656,17 +642,18 @@ class AgentProtocol:
         device_key = request.get("device_key")
         if not isinstance(device_key, str) or not device_key:
             raise AgentError("invalid_request", "open requires device_key")
+        if "auto_id" in request:
+            raise AgentError(
+                "invalid_request",
+                "open does not accept auto_id; select profile explicitly",
+            )
         profile = request.get("profile", "generic")
         if not isinstance(profile, str) or not profile:
             raise AgentError("invalid_request", "open profile must be a non-empty string")
-        auto_id = request.get("auto_id")
-        if auto_id is not None and not isinstance(auto_id, bool):
-            raise AgentError("invalid_request", "open auto_id must be boolean")
         return self.manager.open(
             device_key,
             eol=request.get("eol", "lf"),
             profile=profile,
-            auto_id=auto_id,
             wait_connected_ms=int(request.get("wait_connected_ms", 10000)),
         )
 
@@ -763,8 +750,8 @@ class AgentProtocol:
                 "id": None,
                 "ok": False,
                 "error": {
-                    "code": "invalid_json",
-                    "message": str(exc),
+                    "code":"invalid_json",
+                    "message":str(exc),
                 },
             }
         else:

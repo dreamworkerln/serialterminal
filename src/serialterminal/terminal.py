@@ -19,14 +19,6 @@ from .profiles import (
     SendLine,
     TerminalProfile,
 )
-from .profiles.chatter import (
-    CHATTER_ECHO_TOGGLE as CHATTER_ECHO_TOGGLE,
-    CHATTER_HELP_COMMAND as CHATTER_HELP_COMMAND,
-    CHATTER_ID_COMMAND as CHATTER_ID_COMMAND,
-    CHATTER_OUTPUT_MODE_COMMANDS as CHATTER_OUTPUT_MODE_COMMANDS,
-    CHATTER_PROFILE as CHATTER_PROFILE,
-    CHATTER_SYSTEM_PREFIX as CHATTER_SYSTEM_PREFIX,
-)
 from .session import ManagedSession, SessionClosedError, encode_line
 from .transports.base import ReceivedChunk, Transport
 from .transports.serial import SerialTransport
@@ -66,12 +58,6 @@ class TerminalSession(ManagedSession):
         self._received_decoders = {}
         self._received_line_buffers = {}
 
-        console_streams = self.profile.human_console_streams()
-        self.view_mode = next(
-            (stream for stream in console_streams if stream != "main"),
-            "main",
-        )
-
         self.log_file = self.log_path.open("a", encoding="utf-8", buffering=1)
         stamp = datetime.now().astimezone().strftime("%Y-%m-%d %H:%M:%S %z")
         self.log_file.write(f"\n===== serialterminal session {stamp} =====\n")
@@ -85,8 +71,8 @@ class TerminalSession(ManagedSession):
         raise TypeError(f"unsupported profile action: {type(action)!r}")
 
     def _human_connect_preamble(self, transport: Transport) -> bytes | None:
-        # Сохраняем прежнее human-поведение: profile preamble выполнялся
-        # только для Serial, а BLE/SPP не получали дополнительную команду.
+        # Human profile preamble выполняется только для Serial; BLE/SPP
+        # не получают дополнительную controller-команду при connect.
         if not isinstance(transport, SerialTransport):
             return None
         payload = b"".join(
@@ -110,11 +96,7 @@ class TerminalSession(ManagedSession):
             sys.stdout.flush()
 
     def _received_visible(self, stream: str) -> bool:
-        if stream == "main":
-            return True
-        if self.view_mode == "both":
-            return True
-        return stream == self.view_mode
+        return stream in self.profile.human_console_streams()
 
     def _decode_received(self, stream: str, data: bytes) -> str:
         """Decode one logical stream without breaking UTF-8 at chunk boundaries."""
@@ -307,11 +289,6 @@ class TerminalSession(ManagedSession):
             erase_when_done=True,
         )
 
-    def _set_view_mode(self, mode: str) -> None:
-        # Старый внутренний selector остаётся только как generic compatibility
-        # helper; normal UI не создаёт для него отдельных hotkeys.
-        self.view_mode = mode
-
     def _print_status(self) -> None:
         transport = self._current_transport()
         streams = ", ".join(transport.stream_capabilities)
@@ -416,11 +393,6 @@ class TerminalSession(ManagedSession):
         profile_action = self.profile.human_actions().get(action)
         if profile_action is not None:
             self._queue_profile_action(profile_action)
-            return
-
-        transport = self._current_transport()
-        if action == "both" or action in transport.stream_capabilities:
-            self._set_view_mode(action)
             return
 
         if action == "device":

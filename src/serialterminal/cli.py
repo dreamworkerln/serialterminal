@@ -420,9 +420,7 @@ def _ble_parser(prog: str) -> argparse.ArgumentParser:
         "target",
         nargs="?",
         default=None,
-        help=(
-            "optional exact advertised name; p/r aliases remain supported"
-        ),
+        help="optional exact advertised name",
     )
     parser.add_argument("--log", default=None)
     parser.add_argument(
@@ -608,23 +606,13 @@ def _run_ble(argv: list[str], prog: str) -> int:
     args = parser.parse_args(argv)
     profile = resolve_profile(args.profile)
 
-    try:
-        from .profiles.chatter.ble_compat import normalize_chatter_ble_target
-    except Exception as exc:
-        parser.error(str(exc))
-
-    name_filter = None
-    if args.target is not None:
-        # Preserve p/r aliases, but arbitrary exact advertised names are valid.
-        name_filter = normalize_chatter_ble_target(args.target) or args.target
-
     selector = DeviceSelector(
         "ble",
         scan_seconds=args.scan_seconds,
         profile=profile,
     )
     try:
-        candidate = selector.choose_initial(name_filter=name_filter)
+        candidate = selector.choose_initial(name_filter=args.target)
         transport = selector.make_transport(candidate)
     except TransportError as exc:
         parser.error(str(exc))

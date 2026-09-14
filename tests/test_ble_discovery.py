@@ -17,7 +17,7 @@ class Scanner:
     @staticmethod
     async def discover(timeout=3.0, **kwargs):
         if kwargs.get("return_adv"):
-            # Exercise compatibility path for older Bleak.
+            # Exercise fallback path for older Bleak.
             raise TypeError("return_adv not supported")
         return list(Scanner.devices)
 
@@ -65,7 +65,7 @@ class Client:
         pass
 
 
-def test_default_visibility_known_advertised_and_cached(
+def test_default_visibility_advertised_and_cached(
     tmp_path,
     monkeypatch,
 ):
@@ -91,7 +91,6 @@ def test_default_visibility_known_advertised_and_cached(
 
     found = ble_discovery.discover_terminal_ble_devices(0.01)
     assert {item.address for item in found} == {
-        "AA:01",
         "AA:02",
         "AA:03",
     }

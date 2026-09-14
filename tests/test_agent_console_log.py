@@ -142,7 +142,6 @@ def test_console_log_tracks_send_line_and_chunked_human_rx_but_not_ble_telemetry
             opened = manager.open(
                 "ble:a",
                 profile="chatter",
-                auto_id=False,
                 wait_connected_ms=500,
             )
             session_id = opened["session"]
@@ -194,10 +193,9 @@ def test_console_log_keeps_session_ids_and_common_chronological_file(tmp_path):
             first = manager.open(
                 "ble:a",
                 profile="chatter",
-                auto_id=False,
                 wait_connected_ms=500,
             )
-            second = manager.open("serial:b", auto_id=False, wait_connected_ms=500)
+            second = manager.open("serial:b", wait_connected_ms=500)
             s1 = first["session"]
             s2 = second["session"]
 

@@ -218,8 +218,8 @@ def test_manager_open_defaults_to_generic_profile_without_preamble():
         assert second["streams"] == ["main"]
         assert first["profile"] == "generic"
         assert second["profile"] == "generic"
-        assert first["auto_id"] is False
-        assert second["auto_id"] is False
+        assert "auto_id" not in first
+        assert "auto_id" not in second
         assert factory.transports["ble:a"].writes == []
         assert factory.transports["serial:b"].writes == []
         assert len(manager.list_sessions()["sessions"]) == 2
@@ -241,10 +241,10 @@ def test_manager_chatter_profile_preserves_connect_preamble_and_ble_streams():
 
         assert first["profile"] == "chatter"
         assert first["streams"] == ["chat", "telemetry"]
-        assert first["auto_id"] is True
+        assert "auto_id" not in first
         assert second["profile"] == "chatter"
         assert second["streams"] == ["main"]
-        assert second["auto_id"] is True
+        assert "auto_id" not in second
         assert _wait_until(lambda: factory.transports["ble:a"].writes == [b"/id\n"])
         assert _wait_until(lambda: factory.transports["serial:b"].writes == [b"/id\n"])
         assert manager.status(first["session"])["profile"] == "chatter"
@@ -253,26 +253,28 @@ def test_manager_chatter_profile_preserves_connect_preamble_and_ble_streams():
         manager.close_all()
 
 
-def test_profile_auto_id_compatibility_override_is_explicit():
+def test_protocol_rejects_removed_auto_id_field(tmp_path):
     factory = FakeSelectorFactory()
-    manager = SessionManager(selector_factory=factory, reconnect_delay=0.01)
-    try:
-        manager.discover()
-        with pytest.raises(AgentError) as caught:
-            manager.open("ble:a", auto_id=True, wait_connected_ms=0)
-        assert caught.value.code == "invalid_profile_option"
-
-        opened = manager.open(
-            "ble:a",
-            profile="chatter",
-            auto_id=False,
-            wait_connected_ms=500,
+    log_path = tmp_path / "agent.log"
+    with RunLog(log_path) as run_log:
+        manager = SessionManager(
+            selector_factory=factory,
+            run_log=run_log,
+            reconnect_delay=0.01,
         )
-        assert opened["profile"] == "chatter"
-        assert opened["auto_id"] is False
-        assert factory.transports["ble:a"].writes == []
-    finally:
-        manager.close_all()
+        protocol = AgentProtocol(manager, run_log=run_log)
+        manager.discover()
+        response = protocol.handle(
+            {
+                "id": 3,
+                "op": "open",
+                "device_key": "ble:a",
+                "profile": "chatter",
+                "auto_id": False,
+            }
+        )
+        assert response["ok"] is False
+        assert response["error"]["code"] == "invalid_request"
 
 
 def test_observe_one_session_returns_raw_event_and_completed_line():
@@ -283,7 +285,6 @@ def test_observe_one_session_returns_raw_event_and_completed_line():
         opened = manager.open(
             "ble:a",
             profile="chatter",
-            auto_id=False,
             wait_connected_ms=500,
         )
         session_id = opened["session"]
@@ -324,10 +325,9 @@ def test_observe_two_sessions_wakes_for_either_session():
         first = manager.open(
             "ble:a",
             profile="chatter",
-            auto_id=False,
             wait_connected_ms=500,
         )
-        second = manager.open("serial:b", auto_id=False, wait_connected_ms=500)
+        second = manager.open("serial:b", wait_connected_ms=500)
         cursors = {
             first["session"]: first["latest_seq"],
             second["session"]: second["latest_seq"],
@@ -366,7 +366,7 @@ def test_observe_returns_full_line_started_before_input_cursor():
     manager = SessionManager(selector_factory=factory, reconnect_delay=0.01)
     try:
         manager.discover()
-        opened = manager.open("serial:b", auto_id=False, wait_connected_ms=500)
+        opened = manager.open("serial:b", wait_connected_ms=500)
         session_id = opened["session"]
         session = manager._get_session(session_id)
         first = session._record_event(
@@ -400,7 +400,7 @@ def test_observe_timeout_and_session_specific_cursor_errors():
     manager = SessionManager(selector_factory=factory, reconnect_delay=0.01)
     try:
         manager.discover()
-        opened = manager.open("serial:b", auto_id=False, wait_connected_ms=500)
+        opened = manager.open("serial:b", wait_connected_ms=500)
         session_id = opened["session"]
         cursor = opened["latest_seq"]
 
@@ -458,7 +458,6 @@ def test_protocol_dispatches_observe_and_rejects_old_operations(tmp_path):
             opened = manager.open(
                 "ble:a",
                 profile="chatter",
-                auto_id=False,
                 wait_connected_ms=500,
             )
             session_id = opened["session"]
@@ -534,7 +533,7 @@ def test_protocol_open_defaults_generic_and_accepts_chatter_profile(tmp_path):
             )
             assert generic["ok"] is True
             assert generic["result"]["profile"] == "generic"
-            assert generic["result"]["auto_id"] is False
+            assert "auto_id" not in generic["result"]
             manager.close(generic["result"]["session"])
 
             chatter = protocol.handle(
@@ -548,7 +547,7 @@ def test_protocol_open_defaults_generic_and_accepts_chatter_profile(tmp_path):
             )
             assert chatter["ok"] is True
             assert chatter["result"]["profile"] == "chatter"
-            assert chatter["result"]["auto_id"] is True
+            assert "auto_id" not in chatter["result"]
         finally:
             manager.close_all()
 
