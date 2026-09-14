@@ -13,6 +13,8 @@ CHATTER_TEXT_COMMANDS = frozenset(
         "/tele",
         "/both",
         "/echo",
+        "/cancel",
+        "/cancel all",
         "/reboot",
     }
 )
@@ -35,6 +37,8 @@ _EXACT_FAILURE_LINES = frozenset(
 )
 _FAILURE_PREFIXES = (
     "[SYS] INPUT TOO LONG:",
+    "[SYS] SEND QUEUE FULL:",
+    "[SYS] DELIVERY CANCELLED:",
     "[SYS] RADIO FATAL ",
     "TX FRAME BUILD ERROR ",
     "TX FATAL state=",

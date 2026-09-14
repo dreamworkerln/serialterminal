@@ -50,7 +50,7 @@ _HUMAN_HOTKEYS = (
 )
 _HUMAN_HELP_LINES = (
     "BLE 0004 telemetry is background/transcript-only; normal console follows 0003",
-    "/chat /tele /both /echo /reboot are sent unchanged to Chatter",
+    "/chat /tele /both /echo /cancel /cancel all /reboot are sent unchanged to Chatter",
     "/id requests the canonical Chatter node identity",
     "/help shows this list and requests Chatter /help",
     "Ctrl+T 1/c   Chatter human console: CHAT",

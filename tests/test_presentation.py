@@ -10,6 +10,9 @@ def test_command_recognition_matches_firmware_boundary_trim():
     assert recognized_chatter_command("/reboot") == "/reboot"
     assert recognized_chatter_command(" \t/reboot \x7f") == "/reboot"
     assert recognized_chatter_command("  /echo  ") == "/echo"
+    assert recognized_chatter_command("\t/cancel\x7f") == "/cancel"
+    assert recognized_chatter_command(" \x00/cancel all \x7f") == "/cancel all"
+    assert recognized_chatter_command(" /cancel all now ") is None
     assert recognized_chatter_command(" /echo x ") is None
     assert recognized_chatter_command(" hello ") is None
 
@@ -73,6 +76,53 @@ def test_rejection_reveals_oldest_sent_payload_only():
         == "second"
     )
     assert tracker.pending_count() == 1
+
+
+def test_queue_full_rejection_reveals_and_removes_pending_payload():
+    tracker = ChatterPresentation()
+    assert tracker.submit_payload("overflow")
+    tracker.mark_sent("overflow")
+
+    assert (
+        tracker.consume_firmware_line(
+            "[SYS] SEND QUEUE FULL: message not accepted\n"
+        )
+        == "overflow"
+    )
+    assert tracker.pending_count() == 0
+
+
+def test_inflight_cancellation_reveals_status_unknown_payload():
+    tracker = ChatterPresentation()
+    assert tracker.submit_payload("in-flight")
+    tracker.mark_sent("in-flight")
+
+    assert (
+        tracker.consume_firmware_line(
+            "[SYS] DELIVERY CANCELLED: status unknown\n"
+        )
+        == "in-flight"
+    )
+    assert tracker.pending_count() == 0
+
+
+def test_cancellation_prefix_resolves_one_pending_payload_only():
+    tracker = ChatterPresentation()
+    assert tracker.submit_payload("cancelled")
+    assert tracker.submit_payload("still-pending")
+    tracker.mark_sent("cancelled")
+    tracker.mark_sent("still-pending")
+
+    assert (
+        tracker.consume_firmware_line(
+            "[SYS] DELIVERY CANCELLED: queued item not transmitted\n"
+        )
+        == "cancelled"
+    )
+    assert tracker.pending_count() == 1
+
+    assert tracker.consume_firmware_line("> still-pending\n") is None
+    assert tracker.pending_count() == 0
 
 
 def test_unrelated_telemetry_does_not_change_pending_state():
