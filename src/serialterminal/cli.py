@@ -609,14 +609,14 @@ def _run_ble(argv: list[str], prog: str) -> int:
     profile = resolve_profile(args.profile)
 
     try:
-        from .transports.ble_nus import normalize_ble_target
+        from .profiles.chatter.ble_compat import normalize_chatter_ble_target
     except Exception as exc:
         parser.error(str(exc))
 
     name_filter = None
     if args.target is not None:
         # Preserve p/r aliases, but arbitrary exact advertised names are valid.
-        name_filter = normalize_ble_target(args.target) or args.target
+        name_filter = normalize_chatter_ble_target(args.target) or args.target
 
     selector = DeviceSelector(
         "ble",
