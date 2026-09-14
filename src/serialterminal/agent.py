@@ -21,7 +21,6 @@ from .session import (
 
 
 _EOL = {"lf": "\n", "crlf": "\r\n", "cr": "\r"}
-_HUMAN_CONSOLE_STREAMS = frozenset({"main", "chat"})
 
 
 class AgentError(RuntimeError):
@@ -193,11 +192,16 @@ class SessionManager:
             tag = "ERROR"
         self.run_log.record(tag, payload)
 
-    def _log_console_line(self, session_id: str, line: SessionLine) -> None:
-        if self.run_log is None or line.stream not in _HUMAN_CONSOLE_STREAMS:
+    def _log_console_line(
+        self,
+        session_id: str,
+        line: SessionLine,
+        console_streams: frozenset[str],
+    ) -> None:
+        if self.run_log is None or line.stream not in console_streams:
             return
-        # В companion log попадают только console streams. Отдельные background
-        # streams остаются в forensic log независимо от controller profile.
+        # В companion log попадают только console streams выбранного profile.
+        # Отдельные background streams остаются в forensic log.
         self.run_log.record_console(
             session_id,
             "<",
@@ -275,6 +279,7 @@ class SessionManager:
             raise AgentError("unknown_profile", str(exc)) from exc
 
         profile_actions = terminal_profile.connect_preamble()
+        console_streams = frozenset(terminal_profile.human_console_streams())
         if auto_id is False:
             profile_actions = ()
         elif auto_id is True and not profile_actions:
@@ -324,7 +329,11 @@ class SessionManager:
             reconnect_delay=self.reconnect_delay,
             connect_preamble=preamble,
             event_notifier=self._notify_event_activity,
-            line_notifier=lambda line: self._log_console_line(session_id, line),
+            line_notifier=lambda line: self._log_console_line(
+                session_id,
+                line,
+                console_streams,
+            ),
         )
 
         with self._lock:
