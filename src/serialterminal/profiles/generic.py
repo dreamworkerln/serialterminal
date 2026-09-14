@@ -24,7 +24,6 @@ _BLE_CONFIG = BleProfileConfig(
 class GenericProfile:
     name: str = "generic"
     device_help_command: str | None = None
-    system_line_prefix: str | None = None
 
     def connect_preamble(self) -> tuple[ProfileAction, ...]:
         return ()

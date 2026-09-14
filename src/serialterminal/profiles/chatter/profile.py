@@ -24,7 +24,6 @@ CHATTER_OUTPUT_MODE_COMMANDS = {
 }
 CHATTER_HELP_COMMAND = "/help"
 CHATTER_ID_COMMAND = "/id"
-CHATTER_SYSTEM_PREFIX = "[SYS]"
 CHATTER_TELEMETRY_TX_UUID = "6e400004-b5a3-f393-e0a9-e50e24dcca9e"
 
 # Raw Chatter controls являются двухбайтовым wire ABI. Human hotkeys отправляют
@@ -79,7 +78,6 @@ _BLE_CONFIG = BleProfileConfig(
 class ChatterProfile:
     name: str = "chatter"
     device_help_command: str | None = CHATTER_HELP_COMMAND
-    system_line_prefix: str | None = CHATTER_SYSTEM_PREFIX
 
     def connect_preamble(self) -> tuple[ProfileAction, ...]:
         return (SendLine(CHATTER_ID_COMMAND),)

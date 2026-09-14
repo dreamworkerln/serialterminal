@@ -51,7 +51,6 @@ class PresentationAdapter(Protocol):
 class TerminalProfile(Protocol):
     name: str
     device_help_command: str | None
-    system_line_prefix: str | None
 
     def connect_preamble(self) -> tuple[ProfileAction, ...]:
         ...

@@ -126,15 +126,8 @@ class TerminalSession(ManagedSession):
             self._received_decoders.clear()
             self._received_line_buffers.clear()
 
-    def _received_line_visible(self, stream: str, line: str) -> bool:
-        if self._received_visible(stream):
-            return True
-        prefix = self.profile.system_line_prefix
-        return bool(
-            prefix
-            and stream in self.profile.human_console_streams()
-            and line.startswith(prefix)
-        )
+    def _received_line_visible(self, stream: str, _line: str) -> bool:
+        return self._received_visible(stream)
 
     def write_received(self, chunk: ReceivedChunk) -> None:
         if not chunk.data:
