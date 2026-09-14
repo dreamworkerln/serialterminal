@@ -11,7 +11,6 @@ from .profiles import (
     TerminalProfile,
     resolve_profile,
 )
-from .profiles.chatter import CHATTER_PROFILE
 from .runlog import default_log_path
 from .startup_controls import InitialControlReader
 from .terminal import TerminalSession
@@ -40,7 +39,7 @@ class DeviceSelector:
         scope: str,
         baud: int = 115200,
         scan_seconds: float = 3.0,
-        profile: TerminalProfile = CHATTER_PROFILE,
+        profile: TerminalProfile = GENERIC_PROFILE,
     ):
         if scope not in {"auto", "serial", "ble", "spp"}:
             raise ValueError(f"unknown device selector scope: {scope}")
