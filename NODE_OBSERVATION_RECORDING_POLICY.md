@@ -40,6 +40,25 @@ Main clone используется для SerialTerminal/agent API, policy, ski
 
 Executor не переключает main clone с `dev` на `node_observations` и не создаёт linked worktree для evidence storage.
 
+Main clone **не является staging area для hardware evidence**. Executor не создаёт run/observation artifacts под:
+
+```text
+./runs/
+./observations/
+```
+
+или в других evidence-like namespaces внутри main `serialterminal` clone.
+
+Если перед переносом в sibling clone нужен временный assembly/staging, используй directory **вне main clone**, например:
+
+```text
+/tmp/serialterminal-node-run-<stamp>-<topic>/
+```
+
+Либо собирай artifacts сразу в canonical namespace sibling clone. После successful publication временный staging, созданный текущей задачей вне sibling clone, должен быть удалён. Main `dev` clone в final state не должен содержать run/observation artifacts, созданные hardware-задачей.
+
+Не удаляй автоматически неожиданные или чужие evidence-like paths, которые уже существовали до текущей задачи; сообщи о них как о local residue/conflict.
+
 ### Human-only initial setup
 
 Одноразовая setup-команда человека:
@@ -151,6 +170,24 @@ Observation не должен дублировать `REPORT.md` и logs.
 stamp = YYYYMMDDTHHMMSSZ
 topic = lowercase slug: [a-z0-9][a-z0-9-]*
 ```
+
+`Z` означает **UTC**. Нельзя брать local wall-clock time и просто дописывать к нему `Z`.
+
+Получай stamp из UTC-aware clock. Canonical shell form:
+
+```bash
+date -u +%Y%m%dT%H%M%SZ
+```
+
+Для manifest/observation UTC timestamp используй UTC-aware form, например:
+
+```bash
+date -u +%Y-%m-%dT%H:%M:%SZ
+```
+
+Если исходное время доступно только как offset-aware timestamp, например `2026-09-14T02:28:36+03:00`, сначала конвертируй его в UTC и только затем записывай форму с `Z`. Никогда не заменяй `+HH:MM` на `Z` без преобразования времени.
+
+`MANIFEST.json.observed_at` должен представлять тот же UTC instant, что закодирован в basename `RUN_<stamp>_<topic>`. Поле `Observed:` в matching observation также должно быть настоящим UTC timestamp; оно может отражать отдельный момент наблюдения, но `Z` всегда означает уже выполненную UTC-конверсию.
 
 Если observation относится к run, basename должен совпадать:
 
@@ -270,6 +307,7 @@ Canonical schema для `RUN_<stamp>_<topic>/MANIFEST.json`:
 Validation rules:
 
 - `observed_at` и `topic` должны точно соответствовать `RUN_<stamp>_<topic>`;
+- `observed_at` с suffix `Z` должен быть настоящим UTC timestamp, а не local wall-clock с заменённым timezone suffix;
 - `result` только `PASS | FAIL | BLOCKED | INCONCLUSIVE`;
 - SerialTerminal SHA всегда exact 40-hex;
 - firmware SHA exact 40-hex или literal `unknown`;
@@ -313,17 +351,17 @@ Helpers никогда не должны:
 
 1. восстанови требуемый final hardware state;
 2. закрой sessions и заверши SerialTerminal process, чтобы оба logs были final;
-3. выбери один UTC `<stamp>_<topic>`;
-4. создай `runs/RUN_<stamp>_<topic>/`;
+3. сгенерируй один UTC `<stamp>_<topic>` из UTC-aware clock; для shell используй `date -u`, не local time с дописанным `Z`;
+4. создай `../serialterminal-observations/runs/RUN_<stamp>_<topic>/` в sibling evidence clone;
 5. напиши `REPORT.md`;
 6. скопируй exact forensic log как `serialterminal.log`;
 7. скопируй exact companion log как `serialterminal.console.log`;
 8. реши по policy, нужен ли OBS;
-9. если нужен — создай matching `observations/OBS_<stamp>_<topic>.md` с canonical `Run bundle:` pointer;
+9. если нужен — создай matching `../serialterminal-observations/observations/OBS_<stamp>_<topic>.md` с canonical `Run bundle:` pointer;
 10. напиши `MANIFEST.json` последним, когда остальные artifact paths уже определены;
 11. вызови `commit-node-run`.
 
-Можно сначала собирать bundle во временном local staging dir и только после completeness копировать в sibling clone. Это уменьшает incomplete staging, но не является correctness requirement.
+Если перед записью в sibling clone нужен temporary assembly, он должен находиться вне main `serialterminal` clone. Не используй `serialterminal/runs/`, `serialterminal/observations/` или другой evidence-like path внутри main clone как staging. После successful publication удали temporary staging, созданный текущей задачей. Canonical/pending artifacts в sibling clone не считаются temporary staging и следуют append-only/backlog rules ниже.
 
 ---
 
@@ -411,7 +449,9 @@ local/remote refs synchronized
 remaining untracked paths only recognized pending artifacts
 ```
 
-Stale/abandoned incomplete staging удаляется только отдельной явной maintenance-задачей; helper никогда не удаляет evidence-like files сам.
+Для main `dev` clone final state дополнительно требует отсутствия run/observation artifacts, созданных текущей hardware-задачей. Temporary staging текущей задачи должен быть удалён после successful publication; чужой/неожиданный residue не удаляй автоматически.
+
+Stale/abandoned incomplete staging внутри sibling clone удаляется только отдельной явной maintenance-задачей; helper никогда не удаляет evidence-like files сам.
 
 ---
 
