@@ -114,6 +114,7 @@ class BleNusTransport(Transport):
         self._active_generation: int | None = None
 
         self._rx_queue: queue.Queue[ReceivedChunk] = queue.Queue()
+        self._rx_pending: ReceivedChunk | None = None
 
         self._loop_ready = threading.Event()
         self._loop: asyncio.AbstractEventLoop | None = None
@@ -413,21 +414,25 @@ class BleNusTransport(Transport):
             self._loop_thread.join(timeout=1.0)
 
     def read_chunk(self, size: int = 512) -> ReceivedChunk:
-        try:
-            chunk = self._rx_queue.get(timeout=self.read_timeout)
-        except queue.Empty:
-            if not self._connected.is_set():
-                raise TransportError(f"{self.target_name} is disconnected")
-            return ReceivedChunk(self._default_stream, b"")
+        if self._rx_pending is not None:
+            chunk = self._rx_pending
+            self._rx_pending = None
+        else:
+            try:
+                chunk = self._rx_queue.get(timeout=self.read_timeout)
+            except queue.Empty:
+                if not self._connected.is_set():
+                    raise TransportError(f"{self.target_name} is disconnected")
+                return ReceivedChunk(self._default_stream, b"")
 
         if len(chunk.data) <= size:
             return chunk
 
-        # BLE notifications are normally small, but preserve the Transport size
-        # contract without losing the tail.
+        # Непрочитанный tail той же notification остаётся впереди более поздних
+        # notifications, чтобы small reads не меняли исходный byte/stream order.
         head = chunk.data[:size]
         tail = chunk.data[size:]
-        self._rx_queue.put(ReceivedChunk(chunk.stream, tail))
+        self._rx_pending = ReceivedChunk(chunk.stream, tail)
         return ReceivedChunk(chunk.stream, head)
 
     def read(self, size: int = 512) -> bytes:
