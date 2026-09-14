@@ -8,7 +8,12 @@ import threading
 import time
 from typing import Callable, Iterable
 
-from .transports.base import ReceivedChunk, Transport, TransportError
+from .transports.base import (
+    ReceivedChunk,
+    Transport,
+    TransportError,
+    TransportWriteOutcomeUnknown,
+)
 
 
 ConnectPreamble = Callable[[Transport], bytes | None]
@@ -489,7 +494,7 @@ class ManagedSession:
                 time.sleep(0.3)
 
     def tx_loop(self) -> None:
-        """Write queued line/raw items in order, retrying the current item after reconnect."""
+        """Write queued items in order; retry only failures known safe to repeat."""
         while not self.stop_event.is_set():
             try:
                 item = self.outgoing.get(timeout=0.1)
@@ -514,6 +519,26 @@ class ManagedSession:
                             description=transport.description,
                         )
                         self.on_tx_written(item)
+                        break
+                    except TransportWriteOutcomeUnknown as exc:
+                        self._record_event(
+                            "tx",
+                            tx_id=item.tx_id,
+                            tx_state="unknown",
+                            data=item.data,
+                            text=str(item) if isinstance(item, _QueuedLine) else None,
+                            device_key=transport.device_key,
+                            description=transport.description,
+                        )
+                        self._record_event(
+                            "error",
+                            error=str(exc),
+                            state="send-outcome-unknown",
+                            tx_id=item.tx_id,
+                            device_key=transport.device_key,
+                            description=transport.description,
+                        )
+                        self._disconnect(str(exc))
                         break
                     except (TransportError, OSError) as exc:
                         self._disconnect(str(exc))

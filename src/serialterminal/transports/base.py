@@ -8,6 +8,10 @@ class TransportError(Exception):
     """Recoverable transport I/O error."""
 
 
+class TransportWriteOutcomeUnknown(TransportError):
+    """Write may have reached the transport peer; automatic retry is unsafe."""
+
+
 @dataclass(frozen=True)
 class ReceivedChunk:
     """One transport receive event with an optional logical stream tag."""

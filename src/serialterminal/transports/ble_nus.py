@@ -7,7 +7,12 @@ import queue
 import threading
 from typing import Any
 
-from .base import ReceivedChunk, Transport, TransportError
+from .base import (
+    ReceivedChunk,
+    Transport,
+    TransportError,
+    TransportWriteOutcomeUnknown,
+)
 
 NUS_RX_UUID = "6e400002-b5a3-f393-e0a9-e50e24dcca9e"  # стандартный NUS: host -> peripheral
 NUS_TX_UUID = "6e400003-b5a3-f393-e0a9-e50e24dcca9e"  # стандартный NUS: peripheral -> host
@@ -445,9 +450,18 @@ class BleNusTransport(Transport):
         if not self._connected.is_set():
             raise TransportError(f"{self.target_name} is disconnected")
 
+        future = self._submit(self._write_async(data))
         try:
-            future = self._submit(self._write_async(data))
             future.result(timeout=self.write_timeout)
+        except FutureTimeoutError as exc:
+            # run_coroutine_threadsafe().cancel() requests Task cancellation but
+            # cannot prove that a backend GATT command was not already accepted.
+            # Mark the write outcome unknown so the session never auto-retries it.
+            future.cancel()
+            self._connected.clear()
+            raise TransportWriteOutcomeUnknown(
+                f"BLE write timed out after {self.write_timeout:g}s; outcome unknown"
+            ) from exc
         except Exception as exc:
             self._connected.clear()
             raise TransportError(str(exc)) from exc
