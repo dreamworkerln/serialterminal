@@ -1,3 +1,4 @@
+from serialterminal.profiles.chatter import CHATTER_PROFILE
 from serialterminal.profiles.chatter.presentation import recognized_chatter_command
 from serialterminal.terminal import CHATTER_ID_COMMAND, TerminalSession
 from serialterminal.transports.base import Transport
@@ -63,7 +64,11 @@ def test_id_is_recognized_as_chatter_command():
 
 def test_serial_connect_requests_identity_before_user_tx_gate(tmp_path):
     transport = FakeSerialTransport()
-    session = TerminalSession(transport, log_path=tmp_path / "terminal.log")
+    session = TerminalSession(
+        transport,
+        log_path=tmp_path / "terminal.log",
+        profile=CHATTER_PROFILE,
+    )
     try:
         assert not session.connected_event.is_set()
         assert session._connect()
@@ -76,7 +81,11 @@ def test_serial_connect_requests_identity_before_user_tx_gate(tmp_path):
 
 def test_bluetooth_connect_does_not_auto_request_identity(tmp_path):
     transport = FakeBluetoothTransport()
-    session = TerminalSession(transport, log_path=tmp_path / "terminal.log")
+    session = TerminalSession(
+        transport,
+        log_path=tmp_path / "terminal.log",
+        profile=CHATTER_PROFILE,
+    )
     try:
         assert session._connect()
         assert transport.writes == []
