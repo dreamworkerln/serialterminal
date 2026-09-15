@@ -34,7 +34,7 @@ Status: OPEN
 
 Goal: remove the human frontend's semantically different line parser so controller/presentation reasoning uses the same canonical logical-line semantics as `ManagedSession`.
 
-Finding checkpoint: `dev@159f7a1ab52fb8f615af33b175545f13e04dd989`.
+Finding checkpoint: `dev@159f7a1ab52fb8f615af33b175545f13e04dd989`. The later BLE burst anomaly is tracked separately in `TODO_024`: its raw `RX chat` evidence already contains missing byte ranges, so it must not be misattributed to this line-assembly cleanup.
 
 ### TODO_015 — `todos/TODO_015_PROFILE_PREAMBLE_SCOPE.md`
 
@@ -86,11 +86,13 @@ Finding checkpoint: `dev@159f7a1ab52fb8f615af33b175545f13e04dd989`.
 
 ### TODO_021 — `todos/TODO_021_NODE_EXECUTOR_PROVENANCE_BOUNDARY.md`
 
-Status: OPEN
+Status: PARTIAL
 
 Goal: keep physical-node execution separate from source/history/provenance selection, prohibit flashing in ordinary node validation, and forbid inferred deployed firmware revisions.
 
 Finding checkpoint: `dev@159f7a1ab52fb8f615af33b175545f13e04dd989`.
+
+Partial implementation: root delegation rules added at `dev@37925c48b6646c3e70d0f11e9a47abda5e9b357e`; node-skill/policy alignment remains open. Live run `node_observations@649352f2a53329c4dbed933b586822e306d0916a` correctly used `Firmware: unknown` but still discussed source-SHA workspace availability, reinforcing the remaining executor/provenance boundary work.
 
 ### TODO_022 — `todos/TODO_022_BLE_CONNECT_TIMEOUT_OWNERSHIP.md`
 
@@ -108,7 +110,25 @@ Goal: make capability-cache read-modify-write safe across concurrent SerialTermi
 
 Finding checkpoint: `dev@159f7a1ab52fb8f615af33b175545f13e04dd989`; static concurrency risk.
 
-Suggested implementation order for the next pass: correctness/evidence boundaries first (`TODO_011`, `TODO_013`, `TODO_016`, `TODO_017`, `TODO_021`), then lifecycle/API robustness (`TODO_018`, `TODO_019`, `TODO_022`, `TODO_023`), then consistency/docs follow-ups (`TODO_012`, `TODO_014`, `TODO_015`, `TODO_020`). Re-evaluate ordering if implementation exposes dependencies.
+### TODO_024 — `todos/TODO_024_BLE_BURST_RX_COMPLETENESS.md`
+
+Status: OPEN
+
+Goal: isolate the byte-loss boundary seen during high-rate BLE `/help` + `/id` output, where exact raw `RX chat` / `data_b64` evidence already contains missing byte ranges before canonical logical-line assembly.
+
+Live finding checkpoint: `node_observations@649352f2a53329c4dbed933b586822e306d0916a`, run `RUN_20260914T235131Z_radio-interface-smoke`, using SerialTerminal `dev@159f7a1ab52fb8f615af33b175545f13e04dd989`.
+
+Impact: low-rate radio evidence in that run remained usable and bidirectional USER delivery succeeded, but burst BLE human-console output must not be assumed lossless until the first proven loss boundary is isolated.
+
+### TODO_025 — `todos/TODO_025_MATERIAL_FOLLOWUP_EVIDENCE.md`
+
+Status: OPEN
+
+Goal: require persistent exact evidence for any separate follow-up/control run materially cited by a published hardware report, while allowing non-evidentiary scratch experiments to remain temporary.
+
+Live finding checkpoint: the same `RUN_20260914T235131Z_radio-interface-smoke` report cites a fresh isolated `/help` control case as complete while stating that its logs remained only in `/tmp`.
+
+Suggested implementation order for the next pass: correctness/evidence boundaries first (`TODO_024`, `TODO_011`, `TODO_013`, `TODO_016`, `TODO_017`, `TODO_021`, `TODO_025`), then lifecycle/API robustness (`TODO_018`, `TODO_019`, `TODO_022`, `TODO_023`), then consistency/docs follow-ups (`TODO_012`, `TODO_014`, `TODO_015`, `TODO_020`). Re-evaluate ordering if implementation exposes dependencies.
 
 ## Closed
 
@@ -256,4 +276,4 @@ post-closure hardware smoke:  PASS / physical BLE multi-device / 2026-09-03
 
 ## Current validation posture
 
-Repository CI is the normal per-change clean-environment gate. Physical-node claims remain separate: do not infer current-head hardware validity from older run bundles. The newly recorded static findings are OPEN until their individual implementation and validation gates are completed. For the next build-level validation pass, continue to prefer one long-lived `serialterminal agent` process and a broad scenario matrix over repeated manual operator actions; only UI-specific behavior that the machine API cannot exercise should require a separate human pass.
+Repository CI is the normal per-change clean-environment gate. Physical-node claims remain separate: do not infer current-head hardware validity from older run bundles. The newly recorded static and live findings are OPEN/PARTIAL until their individual implementation and validation gates are completed. For the next build-level validation pass, continue to prefer one long-lived `serialterminal agent` process and a broad scenario matrix over repeated manual operator actions; only UI-specific behavior that the machine API cannot exercise should require a separate human pass.
