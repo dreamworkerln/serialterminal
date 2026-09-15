@@ -1,0 +1,23 @@
+{
+  "schema": 1,
+  "observed_at": "2026-09-15T17:04:02Z",
+  "topic": "ble-burst-rx-completeness-take2",
+  "result": "INCONCLUSIVE",
+  "serialterminal": {
+    "repo": "dreamworkerln/serialterminal",
+    "sha": "276aeee2ca90e6ee964120153bf72e5dbafcf307"
+  },
+  "firmware": {
+    "repo": "dreamworkerln/lora-sack-protocol",
+    "sha": "unknown"
+  },
+  "observation": {
+    "state": "recorded",
+    "path": "../../observations/OBS_20260915T170402Z_ble-burst-rx-completeness-take2.md"
+  },
+  "files": {
+    "report": "REPORT.md",
+    "console": "serialterminal.console.log",
+    "serialterminal_log": "serialterminal.log"
+  }
+}
