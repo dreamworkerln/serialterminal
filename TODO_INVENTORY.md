@@ -112,13 +112,15 @@ Finding checkpoint: `dev@159f7a1ab52fb8f615af33b175545f13e04dd989`; static concu
 
 ### TODO_024 — `todos/TODO_024_BLE_BURST_RX_COMPLETENESS.md`
 
-Status: OPEN
+Status: PARTIAL
 
 Goal: isolate the byte-loss boundary seen during high-rate BLE `/help` + `/id` output, where exact raw `RX chat` / `data_b64` evidence already contains missing byte ranges before canonical logical-line assembly.
 
 Live finding checkpoint: `node_observations@649352f2a53329c4dbed933b586822e306d0916a`, run `RUN_20260914T235131Z_radio-interface-smoke`, using SerialTerminal `dev@159f7a1ab52fb8f615af33b175545f13e04dd989`.
 
-Impact: low-rate radio evidence in that run remained usable and bidirectional USER delivery succeeded, but burst BLE human-console output must not be assumed lossless until the first proven loss boundary is isolated.
+Host-side isolation: a deterministic 1001-callback / 10005-byte burst test proves exact byte/order preservation from the SerialTerminal Bleak notification callback through `_queue_notify`, `read_chunk` and `ManagedSession` raw events. Test introduced at `dev@a8b6c1974242df0bb267fa7156c704f8aeb0f6c0`; validated current tree `dev@bb48db1709ab66df3f4492f25a51b997fe23c357`, GitHub Actions `34992221772` SUCCESS. Physical sequential-vs-concurrent isolation remains open.
+
+Impact: low-rate radio evidence in the original run remained usable and bidirectional USER delivery succeeded, but burst BLE human-console output must not be assumed lossless until the first proven physical loss boundary is isolated.
 
 ### TODO_025 — `todos/TODO_025_MATERIAL_FOLLOWUP_EVIDENCE.md`
 
