@@ -126,6 +126,27 @@ Keep this node skill in the `serialterminal` repository so it remains available 
 
 For hardware interaction tasks, follow [NODE_OBSERVATION_RECORDING_POLICY.md](NODE_OBSERVATION_RECORDING_POLICY.md) for recording run-specific evidence in the separate observation clone/branch.
 
+## Delegating hardware work to the node agent
+
+When this source-development agent asks a separate local node/hardware agent to execute a hardware scenario, keep the roles strictly separated.
+
+The node/hardware agent is an **executor and evidence collector**, not a source developer or reviewer. Its task is to use the already implemented SerialTerminal agent interface, interact with the requested hardware, evaluate only the requested scenario, restore the required safe final state, and publish factual RUN/OBS evidence according to `NODE_OBSERVATION_RECORDING_POLICY.md`.
+
+When preparing a prompt for the node/hardware agent:
+
+* point it to `.agents/skills/node-agent/SKILL.md` as the project-specific operating skill;
+* use `.agents/skills/serialterminal-agent/SKILL.md` and `AGENT_API.md` only as the existing machine-interface contract needed to execute the scenario;
+* point it to `NODE_OBSERVATION_RECORDING_POLICY.md` for RUN/OBS creation and publication;
+* do **not** give it `AGENTS.md` or `ARCHITECTURE.md` as operating instructions for the hardware run; those documents govern source-development work in this repository;
+* do **not** instruct it to modify SerialTerminal source, firmware source, tests, documentation, TODOs, CI, skills, or development branches as part of a hardware observation task;
+* do **not** ask it to implement diagnostic instrumentation merely because the existing evidence is insufficient; first let it report the observable boundary with the current interface, then make any required source/instrumentation change in a separate source-development task;
+* do **not** ask it to perform reviewer/promotion work from `NODE_SKILL_LEARNING_POLICY.md` or to update `REVIEW_STATE.md`;
+* require it to distinguish observed facts from hypotheses and to use `PASS | FAIL | BLOCKED | INCONCLUSIVE` without assigning a deeper root cause that its available evidence cannot establish.
+
+If a hardware investigation shows that new instrumentation, API behavior, tests, documentation, firmware changes, or skill updates are required, stop at the evidence boundary. The source-development agent reviews the RUN/OBS and authoritative source, implements the required change separately, validates it, and only then may delegate a follow-up hardware scenario to the node agent.
+
+For a run with anomalies, faults, unexpected behavior, reusable findings, `FAIL`, `BLOCKED`, or `INCONCLUSIVE`, require the executor to preserve the relevant exact logs and publish the observation required by policy. The node agent's final response should remain a short pointer layer to the persisted report/evidence rather than replacing it with an ad hoc narrative.
+
 For every source-code change, explicitly review both `AGENT_API.md` and `.agents/skills/serialterminal-agent/SKILL.md` for consistency with the changed generic SerialTerminal behavior.
 
 If the change affects the agent-facing API, session semantics, discovery/open/send/receive behavior, streams, errors, logging, CLI invocation, or the recommended generic agent workflow, update the affected generic documentation in the same task. Do not leave either active generic document describing behavior that no longer matches the code.
