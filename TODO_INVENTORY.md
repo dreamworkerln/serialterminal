@@ -4,11 +4,111 @@ This file is the authoritative current-state index for engineering TODOs in this
 
 ## Active
 
-No active engineering TODOs.
+### TODO_011 — `todos/TODO_011_CHATTER_PRESENTATION_CORRELATION.md`
 
-The next validation phase is intentionally consolidated rather than duplicating manual UI checks after every small host change: existing repository CI remains the per-change smoke gate, while node/firmware behavior should be exercised through a larger autonomous agent/API scenario run where possible. Manual terminal/hotkey checks are reserved for behavior that cannot be established through the machine interface or automated host tests.
+Status: OPEN
 
-The active project-specific node/hardware guidance is `.agents/skills/node-agent/SKILL.md`. `AGENT_API.md` remains the canonical generic SerialTerminal JSONL contract.
+Goal: make Chatter human presentation correlate queue-full and cancellation outcomes with the correct one or many pending submissions instead of resolving one FIFO item for every failure-like line.
+
+Finding checkpoint: `dev@159f7a1ab52fb8f615af33b175545f13e04dd989`.
+
+### TODO_012 — `todos/TODO_012_SPP_CAPABILITY_CACHE_UNKNOWN.md`
+
+Status: OPEN
+
+Goal: preserve prior definitive SPP capability and RFCOMM channel across a transient UNKNOWN probe while retaining truthful newest probe diagnostics.
+
+Finding checkpoint: `dev@159f7a1ab52fb8f615af33b175545f13e04dd989`.
+
+### TODO_013 — `todos/TODO_013_SERIAL_SPP_WRITE_AMBIGUITY.md`
+
+Status: OPEN
+
+Goal: prevent reconnect-safe automatic retry from blindly repeating Serial/SPP writes whose side effects may already have partially occurred.
+
+Finding checkpoint: `dev@159f7a1ab52fb8f615af33b175545f13e04dd989`; static semantic risk, no physical duplicate claimed.
+
+### TODO_014 — `todos/TODO_014_TERMINAL_CANONICAL_LINE_ASSEMBLY.md`
+
+Status: OPEN
+
+Goal: remove the human frontend's semantically different line parser so controller/presentation reasoning uses the same canonical logical-line semantics as `ManagedSession`.
+
+Finding checkpoint: `dev@159f7a1ab52fb8f615af33b175545f13e04dd989`.
+
+### TODO_015 — `todos/TODO_015_PROFILE_PREAMBLE_SCOPE.md`
+
+Status: OPEN
+
+Goal: resolve the architecture mismatch between profile-owned connect preamble semantics and the human frontend's concrete-transport-specific preamble suppression.
+
+Finding checkpoint: `dev@159f7a1ab52fb8f615af33b175545f13e04dd989`; design/ownership ambiguity, no behavior change selected yet.
+
+### TODO_016 — `todos/TODO_016_BLE_RX_LIFECYCLE_BOUNDARY.md`
+
+Status: OPEN
+
+Goal: prevent BLE RX bytes buffered under one connection generation from being silently delivered across a disconnect/reconnect lifecycle boundary.
+
+Finding checkpoint: `dev@159f7a1ab52fb8f615af33b175545f13e04dd989`; static lifecycle risk.
+
+### TODO_017 — `todos/TODO_017_AGENT_ACTIVE_STREAMS.md`
+
+Status: OPEN
+
+Goal: expose configured versus actually active receive streams so an agent can detect optional subscription loss instead of treating silence as evidence.
+
+Finding checkpoint: `dev@159f7a1ab52fb8f615af33b175545f13e04dd989`.
+
+### TODO_018 — `todos/TODO_018_OBSERVE_THREAD_RETENTION.md`
+
+Status: OPEN
+
+Goal: keep long-lived continuous-observe agent runs from retaining an unbounded history of completed observe thread objects.
+
+Finding checkpoint: `dev@159f7a1ab52fb8f615af33b175545f13e04dd989`.
+
+### TODO_019 — `todos/TODO_019_AGENT_REQUEST_VALIDATION.md`
+
+Status: OPEN
+
+Goal: make JSONL request field types/ranges strict and deterministic instead of relying on Python coercion/truncation or leaking malformed input into generic internal errors.
+
+Finding checkpoint: `dev@159f7a1ab52fb8f615af33b175545f13e04dd989`.
+
+### TODO_020 — `todos/TODO_020_AGENT_SCANNER_WORKFLOW_DOCS.md`
+
+Status: OPEN
+
+Goal: document an exact non-interactive scanner/prober recovery workflow for autonomous agents and surface critical `unknown` TX / forensic-gap semantics in the agent overview.
+
+Finding checkpoint: `dev@159f7a1ab52fb8f615af33b175545f13e04dd989`.
+
+### TODO_021 — `todos/TODO_021_NODE_EXECUTOR_PROVENANCE_BOUNDARY.md`
+
+Status: OPEN
+
+Goal: keep physical-node execution separate from source/history/provenance selection, prohibit flashing in ordinary node validation, and forbid inferred deployed firmware revisions.
+
+Finding checkpoint: `dev@159f7a1ab52fb8f615af33b175545f13e04dd989`.
+
+### TODO_022 — `todos/TODO_022_BLE_CONNECT_TIMEOUT_OWNERSHIP.md`
+
+Status: OPEN
+
+Goal: ensure a timed-out BLE connect coroutine is cancelled/retired or otherwise prevented from overlapping later reconnect attempts.
+
+Finding checkpoint: `dev@159f7a1ab52fb8f615af33b175545f13e04dd989`; static lifecycle risk.
+
+### TODO_023 — `todos/TODO_023_DEVICE_CACHE_CONCURRENT_WRITERS.md`
+
+Status: OPEN
+
+Goal: make capability-cache read-modify-write safe across concurrent SerialTerminal/scanner processes without lost updates or shared-temp-file races.
+
+Finding checkpoint: `dev@159f7a1ab52fb8f615af33b175545f13e04dd989`; static concurrency risk.
+
+Suggested implementation order for the next pass: correctness/evidence boundaries first (`TODO_011`, `TODO_013`, `TODO_016`, `TODO_017`, `TODO_021`), then lifecycle/API robustness (`TODO_018`, `TODO_019`, `TODO_022`, `TODO_023`), then consistency/docs follow-ups (`TODO_012`, `TODO_014`, `TODO_015`, `TODO_020`). Re-evaluate ordering if implementation exposes dependencies.
 
 ## Closed
 
@@ -156,4 +256,4 @@ post-closure hardware smoke:  PASS / physical BLE multi-device / 2026-09-03
 
 ## Current validation posture
 
-Repository CI is the normal per-change clean-environment gate. Physical-node claims remain separate: do not infer current-head hardware validity from older run bundles. For the next build-level validation pass, prefer one long-lived `serialterminal agent` process and a broad scenario matrix over repeated manual operator actions; only UI-specific behavior that the machine API cannot exercise should require a separate human pass.
+Repository CI is the normal per-change clean-environment gate. Physical-node claims remain separate: do not infer current-head hardware validity from older run bundles. The newly recorded static findings are OPEN until their individual implementation and validation gates are completed. For the next build-level validation pass, continue to prefer one long-lived `serialterminal agent` process and a broad scenario matrix over repeated manual operator actions; only UI-specific behavior that the machine API cannot exercise should require a separate human pass.
