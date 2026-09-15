@@ -1,6 +1,6 @@
 # TODO_024 — Isolate BLE burst RX completeness loss
 
-Status: OPEN
+Status: PARTIAL
 
 ## Purpose
 
@@ -55,6 +55,20 @@ without the terminating `04 optional\n`. Much later the next USER confirmation i
 
 Therefore the current evidence places the fault **before canonical logical-line completion**. It does not yet distinguish among firmware BLE notification production/queueing, controller/BlueZ BLE delivery, Bleak/backend behavior, or SerialTerminal's notification callback path before the event is recorded.
 
+## Host-side isolation checkpoint
+
+A deterministic regression test now injects 1001 BLE notification callbacks containing 10005 bytes into the actual `BleNusTransport` callback path, lets a real `ManagedSession` consume them, and asserts both exact raw-event byte/order preservation and the final completed logical line.
+
+```text
+implementation checkpoint: dev@a8b6c1974242df0bb267fa7156c704f8aeb0f6c0
+validated tree:           dev@bb48db1709ab66df3f4492f25a51b997fe23c357
+GitHub Actions:           34992221772 SUCCESS
+```
+
+This narrows the live anomaly: bytes that are actually delivered to the current SerialTerminal Bleak notification callback are preserved by `_queue_notify` -> `read_chunk` -> `ManagedSession` under the deterministic burst load covered by the test. It does **not** prove that a real BlueZ/Bleak backend will invoke every callback under concurrent physical load, nor that firmware emitted every notification.
+
+No SerialTerminal runtime behavior was changed at this checkpoint; only regression/isolation coverage was added.
+
 ## Relation to other TODOs
 
 - `TODO_014_TERMINAL_CANONICAL_LINE_ASSEMBLY.md` remains valid as an architecture/consistency cleanup, but this live anomaly is not evidence that its duplicate parser caused the loss.
@@ -70,14 +84,14 @@ Therefore the current evidence places the fault **before canonical logical-line 
 
 ## Validation plan
 
-- [ ] add/verify a host-side stress test that injects many BLE notification callbacks quickly and proves exact byte/order preservation through `_queue_notify` -> `read_chunk` -> `ManagedSession` raw events;
+- [x] add/verify a host-side stress test that injects many BLE notification callbacks quickly and proves exact byte/order preservation through `_queue_notify` -> `read_chunk` -> `ManagedSession` raw events;
 - [ ] reproduce a long-output command sequentially on one BLE session and under concurrent two-session load;
 - [ ] compare exact `data_b64` byte stream, not only console/logical lines;
 - [ ] if practical, observe the same controller output through an independent path or controller-side emission evidence to separate firmware BLE production from host reception;
 - [ ] verify no `forensic_gap` occurred during the affected interval;
 - [ ] record the first proven loss boundary and only then choose the owning fix/repository;
 - [ ] repeat the physical burst scenario after the fix and require byte-complete raw output;
-- [ ] full relevant repository CI PASS for any SerialTerminal code change.
+- [x] full relevant repository CI PASS for the host-side isolation test checkpoint.
 
 ## Hardware-validation impact
 
