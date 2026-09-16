@@ -1,0 +1,23 @@
+{
+  "schema": 1,
+  "observed_at": "2026-09-16T03:44:42Z",
+  "topic": "ble-concurrent-help-completeness-take6",
+  "result": "PASS",
+  "serialterminal": {
+    "repo": "dreamworkerln/serialterminal",
+    "sha": "4f562062afd64750679a4d5562a29a022025a967"
+  },
+  "firmware": {
+    "repo": "dreamworkerln/lora-sack-protocol",
+    "sha": "unknown"
+  },
+  "observation": {
+    "state": "recorded",
+    "path": "../../observations/OBS_20260916T034442Z_ble-concurrent-help-completeness-take6.md"
+  },
+  "files": {
+    "report": "REPORT.md",
+    "console": "serialterminal.console.log",
+    "serialterminal_log": "serialterminal.log"
+  }
+}
