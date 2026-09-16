@@ -20,7 +20,8 @@ OBS_PATH_RE = re.compile(
 )
 RUN_PATH_RE = re.compile(
     r"^runs/RUN_(?P<stamp>\d{8}T\d{6}Z)_(?P<topic>[a-z0-9][a-z0-9-]*)/"
-    r"(?P<name>MANIFEST\.json|REPORT\.md|serialterminal\.log|serialterminal\.console\.log)$"
+    r"(?P<name>MANIFEST\.json|REPORT\.md|serialterminal\.log|serialterminal\.console\.log|"
+    r"artifacts/[A-Za-z0-9][A-Za-z0-9._-]*(?:/[A-Za-z0-9][A-Za-z0-9._-]*)*)$"
 )
 RUN_POINTER_RE = re.compile(
     r"^Run bundle:\s+runs/RUN_(?P<stamp>\d{8}T\d{6}Z)_(?P<topic>[a-z0-9][a-z0-9-]*)/\s*$",
@@ -303,25 +304,37 @@ def load_json_file(path: Path) -> Any:
 
 
 def _require_complete_file_set(run_files: set[str]) -> None:
-    if run_files == RUN_REQUIRED_FILES:
-        return
     missing = sorted(RUN_REQUIRED_FILES - run_files)
-    extra = sorted(run_files - RUN_REQUIRED_FILES)
+    invalid_extra = sorted(
+        name
+        for name in run_files - RUN_REQUIRED_FILES
+        if not name.startswith("artifacts/")
+    )
+    if not missing and not invalid_extra:
+        return
     detail: list[str] = []
     if missing:
         detail.append("missing=" + ",".join(missing))
-    if extra:
-        detail.append("extra=" + ",".join(extra))
+    if invalid_extra:
+        detail.append("extra=" + ",".join(invalid_extra))
     suffix = ": " + " ".join(detail) if detail else ""
     raise PublicationError("incomplete run bundle" + suffix)
 
 
-def _validate_run_members(run_dir: Path, identity: RunIdentity) -> None:
+def _validate_run_members(
+    run_dir: Path, identity: RunIdentity, run_files: set[str]
+) -> None:
     for name in RUN_REQUIRED_FILES:
         path = run_dir / name
         if not path.is_file():
             raise PublicationError(
                 f"run member is not a regular file: {identity.run_dir}/{name}"
+            )
+    for name in sorted(run_files - RUN_REQUIRED_FILES):
+        path = run_dir / name
+        if path.is_symlink() or not path.is_file():
+            raise PublicationError(
+                f"auxiliary artifact is not a regular file: {identity.run_dir}/{name}"
             )
     if (run_dir / "REPORT.md").stat().st_size == 0:
         raise PublicationError("REPORT.md must not be empty")
@@ -344,11 +357,11 @@ def _validate_recorded_observation(
 def validate_complete_run(repo: Path, identity: RunIdentity, run_files: set[str]) -> list[str]:
     _require_complete_file_set(run_files)
     run_dir = repo / identity.run_dir
-    _validate_run_members(run_dir, identity)
+    _validate_run_members(run_dir, identity, run_files)
     state, observation_path = validate_manifest_data(
         load_json_file(run_dir / "MANIFEST.json"), identity
     )
-    selected = [f"{identity.run_dir}/{name}" for name in sorted(RUN_REQUIRED_FILES)]
+    selected = [f"{identity.run_dir}/{name}" for name in sorted(run_files)]
 
     if state == "recorded":
         if observation_path is None:
@@ -390,11 +403,16 @@ def validate_commit_run(
             f"local-ahead commit {commit} contains incomplete RUN {identity.suffix}"
         )
 
+    run_paths = {
+        path
+        for path in added
+        if (parts := run_path_parts(path)) is not None and parts[0] == identity
+    }
     state, observation_path = validate_manifest_data(
         _manifest_from_commit(repo, commit, identity), identity
     )
     _validate_commit_run_content(repo, commit, identity)
-    consumed = set(expected_paths)
+    consumed = set(run_paths)
 
     if state == "recorded":
         if observation_path not in added:
