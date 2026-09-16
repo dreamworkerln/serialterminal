@@ -116,21 +116,29 @@ Status: PARTIAL
 
 Goal: isolate the byte-loss boundary seen during high-rate BLE `/help` + `/id` output, where exact raw `RX chat` / `data_b64` evidence already contains missing byte ranges before canonical logical-line assembly.
 
-Live finding checkpoint: `node_observations@649352f2a53329c4dbed933b586822e306d0916a`, run `RUN_20260914T235131Z_radio-interface-smoke`, using SerialTerminal `dev@159f7a1ab52fb8f615af33b175545f13e04dd989`.
+Initial live finding: `node_observations@649352f2a53329c4dbed933b586822e306d0916a`, run `RUN_20260914T235131Z_radio-interface-smoke`, using SerialTerminal `dev@159f7a1ab52fb8f615af33b175545f13e04dd989`.
 
-Host-side isolation: a deterministic 1001-callback / 10005-byte burst test proves exact byte/order preservation from the SerialTerminal Bleak notification callback through `_queue_notify`, `read_chunk` and `ManagedSession` raw events. Test introduced at `dev@a8b6c1974242df0bb267fa7156c704f8aeb0f6c0`; validated current tree `dev@bb48db1709ab66df3f4492f25a51b997fe23c357`, GitHub Actions `34992221772` SUCCESS. Physical sequential-vs-concurrent isolation remains open.
+Host-side isolation: a deterministic 1001-callback / 10005-byte burst test proves exact byte/order preservation from the SerialTerminal Bleak notification callback through `_queue_notify`, `read_chunk` and `ManagedSession` raw events. Test introduced at `dev@a8b6c1974242df0bb267fa7156c704f8aeb0f6c0`; validated tree `dev@bb48db1709ab66df3f4492f25a51b997fe23c357`, GitHub Actions `34992221772` SUCCESS.
 
-Impact: low-rate radio evidence in the original run remained usable and bidirectional USER delivery succeeded, but burst BLE human-console output must not be assumed lossless until the first proven physical loss boundary is isolated.
+Controlled physical reproduction: `node_observations@ccab9e37747c564c5f238cf6e5eef83fd8760ea1`, run `RUN_20260915T170402Z_ble-burst-rx-completeness-take2`, SerialTerminal `dev@276aeee2ca90e6ee964120153bf72e5dbafcf307`, result INCONCLUSIVE. Isolated `/help` was already malformed on one node; concurrent `/help` produced `10/10` malformed/baseline-inconclusive session-cases and `/help` + `/id` produced `10/10`, with no `forensic_gap` and no disconnect/reconnect in affected intervals.
+
+Next boundary test: capture a controlled reproduction with exact Linux HCI/BlueZ evidence (for example `btmon`) in parallel with SerialTerminal raw events, persist the exact HCI capture as an optional same-RUN artifact, and compare the first missing SerialTerminal byte range against the corresponding HCI/ATT notification sequence. `btmon` is opt-in diagnostic instrumentation for this scenario, not an automatic part of ordinary hardware runs.
+
+Impact: low-rate radio evidence can still be usable when its required exact evidence is complete, but high-rate/burst BLE human-console output must not be assumed lossless until the first proven physical loss boundary is isolated.
 
 ### TODO_025 — `todos/TODO_025_MATERIAL_FOLLOWUP_EVIDENCE.md`
 
-Status: OPEN
+Status: PARTIAL
 
-Goal: require persistent exact evidence for any separate follow-up/control run materially cited by a published hardware report, while allowing non-evidentiary scratch experiments to remain temporary.
+Goal: keep materially used follow-up/control evidence reviewable while allowing non-evidentiary scratch experiments to remain temporary, and provide a bounded same-run namespace for exact auxiliary diagnostic captures.
 
-Live finding checkpoint: the same `RUN_20260914T235131Z_radio-interface-smoke` report cites a fresh isolated `/help` control case as complete while stating that its logs remained only in `/tmp`.
+Live finding checkpoint: `RUN_20260914T235131Z_radio-interface-smoke` cited a fresh isolated `/help` control case as complete while its logs remained only in `/tmp`.
 
-Suggested implementation order for the next pass: correctness/evidence boundaries first (`TODO_024`, `TODO_011`, `TODO_013`, `TODO_016`, `TODO_017`, `TODO_021`, `TODO_025`), then lifecycle/API robustness (`TODO_018`, `TODO_019`, `TODO_022`, `TODO_023`), then consistency/docs follow-ups (`TODO_012`, `TODO_014`, `TODO_015`, `TODO_020`). Re-evaluate ordering if implementation exposes dependencies.
+Partial implementation: optional same-run `artifacts/` publication added at `dev@a7e567783169cbd0ba626e0dc809960e83e55230`; follow-up test fix/validated tree `dev@4e8ac48e39232d75c774c87d9f1878a3ffb242b7`; GitHub Actions `35039172751` SUCCESS. The four canonical RUN files remain required, manifest schema v1 is unchanged, auxiliary files are accepted only below `artifacts/`, symlinks are rejected, and push-failure retry preserves atomic append-only publication. `NODE_RUN_AUXILIARY_ARTIFACTS.md` explicitly makes diagnostic capture opt-in; helper support does not start `btmon` automatically.
+
+Remaining work: align the primary `NODE_OBSERVATION_RECORDING_POLICY.md` and node-agent skill so they distinguish same-run auxiliary captures from separately executed material control/reproduction runs, while not requiring publication of every scratch experiment.
+
+Suggested implementation order for the next pass: finish the HCI boundary isolation in `TODO_024`, then correctness/evidence boundaries (`TODO_011`, `TODO_013`, `TODO_016`, `TODO_017`, `TODO_021`, remaining `TODO_025` docs), then lifecycle/API robustness (`TODO_018`, `TODO_019`, `TODO_022`, `TODO_023`), then consistency/docs follow-ups (`TODO_012`, `TODO_014`, `TODO_015`, `TODO_020`). Re-evaluate ordering if implementation exposes dependencies.
 
 ## Closed
 
@@ -273,7 +281,7 @@ Goal: provide a generic machine-facing interface over shared SerialTerminal sess
 ```text
 accepted documented checkpoint: dev@396f499305c7ab1c425483b5a5f10e8521125f4f
 GitHub Actions:               33764159009 SUCCESS
-post-closure hardware smoke:  PASS / physical BLE multi-device / 2026-09-03
+post-closure hardware smoke: PASS / physical BLE multi-device / 2026-09-03
 ```
 
 ## Current validation posture
