@@ -1,6 +1,8 @@
 from __future__ import annotations
 
-from test_node_publication import git, remote_head, repos, run_helper, write_run
+pytest_plugins = ("test_node_publication",)
+
+from test_node_publication import git, remote_head, run_helper, write_run
 
 
 def test_run_helper_publishes_optional_auxiliary_artifact(repos):
