@@ -69,10 +69,43 @@ This narrows the live anomaly: bytes that are actually delivered to the current 
 
 No SerialTerminal runtime behavior was changed at this checkpoint; only regression/isolation coverage was added.
 
+## Controlled physical reproduction checkpoint
+
+A dedicated follow-up run reproduced the byte-level problem under isolated and repeated load:
+
+```text
+node_observations@ccab9e37747c564c5f238cf6e5eef83fd8760ea1
+runs/RUN_20260915T170402Z_ble-burst-rx-completeness-take2/
+SerialTerminal dev@276aeee2ca90e6ee964120153bf72e5dbafcf307
+Result: INCONCLUSIVE
+```
+
+Observed facts from that run:
+
+- `LoRa-Chatter-1B44` isolated `/help`: byte-complete baseline;
+- `LoRa-Chatter-72E0` isolated `/help`: malformed already at raw chat seq `70–71` and `96–97`;
+- concurrent two-session `/help`: `5/5` iterations completed, `10/10` session-cases malformed or baseline-inconclusive;
+- original `/help` + `/id` burst shape: `5/5` iterations completed, `10/10` session-cases malformed or baseline-inconclusive;
+- `forensic_gap`: none;
+- no disconnect/reconnect during affected intervals.
+
+This removes the earlier dependency on a one-off simultaneous burst: the issue is reproducible even during an isolated long-output command on one physical node. The evidence boundary remains unchanged: missing/malformed expected content is already visible at SerialTerminal's recorded raw RX event boundary before `ManagedSession` logical-line completion.
+
+The next diagnostic step is to capture the same reproduction at the Linux Bluetooth HCI/BlueZ boundary while SerialTerminal records its normal forensic log. `btmon` is diagnostic instrumentation for that specific run only; it is not part of ordinary hardware runs. Exact HCI capture must be persisted as a RUN auxiliary artifact (for example `artifacts/btmon.log`) so comparison with `serialterminal.log` is durable.
+
+Auxiliary RUN artifact publication support is available at:
+
+```text
+implementation: dev@a7e567783169cbd0ba626e0dc809960e83e55230
+fix/validated tree: dev@4e8ac48e39232d75c774c87d9f1878a3ffb242b7
+GitHub Actions: 35039172751 SUCCESS
+```
+
 ## Relation to other TODOs
 
 - `TODO_014_TERMINAL_CANONICAL_LINE_ASSEMBLY.md` remains valid as an architecture/consistency cleanup, but this live anomaly is not evidence that its duplicate parser caused the loss.
-- `TODO_016_BLE_RX_LIFECYCLE_BOUNDARY.md` concerns stale bytes crossing reconnect generations; this run had no corresponding reconnect boundary and does not establish that mechanism.
+- `TODO_016_BLE_RX_LIFECYCLE_BOUNDARY.md` concerns stale bytes crossing reconnect generations; the reproduced affected intervals had no corresponding reconnect boundary and do not establish that mechanism.
+- `TODO_025_MATERIAL_FOLLOWUP_EVIDENCE.md` now provides the publication path needed to retain an exact HCI capture for the next isolation run.
 - If isolation proves the loss is entirely firmware-side, open/cross-link the appropriate firmware TODO and mark the SerialTerminal portion here accordingly rather than forcing a host-side fix.
 
 ## Target behavior
@@ -85,12 +118,14 @@ No SerialTerminal runtime behavior was changed at this checkpoint; only regressi
 ## Validation plan
 
 - [x] add/verify a host-side stress test that injects many BLE notification callbacks quickly and proves exact byte/order preservation through `_queue_notify` -> `read_chunk` -> `ManagedSession` raw events;
-- [ ] reproduce a long-output command sequentially on one BLE session and under concurrent two-session load;
-- [ ] compare exact `data_b64` byte stream, not only console/logical lines;
-- [ ] if practical, observe the same controller output through an independent path or controller-side emission evidence to separate firmware BLE production from host reception;
-- [ ] verify no `forensic_gap` occurred during the affected interval;
+- [x] reproduce a long-output command sequentially on one BLE session and under concurrent two-session load;
+- [x] compare exact `data_b64` byte stream, not only console/logical lines;
+- [ ] capture a controlled reproduction with exact HCI/BlueZ evidence (for example `btmon`) in parallel with SerialTerminal raw events;
+- [ ] compare the first missing SerialTerminal byte range against the corresponding HCI/ATT notification sequence to decide whether loss is already present below userspace callback delivery;
+- [ ] if practical, add controller-side emission evidence only if HCI comparison still cannot distinguish firmware production from host reception;
+- [x] verify no `forensic_gap` occurred during the reproduced affected interval;
 - [ ] record the first proven loss boundary and only then choose the owning fix/repository;
-- [ ] repeat the physical burst scenario after the fix and require byte-complete raw output;
+- [ ] repeat the physical burst scenario after the owning fix and require byte-complete raw output;
 - [x] full relevant repository CI PASS for the host-side isolation test checkpoint.
 
 ## Hardware-validation impact
