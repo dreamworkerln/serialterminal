@@ -1,0 +1,23 @@
+{
+  "schema": 1,
+  "observed_at": "2026-09-17T23:30:15Z",
+  "topic": "ble-concurrent-help-burst",
+  "result": "FAIL",
+  "serialterminal": {
+    "repo": "dreamworkerln/serialterminal",
+    "sha": "5354f062afd64750679a4d5562a29a022025a967"
+  },
+  "firmware": {
+    "repo": "dreamworkerln/lora-sack-protocol",
+    "sha": "unknown"
+  },
+  "observation": {
+    "state": "recorded",
+    "path": "../../observations/OBS_20260917T233015Z_ble-concurrent-help-burst.md"
+  },
+  "files": {
+    "report": "REPORT.md",
+    "console": "serialterminal.console.log",
+    "serialterminal_log": "serialterminal.log"
+  }
+}
