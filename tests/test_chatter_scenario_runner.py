@@ -76,14 +76,11 @@ def test_discover_expected_devices_populates_cache_before_open():
         def request(self, op, **kwargs):
             self.calls.append((op, kwargs))
             assert op == "discover"
-            return {
-                "devices": [
-                    {"key": "serial:a"},
-                    {"key": "ble:a"},
-                    {"key": "serial:b"},
-                    {"key": "ble:b"},
-                ]
-            }
+            if kwargs["scope"] == "serial":
+                return {"devices": [{"key": "serial:a"}, {"key": "serial:b"}]}
+            if kwargs["scope"] == "ble":
+                return {"devices": [{"key": "ble:a"}, {"key": "ble:b"}]}
+            raise AssertionError(kwargs["scope"])
 
     agent = FakeAgent()
     devices = module["discover_expected_devices"](
@@ -97,8 +94,7 @@ def test_discover_expected_devices_populates_cache_before_open():
         "serial:b",
         "ble:b",
     }
-    assert agent.calls[0][0] == "discover"
-    assert agent.calls[0][1]["scope"] == "auto"
+    assert [call[1]["scope"] for call in agent.calls] == ["serial", "ble"]
 
 
 def test_discover_expected_devices_reports_missing_key():
@@ -106,7 +102,9 @@ def test_discover_expected_devices_reports_missing_key():
 
     class FakeAgent:
         def request(self, op, **kwargs):
-            return {"devices": [{"key": "serial:a"}]}
+            if kwargs["scope"] == "serial":
+                return {"devices": [{"key": "serial:a"}]}
+            return {"devices": []}
 
     try:
         module["discover_expected_devices"](
@@ -117,6 +115,25 @@ def test_discover_expected_devices_reports_missing_key():
     except module["ScenarioError"] as exc:
         assert exc.code == "expected_device_missing"
         assert "ble:a" in str(exc)
+    else:
+        raise AssertionError("expected ScenarioError")
+
+
+def test_discover_scope_labels_permission_boundary():
+    module = load_runner()
+
+    class FakeAgent:
+        def request(self, op, **kwargs):
+            raise module["ScenarioError"](
+                "internal_error",
+                "[Errno 1] Operation not permitted",
+            )
+
+    try:
+        module["_discover_scope"](FakeAgent(), "ble", 5.0)
+    except module["ScenarioError"] as exc:
+        assert exc.code == "ble_discovery_permission"
+        assert "Operation not permitted" in str(exc)
     else:
         raise AssertionError("expected ScenarioError")
 
