@@ -309,7 +309,11 @@ python3 -I scripts/run-chatter-scenario cancel-all-current-plus-queue \
 
 Helper является только быстрой orchestration-обёрткой над `serialterminal.py agent` JSONL API. Он не должен открывать pyserial, Bleak, RFCOMM или другие transport backends напрямую; transport/session/reconnect/forensic ownership остаётся у SerialTerminal.
 
-До запуска helper сам hardware executor обязан выполнить обычный host preflight и dynamic discovery, убедиться, что echo на обеих нодах OFF и нет намеренно оставленного reliable USER flow, затем передать exact `device_key` четырёх уже сопоставленных USB/BLE endpoints. Helper намеренно не запускает длинный `/help` перед measured window, чтобы не создавать лишний BLE TX backlog. Не hard-code instance-specific device keys, MAC, tty paths или node IDs в skill/script. Внутри собственного нового `serialterminal.py agent` process helper сначала повторно выполняет `discover`, чтобы заполнить его discovery cache, затем открывает переданные keys, повторно проверяет USB↔BLE пары через `/id` и перед измерением штатно очищает reliable flow через `/cancel all`. Отсутствующий после этого expected key считается pre-measurement `BLOCKED`, а не firmware FAIL.
+До запуска helper hardware executor обязан выполнить обычный host Bluetooth/audio preflight и получить exact `device_key` четырёх сопоставленных USB/BLE endpoints. Отдельный ad-hoc Python preflight для `/id`, `/echo` или timing orchestration не создавай. В частности, `/echo` является toggle и не должен использоваться как read-only проверка состояния.
+
+Внутри собственного нового `serialterminal.py agent` process helper сам повторно выполняет `discover`, чтобы заполнить discovery cache, затем сначала открывает только USB endpoints, повторно подтверждает identities через `/id` и read-only проверяет `echo=OFF` через `/help`. BLE endpoints открываются только после этой проверки, поэтому help output не создаёт BLE backlog. Затем helper открывает переданные BLE keys, повторно проверяет USB↔BLE пары через `/id` и перед измерением штатно очищает reliable flow через `/cancel all`.
+
+Не hard-code instance-specific device keys, MAC, tty paths или node IDs в skill/script. Отсутствующий после helper discovery expected key или `echo=ON` считаются pre-measurement `BLOCKED`, а не firmware FAIL.
 
 Не держи одновременно другой SerialTerminal process, владеющий теми же device keys: timing-sensitive helper запускает свой один long-lived `serialterminal.py agent`, открывает нужные sessions с `profile:"chatter"`, выполняет scenario и закрывает их.
 
