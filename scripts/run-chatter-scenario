@@ -1,0 +1,575 @@
+#!/usr/bin/env python3
+"""Timing-sensitive LoRa-Chatter scenarios over SerialTerminal's JSONL agent API."""
+
+from __future__ import annotations
+
+import argparse
+from dataclasses import dataclass
+import json
+from pathlib import Path
+import re
+import subprocess
+import sys
+import threading
+import time
+from typing import Any, Callable
+
+
+IDENTITY_RE = re.compile(r"\[SYS\] CHATTER NODE (LoRa-Chatter-[0-9A-Fa-f]+)")
+WAIT_ACK_RE = re.compile(
+    r"DELIVERY WAIT_ACK user=(?P<identity>[0-9A-Fa-f]+/\d+) "
+    r"attempt=(?P<attempt>\d+)/\d+ .* queue=(?P<queue>\d+)"
+)
+QUEUED_RE = re.compile(
+    r"DELIVERY QUEUED source=(?P<source>\d+) bytes=(?P<bytes>\d+) "
+    r"waiting=(?P<waiting>\d+)/(?P<depth>\d+) in_flight=(?P<in_flight>[01])"
+)
+CANCEL_RE = re.compile(
+    r"DELIVERY CANCEL user=(?P<identity>[0-9A-Fa-f]+/\d+) "
+    r"attempts=(?P<attempts>\d+) status=unknown queue_removed=(?P<removed>\d+)"
+)
+ACK_RE = re.compile(r"DELIVERY ACK user=(?P<identity>[0-9A-Fa-f]+/\d+)")
+RETRY_RE = re.compile(r"DELIVERY RETRY user=(?P<identity>[0-9A-Fa-f]+/\d+)")
+
+
+class ScenarioError(RuntimeError):
+    def __init__(self, code: str, message: str):
+        super().__init__(message)
+        self.code = code
+
+
+class JsonlAgent:
+    """Correlated client for one child ``serialterminal.py agent`` process."""
+
+    def __init__(self, repo_root: Path, log_path: Path):
+        command = [
+            sys.executable,
+            str(repo_root / "serialterminal.py"),
+            "agent",
+            "--log",
+            str(log_path),
+        ]
+        self.process = subprocess.Popen(
+            command,
+            cwd=repo_root,
+            stdin=subprocess.PIPE,
+            stdout=subprocess.PIPE,
+            stderr=subprocess.PIPE,
+            text=True,
+            bufsize=1,
+        )
+        if self.process.stdin is None or self.process.stdout is None:
+            raise ScenarioError("agent_start_failed", "cannot open agent pipes")
+
+        self.next_id = 1
+        self.responses: dict[int, dict[str, Any]] = {}
+        self.condition = threading.Condition()
+        self.reader_error: str | None = None
+        self.stderr_tail: list[str] = []
+
+        threading.Thread(target=self._read_stdout, daemon=True).start()
+        threading.Thread(target=self._read_stderr, daemon=True).start()
+
+    def _read_stdout(self) -> None:
+        assert self.process.stdout is not None
+        for raw in self.process.stdout:
+            raw = raw.strip()
+            if not raw:
+                continue
+            try:
+                response = json.loads(raw)
+            except json.JSONDecodeError as exc:
+                with self.condition:
+                    self.reader_error = f"invalid agent JSON: {exc}"
+                    self.condition.notify_all()
+                return
+            request_id = response.get("id")
+            if not isinstance(request_id, int):
+                with self.condition:
+                    self.reader_error = f"invalid agent response id: {request_id!r}"
+                    self.condition.notify_all()
+                return
+            with self.condition:
+                self.responses[request_id] = response
+                self.condition.notify_all()
+
+    def _read_stderr(self) -> None:
+        if self.process.stderr is None:
+            return
+        for raw in self.process.stderr:
+            line = raw.rstrip()
+            if line:
+                self.stderr_tail.append(line)
+                del self.stderr_tail[:-20]
+
+    def request(self, op: str, *, timeout_s: float = 20.0, **fields: Any) -> dict[str, Any]:
+        request_id = self.next_id
+        self.next_id += 1
+        request = {"id": request_id, "op": op, **fields}
+
+        assert self.process.stdin is not None
+        try:
+            self.process.stdin.write(json.dumps(request, ensure_ascii=False) + "\n")
+            self.process.stdin.flush()
+        except (BrokenPipeError, OSError) as exc:
+            raise ScenarioError("agent_stopped", str(exc)) from exc
+
+        deadline = time.monotonic() + timeout_s
+        with self.condition:
+            while request_id not in self.responses:
+                if self.reader_error is not None:
+                    raise ScenarioError("agent_protocol_error", self.reader_error)
+                remaining = deadline - time.monotonic()
+                if remaining <= 0:
+                    raise ScenarioError("agent_timeout", f"{op} request timed out")
+                self.condition.wait(remaining)
+            response = self.responses.pop(request_id)
+
+        if not response.get("ok"):
+            error = response.get("error") or {}
+            raise ScenarioError(
+                str(error.get("code", "agent_error")),
+                str(error.get("message", "agent request failed")),
+            )
+        result = response.get("result")
+        if not isinstance(result, dict):
+            raise ScenarioError("agent_protocol_error", "agent result is not an object")
+        return result
+
+    def close(self) -> None:
+        if self.process.stdin is not None and not self.process.stdin.closed:
+            self.process.stdin.close()
+        try:
+            self.process.wait(timeout=5)
+        except subprocess.TimeoutExpired:
+            self.process.terminate()
+            try:
+                self.process.wait(timeout=2)
+            except subprocess.TimeoutExpired:
+                self.process.kill()
+                self.process.wait(timeout=2)
+
+
+@dataclass
+class Session:
+    role: str
+    session: str
+    device_key: str
+    identity: str
+    cursor: int
+
+
+@dataclass
+class Evidence:
+    cursors: dict[str, int]
+    disconnect: bool = False
+    send_unknown: bool = False
+
+    def absorb(self, result: dict[str, Any], measured_sessions: set[str]) -> list[dict[str, Any]]:
+        for session, cursor in (result.get("cursors") or {}).items():
+            if isinstance(session, str) and isinstance(cursor, int):
+                self.cursors[session] = cursor
+
+        for event in result.get("events") or []:
+            if not isinstance(event, dict) or event.get("session") not in measured_sessions:
+                continue
+            if event.get("kind") == "state" and event.get("state") in {"disconnected", "reconnecting"}:
+                self.disconnect = True
+            if (
+                event.get("kind") == "error"
+                and event.get("state") == "send-outcome-unknown"
+            ) or (
+                event.get("kind") == "tx"
+                and event.get("tx_state") == "unknown"
+            ):
+                self.send_unknown = True
+
+        return [line for line in (result.get("lines") or []) if isinstance(line, dict)]
+
+
+def text(line: dict[str, Any]) -> str:
+    value = line.get("text")
+    return value if isinstance(value, str) else ""
+
+
+def send_line(agent: JsonlAgent, session: str, value: str) -> int:
+    result = agent.request("send_line", session=session, text=value, timeout_s=10)
+    tx_id = result.get("tx_id")
+    if not isinstance(tx_id, int):
+        raise ScenarioError("agent_protocol_error", "send_line returned no tx_id")
+    return tx_id
+
+
+def observe(
+    agent: JsonlAgent,
+    evidence: Evidence,
+    sessions: list[str],
+    measured_sessions: set[str],
+    timeout_ms: int = 250,
+) -> list[dict[str, Any]]:
+    result = agent.request(
+        "observe",
+        cursors={session: evidence.cursors[session] for session in sessions},
+        timeout_ms=timeout_ms,
+        timeout_s=max(5.0, timeout_ms / 1000 + 2),
+    )
+    return evidence.absorb(result, measured_sessions)
+
+
+def wait_line(
+    agent: JsonlAgent,
+    evidence: Evidence,
+    sessions: list[str],
+    measured_sessions: set[str],
+    predicate: Callable[[str], bool],
+    timeout_s: float,
+) -> str:
+    deadline = time.monotonic() + timeout_s
+    while time.monotonic() < deadline:
+        remaining_ms = max(1, min(250, int((deadline - time.monotonic()) * 1000)))
+        for line in observe(agent, evidence, sessions, measured_sessions, remaining_ms):
+            value = text(line)
+            if predicate(value):
+                return value
+    raise ScenarioError("observe_timeout", "required firmware evidence was not observed")
+
+
+def open_chatter(
+    agent: JsonlAgent,
+    evidence: Evidence,
+    role: str,
+    device_key: str,
+    open_timeout_ms: int,
+) -> Session:
+    result = agent.request(
+        "open",
+        device_key=device_key,
+        profile="chatter",
+        wait_connected_ms=open_timeout_ms,
+        timeout_s=max(15.0, open_timeout_ms / 1000 + 5),
+    )
+    session_id = result.get("session")
+    cursor = result.get("latest_seq")
+    if not isinstance(session_id, str) or not isinstance(cursor, int):
+        raise ScenarioError("agent_protocol_error", f"invalid open result for {role}")
+
+    evidence.cursors[session_id] = cursor
+    if result.get("state") != "connected":
+        raise ScenarioError("session_not_connected", f"{role} is not connected")
+
+    # Explicit /id avoids relying on timing of the profile connect preamble.
+    send_line(agent, session_id, "/id")
+    identity_line = wait_line(
+        agent,
+        evidence,
+        [session_id],
+        set(),
+        lambda value: IDENTITY_RE.search(value) is not None,
+        timeout_s=8,
+    )
+    match = IDENTITY_RE.search(identity_line)
+    assert match is not None
+    return Session(role, session_id, device_key, match.group(1), evidence.cursors[session_id])
+
+
+def set_mode(
+    agent: JsonlAgent,
+    evidence: Evidence,
+    session: str,
+    command: str,
+    expected: str,
+) -> None:
+    send_line(agent, session, command)
+    wait_line(
+        agent,
+        evidence,
+        [session],
+        set(),
+        lambda value: value == f"[SYS] OUTPUT {expected}",
+        timeout_s=5,
+    )
+
+
+def clear_flow(agent: JsonlAgent, evidence: Evidence, session: str) -> None:
+    send_line(agent, session, "/cancel all")
+    wait_line(
+        agent,
+        evidence,
+        [session],
+        set(),
+        lambda value: value.startswith("[SYS] DELIVERY CANCEL"),
+        timeout_s=5,
+    )
+
+
+def current_payload(stamp: str, target_bytes: int = 188) -> str:
+    prefix = f"CANCEL11_CURRENT_{stamp}_"
+    remaining = target_bytes - len(prefix.encode())
+    if remaining <= 0:
+        raise ValueError("stamp is too long")
+    payload = prefix + ("X" * remaining)
+    assert len(payload.encode()) == target_bytes
+    return payload
+
+
+def companion_path(log_path: Path) -> Path:
+    return log_path.with_name(f"{log_path.stem}.console{log_path.suffix}")
+
+
+def run_cancel_all(args: argparse.Namespace) -> tuple[int, dict[str, Any]]:
+    repo_root = Path(__file__).resolve().parent.parent
+    log_path = Path(args.log).expanduser().resolve()
+    log_path.parent.mkdir(parents=True, exist_ok=True)
+
+    agent = JsonlAgent(repo_root, log_path)
+    evidence = Evidence(cursors={})
+    opened: list[Session] = []
+    measured_sessions: set[str] = set()
+    result: dict[str, Any] = {
+        "scenario": "cancel-all-current-plus-queue",
+        "result": "INCONCLUSIVE",
+        "firmware_provenance": "unknown",
+        "log_path": str(log_path),
+        "console_log_path": str(companion_path(log_path)),
+    }
+
+    try:
+        sender_usb = open_chatter(agent, evidence, "sender_usb", args.sender_usb_key, args.open_timeout_ms)
+        opened.append(sender_usb)
+        sender_ble = open_chatter(agent, evidence, "sender_ble", args.sender_ble_key, args.open_timeout_ms)
+        opened.append(sender_ble)
+        peer_usb = open_chatter(agent, evidence, "peer_usb", args.peer_usb_key, args.open_timeout_ms)
+        opened.append(peer_usb)
+        peer_ble = open_chatter(agent, evidence, "peer_ble", args.peer_ble_key, args.open_timeout_ms)
+        opened.append(peer_ble)
+
+        if sender_usb.identity != sender_ble.identity:
+            raise ScenarioError("identity_mismatch", "sender USB/BLE identities differ")
+        if peer_usb.identity != peer_ble.identity:
+            raise ScenarioError("identity_mismatch", "peer USB/BLE identities differ")
+        if sender_usb.identity == peer_usb.identity:
+            raise ScenarioError("identity_mismatch", "sender and peer are the same node")
+        if args.sender_id and sender_usb.identity != args.sender_id:
+            raise ScenarioError("identity_mismatch", "sender identity differs from --sender-id")
+        if args.peer_id and peer_usb.identity != args.peer_id:
+            raise ScenarioError("identity_mismatch", "peer identity differs from --peer-id")
+
+        result["sender_identity"] = sender_usb.identity
+        result["peer_identity"] = peer_usb.identity
+
+        # Helper оркестрирует Chatter только через публичный JSONL API.
+        # pyserial/Bleak и transport lifecycle остаются собственностью SerialTerminal.
+        clear_flow(agent, evidence, sender_usb.session)
+        clear_flow(agent, evidence, peer_usb.session)
+        set_mode(agent, evidence, peer_usb.session, "/chat", "CHAT")
+        set_mode(agent, evidence, sender_usb.session, "/both", "BOTH")
+
+        stamp = time.strftime("%Y%m%dT%H%M%SZ", time.gmtime())
+        payload = current_payload(stamp)
+        queue1 = f"CANCEL11_QUEUE1_{stamp}"
+        queue2 = f"CANCEL11_QUEUE2_{stamp}"
+        result["payloads"] = {"current": payload, "queue1": queue1, "queue2": queue2}
+
+        measured_sessions = {item.session for item in opened}
+
+        result["current_tx_id"] = send_line(agent, sender_usb.session, payload)
+        result["current_queued_line"] = wait_line(
+            agent,
+            evidence,
+            [sender_usb.session],
+            measured_sessions,
+            lambda value: (
+                (match := QUEUED_RE.search(value)) is not None
+                and match.group("waiting") == "1"
+                and match.group("in_flight") == "0"
+            ),
+            timeout_s=args.trigger_timeout_seconds,
+        )
+
+        result["queue1_tx_id"] = send_line(agent, sender_ble.session, queue1)
+        result["queue2_tx_id"] = send_line(agent, sender_ble.session, queue2)
+
+        current_identity: str | None = None
+        trigger_line: str | None = None
+        deadline = time.monotonic() + args.trigger_timeout_seconds
+        while trigger_line is None and time.monotonic() < deadline:
+            for line in observe(
+                agent,
+                evidence,
+                [sender_usb.session],
+                measured_sessions,
+            ):
+                value = text(line)
+                if (match := WAIT_ACK_RE.search(value)) is not None:
+                    current_identity = match.group("identity")
+                if (
+                    (match := ACK_RE.search(value)) is not None
+                    and current_identity
+                    and match.group("identity").upper() == current_identity.upper()
+                ):
+                    result["reason"] = "current USER ACKed before trigger"
+                    return 1, result
+                if (
+                    (match := QUEUED_RE.search(value)) is not None
+                    and int(match.group("waiting")) >= 2
+                    and match.group("in_flight") == "1"
+                ):
+                    trigger_line = value
+                    break
+
+        if trigger_line is None:
+            raise ScenarioError("trigger_timeout", "waiting=2/in_flight=1 was not observed")
+        if current_identity is None:
+            raise ScenarioError("missing_identity", "trigger observed without WAIT_ACK identity")
+
+        result["current_identity"] = current_identity
+        result["trigger_line"] = trigger_line
+
+        trigger_at = time.monotonic()
+        result["cancel_tx_id"] = send_line(agent, sender_ble.session, "/cancel all")
+        result["trigger_to_cancel_request_ms"] = round(
+            (time.monotonic() - trigger_at) * 1000,
+            3,
+        )
+
+        cancel_match: re.Match[str] | None = None
+        deadline = time.monotonic() + args.cancel_timeout_seconds
+        while cancel_match is None and time.monotonic() < deadline:
+            for line in observe(
+                agent,
+                evidence,
+                [sender_usb.session, sender_ble.session],
+                measured_sessions,
+            ):
+                value = text(line)
+                if (match := CANCEL_RE.search(value)) is not None:
+                    cancel_match = match
+                    result["cancel_line"] = value
+                    break
+                if (
+                    (match := ACK_RE.search(value)) is not None
+                    and match.group("identity").upper() == current_identity.upper()
+                ):
+                    result["reason"] = "current USER ACKed before /cancel all was applied"
+                    return 1, result
+
+        if evidence.send_unknown:
+            result["reason"] = "send-outcome-unknown during measured scenario"
+            return 1, result
+        if evidence.disconnect:
+            result["reason"] = "disconnect/reconnect during measured scenario"
+            return 1, result
+        if cancel_match is None:
+            result["reason"] = "no decisive DELIVERY CANCEL evidence"
+            return 1, result
+
+        result["cancel_attempts"] = int(cancel_match.group("attempts"))
+        result["queue_removed"] = int(cancel_match.group("removed"))
+        if cancel_match.group("identity").upper() != current_identity.upper():
+            result.update(result="FAIL", reason="cancel applied to unexpected USER identity")
+            return 2, result
+        if result["cancel_attempts"] != 1:
+            result.update(result="FAIL", reason="cancel attempts != 1")
+            return 2, result
+        if result["queue_removed"] != 2:
+            result.update(result="FAIL", reason="queue_removed != 2")
+            return 2, result
+
+        post = {
+            "current_retry_observed": False,
+            "queue1_transmitted_or_presented": False,
+            "queue2_transmitted_or_presented": False,
+        }
+        deadline = time.monotonic() + args.postcheck_seconds
+        all_sessions = [item.session for item in opened]
+        while time.monotonic() < deadline:
+            for line in observe(agent, evidence, all_sessions, measured_sessions):
+                value = text(line)
+                if (
+                    (match := RETRY_RE.search(value)) is not None
+                    and match.group("identity").upper() == current_identity.upper()
+                ):
+                    post["current_retry_observed"] = True
+                if queue1 in value:
+                    post["queue1_transmitted_or_presented"] = True
+                if queue2 in value:
+                    post["queue2_transmitted_or_presented"] = True
+
+        result["postcheck"] = post
+        if evidence.send_unknown:
+            result["reason"] = "send-outcome-unknown during postcheck"
+            return 1, result
+        if evidence.disconnect:
+            result["reason"] = "disconnect/reconnect during postcheck"
+            return 1, result
+        if any(post.values()):
+            result.update(result="FAIL", reason="post-cancel retry/queued transmission observed")
+            return 2, result
+
+        result["result"] = "PASS"
+        return 0, result
+
+    except ScenarioError as exc:
+        result["result"] = (
+            "BLOCKED"
+            if exc.code in {"session_not_connected", "identity_mismatch"}
+            else "INCONCLUSIVE"
+        )
+        result["reason"] = f"{exc.code}: {exc}"
+        return 1, result
+    finally:
+        # Cleanup не является частью measured verdict.
+        if opened:
+            try:
+                send_line(agent, opened[0].session, "/cancel all")
+            except Exception:
+                pass
+            for item in opened:
+                if item.role.endswith("_usb"):
+                    try:
+                        send_line(agent, item.session, "/chat")
+                    except Exception:
+                        pass
+            for item in reversed(opened):
+                try:
+                    agent.request("close", session=item.session, timeout_s=5)
+                except Exception:
+                    pass
+        agent.close()
+        result["measured_disconnect"] = evidence.disconnect
+        result["send_outcome_unknown"] = evidence.send_unknown
+        if agent.stderr_tail:
+            result["agent_stderr_tail"] = agent.stderr_tail
+
+
+def parser() -> argparse.ArgumentParser:
+    root = argparse.ArgumentParser(
+        description="Fast LoRa-Chatter scenario helper over SerialTerminal agent JSONL."
+    )
+    subs = root.add_subparsers(dest="scenario", required=True)
+    cancel = subs.add_parser("cancel-all-current-plus-queue")
+    cancel.add_argument("--sender-usb-key", required=True)
+    cancel.add_argument("--sender-ble-key", required=True)
+    cancel.add_argument("--peer-usb-key", required=True)
+    cancel.add_argument("--peer-ble-key", required=True)
+    cancel.add_argument("--sender-id")
+    cancel.add_argument("--peer-id")
+    cancel.add_argument("--log", required=True)
+    cancel.add_argument("--open-timeout-ms", type=int, default=10000)
+    cancel.add_argument("--trigger-timeout-seconds", type=float, default=20.0)
+    cancel.add_argument("--cancel-timeout-seconds", type=float, default=5.0)
+    cancel.add_argument("--postcheck-seconds", type=float, default=30.0)
+    return root
+
+
+def main(argv: list[str] | None = None) -> int:
+    args = parser().parse_args(argv)
+    if args.scenario != "cancel-all-current-plus-queue":
+        raise AssertionError(args.scenario)
+    exit_code, result = run_cancel_all(args)
+    print(json.dumps(result, ensure_ascii=False, sort_keys=True))
+    return exit_code
+
+
+if __name__ == "__main__":
+    raise SystemExit(main())
