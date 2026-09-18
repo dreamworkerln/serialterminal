@@ -119,3 +119,68 @@ def test_discover_expected_devices_reports_missing_key():
         assert "ble:a" in str(exc)
     else:
         raise AssertionError("expected ScenarioError")
+
+
+def test_verify_echo_off_reads_help_without_toggling():
+    module = load_runner()
+
+    class FakeAgent:
+        def __init__(self):
+            self.calls = []
+
+        def request(self, op, **kwargs):
+            self.calls.append((op, kwargs))
+            if op == "send_line":
+                assert kwargs["text"] == "/help"
+                return {"tx_id": 1, "state": "queued"}
+            assert op == "observe"
+            return {
+                "events": [],
+                "lines": [
+                    {
+                        "session": "s1",
+                        "stream": "main",
+                        "seq_first": 2,
+                        "seq_last": 2,
+                        "text": "[SYS]   current=CHAT echo=OFF",
+                    }
+                ],
+                "cursors": {"s1": 2},
+                "timed_out": False,
+            }
+
+    evidence = module["Evidence"](cursors={"s1": 0})
+    agent = FakeAgent()
+    module["verify_echo_off"](agent, evidence, "s1", "sender")
+    assert [call[0] for call in agent.calls] == ["send_line", "observe"]
+
+
+def test_verify_echo_off_blocks_echo_on():
+    module = load_runner()
+
+    class FakeAgent:
+        def request(self, op, **kwargs):
+            if op == "send_line":
+                return {"tx_id": 1, "state": "queued"}
+            return {
+                "events": [],
+                "lines": [
+                    {
+                        "session": "s1",
+                        "stream": "main",
+                        "seq_first": 2,
+                        "seq_last": 2,
+                        "text": "[SYS]   current=CHAT echo=ON",
+                    }
+                ],
+                "cursors": {"s1": 2},
+                "timed_out": False,
+            }
+
+    evidence = module["Evidence"](cursors={"s1": 0})
+    try:
+        module["verify_echo_off"](FakeAgent(), evidence, "s1", "sender")
+    except module["ScenarioError"] as exc:
+        assert exc.code == "echo_not_off"
+    else:
+        raise AssertionError("expected ScenarioError")
