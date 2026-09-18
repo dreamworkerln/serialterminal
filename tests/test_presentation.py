@@ -8,6 +8,8 @@ from serialterminal.profiles.chatter.presentation import (
 
 def test_command_recognition_matches_firmware_boundary_trim():
     assert recognized_chatter_command("/reboot") == "/reboot"
+    assert recognized_chatter_command("/version") == "/version"
+    assert recognized_chatter_command("/firmware") == "/firmware"
     assert recognized_chatter_command(" \t/reboot \x7f") == "/reboot"
     assert recognized_chatter_command("  /echo  ") == "/echo"
     assert recognized_chatter_command("\t/cancel\x7f") == "/cancel"
