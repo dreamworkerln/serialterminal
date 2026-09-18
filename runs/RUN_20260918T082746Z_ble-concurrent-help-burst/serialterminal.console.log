@@ -1,0 +1,474 @@
+2026-09-18T11:22:17.534+03:00 [s1] [O] [SYS] CHATTER NODE LoRa-Chatter-72E0
+2026-09-18T11:22:17.540+03:00 [s2] [O] [SYS] CHATTER NODE LoRa-Chatter-1B44
+2026-09-18T11:22:22.274+03:00 [s3] [O] [SYS] CHATTER NODE LoRa-Chatter-1B44
+2026-09-18T11:22:22.348+03:00 [s2] [O] [SYS] CHATTER NODE LoRa-Chatter-1B44
+2026-09-18T11:22:27.140+03:00 [s4] [O] [SYS] CHATTER NODE LoRa-Chatter-72E0
+2026-09-18T11:22:27.150+03:00 [s1] [O] [SYS] CHATTER NODE LoRa-Chatter-72E0
+2026-09-18T11:23:17.902+03:00 [s1] [I] /chat
+2026-09-18T11:23:17.903+03:00 [s1] [I] /cancel all
+2026-09-18T11:23:17.903+03:00 [s2] [I] /chat
+2026-09-18T11:23:17.903+03:00 [s2] [I] /cancel all
+2026-09-18T11:23:17.904+03:00 [s3] [I] /chat
+2026-09-18T11:23:17.904+03:00 [s3] [I] /cancel all
+2026-09-18T11:23:17.905+03:00 [s4] [I] /chat
+2026-09-18T11:23:17.905+03:00 [s4] [I] /cancel all
+2026-09-18T11:23:17.945+03:00 [s4] [O] [SYS] DELIVERY CANCEL: nothing pending
+2026-09-18T11:23:17.947+03:00 [s4] [O] [SYS] OUTPUT CHAT
+2026-09-18T11:23:17.985+03:00 [s3] [O] [SYS] DELIVERY CANCEL: nothing pending
+2026-09-18T11:23:17.992+03:00 [s4] [O] [SYS] OUTPUT CHAT
+2026-09-18T11:23:17.995+03:00 [s4] [O] [SYS] DELIVERY CANCEL: nothing pending
+2026-09-18T11:23:18.031+03:00 [s3] [O] [SYS] OUTPUT CHAT
+2026-09-18T11:23:18.036+03:00 [s1] [O] [SYS] DELIVERY CANCEL: nothing pending
+2026-09-18T11:23:18.036+03:00 [s1] [O] [SYS] OUTPUT CHAT
+2026-09-18T11:23:18.036+03:00 [s1] [O] [SYS] OUTPUT CHAT
+2026-09-18T11:23:18.036+03:00 [s1] [O] [SYS] DELIVERY CANCEL: nothing pending
+2026-09-18T11:23:18.042+03:00 [s2] [O] [SYS] DELIVERY CANCEL: nothing pending
+2026-09-18T11:23:18.042+03:00 [s2] [O] [SYS] OUTPUT CHAT
+2026-09-18T11:23:18.042+03:00 [s2] [O] [SYS] DELIVERY CANCEL: nothing pending
+2026-09-18T11:23:18.042+03:00 [s2] [O] [SYS] OUTPUT CHAT
+2026-09-18T11:23:18.119+03:00 [s3] [O] [SYS] DELIVERY CANCEL: nothing pending
+2026-09-18T11:23:18.164+03:00 [s3] [O] [SYS] OUTPUT CHAT
+2026-09-18T11:23:50.918+03:00 [s3] [I] /help
+2026-09-18T11:23:50.918+03:00 [s4] [I] /help
+2026-09-18T11:23:50.968+03:00 [s2] [O] 
+2026-09-18T11:23:50.968+03:00 [s2] [O] [SYS] CHATTER HELP
+2026-09-18T11:23:50.968+03:00 [s2] [O] [SYS] CHATTER NODE LoRa-Chatter-1B44
+2026-09-18T11:23:50.968+03:00 [s2] [O] [SYS] CHAT OUTPUT:
+2026-09-18T11:23:50.968+03:00 [s2] [O] [SYS]   > text                       local USER TX confirmed
+2026-09-18T11:23:50.968+03:00 [s2] [O] [SYS]   < [RSSI/SNR Q%] text         USER received from peer
+2026-09-18T11:23:50.968+03:00 [s2] [O] [SYS]   > [ECHO TX] text             local echo TX confirmed
+2026-09-18T11:23:50.968+03:00 [s2] [O] [SYS]   < [ECHO RSSI/SNR Q%] text    matching echo reply received
+2026-09-18T11:23:50.968+03:00 [s2] [O] [SYS]   [ECHO] NO RESPONSE           matching echo reply timed out
+2026-09-18T11:23:50.968+03:00 [s2] [O] [SYS]   delivery retry details       TELEMETRY only
+2026-09-18T11:23:50.968+03:00 [s2] [O] [SYS]   RSSI=dBm, SNR=dB, Q=rolling receive quality %
+2026-09-18T11:23:50.973+03:00 [s1] [O] 
+2026-09-18T11:23:50.973+03:00 [s1] [O] [SYS] CHATTER HELP
+2026-09-18T11:23:50.973+03:00 [s1] [O] [SYS] CHATTER NODE LoRa-Chatter-72E0
+2026-09-18T11:23:50.973+03:00 [s1] [O] [SYS] CHAT OUTPUT:
+2026-09-18T11:23:50.973+03:00 [s1] [O] [SYS]   > text                       local USER TX confirmed
+2026-09-18T11:23:50.973+03:00 [s1] [O] [SYS]   < [RSSI/SNR Q%] text         USER received from peer
+2026-09-18T11:23:50.973+03:00 [s1] [O] [SYS]   > [ECHO TX] text             local echo TX confirmed
+2026-09-18T11:23:50.973+03:00 [s1] [O] [SYS]   < [ECHO RSSI/SNR Q%] text    matching echo reply received
+2026-09-18T11:23:50.973+03:00 [s1] [O] [SYS]   [ECHO] NO RESPONSE           matching echo reply timed out
+2026-09-18T11:23:50.973+03:00 [s1] [O] [SYS]   delivery retry details       TELEMETRY only
+2026-09-18T11:23:50.973+03:00 [s1] [O] [SYS]   RSSI=dBm, SNR=dB, Q=rolling receive quality %
+2026-09-18T11:23:50.974+03:00 [s4] [O] 
+2026-09-18T11:23:50.974+03:00 [s4] [O] [SYS] CHATTER HELP
+2026-09-18T11:23:50.975+03:00 [s4] [O] [SYS] CHATTER NODE LoRa-Chatter-72E0
+2026-09-18T11:23:50.975+03:00 [s4] [O] [SYS] CHAT OUTPUT:
+2026-09-18T11:23:50.977+03:00 [s4] [O] [SYS]   > text                       local USER TX confirmed
+2026-09-18T11:23:50.979+03:00 [s4] [O] [SYS]   < [RSSI/SNR Q%] text         USER received from peer
+2026-09-18T11:23:50.982+03:00 [s4] [O] [SYS]   > [ECHO TX] text             local echo TX confirmed
+2026-09-18T11:23:50.984+03:00 [s4] [O] [SYS]   < [ECHO RSSI/SNR Q%] text    matching echo reply received
+2026-09-18T11:23:50.987+03:00 [s4] [O] [SYS]   [ECHO] NO RESPONSE           matching echo reply timed out
+2026-09-18T11:23:50.989+03:00 [s4] [O] [SYS]   delivery retry details       TELEMETRY only
+2026-09-18T11:23:50.991+03:00 [s4] [O] [SYS]   RSSI=dBm, SNR=dB, Q=rolling receive quality %
+2026-09-18T11:23:50.993+03:00 [s4] [O] [SYS] HUMAN CONSOLE MODES:
+2026-09-18T11:23:50.994+03:00 [s4] [O] [SYS]   CHAT       chat + SYSTEM
+2026-09-18T11:23:50.995+03:00 [s4] [O] [SYS]   TELEMETRY  telemetry + SYSTEM
+2026-09-18T11:23:51.012+03:00 [s2] [O] [SYS] HUMAN CONSOLE MODES:
+2026-09-18T11:23:51.012+03:00 [s2] [O] [SYS]   CHAT       chat + SYSTEM
+2026-09-18T11:23:51.012+03:00 [s2] [O] [SYS]   TELEMETRY  telemetry + SYSTEM
+2026-09-18T11:23:51.012+03:00 [s2] [O] [SYS]   BOTH       chat + telemetry + SYSTEM
+2026-09-18T11:23:51.012+03:00 [s2] [O] [SYS]   BLE 0004 machine telemetry is independent when subscribed
+2026-09-18T11:23:51.012+03:00 [s2] [O] [SYS]   current=CHAT echo=OFF
+2026-09-18T11:23:51.012+03:00 [s2] [O] [SYS] COMMANDS:
+2026-09-18T11:23:51.012+03:00 [s2] [O] [SYS]   /help       show this help
+2026-09-18T11:23:51.012+03:00 [s2] [O] [SYS]   /id         show node identity
+2026-09-18T11:23:51.012+03:00 [s2] [O] [SYS]   /chat       human console CHAT
+2026-09-18T11:23:51.012+03:00 [s2] [O] [SYS]   /tele       human console TELEMETRY
+2026-09-18T11:23:51.012+03:00 [s2] [O] [SYS]   /both       human console BOTH
+2026-09-18T11:23:51.012+03:00 [s2] [O] [SYS]   /echo       toggle echo mode
+2026-09-18T11:23:51.013+03:00 [s3] [O] 
+2026-09-18T11:23:51.013+03:00 [s3] [O] [SYS] CHATTER HELP
+2026-09-18T11:23:51.017+03:00 [s3] [O] [SYS] CHATTER NODE LoRa-Chatter-1B44
+2026-09-18T11:23:51.018+03:00 [s4] [O] [SYS]   BOTH       chat + telemetry + SYSTEM
+2026-09-18T11:23:51.022+03:00 [s4] [O] [SYS]   BLE 0004 machine telemetry is independent when subscribed
+2026-09-18T11:23:51.022+03:00 [s4] [O] [SYS]   current=CHAT echo=OFF
+2026-09-18T11:23:51.023+03:00 [s4] [O] [SYS] COMMANDS:
+2026-09-18T11:23:51.024+03:00 [s4] [O] [SYS]   /help       show this help
+2026-09-18T11:23:51.026+03:00 [s4] [O] [SYS]   /id         show node identity
+2026-09-18T11:23:51.027+03:00 [s4] [O] [SYS]   /chat       human console CHAT
+2026-09-18T11:23:51.027+03:00 [s4] [O] [SYS]   /tele       human console TELEMETRY
+2026-09-18T11:23:51.030+03:00 [s4] [O] [SYS]   /both       human console BOTH
+2026-09-18T11:23:51.031+03:00 [s4] [O] [SYS]   /echo       toggle echo mode
+2026-09-18T11:23:51.035+03:00 [s1] [O] [SYS] HUMAN CONSOLE MODES:
+2026-09-18T11:23:51.035+03:00 [s1] [O] [SYS]   CHAT       chat + SYSTEM
+2026-09-18T11:23:51.035+03:00 [s1] [O] [SYS]   TELEMETRY  telemetry + SYSTEM
+2026-09-18T11:23:51.035+03:00 [s1] [O] [SYS]   BOTH       chat + telemetry + SYSTEM
+2026-09-18T11:23:51.035+03:00 [s1] [O] [SYS]   BLE 0004 machine telemetry is independent when subscribed
+2026-09-18T11:23:51.035+03:00 [s1] [O] [SYS]   current=CHAT echo=OFF
+2026-09-18T11:23:51.035+03:00 [s1] [O] [SYS] COMMANDS:
+2026-09-18T11:23:51.035+03:00 [s1] [O] [SYS]   /help       show this help
+2026-09-18T11:23:51.035+03:00 [s1] [O] [SYS]   /id         show node identity
+2026-09-18T11:23:51.035+03:00 [s1] [O] [SYS]   /chat       human console CHAT
+2026-09-18T11:23:51.035+03:00 [s1] [O] [SYS]   /tele       human console TELEMETRY
+2026-09-18T11:23:51.035+03:00 [s1] [O] [SYS]   /both       human console BOTH
+2026-09-18T11:23:51.035+03:00 [s1] [O] [SYS]   /echo       toggle echo mode
+2026-09-18T11:23:51.056+03:00 [s2] [O] [SYS]   /cancel     stop current USER delivery/retries
+2026-09-18T11:23:51.056+03:00 [s2] [O] [SYS]   /cancel all stop current USER and discard queued USERs
+2026-09-18T11:23:51.056+03:00 [s2] [O] [SYS]   /reboot     reboot ESP32 controller
+2026-09-18T11:23:51.056+03:00 [s2] [O] [SYS] RAW CONTROLS (HEX):
+2026-09-18T11:23:51.056+03:00 [s2] [O] [SYS]   14 31=CHAT  14 32=TELEMETRY  14 33=BOTH  14 65=ECHO toggle
+2026-09-18T11:23:51.056+03:00 [s2] [O] [SYS] ANDROID BLE TERMINAL MACROS:
+2026-09-18T11:23:51.056+03:00 [s2] [O] [SYS]   HEX macro, no EOL: 14 31 / 14 32 / 14 33 / 14 65
+2026-09-18T11:23:51.056+03:00 [s2] [O] [SYS]   or TEXT macro + LF: /help /id /chat /tele /both /echo /cancel /cancel all /reboot
+2026-09-18T11:23:51.056+03:00 [s2] [O] [SYS]   Nordic UART human console=0003; machine telemetry=0004 optional
+2026-09-18T11:23:51.075+03:00 [s1] [O] [SYS]   /cancel     stop current USER delivery/retries
+2026-09-18T11:23:51.075+03:00 [s1] [O] [SYS]   /cancel all stop current USER and discard queued USERs
+2026-09-18T11:23:51.075+03:00 [s1] [O] [SYS]   /reboot     reboot ESP32 controller
+2026-09-18T11:23:51.075+03:00 [s1] [O] [SYS] RAW CONTROLS (HEX):
+2026-09-18T11:23:51.075+03:00 [s1] [O] [SYS]   14 31=CHAT  14 32=TELEMETRY  14 33=BOTH  14 65=ECHO toggle
+2026-09-18T11:23:51.075+03:00 [s1] [O] [SYS] ANDROID BLE TERMINAL MACROS:
+2026-09-18T11:23:51.075+03:00 [s1] [O] [SYS]   HEX macro, no EOL: 14 31 / 14 32 / 14 33 / 14 65
+2026-09-18T11:23:51.075+03:00 [s1] [O] [SYS]   or TEXT macro + LF: /help /id /chat /tele /both /echo /cancel /cancel all /reboot
+2026-09-18T11:23:51.075+03:00 [s1] [O] [SYS]   Nordic UART human console=0003; machine telemetry=0004 optional
+2026-09-18T11:23:51.105+03:00 [s3] [O] [SYS] CHAT OUTPUT:
+2026-09-18T11:23:51.108+03:00 [s4] [O] [SYS]   /cancel     stop current USER delivery/retries
+2026-09-18T11:23:51.112+03:00 [s4] [O] [SYS]   /cancel all stop current USER and discard queued USERs
+2026-09-18T11:23:51.115+03:00 [s4] [O] [SYS]   /reboot     reboot ESP32 controller
+2026-09-18T11:23:51.115+03:00 [s4] [O] [SYS] RAW CONTROLS (HEX):
+2026-09-18T11:23:51.118+03:00 [s4] [O] [SYS]   14 31=CHAT  14 32=TELEMETRY  14 33=BOTH  14 65=ECHO toggle
+2026-09-18T11:23:51.118+03:00 [s4] [O] [SYS] ANDROID BLE TERMINAL MACROS:
+2026-09-18T11:23:51.120+03:00 [s4] [O] [SYS]   HEX macro, no EOL: 14 31 / 14 32 / 14 33 / 14 65
+2026-09-18T11:23:51.125+03:00 [s4] [O] [SYS]   or TEXT macro + LF: /help /id /chat /tele /both /echo /cancel /cancel all /reboot
+2026-09-18T11:23:51.126+03:00 [s4] [O] [SYS]   Nordic UART human console=0003; machine telemetry=0004 optional
+2026-09-18T11:23:51.128+03:00 [s4] [O] [SYS] BLE CLIENT: machine telemetry 0004 subscribed in background
+2026-09-18T11:23:51.148+03:00 [s3] [O] [SYS]   > text                       local USER TX confirmed
+2026-09-18T11:23:51.196+03:00 [s3] [O] [SYS]   < [RSSI/SNR Q%] text         USER received from peer
+2026-09-18T11:23:51.239+03:00 [s3] [O] [SYS]   > [ECHO TX] text             local echo TX confirmed
+2026-09-18T11:23:51.257+03:00 [s2] [O] [SYS] BLE CLIENT: machine telemetry 0004 subscribed in background
+2026-09-18T11:23:51.276+03:00 [s1] [O] [SYS] BLE CLIENT: machine telemetry 0004 subscribed in background
+2026-09-18T11:23:51.276+03:00 [s1] [O] [BLE-TX-DIAG] primary attempts=93 min_sendable=0 sendable_zero=8 gatt_errors=0 gatt_retries=0 congest_events=0 decongest_events=0 wait_timeouts=0 queue_rejects=0 disconnect_aborts=0 terminal_errors=0 last_gatt_error=0x00000000
+2026-09-18T11:23:51.284+03:00 [s3] [O] [SYS]   < [ECHO RSSI/SNR Q%] text    matching echo reply received
+2026-09-18T11:23:51.329+03:00 [s3] [O] [SYS]   [ECHO] NO RESPONSE           matching echo reply timed out
+2026-09-18T11:23:51.374+03:00 [s3] [O] [SYS]   delivery retry details       TELEMETRY only
+2026-09-18T11:23:51.464+03:00 [s3] [O] [SYS]   RSSI=dBm, SNR=dB, Q=rolling receive quality %
+2026-09-18T11:23:51.508+03:00 [s3] [O] [SYS] HUMAN CONSOLE MODES:
+2026-09-18T11:23:51.510+03:00 [s3] [O] [SYS]   CHAT       chat + SYSTEM
+2026-09-18T11:23:51.598+03:00 [s3] [O] [SYS]   TELEMETRY  telemetry + SYSTEM
+2026-09-18T11:23:51.644+03:00 [s3] [O] [SYS]   BOTH       chat + telemetry + SYSTEM
+2026-09-18T11:23:51.688+03:00 [s3] [O] [SYS]   BLE 0004 machine telemetry is independent when subscribed
+2026-09-18T11:23:51.689+03:00 [s3] [O] [SYS]   current=CHAT echo=OFF
+2026-09-18T11:23:51.690+03:00 [s3] [O] [SYS] COMMANDS:
+2026-09-18T11:23:51.733+03:00 [s3] [O] [SYS]   /help       show this help
+2026-09-18T11:23:51.778+03:00 [s3] [O] [SYS]   /id         show node identity
+2026-09-18T11:23:51.781+03:00 [s3] [O] [SYS]   /chat       human console CHAT
+2026-09-18T11:23:51.825+03:00 [s3] [O] [SYS]   /tele       human console TELEMETRY
+2026-09-18T11:23:51.868+03:00 [s3] [O] [SYS]   /both       human console BOTH
+2026-09-18T11:23:51.870+03:00 [s3] [O] [SYS]   /echo       toggle echo mode
+2026-09-18T11:23:51.916+03:00 [s3] [O] [SYS]   /cancel     stop current USER delivery/retries
+2026-09-18T11:23:52.048+03:00 [s3] [O] [SYS]   /cancel all stop current USER and discard queued USERs
+2026-09-18T11:23:52.051+03:00 [s3] [O] [SYS]   /reboot     reboot ESP32 controller
+2026-09-18T11:23:52.094+03:00 [s3] [O] [SYS] RAW CONTROLS (HEX):
+2026-09-18T11:23:52.139+03:00 [s3] [O] [SYS]   14 31=CHAT  14 32=TELEMETRY  14 33=BOTH  14 65=ECHO toggle
+2026-09-18T11:23:52.141+03:00 [s3] [O] [SYS] ANDROID BLE TERMINAL MACROS:
+2026-09-18T11:23:52.143+03:00 [s3] [O] [SYS]   HEX macro, no EOL: 14 31 / 14 32 / 14 33 / 14 65
+2026-09-18T11:23:52.146+03:00 [s3] [O] [SYS]   or TEXT macro + LF: /help /id /chat /tele /both /echo /cancel /cancel all /reboot
+2026-09-18T11:23:52.150+03:00 [s3] [O] [SYS]   Nordic UART human console=0003; machine telemetry=0004 optional
+2026-09-18T11:23:52.151+03:00 [s3] [O] [SYS] BLE CLIENT: machine telemetry 0004 subscribed in background
+2026-09-18T11:23:52.258+03:00 [s2] [O] [BLE-TX-DIAG] primary attempts=93 min_sendable=0 sendable_zero=110 gatt_errors=0 gatt_retries=0 congest_events=0 decongest_events=0 wait_timeouts=0 queue_rejects=0 disconnect_aborts=0 terminal_errors=0 last_gatt_error=0x00000000
+2026-09-18T11:24:49.089+03:00 [s3] [I] /help
+2026-09-18T11:24:49.090+03:00 [s4] [I] /help
+2026-09-18T11:24:49.172+03:00 [s1] [O] 
+2026-09-18T11:24:49.172+03:00 [s1] [O] [SYS] CHATTER HELP
+2026-09-18T11:24:49.172+03:00 [s1] [O] [SYS] CHATTER NODE LoRa-Chatter-72E0
+2026-09-18T11:24:49.172+03:00 [s1] [O] [SYS] CHAT OUTPUT:
+2026-09-18T11:24:49.198+03:00 [s2] [O] 
+2026-09-18T11:24:49.198+03:00 [s2] [O] [SYS] CHATTER HELP
+2026-09-18T11:24:49.198+03:00 [s2] [O] [SYS] CHATTER NODE LoRa-Chatter-1B44
+2026-09-18T11:24:49.198+03:00 [s2] [O] [SYS] CHAT OUTPUT:
+2026-09-18T11:24:49.198+03:00 [s2] [O] [SYS]   > text                       local USER TX confirmed
+2026-09-18T11:24:49.198+03:00 [s2] [O] [SYS]   < [RSSI/SNR Q%] text         USER received from peer
+2026-09-18T11:24:49.198+03:00 [s2] [O] [SYS]   > [ECHO TX] text             local echo TX confirmed
+2026-09-18T11:24:49.198+03:00 [s2] [O] [SYS]   < [ECHO RSSI/SNR Q%] text    matching echo reply received
+2026-09-18T11:24:49.198+03:00 [s2] [O] [SYS]   [ECHO] NO RESPONSE           matching echo reply timed out
+2026-09-18T11:24:49.198+03:00 [s2] [O] [SYS]   delivery retry details       TELEMETRY only
+2026-09-18T11:24:49.198+03:00 [s2] [O] [SYS]   RSSI=dBm, SNR=dB, Q=rolling receive quality %
+2026-09-18T11:24:49.203+03:00 [s3] [O] 
+2026-09-18T11:24:49.203+03:00 [s3] [O] [SYS] CHATTER HELP
+2026-09-18T11:24:49.205+03:00 [s4] [O] 
+2026-09-18T11:24:49.207+03:00 [s3] [O] [SYS] CHATTER NODE LoRa-Chatter-1B44
+2026-09-18T11:24:49.205+03:00 [s4] [O] [SYS] CHATTER HELP
+2026-09-18T11:24:49.208+03:00 [s4] [O] [SYS] CHATTER NODE LoRa-Chatter-72E0
+2026-09-18T11:24:49.208+03:00 [s4] [O] [SYS] CHAT OUTPUT:
+2026-09-18T11:24:49.213+03:00 [s1] [O] [SYS]   > text                       local USER TX confirmed
+2026-09-18T11:24:49.213+03:00 [s1] [O] [SYS]   < [RSSI/SNR Q%] text         USER received from peer
+2026-09-18T11:24:49.213+03:00 [s1] [O] [SYS]   > [ECHO TX] text             local echo TX confirmed
+2026-09-18T11:24:49.213+03:00 [s1] [O] [SYS]   < [ECHO RSSI/SNR Q%] text    matching echo reply received
+2026-09-18T11:24:49.213+03:00 [s1] [O] [SYS]   [ECHO] NO RESPONSE           matching echo reply timed out
+2026-09-18T11:24:49.213+03:00 [s1] [O] [SYS]   delivery retry details       TELEMETRY only
+2026-09-18T11:24:49.213+03:00 [s1] [O] [SYS]   RSSI=dBm, SNR=dB, Q=rolling receive quality %
+2026-09-18T11:24:49.213+03:00 [s1] [O] [SYS] HUMAN CONSOLE MODES:
+2026-09-18T11:24:49.213+03:00 [s1] [O] [SYS]   CHAT       chat + SYSTEM
+2026-09-18T11:24:49.213+03:00 [s1] [O] [SYS]   TELEMETRY  telemetry + SYSTEM
+2026-09-18T11:24:49.241+03:00 [s2] [O] [SYS] HUMAN CONSOLE MODES:
+2026-09-18T11:24:49.241+03:00 [s2] [O] [SYS]   CHAT       chat + SYSTEM
+2026-09-18T11:24:49.241+03:00 [s2] [O] [SYS]   TELEMETRY  telemetry + SYSTEM
+2026-09-18T11:24:49.241+03:00 [s2] [O] [SYS]   BOTH       chat + telemetry + SYSTEM
+2026-09-18T11:24:49.241+03:00 [s2] [O] [SYS]   BLE 0004 machine telemetry is independent when subscribed
+2026-09-18T11:24:49.241+03:00 [s2] [O] [SYS]   current=CHAT echo=OFF
+2026-09-18T11:24:49.241+03:00 [s2] [O] [SYS] COMMANDS:
+2026-09-18T11:24:49.241+03:00 [s2] [O] [SYS]   /help       show this help
+2026-09-18T11:24:49.241+03:00 [s2] [O] [SYS]   /id         show node identity
+2026-09-18T11:24:49.241+03:00 [s2] [O] [SYS]   /chat       human console CHAT
+2026-09-18T11:24:49.241+03:00 [s2] [O] [SYS]   /tele       human console TELEMETRY
+2026-09-18T11:24:49.241+03:00 [s2] [O] [SYS]   /both       human console BOTH
+2026-09-18T11:24:49.241+03:00 [s2] [O] [SYS]   /echo       toggle echo mode
+2026-09-18T11:24:49.244+03:00 [s3] [O] [SYS] CHAT OUTPUT:
+2026-09-18T11:24:49.252+03:00 [s4] [O] [SYS]   > text                       local USER TX confirmed
+2026-09-18T11:24:49.253+03:00 [s4] [O] [SYS]   < [RSSI/SNR Q%] text         USER received from peer
+2026-09-18T11:24:49.254+03:00 [s4] [O] [SYS]   > [ECHO TX] text             local echo TX confirmed
+2026-09-18T11:24:49.257+03:00 [s4] [O] [SYS]   < [ECHO RSSI/SNR Q%] text    matching echo reply received
+2026-09-18T11:24:49.257+03:00 [s1] [O] [SYS]   BOTH       chat + telemetry + SYSTEM
+2026-09-18T11:24:49.257+03:00 [s1] [O] [SYS]   BLE 0004 machine telemetry is independent when subscribed
+2026-09-18T11:24:49.257+03:00 [s1] [O] [SYS]   current=CHAT echo=OFF
+2026-09-18T11:24:49.257+03:00 [s1] [O] [SYS] COMMANDS:
+2026-09-18T11:24:49.257+03:00 [s1] [O] [SYS]   /help       show this help
+2026-09-18T11:24:49.257+03:00 [s1] [O] [SYS]   /id         show node identity
+2026-09-18T11:24:49.257+03:00 [s1] [O] [SYS]   /chat       human console CHAT
+2026-09-18T11:24:49.257+03:00 [s1] [O] [SYS]   /tele       human console TELEMETRY
+2026-09-18T11:24:49.257+03:00 [s1] [O] [SYS]   /both       human console BOTH
+2026-09-18T11:24:49.257+03:00 [s1] [O] [SYS]   /echo       toggle echo mode
+2026-09-18T11:24:49.257+03:00 [s1] [O] [SYS]   /cancel     stop current USER delivery/retries
+2026-09-18T11:24:49.257+03:00 [s1] [O] [SYS]   /cancel all stop current USER and discard queued USERs
+2026-09-18T11:24:49.257+03:00 [s1] [O] [SYS]   /reboot     reboot ESP32 controller
+2026-09-18T11:24:49.259+03:00 [s4] [O] [SYS]   [ECHO] NO RESPONSE           matching echo reply timed out
+2026-09-18T11:24:49.266+03:00 [s4] [O] [SYS]   delivery retry details       TELEMETRY only
+2026-09-18T11:24:49.269+03:00 [s4] [O] [SYS]   RSSI=dBm, SNR=dB, Q=rolling receive quality %
+2026-09-18T11:24:49.270+03:00 [s4] [O] [SYS] HUMAN CONSOLE MODES:
+2026-09-18T11:24:49.274+03:00 [s4] [O] [SYS]   CHAT       chat + SYSTEM
+2026-09-18T11:24:49.274+03:00 [s4] [O] [SYS]   TELEMETRY  telemetry + SYSTEM
+2026-09-18T11:24:49.274+03:00 [s4] [O] [SYS]   BOTH       chat + telemetry + SYSTEM
+2026-09-18T11:24:49.286+03:00 [s2] [O] [SYS]   /cancel     stop current USER delivery/retries
+2026-09-18T11:24:49.286+03:00 [s2] [O] [SYS]   /cancel all stop current USER and discard queued USERs
+2026-09-18T11:24:49.286+03:00 [s2] [O] [SYS]   /reboot     reboot ESP32 controller
+2026-09-18T11:24:49.286+03:00 [s2] [O] [SYS] RAW CONTROLS (HEX):
+2026-09-18T11:24:49.286+03:00 [s2] [O] [SYS]   14 31=CHAT  14 32=TELEMETRY  14 33=BOTH  14 65=ECHO toggle
+2026-09-18T11:24:49.286+03:00 [s2] [O] [SYS] ANDROID BLE TERMINAL MACROS:
+2026-09-18T11:24:49.286+03:00 [s2] [O] [SYS]   HEX macro, no EOL: 14 31 / 14 32 / 14 33 / 14 65
+2026-09-18T11:24:49.286+03:00 [s2] [O] [SYS]   or TEXT macro + LF: /help /id /chat /tele /both /echo /cancel /cancel all /reboot
+2026-09-18T11:24:49.286+03:00 [s2] [O] [SYS]   Nordic UART human console=0003; machine telemetry=0004 optional
+2026-09-18T11:24:49.292+03:00 [s4] [O] [SYS]   BLE 0004 machine telemetry is independent when subscribed
+2026-09-18T11:24:49.293+03:00 [s4] [O] [SYS]   current=CHAT echo=OFF
+2026-09-18T11:24:49.297+03:00 [s4] [O] [SYS] COMMANDS:
+2026-09-18T11:24:49.298+03:00 [s4] [O] [SYS]   /help       show this help
+2026-09-18T11:24:49.300+03:00 [s4] [O] [SYS]   /id         show node identity
+2026-09-18T11:24:49.301+03:00 [s4] [O] [SYS]   /chat       human console CHAT
+2026-09-18T11:24:49.334+03:00 [s3] [O] [SYS]   > text                       local USER TX confirmed
+2026-09-18T11:24:49.337+03:00 [s4] [O] [SYS]   /tele       human console TELEMETRY
+2026-09-18T11:24:49.338+03:00 [s4] [O] [SYS]   /both       human console BOTH
+2026-09-18T11:24:49.344+03:00 [s4] [O] [SYS]   /echo       toggle echo mode
+2026-09-18T11:24:49.344+03:00 [s4] [O] [SYS]   /cancel     stop current USER delivery/retries
+2026-09-18T11:24:49.346+03:00 [s4] [O] [SYS]   /cancel all stop current USER and discard queued USERs
+2026-09-18T11:24:49.347+03:00 [s4] [O] [SYS]   /reboot     reboot ESP32 controller
+2026-09-18T11:24:49.348+03:00 [s4] [O] [SYS] RAW CONTROLS (HEX):
+2026-09-18T11:24:49.351+03:00 [s4] [O] [SYS]   14 31=CHAT  14 32=TELEMETRY  14 33=BOTH  14 65=ECHO toggle
+2026-09-18T11:24:49.351+03:00 [s4] [O] [SYS] ANDROID BLE TERMINAL MACROS:
+2026-09-18T11:24:49.354+03:00 [s4] [O] [SYS]   HEX macro, no EOL: 14 31 / 14 32 / 14 33 / 14 65
+2026-09-18T11:24:49.367+03:00 [s1] [O] [SYS] RAW CONTROLS (HEX):
+2026-09-18T11:24:49.367+03:00 [s1] [O] [SYS]   14 31=CHAT  14 32=TELEMETRY  14 33=BOTH  14 65=ECHO toggle
+2026-09-18T11:24:49.367+03:00 [s1] [O] [SYS] ANDROID BLE TERMINAL MACROS:
+2026-09-18T11:24:49.367+03:00 [s1] [O] [SYS]   HEX macro, no EOL: 14 31 / 14 32 / 14 33 / 14 65
+2026-09-18T11:24:49.367+03:00 [s1] [O] [SYS]   or TEXT macro + LF: /help /id /chat /tele /both /echo /cancel /cancel all /reboot
+2026-09-18T11:24:49.367+03:00 [s1] [O] [SYS]   Nordic UART human console=0003; machine telemetry=0004 optional
+2026-09-18T11:24:49.367+03:00 [s1] [O] [SYS] BLE CLIENT: machine telemetry 0004 subscribed in background
+2026-09-18T11:24:49.380+03:00 [s3] [O] [SYS]   < [RSSI/SNR Q%] text         USER received from peer
+2026-09-18T11:24:49.387+03:00 [s4] [O] [SYS]   or TEXT macro + LF: /help /id /chat /tele /both /echo /cancel /cancel all /reboot
+2026-09-18T11:24:49.388+03:00 [s4] [O] [SYS]   Nordic UART human console=0003; machine telemetry=0004 optional
+2026-09-18T11:24:49.390+03:00 [s4] [O] [SYS] BLE CLIENT: machine telemetry 0004 subscribed in background
+2026-09-18T11:24:49.425+03:00 [s3] [O] [SYS]   > [ECHO TX] text             local echo TX confirmed
+2026-09-18T11:24:49.468+03:00 [s3] [O] [SYS]   < [ECHO RSSI/SNR Q%] text    matching echo reply received
+2026-09-18T11:24:49.487+03:00 [s2] [O] [SYS] BLE CLIENT: machine telemetry 0004 subscribed in background
+2026-09-18T11:24:49.516+03:00 [s3] [O] [SYS]   [ECHO] NO RESPONSE           matching echo reply timed out
+2026-09-18T11:24:49.559+03:00 [s3] [O] [SYS]   delivery retry details       TELEMETRY only
+2026-09-18T11:24:49.568+03:00 [s1] [O] [BLE-TX-DIAG] primary attempts=93 min_sendable=0 sendable_zero=12 gatt_errors=0 gatt_retries=0 congest_events=0 decongest_events=0 wait_timeouts=0 queue_rejects=0 disconnect_aborts=0 terminal_errors=0 last_gatt_error=0x00000000
+2026-09-18T11:24:49.609+03:00 [s3] [O] [SYS]   RSSI=dBm, SNR=dB, Q=rolling receive quality %
+2026-09-18T11:24:49.613+03:00 [s3] [O] [SYS] HUMAN CONSOLE MODES:
+2026-09-18T11:24:49.651+03:00 [s3] [O] [SYS]   CHAT       chat + SYSTEM
+2026-09-18T11:24:49.700+03:00 [s3] [O] [SYS]   TELEMETRY  telemetry + SYSTEM
+2026-09-18T11:24:49.742+03:00 [s3] [O] [SYS]   BOTH       chat + telemetry + SYSTEM
+2026-09-18T11:24:49.785+03:00 [s3] [O] [SYS]   BLE 0004 machine telemetry is independent when subscribed
+2026-09-18T11:24:49.786+03:00 [s3] [O] [SYS]   current=CHAT echo=OFF
+2026-09-18T11:24:49.787+03:00 [s3] [O] [SYS] COMMANDS:
+2026-09-18T11:24:49.831+03:00 [s3] [O] [SYS]   /help       show this help
+2026-09-18T11:24:49.873+03:00 [s3] [O] [SYS]   /id         show node identity
+2026-09-18T11:24:49.873+03:00 [s3] [O] [SYS]   /chat       human console CHAT
+2026-09-18T11:24:49.967+03:00 [s3] [O] [SYS]   /tele       human console TELEMETRY
+2026-09-18T11:24:50.009+03:00 [s3] [O] [SYS]   /both       human console BOTH
+2026-09-18T11:24:50.009+03:00 [s3] [O] [SYS]   /echo       toggle echo mode
+2026-09-18T11:24:50.053+03:00 [s3] [O] [SYS]   /cancel     stop current USER delivery/retries
+2026-09-18T11:24:50.144+03:00 [s3] [O] [SYS]   /cancel all stop current USER and discard queued USERs
+2026-09-18T11:24:50.148+03:00 [s3] [O] [SYS]   /reboot     reboot ESP32 controller
+2026-09-18T11:24:50.188+03:00 [s3] [O] [SYS] RAW CONTROLS (HEX):
+2026-09-18T11:24:50.233+03:00 [s3] [O] [SYS]   14 31=CHAT  14 32=TELEMETRY  14 33=BOTH  14 65=ECHO toggle
+2026-09-18T11:24:50.281+03:00 [s3] [O] [SYS] ANDROID BLE TERMINAL MACROS:
+2026-09-18T11:24:50.290+03:00 [s2] [O] [BLE-TX-DIAG] primary attempts=93 min_sendable=0 sendable_zero=97 gatt_errors=0 gatt_retries=0 congest_events=0 decongest_events=0 wait_timeouts=0 queue_rejects=0 disconnect_aborts=0 terminal_errors=0 last_gatt_error=0x00000000
+2026-09-18T11:24:50.324+03:00 [s3] [O] [SYS]   HEX macro, no EOL: 14 31 / 14 32 / 14 33 / 14 65
+2026-09-18T11:24:50.368+03:00 [s3] [O] [SYS]   or TEXT macro + LF: /help /id /chat /tele /both /echo /cancel /cancel all /reboot
+2026-09-18T11:24:50.418+03:00 [s3] [O] [SYS]   Nordic UART human console=0003; machine telemetry=0004 optional
+2026-09-18T11:24:50.419+03:00 [s3] [O] [SYS] BLE CLIENT: machine telemetry 0004 subscribed in background
+2026-09-18T11:25:39.392+03:00 [s3] [I] /help
+2026-09-18T11:25:39.393+03:00 [s4] [I] /help
+2026-09-18T11:25:39.462+03:00 [s2] [O] 
+2026-09-18T11:25:39.462+03:00 [s2] [O] [SYS] CHATTER HELP
+2026-09-18T11:25:39.462+03:00 [s2] [O] [SYS] CHATTER NODE LoRa-Chatter-1B44
+2026-09-18T11:25:39.462+03:00 [s2] [O] [SYS] CHAT OUTPUT:
+2026-09-18T11:25:39.462+03:00 [s2] [O] [SYS]   > text                       local USER TX confirmed
+2026-09-18T11:25:39.462+03:00 [s2] [O] [SYS]   < [RSSI/SNR Q%] text         USER received from peer
+2026-09-18T11:25:39.462+03:00 [s2] [O] [SYS]   > [ECHO TX] text             local echo TX confirmed
+2026-09-18T11:25:39.462+03:00 [s2] [O] [SYS]   < [ECHO RSSI/SNR Q%] text    matching echo reply received
+2026-09-18T11:25:39.462+03:00 [s2] [O] [SYS]   [ECHO] NO RESPONSE           matching echo reply timed out
+2026-09-18T11:25:39.462+03:00 [s2] [O] [SYS]   delivery retry details       TELEMETRY only
+2026-09-18T11:25:39.462+03:00 [s2] [O] [SYS]   RSSI=dBm, SNR=dB, Q=rolling receive quality %
+2026-09-18T11:25:39.463+03:00 [s3] [O] 
+2026-09-18T11:25:39.463+03:00 [s3] [O] [SYS] CHATTER HELP
+2026-09-18T11:25:39.464+03:00 [s3] [O] [SYS] CHATTER NODE LoRa-Chatter-1B44
+2026-09-18T11:25:39.465+03:00 [s3] [O] [SYS] CHAT OUTPUT:
+2026-09-18T11:25:39.467+03:00 [s1] [O] 
+2026-09-18T11:25:39.467+03:00 [s1] [O] [SYS] CHATTER HELP
+2026-09-18T11:25:39.467+03:00 [s1] [O] [SYS] CHATTER NODE LoRa-Chatter-72E0
+2026-09-18T11:25:39.467+03:00 [s1] [O] [SYS] CHAT OUTPUT:
+2026-09-18T11:25:39.467+03:00 [s1] [O] [SYS]   > text                       local USER TX confirmed
+2026-09-18T11:25:39.467+03:00 [s1] [O] [SYS]   < [RSSI/SNR Q%] text         USER received from peer
+2026-09-18T11:25:39.467+03:00 [s1] [O] [SYS]   > [ECHO TX] text             local echo TX confirmed
+2026-09-18T11:25:39.467+03:00 [s1] [O] [SYS]   < [ECHO RSSI/SNR Q%] text    matching echo reply received
+2026-09-18T11:25:39.467+03:00 [s1] [O] [SYS]   [ECHO] NO RESPONSE           matching echo reply timed out
+2026-09-18T11:25:39.467+03:00 [s1] [O] [SYS]   delivery retry details       TELEMETRY only
+2026-09-18T11:25:39.467+03:00 [s1] [O] [SYS]   RSSI=dBm, SNR=dB, Q=rolling receive quality %
+2026-09-18T11:25:39.471+03:00 [s3] [O] [SYS]   > text                       local USER TX confirmed
+2026-09-18T11:25:39.474+03:00 [s3] [O] [SYS]   < [RSSI/SNR Q%] text         USER received from peer
+2026-09-18T11:25:39.474+03:00 [s3] [O] [SYS]   > [ECHO TX] text             local echo TX confirmed
+2026-09-18T11:25:39.477+03:00 [s3] [O] [SYS]   < [ECHO RSSI/SNR Q%] text    matching echo reply received
+2026-09-18T11:25:39.478+03:00 [s3] [O] [SYS]   [ECHO] NO RESPONSE           matching echo reply timed out
+2026-09-18T11:25:39.483+03:00 [s3] [O] [SYS]   delivery retry details       TELEMETRY only
+2026-09-18T11:25:39.483+03:00 [s3] [O] [SYS]   RSSI=dBm, SNR=dB, Q=rolling receive quality %
+2026-09-18T11:25:39.484+03:00 [s3] [O] [SYS] HUMAN CONSOLE MODES:
+2026-09-18T11:25:39.513+03:00 [s3] [O] [SYS]   CHAT       chat + SYSTEM
+2026-09-18T11:25:39.514+03:00 [s1] [O] [SYS] HUMAN CONSOLE MODES:
+2026-09-18T11:25:39.514+03:00 [s1] [O] [SYS]   CHAT       chat + SYSTEM
+2026-09-18T11:25:39.514+03:00 [s1] [O] [SYS]   TELEMETRY  telemetry + SYSTEM
+2026-09-18T11:25:39.514+03:00 [s1] [O] [SYS]   BOTH       chat + telemetry + SYSTEM
+2026-09-18T11:25:39.514+03:00 [s1] [O] [SYS]   BLE 0004 machine telemetry is independent when subscribed
+2026-09-18T11:25:39.514+03:00 [s1] [O] [SYS]   current=CHAT echo=OFF
+2026-09-18T11:25:39.514+03:00 [s1] [O] [SYS] COMMANDS:
+2026-09-18T11:25:39.514+03:00 [s1] [O] [SYS]   /help       show this help
+2026-09-18T11:25:39.514+03:00 [s1] [O] [SYS]   /id         show node identity
+2026-09-18T11:25:39.514+03:00 [s1] [O] [SYS]   /chat       human console CHAT
+2026-09-18T11:25:39.514+03:00 [s1] [O] [SYS]   /tele       human console TELEMETRY
+2026-09-18T11:25:39.514+03:00 [s1] [O] [SYS]   /both       human console BOTH
+2026-09-18T11:25:39.514+03:00 [s1] [O] [SYS]   /echo       toggle echo mode
+2026-09-18T11:25:39.517+03:00 [s3] [O] [SYS]   TELEMETRY  telemetry + SYSTEM
+2026-09-18T11:25:39.525+03:00 [s3] [O] [SYS]   BOTH       chat + telemetry + SYSTEM
+2026-09-18T11:25:39.526+03:00 [s3] [O] [SYS]   BLE 0004 machine telemetry is independent when subscribed
+2026-09-18T11:25:39.526+03:00 [s3] [O] [SYS]   current=CHAT echo=OFF
+2026-09-18T11:25:39.526+03:00 [s3] [O] [SYS] COMMANDS:
+2026-09-18T11:25:39.526+03:00 [s2] [O] [SYS] HUMAN CONSOLE MODES:
+2026-09-18T11:25:39.526+03:00 [s2] [O] [SYS]   CHAT       chat + SYSTEM
+2026-09-18T11:25:39.526+03:00 [s2] [O] [SYS]   TELEMETRY  telemetry + SYSTEM
+2026-09-18T11:25:39.526+03:00 [s2] [O] [SYS]   BOTH       chat + telemetry + SYSTEM
+2026-09-18T11:25:39.526+03:00 [s2] [O] [SYS]   BLE 0004 machine telemetry is independent when subscribed
+2026-09-18T11:25:39.526+03:00 [s2] [O] [SYS]   current=CHAT echo=OFF
+2026-09-18T11:25:39.526+03:00 [s2] [O] [SYS] COMMANDS:
+2026-09-18T11:25:39.526+03:00 [s2] [O] [SYS]   /help       show this help
+2026-09-18T11:25:39.526+03:00 [s2] [O] [SYS]   /id         show node identity
+2026-09-18T11:25:39.526+03:00 [s2] [O] [SYS]   /chat       human console CHAT
+2026-09-18T11:25:39.526+03:00 [s2] [O] [SYS]   /tele       human console TELEMETRY
+2026-09-18T11:25:39.526+03:00 [s2] [O] [SYS]   /both       human console BOTH
+2026-09-18T11:25:39.526+03:00 [s2] [O] [SYS]   /echo       toggle echo mode
+2026-09-18T11:25:39.528+03:00 [s3] [O] [SYS]   /help       show this help
+2026-09-18T11:25:39.530+03:00 [s3] [O] [SYS]   /id         show node identity
+2026-09-18T11:25:39.530+03:00 [s3] [O] [SYS]   /chat       human console CHAT
+2026-09-18T11:25:39.532+03:00 [s3] [O] [SYS]   /tele       human console TELEMETRY
+2026-09-18T11:25:39.533+03:00 [s3] [O] [SYS]   /both       human console BOTH
+2026-09-18T11:25:39.533+03:00 [s3] [O] [SYS]   /echo       toggle echo mode
+2026-09-18T11:25:39.533+03:00 [s3] [O] [SYS]   /cancel     stop current USER delivery/retries
+2026-09-18T11:25:39.534+03:00 [s3] [O] [SYS]   /cancel all stop current USER and discard queued USERs
+2026-09-18T11:25:39.556+03:00 [s3] [O] [SYS]   /reboot     reboot ESP32 controller
+2026-09-18T11:25:39.557+03:00 [s1] [O] [SYS]   /cancel     stop current USER delivery/retries
+2026-09-18T11:25:39.557+03:00 [s1] [O] [SYS]   /cancel all stop current USER and discard queued USERs
+2026-09-18T11:25:39.557+03:00 [s1] [O] [SYS]   /reboot     reboot ESP32 controller
+2026-09-18T11:25:39.557+03:00 [s1] [O] [SYS] RAW CONTROLS (HEX):
+2026-09-18T11:25:39.557+03:00 [s1] [O] [SYS]   14 31=CHAT  14 32=TELEMETRY  14 33=BOTH  14 65=ECHO toggle
+2026-09-18T11:25:39.557+03:00 [s1] [O] [SYS] ANDROID BLE TERMINAL MACROS:
+2026-09-18T11:25:39.557+03:00 [s1] [O] [SYS]   HEX macro, no EOL: 14 31 / 14 32 / 14 33 / 14 65
+2026-09-18T11:25:39.557+03:00 [s1] [O] [SYS]   or TEXT macro + LF: /help /id /chat /tele /both /echo /cancel /cancel all /reboot
+2026-09-18T11:25:39.557+03:00 [s1] [O] [SYS]   Nordic UART human console=0003; machine telemetry=0004 optional
+2026-09-18T11:25:39.558+03:00 [s4] [O] 
+2026-09-18T11:25:39.558+03:00 [s4] [O] [SYS] CHATTER HELP
+2026-09-18T11:25:39.565+03:00 [s2] [O] [SYS]   /cancel     stop current USER delivery/retries
+2026-09-18T11:25:39.565+03:00 [s2] [O] [SYS]   /cancel all stop current USER and discard queued USERs
+2026-09-18T11:25:39.565+03:00 [s2] [O] [SYS]   /reboot     reboot ESP32 controller
+2026-09-18T11:25:39.565+03:00 [s2] [O] [SYS] RAW CONTROLS (HEX):
+2026-09-18T11:25:39.566+03:00 [s4] [O] [SYS] CHATTER NODE LoRa-Chatter-72E0
+2026-09-18T11:25:39.565+03:00 [s2] [O] [SYS]   14 31=CHAT  14 32=TELEMETRY  14 33=BOTH  14 65=ECHO toggle
+2026-09-18T11:25:39.565+03:00 [s2] [O] [SYS] ANDROID BLE TERMINAL MACROS:
+2026-09-18T11:25:39.565+03:00 [s2] [O] [SYS]   HEX macro, no EOL: 14 31 / 14 32 / 14 33 / 14 65
+2026-09-18T11:25:39.565+03:00 [s2] [O] [SYS]   or TEXT macro + LF: /help /id /chat /tele /both /echo /cancel /cancel all /reboot
+2026-09-18T11:25:39.565+03:00 [s2] [O] [SYS]   Nordic UART human console=0003; machine telemetry=0004 optional
+2026-09-18T11:25:39.568+03:00 [s4] [O] [SYS] CHAT OUTPUT:
+2026-09-18T11:25:39.568+03:00 [s4] [O] [SYS]   > text                       local USER TX confirmed
+2026-09-18T11:25:39.569+03:00 [s4] [O] [SYS]   < [RSSI/SNR Q%] text         USER received from peer
+2026-09-18T11:25:39.570+03:00 [s4] [O] [SYS]   > [ECHO TX] text             local echo TX confirmed
+2026-09-18T11:25:39.570+03:00 [s4] [O] [SYS]   < [ECHO RSSI/SNR Q%] text    matching echo reply received
+2026-09-18T11:25:39.571+03:00 [s4] [O] [SYS]   [ECHO] NO RESPONSE           matching echo reply timed out
+2026-09-18T11:25:39.574+03:00 [s4] [O] [SYS]   delivery retry details       TELEMETRY only
+2026-09-18T11:25:39.579+03:00 [s4] [O] [SYS]   RSSI=dBm, SNR=dB, Q=rolling receive quality %
+2026-09-18T11:25:39.599+03:00 [s3] [O] [SYS] RAW CONTROLS (HEX):
+2026-09-18T11:25:39.602+03:00 [s4] [O] [SYS] HUMAN CONSOLE MODES:
+2026-09-18T11:25:39.603+03:00 [s4] [O] [SYS]   CHAT       chat + SYSTEM
+2026-09-18T11:25:39.604+03:00 [s4] [O] [SYS]   TELEMETRY  telemetry + SYSTEM
+2026-09-18T11:25:39.606+03:00 [s4] [O] [SYS]   BOTH       chat + telemetry + SYSTEM
+2026-09-18T11:25:39.608+03:00 [s4] [O] [SYS]   BLE 0004 machine telemetry is independent when subscribed
+2026-09-18T11:25:39.610+03:00 [s4] [O] [SYS]   current=CHAT echo=OFF
+2026-09-18T11:25:39.611+03:00 [s4] [O] [SYS] COMMANDS:
+2026-09-18T11:25:39.613+03:00 [s4] [O] [SYS]   /help       show this help
+2026-09-18T11:25:39.620+03:00 [s4] [O] [SYS]   /id         show node identity
+2026-09-18T11:25:39.621+03:00 [s4] [O] [SYS]   /chat       human console CHAT
+2026-09-18T11:25:39.621+03:00 [s4] [O] [SYS]   /tele       human console TELEMETRY
+2026-09-18T11:25:39.623+03:00 [s4] [O] [SYS]   /both       human console BOTH
+2026-09-18T11:25:39.643+03:00 [s3] [O] [SYS]   14 31=CHAT  14 32=TELEMETRY  14 33=BOTH  14 65=ECHO toggle
+2026-09-18T11:25:39.644+03:00 [s3] [O] [SYS] ANDROID BLE TERMINAL MACROS:
+2026-09-18T11:25:39.649+03:00 [s4] [O] [SYS]   /echo       toggle echo mode
+2026-09-18T11:25:39.650+03:00 [s4] [O] [SYS]   /cancel     stop current USER delivery/retries
+2026-09-18T11:25:39.657+03:00 [s4] [O] [SYS]   /cancel all stop current USER and discard queued USERs
+2026-09-18T11:25:39.657+03:00 [s4] [O] [SYS]   /reboot     reboot ESP32 controller
+2026-09-18T11:25:39.658+03:00 [s4] [O] [SYS] RAW CONTROLS (HEX):
+2026-09-18T11:25:39.661+03:00 [s4] [O] [SYS]   14 31=CHAT  14 32=TELEMETRY  14 33=BOTH  14 65=ECHO toggle
+2026-09-18T11:25:39.662+03:00 [s4] [O] [SYS] ANDROID BLE TERMINAL MACROS:
+2026-09-18T11:25:39.662+03:00 [s4] [O] [SYS]   HEX macro, no EOL: 14 31 / 14 32 / 14 33 / 14 65
+2026-09-18T11:25:39.669+03:00 [s4] [O] [SYS]   or TEXT macro + LF: /help /id /chat /tele /both /echo /cancel /cancel all /reboot
+2026-09-18T11:25:39.672+03:00 [s4] [O] [SYS]   Nordic UART human console=0003; machine telemetry=0004 optional
+2026-09-18T11:25:39.672+03:00 [s4] [O] [SYS] BLE CLIENT: machine telemetry 0004 subscribed in background
+2026-09-18T11:25:39.692+03:00 [s3] [O] [SYS]   HEX macro, no EOL: 14 31 / 14 32 / 14 33 / 14 65
+2026-09-18T11:25:39.759+03:00 [s1] [O] [SYS] BLE CLIENT: machine telemetry 0004 subscribed in background
+2026-09-18T11:25:39.759+03:00 [s1] [O] [BLE-TX-DIAG] primary attempts=93 min_sendable=0 sendable_zero=16 gatt_errors=0 gatt_retries=0 congest_events=0 decongest_events=0 wait_timeouts=0 queue_rejects=0 disconnect_aborts=0 terminal_errors=0 last_gatt_error=0x00000000
+2026-09-18T11:25:39.769+03:00 [s2] [O] [SYS] BLE CLIENT: machine telemetry 0004 subscribed in background
+2026-09-18T11:25:39.769+03:00 [s2] [O] [BLE-TX-DIAG] primary attempts=93 min_sendable=0 sendable_zero=8 gatt_errors=0 gatt_retries=0 congest_events=0 decongest_events=0 wait_timeouts=0 queue_rejects=0 disconnect_aborts=0 terminal_errors=0 last_gatt_error=0x00000000
+2026-09-18T11:25:39.782+03:00 [s3] [O] [SYS]   or TEXT macro + LF: /help /id /chat /tele /both /echo /cancel /cancel all /reboot
+2026-09-18T11:25:39.826+03:00 [s3] [O] [SYS]   Nordic UART human console=0003; machine telemetry=0004 optional
+2026-09-18T11:25:39.872+03:00 [s3] [O] [SYS] BLE CLIENT: machine telemetry 0004 subscribed in background
+2026-09-18T11:26:41.861+03:00 [s1] [I] /chat
+2026-09-18T11:26:41.861+03:00 [s1] [I] /cancel all
+2026-09-18T11:26:41.862+03:00 [s2] [I] /chat
+2026-09-18T11:26:41.862+03:00 [s2] [I] /cancel all
+2026-09-18T11:26:41.862+03:00 [s3] [I] /chat
+2026-09-18T11:26:41.863+03:00 [s3] [I] /cancel all
+2026-09-18T11:26:41.864+03:00 [s4] [I] /chat
+2026-09-18T11:26:41.865+03:00 [s4] [I] /cancel all
+2026-09-18T11:26:41.874+03:00 [s1] [O] [SYS] DELIVERY CANCEL: nothing pending
+2026-09-18T11:26:41.874+03:00 [s1] [O] [SYS] OUTPUT CHAT
+2026-09-18T11:26:41.882+03:00 [s2] [O] [SYS] DELIVERY CANCEL: nothing pending
+2026-09-18T11:26:41.882+03:00 [s2] [O] [SYS] OUTPUT CHAT
+2026-09-18T11:26:41.882+03:00 [s2] [O] [SYS] DELIVERY CANCEL: nothing pending
+2026-09-18T11:26:41.925+03:00 [s3] [O] [SYS] DELIVERY CANCEL: nothing pending
+2026-09-18T11:26:41.926+03:00 [s4] [O] [SYS] DELIVERY CANCEL: nothing pending
+2026-09-18T11:26:41.929+03:00 [s4] [O] [SYS] OUTPUT CHAT
+2026-09-18T11:26:41.931+03:00 [s4] [O] [SYS] DELIVERY CANCEL: nothing pending
+2026-09-18T11:26:41.937+03:00 [s4] [O] [SYS] OUTPUT CHAT
+2026-09-18T11:26:41.966+03:00 [s3] [O] [SYS] OUTPUT CHAT
+2026-09-18T11:26:42.056+03:00 [s3] [O] [SYS] DELIVERY CANCEL: nothing pending
+2026-09-18T11:26:42.075+03:00 [s1] [O] [SYS] DELIVERY CANCEL: nothing pending
+2026-09-18T11:26:42.075+03:00 [s1] [O] [SYS] OUTPUT CHAT
+2026-09-18T11:26:42.083+03:00 [s2] [O] [SYS] OUTPUT CHAT
+2026-09-18T11:26:42.101+03:00 [s3] [O] [SYS] OUTPUT CHAT
