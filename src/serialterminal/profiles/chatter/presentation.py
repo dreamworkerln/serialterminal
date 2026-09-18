@@ -9,6 +9,8 @@ CHATTER_TEXT_COMMANDS = frozenset(
     {
         "/help",
         "/id",
+        "/version",
+        "/firmware",
         "/chat",
         "/tele",
         "/both",
