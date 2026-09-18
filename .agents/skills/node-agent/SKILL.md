@@ -309,7 +309,7 @@ python3 -I scripts/run-chatter-scenario cancel-all-current-plus-queue \
 
 Helper является только быстрой orchestration-обёрткой над `serialterminal.py agent` JSONL API. Он не должен открывать pyserial, Bleak, RFCOMM или другие transport backends напрямую; transport/session/reconnect/forensic ownership остаётся у SerialTerminal.
 
-До запуска helper сам hardware executor обязан выполнить обычный host preflight и dynamic discovery, затем передать exact `device_key` четырёх уже сопоставленных USB/BLE endpoints. Не hard-code instance-specific device keys, MAC, tty paths или node IDs в skill/script. Helper повторно проверяет USB↔BLE пары через `/id`.
+До запуска helper сам hardware executor обязан выполнить обычный host preflight и dynamic discovery, убедиться, что echo на обеих нодах OFF и нет намеренно оставленного reliable USER flow, затем передать exact `device_key` четырёх уже сопоставленных USB/BLE endpoints. Helper намеренно не запускает длинный `/help` перед measured window, чтобы не создавать лишний BLE TX backlog. Не hard-code instance-specific device keys, MAC, tty paths или node IDs в skill/script. Helper повторно проверяет USB↔BLE пары через `/id` и перед измерением штатно очищает reliable flow через `/cancel all`.
 
 Не держи одновременно другой SerialTerminal process, владеющий теми же device keys: timing-sensitive helper запускает свой один long-lived `serialterminal.py agent`, открывает нужные sessions с `profile:"chatter"`, выполняет scenario и закрывает их.
 
