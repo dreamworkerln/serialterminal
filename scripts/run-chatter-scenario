@@ -234,6 +234,35 @@ def wait_line(
     raise ScenarioError("observe_timeout", "required firmware evidence was not observed")
 
 
+def discover_expected_devices(
+    agent: JsonlAgent,
+    expected_keys: set[str],
+    scan_seconds: float,
+) -> list[dict[str, Any]]:
+    result = agent.request(
+        "discover",
+        scope="auto",
+        scan_seconds=scan_seconds,
+        timeout_s=max(15.0, scan_seconds + 10.0),
+    )
+    devices = result.get("devices")
+    if not isinstance(devices, list):
+        raise ScenarioError("agent_protocol_error", "discover returned no device list")
+
+    visible_keys = {
+        item.get("key")
+        for item in devices
+        if isinstance(item, dict) and isinstance(item.get("key"), str)
+    }
+    missing = sorted(expected_keys - visible_keys)
+    if missing:
+        raise ScenarioError(
+            "expected_device_missing",
+            "expected device_key(s) absent after helper discovery: " + ", ".join(missing),
+        )
+    return devices
+
+
 def open_chatter(
     agent: JsonlAgent,
     evidence: Evidence,
@@ -334,6 +363,18 @@ def run_cancel_all(args: argparse.Namespace) -> tuple[int, dict[str, Any]]:
     }
 
     try:
+        expected_keys = {
+            args.sender_usb_key,
+            args.sender_ble_key,
+            args.peer_usb_key,
+            args.peer_ble_key,
+        }
+        result["discovered_devices"] = discover_expected_devices(
+            agent,
+            expected_keys,
+            args.scan_seconds,
+        )
+
         sender_usb = open_chatter(agent, evidence, "sender_usb", args.sender_usb_key, args.open_timeout_ms)
         opened.append(sender_usb)
         sender_ble = open_chatter(agent, evidence, "sender_ble", args.sender_ble_key, args.open_timeout_ms)
@@ -512,7 +553,11 @@ def run_cancel_all(args: argparse.Namespace) -> tuple[int, dict[str, Any]]:
     except ScenarioError as exc:
         result["result"] = (
             "BLOCKED"
-            if exc.code in {"session_not_connected", "identity_mismatch"}
+            if exc.code in {
+                "session_not_connected",
+                "identity_mismatch",
+                "expected_device_missing",
+            }
             else "INCONCLUSIVE"
         )
         result["reason"] = f"{exc.code}: {exc}"
@@ -556,6 +601,7 @@ def parser() -> argparse.ArgumentParser:
     cancel.add_argument("--peer-id")
     cancel.add_argument("--log", required=True)
     cancel.add_argument("--open-timeout-ms", type=int, default=10000)
+    cancel.add_argument("--scan-seconds", type=float, default=5.0)
     cancel.add_argument("--trigger-timeout-seconds", type=float, default=20.0)
     cancel.add_argument("--cancel-timeout-seconds", type=float, default=5.0)
     cancel.add_argument("--postcheck-seconds", type=float, default=30.0)
