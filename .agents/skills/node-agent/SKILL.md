@@ -189,6 +189,16 @@ Observation нужен прежде всего для reusable finding/anomaly/f
 
 `REPORT.md` — полный curated executor report. `OBS_*.md` — короткое factual наблюдение. Final chat response после successful publication должен быть коротким pointer layer: result, observation path если есть, run path, commit SHA и independent remote verification.
 
+После publication обязательно выполни independent remote verification:
+
+```bash
+git -C ../serialterminal-observations ls-remote origin refs/heads/node_observations
+```
+
+Если эта read-only verification не выполняется из-за sandbox/network/DNS restriction, например `Could not resolve hostname github.com`, не останавливайся сразу на `REMOTE VERIFY: BLOCKED`. Запроси минимально необходимое sandbox/network permission именно для повторного read-only `git ls-remote` и повтори verification. Не используй это разрешение для каких-либо дополнительных network/write операций.
+
+Только если permission не предоставлен или повторный `ls-remote` с разрешением всё равно не может достичь origin, допустимо финально сообщить `REMOTE VERIFY: BLOCKED` с точной причиной. Если команда возвращает ожидаемый `refs/heads/node_observations` SHA, сообщи `REMOTE VERIFY: OK` и приведи подтверждённый remote SHA.
+
 Если helper оставил/нашёл incomplete canonical backlog от старого interrupted run, не удаляй его. Complete unrelated run может публиковаться отдельно. При push failure не делай reset/rebase/force-push: следующий helper invocation умеет retry только safe validated local-ahead publication commits; divergence остаётся hard failure.
 
 ## Local command matching и payload
