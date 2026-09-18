@@ -294,6 +294,37 @@ no in-flight USER, queued unsent USER exists
 
 Для cancellation tests проверяй не только SYSTEM text, но и telemetry: после cancellation не должно появляться дальнейших retry TX для отменённого logical USER.
 
+### Timing-sensitive Chatter scenario helper
+
+Если correctness сценария зависит от реакции быстрее, чем обычный LLM round-trip между `observe` и следующим `send_line`, используй repository helper:
+
+```bash
+python3 -I scripts/run-chatter-scenario cancel-all-current-plus-queue \
+  --sender-usb-key <device_key> \
+  --sender-ble-key <device_key> \
+  --peer-usb-key <device_key> \
+  --peer-ble-key <device_key> \
+  --log /tmp/serialterminal-chatter-scenario.log
+```
+
+Helper является только быстрой orchestration-обёрткой над `serialterminal.py agent` JSONL API. Он не должен открывать pyserial, Bleak, RFCOMM или другие transport backends напрямую; transport/session/reconnect/forensic ownership остаётся у SerialTerminal.
+
+До запуска helper сам hardware executor обязан выполнить обычный host preflight и dynamic discovery, затем передать exact `device_key` четырёх уже сопоставленных USB/BLE endpoints. Не hard-code instance-specific device keys, MAC, tty paths или node IDs в skill/script. Helper повторно проверяет USB↔BLE пары через `/id`.
+
+Не держи одновременно другой SerialTerminal process, владеющий теми же device keys: timing-sensitive helper запускает свой один long-lived `serialterminal.py agent`, открывает нужные sessions с `profile:"chatter"`, выполняет scenario и закрывает их.
+
+Текущий subcommand `cancel-all-current-plus-queue` предназначен для deterministic hardware проверки `/cancel all`: он локально ждёт telemetry trigger `waiting>=2 ... in_flight=1` и без LLM round-trip немедленно отправляет BLE `/cancel all`. Финальный stdout — один JSON object с verdict/evidence pointers; exact forensic и companion logs остаются authoritative evidence.
+
+Exit codes:
+
+```text
+0  PASS
+1  INCONCLUSIVE/BLOCKED
+2  FAIL
+```
+
+Helper не заменяет RUN/OBS policy и не является основанием автоматически объявлять hardware PASS без проверки его JSON result и exact SerialTerminal logs.
+
 ## Diagnostic ECHO
 
 Echo mode локальный и после boot должен быть OFF.
