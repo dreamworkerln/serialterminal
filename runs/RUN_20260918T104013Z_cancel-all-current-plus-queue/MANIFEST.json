@@ -1,0 +1,23 @@
+{
+  "schema": 1,
+  "observed_at": "2026-09-18T10:40:13Z",
+  "topic": "cancel-all-current-plus-queue",
+  "result": "INCONCLUSIVE",
+  "serialterminal": {
+    "repo": "dreamworkerln/serialterminal",
+    "sha": "24a33d90e16ddb7d93dd3cd04486208004f7f551"
+  },
+  "firmware": {
+    "repo": "dreamworkerln/lora-sack-protocol",
+    "sha": "unknown"
+  },
+  "observation": {
+    "state": "recorded",
+    "path": "../../observations/OBS_20260918T104013Z_cancel-all-current-plus-queue.md"
+  },
+  "files": {
+    "report": "REPORT.md",
+    "console": "serialterminal.console.log",
+    "serialterminal_log": "serialterminal.log"
+  }
+}

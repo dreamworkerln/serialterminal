@@ -1,0 +1,5 @@
+2026-09-18T13:39:59.811+03:00 [RUN] {"event":"start","pid":25272}
+2026-09-18T13:39:59.812+03:00 [AGENT] {"console_log_path":"/tmp/serialterminal-cancel11.console.log","event":"ready","log_path":"/tmp/serialterminal-cancel11.log"}
+2026-09-18T13:39:59.812+03:00 [AGENT REQUEST] {"id": 1, "op": "open", "device_key": "serial-by-id:/dev/serial/by-id/usb-1a86_USB_Single_Serial_5B8F021956-if00", "profile": "chatter", "wait_connected_ms": 10000}
+2026-09-18T13:39:59.814+03:00 [AGENT RESPONSE] {"error":{"code":"unknown_device","details":{"device_key":"serial-by-id:/dev/serial/by-id/usb-1a86_USB_Single_Serial_5B8F021956-if00"},"message":"device_key is not in the current discovery cache; run discover first"},"id":1,"ok":false}
+2026-09-18T13:39:59.814+03:00 [RUN] {"event":"stop","pid":25272}
