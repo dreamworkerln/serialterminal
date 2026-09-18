@@ -29,6 +29,61 @@ Discovery показывает текущие доступные transport paths
 
 Каждую Chatter session открывай по возвращённому `device_key` через SerialTerminal agent с явным `"profile":"chatter"`. Не полагайся на generic default profile: именно Chatter profile задаёт controller connect preamble и Chatter BLE stream layout, включая `/id` при connect/reconnect. Отдельного identity/preamble toggle в agent API нет.
 
+## Host Bluetooth audio preflight
+
+Перед обычным measured hardware scenario, который использует BLE transport, сначала выполни read-only preflight Bluetooth/audio состояния host-машины.
+
+Проверяй не конкретную модель устройства, а любой подключённый Bluetooth audio endpoint: headphones, headset, гарнитуру, speaker или другое Bluetooth audio device. Не определяй audio device только по имени. Используй доступные host evidence, например:
+
+```text
+bluetoothctl info
+wpctl status
+pactl list cards
+pactl list sink-inputs
+```
+
+или эквивалентные read-only средства текущего Linux audio stack.
+
+Ищи как минимум:
+
+```text
+Bluetooth device connected
+audio profile / A2DP / HSP / HFP evidence
+Bluetooth sink/source
+active/running audio stream when available
+codec/profile when host reports it
+```
+
+Не утверждай конкретный codec, profile или active stream, если host evidence этого не показывает.
+
+Если sandbox не даёт выполнить нужную read-only host inspection, допустимо запросить минимально необходимое sandbox permission для этой проверки. Не используй это разрешение для изменения host Bluetooth/audio subsystem.
+
+По умолчанию, если перед BLE hardware validation обнаружен подключённый Bluetooth audio endpoint или активный Bluetooth audio path/stream:
+
+```text
+measured BLE scenario не начинать
+-> сообщить оператору, что Bluetooth audio device нужно отключить
+-> не отключать устройство самостоятельно
+-> не менять BlueZ / PipeWire / PulseAudio / WirePlumber configuration
+-> не перезапускать host Bluetooth/audio services
+```
+
+Это environmental precondition, а не firmware failure.
+
+Если repeated BLE disconnect/reconnect flapping появляется уже во время measured run, останови scenario чисто и не объявляй это автоматически firmware `FAIL`. При наличии evidence конкурирующего host Bluetooth audio зафиксируй его как environmental factor и классифицируй scenario как `BLOCKED` или `INCONCLUSIVE` в соответствии с доступным evidence.
+
+Исключение разрешено только когда оператор явно просит проверить coexistence с подключённым Bluetooth audio, например после обновления/переустановки Linux или изменения host Bluetooth stack. В таком отдельном coexistence scenario:
+
+```text
+не блокируй run только из-за active Bluetooth audio
+зафиксируй connected audio device/profile/codec/stream evidence до измерения
+выполни только явно запрошенный BLE scenario
+не меняй host Bluetooth/audio subsystem
+при flapping/reconnect не повышай результат до firmware FAIL без независимого firmware evidence
+```
+
+Такой coexistence run проверяет host-environment compatibility и не отменяет default preflight для обычных BLE regression/gate tests.
+
 ## Local commands
 
 Основные human-readable commands:
