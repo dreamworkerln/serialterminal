@@ -235,25 +235,55 @@ def wait_line(
     raise ScenarioError("observe_timeout", "required firmware evidence was not observed")
 
 
+def _discover_scope(
+    agent: JsonlAgent,
+    scope: str,
+    scan_seconds: float,
+) -> list[dict[str, Any]]:
+    try:
+        result = agent.request(
+            "discover",
+            scope=scope,
+            scan_seconds=scan_seconds,
+            timeout_s=max(15.0, scan_seconds + 10.0),
+        )
+    except ScenarioError as exc:
+        lowered = str(exc).lower()
+        if exc.code == "internal_error" and (
+            "operation not permitted" in lowered
+            or "permission denied" in lowered
+        ):
+            raise ScenarioError(
+                f"{scope}_discovery_permission",
+                f"{scope} discover blocked by host/sandbox permission: {exc}",
+            ) from exc
+        raise ScenarioError(
+            f"{scope}_discovery_failed",
+            f"{scope} discover failed: {exc.code}: {exc}",
+        ) from exc
+
+    devices = result.get("devices")
+    if not isinstance(devices, list):
+        raise ScenarioError(
+            "agent_protocol_error",
+            f"{scope} discover returned no device list",
+        )
+    return [item for item in devices if isinstance(item, dict)]
+
+
 def discover_expected_devices(
     agent: JsonlAgent,
     expected_keys: set[str],
     scan_seconds: float,
 ) -> list[dict[str, Any]]:
-    result = agent.request(
-        "discover",
-        scope="auto",
-        scan_seconds=scan_seconds,
-        timeout_s=max(15.0, scan_seconds + 10.0),
-    )
-    devices = result.get("devices")
-    if not isinstance(devices, list):
-        raise ScenarioError("agent_protocol_error", "discover returned no device list")
+    devices: list[dict[str, Any]] = []
+    devices.extend(_discover_scope(agent, "serial", scan_seconds))
+    devices.extend(_discover_scope(agent, "ble", scan_seconds))
 
     visible_keys = {
         item.get("key")
         for item in devices
-        if isinstance(item, dict) and isinstance(item.get("key"), str)
+        if isinstance(item.get("key"), str)
     }
     missing = sorted(expected_keys - visible_keys)
     if missing:
@@ -586,6 +616,8 @@ def run_cancel_all(args: argparse.Namespace) -> tuple[int, dict[str, Any]]:
                 "identity_mismatch",
                 "expected_device_missing",
                 "echo_not_off",
+                "serial_discovery_permission",
+                "ble_discovery_permission",
             }
             else "INCONCLUSIVE"
         )
