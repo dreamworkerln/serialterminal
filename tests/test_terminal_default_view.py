@@ -42,3 +42,36 @@ def test_ble_session_uses_profile_console_streams(tmp_path):
         assert session._received_visible("main")
     finally:
         session.log_file.close()
+
+def test_chatter_local_commands_are_echoed_and_queued_uniformly(
+    tmp_path, capsys, monkeypatch
+):
+    session = TerminalSession(
+        DummyBleLikeTransport(),
+        log_path=tmp_path / "terminal.log",
+        profile=CHATTER_PROFILE,
+    )
+    sent = []
+    monkeypatch.setattr(
+        session,
+        "send_line",
+        lambda line: sent.append(line) or True,
+    )
+    monkeypatch.setattr(
+        session,
+        "_show_full_help",
+        lambda: (_ for _ in ()).throw(
+            AssertionError("typed /help must not expand SerialTerminal help")
+        ),
+    )
+    try:
+        session._submit_interactive_line("/help")
+        session._submit_interactive_line("/version")
+        session._submit_interactive_line("/firmware")
+
+        assert capsys.readouterr().out == "/help\n/version\n/firmware\n"
+        assert sent == ["/help", "/version", "/firmware"]
+        assert session._presentation is not None
+        assert session._presentation.pending_count() == 0
+    finally:
+        session.log_file.close()
