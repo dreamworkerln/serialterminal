@@ -29,6 +29,58 @@ Discovery показывает текущие доступные transport paths
 
 Каждую Chatter session открывай по возвращённому `device_key` через SerialTerminal agent с явным `"profile":"chatter"`. Не полагайся на generic default profile: именно Chatter profile задаёт controller connect preamble и Chatter BLE stream layout, включая `/id` при connect/reconnect. Отдельного identity/preamble toggle в agent API нет.
 
+## Firmware provenance
+
+Для актуального Chatter firmware не выводи physical firmware SHA из branch name, локального checkout, operator-stated target или предполагаемой прошивки. Получай provenance **с самой физической ноды**.
+
+Новые Chatter builds выводят каноническую строку при boot и по `/version` (alias `/firmware`):
+
+```text
+[SYS] FIRMWARE Chatter git=<40-hex SHA> state=<clean|dirty|unknown> env=<pio-env>
+```
+
+Перед measured hardware scenario, после установления identity каждой физической ноды, получи firmware provenance read-only:
+
+```text
+предпочтительно:
+    уже наблюдённая boot provenance line
+
+иначе:
+    send_line "/version"
+    observe canonical [SYS] FIRMWARE line
+```
+
+Обычно достаточно запросить `/version` по одному стабильному transport каждой физической ноды, предпочтительно USB. SYSTEM output может одновременно появляться и на BLE 0003; не считай одинаковую строку на двух transports двумя разными firmware observations. Сначала свяжи transports через canonical `/id`.
+
+Acceptance для exact physical source SHA:
+
+```text
+git=<exact 40-hex> AND state=clean
+    -> exact firmware source SHA установлен с самой ноды
+
+state=dirty
+    -> reported git SHA только base commit
+    -> exact firmware source provenance НЕ установлен
+
+state=unknown OR git=unknown
+    -> exact firmware source provenance НЕ установлен
+
+/version unsupported / no canonical response
+    -> для старой прошивки firmware provenance остаётся unknown
+```
+
+Не называй `state=dirty` exact firmware SHA даже если 40-hex Git value присутствует. В REPORT сохрани каноническую строку целиком как evidence, но canonical run/observation firmware SHA ставь `unknown`.
+
+Если measured scenario требует обе физические ноды на одном exact release checkpoint, до измерения проверь:
+
+```text
+node A: state=clean, git=<expected SHA>
+node B: state=clean, git=<expected SHA>
+A.git == B.git == expected SHA
+```
+
+Mismatch, `dirty` или `unknown` до measured phase — это precondition failure / BLOCKED для exact-provenance release gate, а не firmware behavior FAIL. Не перепрошивай автоматически; flashing требует явного operator authorization.
+
 ## Host Bluetooth audio preflight
 
 Перед обычным measured hardware scenario, который использует BLE transport, сначала выполни read-only preflight Bluetooth/audio состояния host-машины.
