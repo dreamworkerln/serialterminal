@@ -1,0 +1,23 @@
+{
+  "schema": 1,
+  "observed_at": "2026-09-18T13:55:49Z",
+  "topic": "todo-005-exact-provenance",
+  "result": "PASS",
+  "serialterminal": {
+    "repo": "dreamworkerln/serialterminal",
+    "sha": "ab36ca2405f6cf8dd1a4ce572e96c8de918a754f"
+  },
+  "firmware": {
+    "repo": "dreamworkerln/lora-sack-protocol",
+    "sha": "a7eed47ecae5b21d8c7a72901e2d403c3329cd8e"
+  },
+  "observation": {
+    "state": "recorded",
+    "path": "../../observations/OBS_20260918T135549Z_todo-005-exact-provenance.md"
+  },
+  "files": {
+    "report": "REPORT.md",
+    "console": "serialterminal.console.log",
+    "serialterminal_log": "serialterminal.log"
+  }
+}
