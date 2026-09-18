@@ -222,9 +222,7 @@ class TerminalSession(ManagedSession):
         command = self.profile.recognized_command(line)
         if command is not None:
             self._write_console_only(line + "\n")
-            if command == self.profile.device_help_command:
-                self._show_full_help()
-            elif not self.send_line(line):
+            if not self.send_line(line):
                 self.write_output("[serialterminal] command was not queued\n")
             return
 
