@@ -1,0 +1,23 @@
+{
+  "schema": 1,
+  "observed_at": "2026-09-18T10:11:18Z",
+  "topic": "two-node-cancel-semantics",
+  "result": "INCONCLUSIVE",
+  "serialterminal": {
+    "repo": "dreamworkerln/serialterminal",
+    "sha": "d0758d054c2519c97587ee2f6da02d087f1c145a"
+  },
+  "firmware": {
+    "repo": "dreamworkerln/lora-sack-protocol",
+    "sha": "unknown"
+  },
+  "files": {
+    "report": "REPORT.md",
+    "console": "serialterminal.console.log",
+    "serialterminal_log": "serialterminal.log"
+  },
+  "observation": {
+    "state": "recorded",
+    "path": "../../observations/OBS_20260918T101118Z_two-node-cancel-semantics.md"
+  }
+}
