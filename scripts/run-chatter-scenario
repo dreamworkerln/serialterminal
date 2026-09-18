@@ -30,6 +30,7 @@ CANCEL_RE = re.compile(
 )
 ACK_RE = re.compile(r"DELIVERY ACK user=(?P<identity>[0-9A-Fa-f]+/\d+)")
 RETRY_RE = re.compile(r"DELIVERY RETRY user=(?P<identity>[0-9A-Fa-f]+/\d+)")
+ECHO_STATE_RE = re.compile(r"current=[A-Z]+ echo=(?P<state>ON|OFF)")
 
 
 class ScenarioError(RuntimeError):
@@ -301,6 +302,27 @@ def open_chatter(
     return Session(role, session_id, device_key, match.group(1), evidence.cursors[session_id])
 
 
+def verify_echo_off(
+    agent: JsonlAgent,
+    evidence: Evidence,
+    session: str,
+    role: str,
+) -> None:
+    send_line(agent, session, "/help")
+    line = wait_line(
+        agent,
+        evidence,
+        [session],
+        set(),
+        lambda value: ECHO_STATE_RE.search(value) is not None,
+        timeout_s=8,
+    )
+    match = ECHO_STATE_RE.search(line)
+    assert match is not None
+    if match.group("state") != "OFF":
+        raise ScenarioError("echo_not_off", f"{role} reports echo ON")
+
+
 def set_mode(
     agent: JsonlAgent,
     evidence: Evidence,
@@ -377,10 +399,16 @@ def run_cancel_all(args: argparse.Namespace) -> tuple[int, dict[str, Any]]:
 
         sender_usb = open_chatter(agent, evidence, "sender_usb", args.sender_usb_key, args.open_timeout_ms)
         opened.append(sender_usb)
-        sender_ble = open_chatter(agent, evidence, "sender_ble", args.sender_ble_key, args.open_timeout_ms)
-        opened.append(sender_ble)
         peer_usb = open_chatter(agent, evidence, "peer_usb", args.peer_usb_key, args.open_timeout_ms)
         opened.append(peer_usb)
+
+        # Echo state читается через /help только пока BLE sessions ещё не открыты:
+        # это не меняет firmware state и не создаёт BLE help backlog.
+        verify_echo_off(agent, evidence, sender_usb.session, "sender")
+        verify_echo_off(agent, evidence, peer_usb.session, "peer")
+
+        sender_ble = open_chatter(agent, evidence, "sender_ble", args.sender_ble_key, args.open_timeout_ms)
+        opened.append(sender_ble)
         peer_ble = open_chatter(agent, evidence, "peer_ble", args.peer_ble_key, args.open_timeout_ms)
         opened.append(peer_ble)
 
@@ -557,6 +585,7 @@ def run_cancel_all(args: argparse.Namespace) -> tuple[int, dict[str, Any]]:
                 "session_not_connected",
                 "identity_mismatch",
                 "expected_device_missing",
+                "echo_not_off",
             }
             else "INCONCLUSIVE"
         )
