@@ -64,3 +64,58 @@ def test_parser_requires_explicit_four_device_keys_and_log():
     assert args.sender_ble_key == "ble:a"
     assert args.peer_usb_key == "serial:b"
     assert args.peer_ble_key == "ble:b"
+
+
+def test_discover_expected_devices_populates_cache_before_open():
+    module = load_runner()
+
+    class FakeAgent:
+        def __init__(self):
+            self.calls = []
+
+        def request(self, op, **kwargs):
+            self.calls.append((op, kwargs))
+            assert op == "discover"
+            return {
+                "devices": [
+                    {"key": "serial:a"},
+                    {"key": "ble:a"},
+                    {"key": "serial:b"},
+                    {"key": "ble:b"},
+                ]
+            }
+
+    agent = FakeAgent()
+    devices = module["discover_expected_devices"](
+        agent,
+        {"serial:a", "ble:a", "serial:b", "ble:b"},
+        5.0,
+    )
+    assert {item["key"] for item in devices} == {
+        "serial:a",
+        "ble:a",
+        "serial:b",
+        "ble:b",
+    }
+    assert agent.calls[0][0] == "discover"
+    assert agent.calls[0][1]["scope"] == "auto"
+
+
+def test_discover_expected_devices_reports_missing_key():
+    module = load_runner()
+
+    class FakeAgent:
+        def request(self, op, **kwargs):
+            return {"devices": [{"key": "serial:a"}]}
+
+    try:
+        module["discover_expected_devices"](
+            FakeAgent(),
+            {"serial:a", "ble:a"},
+            5.0,
+        )
+    except module["ScenarioError"] as exc:
+        assert exc.code == "expected_device_missing"
+        assert "ble:a" in str(exc)
+    else:
+        raise AssertionError("expected ScenarioError")
