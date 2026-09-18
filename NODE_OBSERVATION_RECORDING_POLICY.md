@@ -260,6 +260,26 @@ Run bundle: runs/RUN_YYYYMMDDTHHMMSSZ_<short-topic>/
 
 Если exact source SHA неизвестен, пиши `unknown`; не угадывай.
 
+Для актуального Chatter exact physical source SHA можно считать установленным непосредственно с ноды только по канонической self-provenance строке:
+
+```text
+[SYS] FIRMWARE Chatter git=<40-hex SHA> state=clean env=<pio-env>
+```
+
+При `state=clean` значение `git` допустимо использовать как `Firmware:` и как `MANIFEST.json -> firmware.sha`, если строка относится к той же физической ноде, которая участвовала в measured scenario.
+
+Если нода сообщает:
+
+```text
+state=dirty
+state=unknown
+git=unknown
+```
+
+или актуальная прошивка не поддерживает `/version` / canonical boot provenance, canonical firmware SHA остаётся `unknown`. Для `dirty` сохрани reported base Git SHA и полную provenance line в REPORT как evidence, но не записывай base SHA в поле exact firmware SHA.
+
+Operator-stated branch/SHA, host checkout SHA или expected flash target сами по себе не заменяют node-reported provenance.
+
 В observation разрешены run-specific IDs, MAC, USB path, session IDs, RSSI/SNR/Q, timing/counters, fault state, payload и exact excerpts. Не превращай эти значения в постоянные свойства класса/экземпляра.
 
 ---
@@ -311,6 +331,8 @@ Validation rules:
 - `result` только `PASS | FAIL | BLOCKED | INCONCLUSIVE`;
 - SerialTerminal SHA всегда exact 40-hex;
 - firmware SHA exact 40-hex или literal `unknown`;
+- для Chatter node-reported `state=clean` + exact 40-hex `git` является допустимым physical source-provenance evidence;
+- `state=dirty` / `unknown` / unsupported provenance не допускают заполнение exact firmware SHA;
 - `files` mapping canonical и не содержит произвольных external paths;
 - `recorded` требует matching OBS с тем же identity и обратной `Run bundle:` ссылкой;
 - `not-required` требует `path: null` и non-empty `reason`.
