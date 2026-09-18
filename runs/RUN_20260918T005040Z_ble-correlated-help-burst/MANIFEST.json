@@ -1,0 +1,23 @@
+{
+  "schema": 1,
+  "observed_at": "2026-09-18T00:50:40Z",
+  "topic": "ble-correlated-help-burst",
+  "result": "PASS",
+  "serialterminal": {
+    "repo": "dreamworkerln/serialterminal",
+    "sha": "4f562062afd64750679a4d5562a29a022025a967"
+  },
+  "firmware": {
+    "repo": "dreamworkerln/lora-sack-protocol",
+    "sha": "unknown"
+  },
+  "observation": {
+    "state": "recorded",
+    "path": "../../observations/OBS_20260918T005040Z_ble-correlated-help-burst.md"
+  },
+  "files": {
+    "report": "REPORT.md",
+    "console": "serialterminal.console.log",
+    "serialterminal_log": "serialterminal.log"
+  }
+}
