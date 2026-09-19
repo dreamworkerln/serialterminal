@@ -37,7 +37,7 @@ Discovery показывает текущие доступные transport paths
 
 ```text
 [SYS] FIRMWARE Chatter git=<40-hex SHA> state=<clean|dirty|unknown> env=<pio-env>
-[SYS] FIRMWARE IMAGE validation_sha256=<64-hex> status=<OK|...>
+[SYS] FIRMWARE IMAGE validation_sha256=<64-hex> status=<OK|...> slot=<0|1>
 [SYS] BUILD META toolchain_sha256=<64-hex> pio=<version>
 ```
 
@@ -117,7 +117,7 @@ Mismatch или отсутствующая строка у firmware, котор�
 
 ```text
 source git SHA/state/env
-running image validation_sha256/status
+running image validation_sha256/status/running OTA slot
 toolchain_sha256 + pio version
 expected release-manifest artifact.image_validation_sha256
 expected release-manifest toolchain.sha256
