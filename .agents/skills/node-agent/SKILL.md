@@ -31,26 +31,30 @@ Discovery показывает текущие доступные transport paths
 
 ## Firmware provenance
 
-Для актуального Chatter firmware не выводи physical firmware SHA из branch name, локального checkout, operator-stated target или предполагаемой прошивки. Получай provenance **с самой физической ноды**.
+Для актуального Chatter firmware не выводи physical firmware provenance из branch name, локального checkout, operator-stated target или предполагаемой прошивки. Получай provenance **с самой физической ноды**.
 
-Новые Chatter builds выводят каноническую строку при boot и по `/version` (alias `/firmware`):
+Новые Chatter builds выводят source provenance при boot и полный integrity/build identity по `/version` (alias `/firmware`):
 
 ```text
 [SYS] FIRMWARE Chatter git=<40-hex SHA> state=<clean|dirty|unknown> env=<pio-env>
+[SYS] FIRMWARE IMAGE validation_sha256=<64-hex> status=<OK|...>
+[SYS] BUILD META toolchain_sha256=<64-hex> pio=<version>
 ```
+
+Первая строка остаётся canonical source-provenance line. Вторая и третья строки добавляют running-image и build/toolchain identity; не подменяй одно другим.
 
 Перед measured hardware scenario, после установления identity каждой физической ноды, получи firmware provenance read-only:
 
 ```text
 предпочтительно:
-    уже наблюдённая boot provenance line
+    уже наблюдённые boot provenance/integrity lines
 
 иначе:
     send_line "/version"
-    observe canonical [SYS] FIRMWARE line
+    observe полный блок из доступных [SYS] FIRMWARE / FIRMWARE IMAGE / BUILD META lines
 ```
 
-Обычно достаточно запросить `/version` по одному стабильному transport каждой физической ноды, предпочтительно USB. SYSTEM output может одновременно появляться и на BLE 0003; не считай одинаковую строку на двух transports двумя разными firmware observations. Сначала свяжи transports через canonical `/id`.
+Обычно достаточно запросить `/version` по одному стабильному transport каждой физической ноды, предпочтительно USB. SYSTEM output может одновременно появляться и на BLE 0003; не считай одинаковые строки на двух transports двумя разными firmware observations. Сначала свяжи transports через canonical `/id`.
 
 Acceptance для exact physical source SHA:
 
@@ -71,15 +75,72 @@ state=unknown OR git=unknown
 
 Не называй `state=dirty` exact firmware SHA даже если 40-hex Git value присутствует. В REPORT сохрани каноническую строку целиком как evidence, но canonical run/observation firmware SHA ставь `unknown`.
 
-Если measured scenario требует обе физические ноды на одном exact release checkpoint, до измерения проверь:
+Для прошивки, которая поддерживает runtime integrity lines, дополнительно различай три разных digest/identity:
 
 ```text
-node A: state=clean, git=<expected SHA>
-node B: state=clean, git=<expected SHA>
-A.git == B.git == expected SHA
+git=<40-hex>
+    -> exact source commit при state=clean
+
+validation_sha256=<64-hex>
+    -> ESP running application image validation digest
+    -> это НЕ SHA-256 полного firmware.bin файла
+
+toolchain_sha256=<64-hex>
+    -> SHA-256 canonical build/toolchain record
+    -> exact resolved build metadata identity
+
+release manifest artifact.sha256
+    -> SHA-256 полного firmware.bin
+    -> внешний artifact identity; нода его напрямую не сообщает
 ```
 
-Mismatch, `dirty` или `unknown` до measured phase — это precondition failure / BLOCKED для exact-provenance release gate, а не firmware behavior FAIL. Не перепрошивай автоматически; flashing требует явного operator authorization.
+Для exact runtime-image release gate:
+
+```text
+node [SYS] FIRMWARE IMAGE status=OK
+AND node validation_sha256 == release-manifest artifact.image_validation_sha256
+    -> running application image совпадает с ожидаемым ESP image identity
+```
+
+Если `status` не `OK`, строка отсутствует у firmware, которая по контракту обязана её поддерживать, или digest не совпадает с ожидаемым manifest — exact runtime-image gate не пройден. До measured behavior phase это precondition failure / BLOCKED, а не RF/ACK behavior FAIL.
+
+Для exact build-metadata gate:
+
+```text
+node toolchain_sha256 == release-manifest toolchain.sha256
+    -> fwmeta canonical toolchain/build record совпадает с ожидаемым release manifest
+```
+
+Mismatch или отсутствующая строка у firmware, которая обязана поддерживать новый контракт, — precondition failure / BLOCKED для exact build-metadata release gate.
+
+При новом integrity-capable firmware сохраняй в REPORT/OBS как exact evidence все три строки `/version`, плюс ожидаемые manifest values, когда они доступны:
+
+```text
+source git SHA/state/env
+running image validation_sha256/status
+toolchain_sha256 + pio version
+expected release-manifest artifact.image_validation_sha256
+expected release-manifest toolchain.sha256
+external SHA-256(firmware.bin), если он известен из release manifest
+```
+
+Не записывай `validation_sha256` в поле `firmware.sha`: canonical `MANIFEST.json -> firmware.sha` schema v1 остаётся source Git SHA или `unknown`. Не записывай `toolchain_sha256` вместо source SHA.
+
+Если measured scenario требует обе физические ноды на одном exact release checkpoint, до измерения проверь доступные уровни provenance:
+
+```text
+source:
+    node A state=clean, git=<expected SHA>
+    node B state=clean, git=<expected SHA>
+    A.git == B.git == expected SHA
+
+для integrity-capable release:
+    A.status == B.status == OK
+    A.validation_sha256 == B.validation_sha256 == expected image_validation_sha256
+    A.toolchain_sha256 == B.toolchain_sha256 == expected toolchain.sha256
+```
+
+Mismatch, `dirty`, `unknown`, failed integrity status или обязательный digest mismatch до measured phase — это precondition failure / BLOCKED для exact-provenance release gate, а не firmware behavior FAIL. Не перепрошивай автоматически; flashing требует явного operator authorization.
 
 ## Host Bluetooth audio preflight
 
@@ -143,6 +204,8 @@ measured BLE scenario не начинать
 ```text
 /help        show current command set
 /id          show canonical node identity
+/version     show source + image/build provenance
+/firmware    alias for /version
 /chat        human console CHAT
 /tele        human console TELEMETRY
 /both        human console BOTH
