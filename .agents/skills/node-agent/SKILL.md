@@ -206,6 +206,10 @@ measured BLE scenario не начинать
 /id          show canonical node identity
 /version     show source + image/build provenance
 /firmware    alias for /version
+/power       show persisted SX1278 PA_BOOST setting
+/power N     apply + persist NVS power setting (current contract 2..17 dBm)
+/config      show persisted config schema/storage/power
+/config reset restore compiled defaults in NVS
 /chat        human console CHAT
 /tele        human console TELEMETRY
 /both        human console BOTH
