@@ -11,6 +11,9 @@ CHATTER_TEXT_COMMANDS = frozenset(
         "/id",
         "/version",
         "/firmware",
+        "/power",
+        "/config",
+        "/config reset",
         "/chat",
         "/tele",
         "/both",
@@ -48,9 +51,15 @@ _FAILURE_PREFIXES = (
 
 
 def recognized_chatter_command(line: str) -> str | None:
-    """Return the canonical local command if firmware-style trim recognizes it."""
+    """Return the local command if firmware-style trim recognizes it."""
     candidate = line.strip(_COMMAND_TRIM_CHARS)
-    return candidate if candidate in CHATTER_TEXT_COMMANDS else None
+    if candidate in CHATTER_TEXT_COMMANDS:
+        return candidate
+    if candidate.startswith("/power "):
+        return candidate
+    if candidate.startswith("/config "):
+        return candidate
+    return None
 
 
 @dataclass

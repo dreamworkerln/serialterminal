@@ -53,6 +53,8 @@ _HUMAN_HELP_LINES = (
     "/cancel /cancel all are sent unchanged to Chatter",
     "/id requests the canonical Chatter node identity",
     "/version (/firmware alias) requests firmware provenance",
+    "/power and /power N query/set persisted radio power",
+    "/config and /config reset show/reset persisted settings",
     "/help requests Chatter help",
     "Ctrl+T 1/c   Chatter human console: CHAT",
     "Ctrl+T 2/t   Chatter human console: TELEMETRY",
