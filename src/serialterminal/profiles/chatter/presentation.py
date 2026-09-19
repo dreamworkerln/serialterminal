@@ -12,6 +12,12 @@ CHATTER_TEXT_COMMANDS = frozenset(
         "/version",
         "/firmware",
         "/power",
+        "/freq",
+        "/freq-oob",
+        "/freq-oob on",
+        "/freq-oob off",
+        "/sf",
+        "/bw",
         "/config",
         "/config reset",
         "/chat",
@@ -56,6 +62,14 @@ def recognized_chatter_command(line: str) -> str | None:
     if candidate in CHATTER_TEXT_COMMANDS:
         return candidate
     if candidate.startswith("/power "):
+        return candidate
+    if candidate.startswith("/freq "):
+        return candidate
+    if candidate.startswith("/freq-oob "):
+        return candidate
+    if candidate.startswith("/sf "):
+        return candidate
+    if candidate.startswith("/bw "):
         return candidate
     if candidate.startswith("/config "):
         return candidate

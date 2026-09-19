@@ -69,19 +69,28 @@ def test_chatter_local_commands_are_echoed_and_queued_uniformly(
         session._submit_interactive_line("/version")
         session._submit_interactive_line("/firmware")
         session._submit_interactive_line("/power")
-        session._submit_interactive_line("/power 10")
+        session._submit_interactive_line("/power 20")
+        session._submit_interactive_line("/freq 480.355")
+        session._submit_interactive_line("/freq-oob on")
+        session._submit_interactive_line("/sf 9")
+        session._submit_interactive_line("/bw 31.25")
         session._submit_interactive_line("/config reset")
 
         assert capsys.readouterr().out == (
             "/help\n/version\n/firmware\n"
-            "/power\n/power 10\n/config reset\n"
+            "/power\n/power 20\n/freq 480.355\n"
+            "/freq-oob on\n/sf 9\n/bw 31.25\n/config reset\n"
         )
         assert sent == [
             "/help",
             "/version",
             "/firmware",
             "/power",
-            "/power 10",
+            "/power 20",
+            "/freq 480.355",
+            "/freq-oob on",
+            "/sf 9",
+            "/bw 31.25",
             "/config reset",
         ]
         assert session._presentation is not None
