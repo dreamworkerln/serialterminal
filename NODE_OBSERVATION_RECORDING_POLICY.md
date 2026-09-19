@@ -280,7 +280,44 @@ git=unknown
 
 Operator-stated branch/SHA, host checkout SHA или expected flash target сами по себе не заменяют node-reported provenance.
 
-В observation разрешены run-specific IDs, MAC, USB path, session IDs, RSSI/SNR/Q, timing/counters, fault state, payload и exact excerpts. Не превращай эти значения в постоянные свойства класса/экземпляра.
+Для integrity-capable Chatter firmware `/version` может дополнительно вернуть:
+
+```text
+[SYS] FIRMWARE IMAGE validation_sha256=<64-hex> status=<OK|...>
+[SYS] BUILD META toolchain_sha256=<64-hex> pio=<version>
+```
+
+Эти строки являются отдельными видами provenance/evidence:
+
+```text
+firmware.sha / Firmware:
+    source Git SHA из canonical [SYS] FIRMWARE line
+    только при exact 40-hex + state=clean
+
+validation_sha256:
+    SHA-256 ESP application image identity, возвращаемый runtime integrity path
+    НЕ равен и НЕ подменяет SHA-256 полного firmware.bin файла
+
+toolchain_sha256:
+    SHA-256 canonical toolchain/build record из fwmeta
+    НЕ равен и НЕ подменяет source Git SHA
+
+release-manifest artifact.sha256:
+    внешний SHA-256 полного firmware.bin
+    нода его напрямую не сообщает
+```
+
+Если release gate требует exact running-image identity, REPORT/OBS должен сохранить node-reported `status` и `validation_sha256` и сравнить их с release manifest `artifact.image_validation_sha256`. Exact gate требует `status=OK` и exact digest match.
+
+Если release gate требует exact build metadata, REPORT/OBS должен сохранить node-reported `toolchain_sha256` и сравнить его с release manifest `toolchain.sha256`.
+
+При наличии manifest также допустимо/желательно сохранить внешний `artifact.sha256` как artifact evidence, но не записывать его в `MANIFEST.json -> firmware.sha`.
+
+Текущий RUN `MANIFEST.json` schema v1 **не расширяется автоматически** ради этих новых digest: поле `firmware.sha` сохраняет прежнюю семантику exact source Git SHA или literal `unknown`. Image/toolchain/full-file hashes до отдельной schema migration живут в REPORT/OBS exact evidence.
+
+Если новая прошивка по контракту обязана поддерживать integrity lines, но `status != OK`, digest отсутствует или не совпадает с ожидаемым release manifest до measured phase, классифицируй exact-provenance/integrity gate как `BLOCKED`/precondition failure, а не как RF/ACK behavior `FAIL`.
+
+В observation разрешены run-specific IDs, MAC, USB path, session IDs, RSSI/SNR/Q, timing/counters, fault state, payload, exact provenance/integrity digest values и exact excerpts. Не превращай эти значения в постоянные свойства класса/экземпляра.
 
 ---
 
@@ -333,6 +370,9 @@ Validation rules:
 - firmware SHA exact 40-hex или literal `unknown`;
 - для Chatter node-reported `state=clean` + exact 40-hex `git` является допустимым physical source-provenance evidence;
 - `state=dirty` / `unknown` / unsupported provenance не допускают заполнение exact firmware SHA;
+- node-reported image/toolchain hashes не записываются в `firmware.sha`; до отдельной schema migration они принадлежат REPORT/OBS evidence;
+- integrity-capable exact release gate требует `FIRMWARE IMAGE status=OK` и, когда задан expected manifest, exact match `validation_sha256 == artifact.image_validation_sha256`;
+- exact build-metadata gate, когда задан expected manifest, требует exact match `toolchain_sha256 == toolchain.sha256`;
 - `files` mapping canonical и не содержит произвольных external paths;
 - `recorded` требует matching OBS с тем же identity и обратной `Run bundle:` ссылкой;
 - `not-required` требует `path: null` и non-empty `reason`.
