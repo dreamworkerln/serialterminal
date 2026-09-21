@@ -1,0 +1,23 @@
+{
+  "schema": 1,
+  "observed_at": "2026-09-21T03:13:41Z",
+  "topic": "todo-006-hardware-validation",
+  "result": "BLOCKED",
+  "serialterminal": {
+    "repo": "dreamworkerln/serialterminal",
+    "sha": "1c8b42830780d65b0f5daefd4d23275ac7c56ac7"
+  },
+  "firmware": {
+    "repo": "dreamworkerln/lora-sack-protocol",
+    "sha": "unknown"
+  },
+  "observation": {
+    "state": "recorded",
+    "path": "../../observations/OBS_20260921T031341Z_todo-006-hardware-validation.md"
+  },
+  "files": {
+    "report": "REPORT.md",
+    "console": "serialterminal.console.log",
+    "serialterminal_log": "serialterminal.log"
+  }
+}
