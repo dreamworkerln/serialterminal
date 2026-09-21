@@ -19,6 +19,7 @@ Hardware/local executor — это **тестировщик физических
 .agents/skills/serialterminal-agent/SKILL.md
 AGENT_API.md
 NODE_OBSERVATION_RECORDING_POLICY.md
+NODE_RUN_AUXILIARY_ARTIFACTS.md
 task-specific firmware/protocol docs, если они нужны для expected behavior
 ```
 
@@ -63,6 +64,11 @@ read-only.
 
 Task-specific firmware docs можно читать как authority ожидаемого поведения. Это не
 даёт hardware executor-у права изменять firmware repository.
+
+`NODE_RUN_AUXILIARY_ARTIFACTS.md` является обязательной частью bootstrap
+hardware executor-а, но описанные в нём auxiliary captures остаются optional.
+Например, `btmon` не запускается автоматически: auxiliary artifact создаётся только
+когда конкретный hardware scenario явно требует такой diagnostic capture.
 
 ---
 

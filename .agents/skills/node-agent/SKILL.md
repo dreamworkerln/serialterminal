@@ -44,8 +44,21 @@ serialterminal-observations  append immutable evidence via guarded helpers
 `PASS | FAIL | BLOCKED | INCONCLUSIVE` и остановись на evidence boundary. Source
 fix/review выполняется отдельной задачей другим агентом.
 
-Canonical правила storage/publication/recovery:
-[NODE_OBSERVATION_RECORDING_POLICY.md](../../../NODE_OBSERVATION_RECORDING_POLICY.md).
+Перед hardware run прочитай canonical evidence docs:
+
+```text
+NODE_OBSERVATION_RECORDING_POLICY.md
+NODE_RUN_AUXILIARY_ARTIFACTS.md
+```
+
+Первый документ задаёт RUN/OBS storage/publication/recovery contract. Второй
+расширяет его правилами optional auxiliary artifacts под `RUN/.../artifacts/`.
+Наличие поддержки auxiliary artifacts не означает, что их надо собирать в каждом
+run; diagnostic capture запускается только когда этого требует конкретная задача.
+
+Canonical ссылки:
+[NODE_OBSERVATION_RECORDING_POLICY.md](../../../NODE_OBSERVATION_RECORDING_POLICY.md) и
+[NODE_RUN_AUXILIARY_ARTIFACTS.md](../../../NODE_RUN_AUXILIARY_ARTIFACTS.md).
 
 Не хардкодь concrete node IDs, MAC/BLE addresses, USB paths, session IDs, RSSI/SNR/Q, current topology или текущее состояние конкретного экземпляра.
 
