@@ -16,9 +16,13 @@ Firmware/protocol authority — актуальные source/docs `dreamworkerln/
 Этот skill предназначен для hardware/local executor-а: он тестирует физические ноды,
 собирает evidence и публикует RUN/OBS. Он **не является source-development agent**.
 
-Для hardware run не используй root `AGENTS.md` ни из `serialterminal`, ни из
-`lora-sack-protocol` как operating instructions. Эти файлы относятся к задачам, в
-которых агент меняет исходники/development state.
+Для hardware run не используй `serialterminal/AGENTS.md` как operating
+instructions: он относится к source-development работе в SerialTerminal.
+
+`lora-sack-protocol/AGENTS.md` — отдельный обязательный контракт firmware
+source-development агента. Он нужен агенту, который анализирует или меняет Chatter
+source, но не hardware executor-у, который только выполняет measured run и собирает
+evidence.
 
 В обычной hardware-validation задаче:
 

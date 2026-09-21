@@ -22,10 +22,13 @@ NODE_OBSERVATION_RECORDING_POLICY.md
 task-specific firmware/protocol docs, если они нужны для expected behavior
 ```
 
-Root `AGENTS.md` в `serialterminal` и root `AGENTS.md` в `lora-sack-protocol`
-являются инструкциями для агентов, которые меняют source/development state. Они **не
-входят в обязательный bootstrap hardware executor-а** и не должны добавляться в
-hardware-test prompt как operating instructions.
+Root `serialterminal/AGENTS.md` относится к source-development работе в
+SerialTerminal и **не входит в bootstrap hardware executor-а**.
+
+Root `lora-sack-protocol/AGENTS.md` является контрактом для firmware
+source-development агента, который анализирует/меняет Chatter source. Его должен
+читать source agent при работе с firmware repository, но hardware executor-у этот
+файл также не передаётся как operating instructions для measured run.
 
 Hardware executor не должен в рамках measured task:
 
