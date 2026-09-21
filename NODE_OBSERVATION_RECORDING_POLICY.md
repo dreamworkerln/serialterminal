@@ -8,6 +8,59 @@ Local executor — исполнитель и сборщик evidence. Он не 
 
 Reviewer обрабатывает observations по [NODE_SKILL_LEARNING_POLICY.md](NODE_SKILL_LEARNING_POLICY.md).
 
+## 0. Hardware executor role boundary
+
+Hardware/local executor — это **тестировщик физических нод и сборщик evidence**, а не source-development agent.
+
+Для обычной hardware-validation задачи его bootstrap состоит из:
+
+```text
+.agents/skills/node-agent/SKILL.md
+.agents/skills/serialterminal-agent/SKILL.md
+AGENT_API.md
+NODE_OBSERVATION_RECORDING_POLICY.md
+task-specific firmware/protocol docs, если они нужны для expected behavior
+```
+
+Root `AGENTS.md` в `serialterminal` и root `AGENTS.md` в `lora-sack-protocol`
+являются инструкциями для агентов, которые меняют source/development state. Они **не
+входят в обязательный bootstrap hardware executor-а** и не должны добавляться в
+hardware-test prompt как operating instructions.
+
+Hardware executor не должен в рамках measured task:
+
+- изменять SerialTerminal или firmware source;
+- изменять tests, CI, TODOs, architecture/docs или agent skills;
+- делать source-development commits/merges в development branches;
+- исправлять найденный firmware/SerialTerminal bug;
+- выполнять reviewer/promotion работу или менять `REVIEW_STATE.md`.
+
+Если hardware run обнаружил bug/regression или evidence показывает, что нужна новая
+instrumentation/source change:
+
+```text
+hardware executor
+    -> сохраняет raw logs/artifacts
+    -> пишет REPORT/OBS
+    -> публикует immutable evidence
+    -> останавливается на evidence boundary
+
+source-development agent
+    -> отдельно читает source-development instructions
+    -> анализирует evidence
+    -> исправляет source/docs/tests
+    -> при необходимости делегирует новый hardware run
+```
+
+Единственная рабочая Git-запись hardware executor-а — canonical evidence publication
+в independent sibling clone `serialterminal-observations`, branch
+`node_observations`, по правилам этого документа и через guarded publication
+helpers. Main `serialterminal/dev` clone и firmware development branches для него
+read-only.
+
+Task-specific firmware docs можно читать как authority ожидаемого поведения. Это не
+даёт hardware executor-у права изменять firmware repository.
+
 ---
 
 ## 1. Storage и branch model

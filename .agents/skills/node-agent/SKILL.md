@@ -11,6 +11,38 @@ Generic SerialTerminal workflow, JSONL schema, sessions, `observe`, cursors, tra
 
 Firmware/protocol authority — актуальные source/docs `dreamworkerln/lora-sack-protocol` соответствующего Chatter checkpoint. Правила reliable USER ниже относятся к текущему ACK-capable Chatter checkpoint; если задача явно проверяет старый best-effort checkpoint, используй его собственный source/docs contract.
 
+## Hardware executor role
+
+Этот skill предназначен для hardware/local executor-а: он тестирует физические ноды,
+собирает evidence и публикует RUN/OBS. Он **не является source-development agent**.
+
+Для hardware run не используй root `AGENTS.md` ни из `serialterminal`, ни из
+`lora-sack-protocol` как operating instructions. Эти файлы относятся к задачам, в
+которых агент меняет исходники/development state.
+
+В обычной hardware-validation задаче:
+
+```text
+SerialTerminal source        read-only
+firmware source              read-only
+tests / CI / TODO / docs     read-only
+node-agent skill             read-only
+REVIEW_STATE.md              read-only
+
+physical nodes               interact / measure
+SerialTerminal sessions      interact / measure
+raw logs + run artifacts     collect
+serialterminal-observations  append immutable evidence via guarded helpers
+```
+
+Если поведение расходится с expected contract, не исправляй исходники и не
+"подкручивай" документацию. Зафиксируй exact evidence, дай
+`PASS | FAIL | BLOCKED | INCONCLUSIVE` и остановись на evidence boundary. Source
+fix/review выполняется отдельной задачей другим агентом.
+
+Canonical правила storage/publication/recovery:
+[NODE_OBSERVATION_RECORDING_POLICY.md](../../../NODE_OBSERVATION_RECORDING_POLICY.md).
+
 Не хардкодь concrete node IDs, MAC/BLE addresses, USB paths, session IDs, RSSI/SNR/Q, current topology или текущее состояние конкретного экземпляра.
 
 ## Identity и discovery
