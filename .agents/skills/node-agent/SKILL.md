@@ -78,6 +78,56 @@ Discovery показывает текущие доступные transport paths
 
 Каждую Chatter session открывай по возвращённому `device_key` через SerialTerminal agent с явным `"profile":"chatter"`. Не полагайся на generic default profile: именно Chatter profile задаёт controller connect preamble и Chatter BLE stream layout, включая `/id` при connect/reconnect. Отдельного identity/preamble toggle в agent API нет.
 
+## RF precondition для близко расположенных Chatter-нод
+
+После того как canonical `/id` установил участвующие физические ноды, **до первой
+LoRa RF transmission measured scenario** приведи каждую участвующую ноду к минимальной
+тестовой мощности:
+
+```text
+1. остановить возможный background RF:
+       /heartbeat off
+       /diag off          # если diagnostic mode поддерживается/активен
+       /echo-loop stop    # если continuous echo поддерживается/активен
+
+2. на КАЖДОЙ участвующей ноде:
+       /power 2
+
+3. на КАЖДОЙ участвующей ноде:
+       /config
+
+4. доказать:
+       power=2 dBm
+```
+
+`/id`, `/heartbeat off`, `/diag off`, `/echo-loop stop`, `/power 2`,
+`/config` и `/version` являются local/controller operations; этот gate запрещает
+именно LoRa RF-producing действия до подтверждения мощности.
+
+До PASS этого precondition не запускай:
+
+```text
+USER RF traffic
+ECHO / echo-loop RF traffic
+HEARTBEAT PING
+diagnostic heartbeat
+любую другую команду/сценарий, который вызывает LoRa TX
+```
+
+Если firmware не поддерживает одну из stop-команд, не отправляй неизвестную команду
+как USER payload: сначала установи capability по task-specific firmware contract.
+Главное обязательное состояние перед RF phase — отсутствие известного background TX
+и подтверждённый `power=2 dBm` на всех участвующих нодах.
+
+Если `/power 2` rejected, radio config unavailable или `/config` не подтверждает
+2 dBm хотя бы на одной участвующей ноде, RF measured phase не начинать; зафиксировать
+precondition failure по правилам текущей задачи.
+
+Причина этого project-wide hardware gate: лабораторные ноды часто лежат рядом.
+Минимальная разрешённая Chatter/SX1278 PA_BOOST setting уменьшает ненужную
+near-field/overdrive нагрузку и делает повторяемые тесты менее зависимыми от
+случайного высокого persisted TX power.
+
 ## Firmware provenance
 
 Для актуального Chatter firmware не выводи physical firmware provenance из branch name, локального checkout, operator-stated target или предполагаемой прошивки. Получай provenance **с самой физической ноды**.
