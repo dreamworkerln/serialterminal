@@ -1,0 +1,23 @@
+{
+  "schema": 1,
+  "observed_at": "2026-09-21T03:42:43Z",
+  "topic": "todo-006-ble-hardware-validation",
+  "result": "INCONCLUSIVE",
+  "serialterminal": {
+    "repo": "dreamworkerln/serialterminal",
+    "sha": "1c8b42830780d65b0f5daefd4d23275ac7c56ac7"
+  },
+  "firmware": {
+    "repo": "dreamworkerln/lora-sack-protocol",
+    "sha": "6c08084891f4940dcbe804c0c4ef26feea9b4eb5"
+  },
+  "observation": {
+    "state": "recorded",
+    "path": "../../observations/OBS_20260921T034243Z_todo-006-ble-hardware-validation.md"
+  },
+  "files": {
+    "report": "REPORT.md",
+    "console": "serialterminal.console.log",
+    "serialterminal_log": "serialterminal.log"
+  }
+}
