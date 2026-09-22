@@ -2,7 +2,7 @@
 
 Read this only after a publication/storage/Git helper failure or when the observation workspace is already in an unusual state.
 
-Normal publication rules are in ../../../NODE_OBSERVATION_RECORDING_POLICY.md.
+Normal publication rules are in ../../../../NODE_OBSERVATION_RECORDING_POLICY.md.
 
 ## Core rule
 
