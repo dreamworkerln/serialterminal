@@ -29,7 +29,9 @@ For QUICK:
 
 - do not create RUN/OBS unless explicitly requested;
 - do not read NODE_OBSERVATION_RECORDING_POLICY.md;
-- do not read the full ../serialterminal/AGENT_API.md;
+- do not pre-emptively read or search ../serialterminal/AGENT_API.md, README.md, scripts/, helper source or unrelated repository files;
+- do not use rg/grep/repository exploration merely to rediscover normal happy-path operation syntax already stated in this skill;
+- read ../serialterminal/AGENT_API.md only after an actual structured API error or when the requested operation/semantic is not covered by this skill;
 - do not load provenance/reliability/diagnostic references unless the task actually depends on them;
 - use the normal safety/identity rules below;
 - return only the requested compact result.
@@ -83,6 +85,20 @@ python3 ../serialterminal/serialterminal.py agent
 
 Do not vary that prefix merely to generate a unique logfile name.
 
+### Interaction efficiency
+
+Minimize model/terminal round-trips without hiding evidence:
+
+- when several independent `send_line` requests are ready at the same checkpoint, submit them together in one terminal interaction and correlate responses by request id;
+- do not batch commands whose ordering depends on an earlier result;
+- use returned cursors directly rather than re-querying status/history to rediscover position;
+- do not re-read repository documentation between normal happy-path phases;
+- keep terminal output consumed incrementally; do not intentionally replay the entire accumulated SerialTerminal stdout back into model context after the same responses were already processed;
+- use specialized helpers only when timing/correctness requires local orchestration, not merely to save a few model turns.
+
+The skill is an operational contract, not a catalog of test cases. Do not create scenario-specific skills or instructions for ordinary ad-hoc hardware requests.
+
+
 Normal JSONL sequence:
 
 ```text
@@ -96,11 +112,13 @@ discover
 
 Important:
 
+- keep one SerialTerminal agent process for the whole hardware task; do not restart it between phases merely for convenience;
 - discovery cache is process-local; run discover in the same agent process before open;
 - for Chatter sessions open returned device_key with profile "chatter";
 - save latest_seq/cursors and advance using observe-returned cursors;
-- result.lines is the normal logical firmware view;
-- result.events/data_b64 is forensic transport evidence;
+- result.lines is the normal logical firmware view and the default input for ordinary protocol reasoning;
+- do not expand, inspect or reason over result.events/data_b64 unless transport forensics, ambiguity or an explicit diagnostic actually requires raw evidence;
+- result.events/data_b64 remains the forensic transport authority when raw evidence is required;
 - send_line queued or transport written is not peer delivery;
 - tx_state unknown is ambiguous; do not blindly resend;
 - forensic_gap means the affected evidence range is incomplete.
