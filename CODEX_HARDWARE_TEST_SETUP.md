@@ -9,11 +9,11 @@ It is not part of the per-run bootstrap. The executor normally receives AGENTS.m
 Use two independent sibling clones:
 
 ```text
-/home/user/coding/python/serialterminal
+~/coding/python/serialterminal
     branch: dev
     source/runtime
 
-/home/user/coding/python/serialterminal-observations
+~/coding/python/serialterminal-observations
     branch: node_observations
     hardware executor workspace + evidence
 ```
@@ -23,7 +23,7 @@ Do not use a linked worktree for serialterminal-observations.
 Start the hardware Codex session with:
 
 ```text
-cwd = /home/user/coding/python/serialterminal-observations
+cwd = ~/coding/python/serialterminal-observations
 ```
 
 Source-development sessions continue to start from serialterminal/.
@@ -39,7 +39,7 @@ The old configuration:
 ```toml
 [sandbox_workspace_write]
 writable_roots = [
-    "/home/user/coding/python/serialterminal-observations",
+    "~/coding/python/serialterminal-observations",
 ]
 ```
 
