@@ -2,24 +2,35 @@
 
 ## Purpose
 
-Этот документ предназначен для reviewer-а, который периодически обрабатывает накопленные hardware observations из orphan branch `node_observations` и при необходимости обновляет `.agents/skills/node-agent/SKILL.md` в `dev`.
+Этот документ предназначен reviewer-у, который периодически обрабатывает hardware observations из branch node_observations.
 
-Local executor не должен выполнять этот процесс. Его отдельный контракт: [NODE_OBSERVATION_RECORDING_POLICY.md](NODE_OBSERVATION_RECORDING_POLICY.md).
+Reviewer отделён от local hardware executor-а. Executor только выполняет физический scenario и пишет evidence. Reviewer выполняет дорогую knowledge-processing часть и при необходимости:
 
-Reviewer выполняет дорогую часть knowledge processing:
+- обновляет active hardware executor skill/references на node_observations;
+- изменяет SerialTerminal source/API/docs на dev только когда evidence действительно требует source outcome;
+- продвигает REVIEW_STATE.md после завершённого reviewer outcome.
+
+Canonical executor policy находится на node_observations:
+
+```text
+NODE_OBSERVATION_RECORDING_POLICY.md
+.agents/skills/lora-chatter-hardware/
+```
+
+Reviewer pipeline:
 
 ```text
 raw observations
-→ compare across runs
-→ inspect authoritative source when needed
-→ separate object state from class behavior
-→ deduplicate / resolve conflicts
-→ generalize reusable rules
-→ update lora-chatter-nodes skill
-→ advance REVIEW_STATE.md
+-> compare across runs
+-> inspect authoritative source when needed
+-> separate object state from class behavior
+-> deduplicate / resolve conflicts
+-> generalize reusable rules
+-> update hardware skill/reference when justified
+-> advance REVIEW_STATE.md
 ```
 
----
+Local hardware executor не выполняет этот процесс.
 
 ## 1. Authority and branches
 
@@ -28,59 +39,56 @@ dev
     SerialTerminal code/docs
     AGENT_API.md
     .agents/skills/serialterminal-agent/SKILL.md
-    .agents/skills/node-agent/SKILL.md
-    reviewer policies
+    NODE_SKILL_LEARNING_POLICY.md
 
 node_observations
-    orphan evidence branch
+    hardware executor AGENTS.md
+    .agents/skills/lora-chatter-hardware/
+    NODE_OBSERVATION_RECORDING_POLICY.md
+    NODE_RUN_AUXILIARY_ARTIFACTS.md
     observations/*.md
+    runs/*
     REVIEW_STATE.md
 
 lora-sack-protocol
     firmware/protocol source authority
 ```
 
-`node_observations` не является source branch и не merge-ится в `dev`.
+node_observations не merge-ится в dev. Historical observations/RUNs остаются append-only.
 
-Observation records являются historical evidence. Reviewer не переписывает старые records, чтобы они соответствовали текущему пониманию. Correction/refinement делается reviewer output/skill update или новым observation record.
+Отдельный reviewer/infrastructure task может менять tracked hardware skill/policy files и REVIEW_STATE.md на node_observations. Local hardware executor во время measured run этого не делает.
 
 Перед любой записью refetch actual target branch HEAD и relevant files.
-
----
 
 ## 2. Reviewer bootstrap
 
 Перед review:
 
-1. refetch `serialterminal/dev` HEAD;
-2. refetch `serialterminal/node_observations` HEAD;
-3. прочитать root `AGENTS.md`;
-4. прочитать этот policy;
-5. прочитать текущий `.agents/skills/node-agent/SKILL.md`;
-6. прочитать `REVIEW_STATE.md` из `node_observations`, если он существует;
+1. refetch serialterminal/dev HEAD;
+2. refetch serialterminal/node_observations HEAD;
+3. прочитать dev root AGENTS.md и этот reviewer policy;
+4. прочитать node_observations/AGENTS.md;
+5. прочитать current .agents/skills/lora-chatter-hardware/SKILL.md и только relevant references;
+6. прочитать REVIEW_STATE.md из node_observations;
 7. определить exact set новых observation records;
-8. читать `AGENT_API.md`/generic SerialTerminal skill только если observation затрагивает generic API/transport semantics;
-9. inspect `lora-sack-protocol` source/docs, когда для promotion/conflict resolution требуется firmware authority.
+8. читать AGENT_API.md/generic SerialTerminal skill только если observations затрагивают generic API/transport semantics;
+9. inspect lora-sack-protocol source/docs, когда promotion/conflict resolution требует firmware authority.
 
 Не начинай с memory или guessed last observation.
 
----
-
 ## 3. REVIEW_STATE.md
 
-`REVIEW_STATE.md` живёт в корне orphan branch `node_observations` и является единственным mutable reviewer state в этой branch.
-
-Local executor его не меняет.
+REVIEW_STATE.md живёт в корне node_observations и является mutable reviewer state. Local hardware executor его не меняет.
 
 Рекомендуемый формат:
 
 ```markdown
 # Node observation review state
 
-last_reviewed_observation: observations/OBS_20260903T203005Z_echo-timeout.md
-last_reviewed_observation_commit: <node_observations commit SHA containing/ending processed range>
-reviewed_against_dev: <dev SHA read during review>
-reviewed_by_commit: <dev commit that applied skill/docs changes, or none>
+last_reviewed_observation: observations/OBS_...
+last_reviewed_observation_commit: <node_observations evidence boundary commit>
+reviewed_against_dev: <exact dev SHA used after any required source outcome>
+reviewed_by_commit: <node_observations hardware-skill/reference promotion commit, or none>
 reviewed_at: YYYY-MM-DDTHH:MM:SSZ
 
 unresolved:
@@ -90,15 +98,15 @@ unresolved:
 
 Semantics:
 
-- `last_reviewed_observation` — последний observation file в полностью обработанном диапазоне;
-- `last_reviewed_observation_commit` — commit observation branch, до которого review выполнен;
-- `reviewed_against_dev` — exact `dev` checkpoint, с которым сравнивались observations/skill;
-- `reviewed_by_commit` — exact `dev` commit, созданный review-ом для обновления skill/docs; если изменения в `dev` не требовались, `none`;
-- `unresolved` — уже рассмотренные, но не закрытые anomaly/conflict candidates, которые надо сохранить видимыми для будущего evidence.
+- last_reviewed_observation — последний observation file в полностью обработанном диапазоне;
+- last_reviewed_observation_commit — evidence commit boundary, до которого review выполнен;
+- reviewed_against_dev — exact dev checkpoint, против которого закрыт review;
+- reviewed_by_commit — отдельный node_observations infrastructure commit, который применил promoted hardware skill/reference changes; если таких changes не было, none;
+- unresolved — уже рассмотренные, но не закрытые anomaly/conflict candidates.
 
-`REVIEW_STATE.md` обновляется только после того, как reviewer outcome в `dev` завершён и проверен.
+Если reviewer меняет hardware skill/references, сначала создаётся и проверяется отдельный infrastructure commit, затем отдельным commit обновляется REVIEW_STATE.md. Это позволяет state ссылаться на уже существующий reviewed_by_commit.
 
----
+REVIEW_STATE нельзя advance до завершения всех required dev/source outcomes и hardware-skill outcomes.
 
 ## 4. Как определить новые observations
 
@@ -123,7 +131,7 @@ Reviewer должен обработать observation files, добавленн
 1. проверить, что это factual observation, а не уже выполненная generalization;
 2. сохранить concrete setup/identity/measurements как run evidence;
 3. проверить exact SerialTerminal/firmware checkpoints, если они указаны;
-4. сравнить observation с текущим node skill;
+4. сравнить observation с текущим hardware skill;
 5. при необходимости сравнить с другими observations того же scenario;
 6. при semantic conflict inspect authoritative firmware/source или generic API;
 7. классифицировать reviewer outcome;
@@ -166,7 +174,7 @@ INSUFFICIENT
     evidence недостаточно для вывода
 ```
 
-Только `CLASS_CANDIDATE` после promotion gate напрямую изменяет node skill.
+Только `CLASS_CANDIDATE` после promotion gate напрямую изменяет hardware skill.
 
 `ANOMALY_CONFLICT` сначала требует resolution; он не является автоматическим новым contract.
 
@@ -174,7 +182,7 @@ INSUFFICIENT
 
 ## 7. Class-level abstraction rule
 
-`.agents/skills/node-agent/SKILL.md` описывает класс LoRa-Chatter node, а не лабораторные экземпляры.
+`.agents/skills/lora-chatter-hardware/SKILL.md` описывает класс LoRa-Chatter node, а не лабораторные экземпляры.
 
 Reviewer должен суметь сформулировать promoted rule без случайной привязки к:
 
@@ -244,7 +252,7 @@ RSSI was -29 dBm
 
 ## 9. Promotion gate
 
-Новое/изменённое правило попадает в `node-agent/SKILL.md` только если:
+Новое/изменённое правило попадает в `lora-chatter-hardware/SKILL.md` только если:
 
 - оно class-level;
 - повторно полезно будущему executor-у;
@@ -304,55 +312,48 @@ Reviewer должен использовать накопление observations
 
 ---
 
-## 12. Обновление lora-chatter-nodes skill
+## 12. Обновление hardware executor skill/references
 
-Target:
+Active target находится на node_observations:
 
 ```text
-serialterminal/dev:.agents/skills/node-agent/SKILL.md
+.agents/skills/lora-chatter-hardware/SKILL.md
+.agents/skills/lora-chatter-hardware/references/
 ```
 
 Перед write:
 
-1. refetch actual `dev` HEAD;
-2. refetch current skill blob;
-3. re-check that observations still относятся к актуальному behavior/source;
+1. refetch actual node_observations HEAD;
+2. refetch current skill и только затронутые reference files;
+3. re-check observations against authoritative firmware/source/API;
 4. внести минимальные class-level changes;
-5. не переносить raw logs/IDs/measurements в skill;
+5. не переносить raw logs, concrete IDs, topology или measurements в reusable instructions;
 6. review diff for accidental weakening/duplication;
-7. commit normal docs change to `dev`;
-8. read back commit and updated skill.
+7. commit normal reviewer/infrastructure change directly to node_observations;
+8. read back commit and updated files.
 
-Если review затронул generic SerialTerminal API, следовать `AGENTS.md`: отдельно проверить `AGENT_API.md` и generic SerialTerminal skill. Не переписывать generic contract из Chatter-specific observation без source evidence.
+Этот infrastructure commit не должен изменять observations/, runs/ или REVIEW_STATE.md.
 
----
+Если review затронул generic SerialTerminal API/source behavior, соответствующие source/docs/tests changes выполняются отдельно на dev по dev/AGENTS.md. Не переписывай generic contract из одного Chatter observation без source evidence.
 
 ## 13. Порядок обновления REVIEW_STATE.md
 
 После processing диапазона:
 
-1. сначала закончить все необходимые изменения в `dev`;
-2. получить exact resulting `dev` commit SHA;
-3. read back updated skill/docs;
-4. определить последний полностью обработанный observation и observation-branch commit boundary;
-5. refetch actual `node_observations` HEAD и current `REVIEW_STATE.md`;
-6. update `REVIEW_STATE.md`;
-7. сохранить unresolved entries;
-8. commit state update в `node_observations`;
-9. read back state.
+1. закончить все необходимые source/API/docs changes на dev и получить resulting dev SHA;
+2. если promotion требует hardware skill/reference changes — закончить отдельный node_observations infrastructure commit и получить его exact SHA;
+3. read back resulting source/skill state;
+4. определить последний полностью обработанный observation и evidence commit boundary;
+5. refetch actual node_observations HEAD и current REVIEW_STATE.md;
+6. обновить REVIEW_STATE.md отдельным state-only commit;
+7. reviewed_against_dev = exact resulting dev SHA;
+8. reviewed_by_commit = exact hardware-skill/reference infrastructure commit или none;
+9. сохранить unresolved entries;
+10. read back state commit.
 
-Нельзя advance `REVIEW_STATE.md`, если reviewer ещё не закончил соответствующий dev outcome.
+Нельзя advance REVIEW_STATE.md, если соответствующий source или skill outcome ещё не завершён.
 
-Если `dev` change не требовался:
-
-```text
-reviewed_by_commit: none
-reviewed_against_dev: <exact dev SHA used for review>
-```
-
-Это означает: observations обработаны, но skill/docs уже были корректны или promotion не прошла.
-
----
+State commit не должен менять historical observations/runs или executor infrastructure.
 
 ## 14. Partial review
 
@@ -386,36 +387,35 @@ Reviewer не должен:
 
 ```text
 observations processed: <range/count>
-skill changes: <summary or none>
+hardware skill/reference changes: <summary or none>
 unresolved: <count/list>
-dev commit: <SHA or none>
-REVIEW_STATE commit: <SHA>
+dev/source commit: <SHA or none>
+hardware-skill commit: <node_observations SHA or none>
+REVIEW_STATE commit: <node_observations SHA>
 next observation boundary: <last_reviewed_observation>
 ```
-
----
 
 ## Authority summary
 
 ```text
-NODE_OBSERVATION_RECORDING_POLICY.md
-    local executor -> raw evidence
+node_observations:NODE_OBSERVATION_RECORDING_POLICY.md
+    local hardware executor -> raw evidence policy
 
-node_observations/observations/*.md
-    immutable run-specific observations
+node_observations:observations/*.md + runs/*
+    immutable run-specific evidence
 
-NODE_SKILL_LEARNING_POLICY.md
+NODE_SKILL_LEARNING_POLICY.md on dev
     reviewer processing/promotion rules
 
 node_observations:REVIEW_STATE.md
-    mutable review cursor/state
+    mutable reviewer cursor/state
 
-.agents/skills/node-agent/SKILL.md
-    current class-level LoRa-Chatter instructions
+node_observations:.agents/skills/lora-chatter-hardware/
+    active reusable physical-executor instructions
 
 lora-sack-protocol source/docs
     firmware/protocol implementation authority
 
-AGENT_API.md
+AGENT_API.md on dev
     generic SerialTerminal API authority
 ```
