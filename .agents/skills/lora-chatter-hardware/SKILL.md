@@ -110,6 +110,20 @@ discover
 -> terminate the same agent process
 ```
 
+Minimal happy-path request schemas are part of this skill. Do not guess field names and do not search AGENT_API.md for these operations:
+
+```json
+{"id":1,"op":"discover","scope":"ble"}
+{"id":2,"op":"open","device_key":"<returned device_key>","profile":"chatter"}
+{"id":3,"op":"send_line","session":"s1","text":"/id"}
+{"id":4,"op":"observe","cursors":{"s1":42,"s2":75},"timeout_ms":1000}
+{"id":5,"op":"close","session":"s1"}
+```
+
+For `send_line`, the payload field is exactly `text`, never `line`.
+For `open`, use the exact `device_key` returned by same-process discovery.
+Save each successful `open` result's `latest_seq` as the initial cursor when startup traffic should be ignored.
+
 Important:
 
 - keep one SerialTerminal agent process for the whole hardware task; do not restart it between phases merely for convenience;
