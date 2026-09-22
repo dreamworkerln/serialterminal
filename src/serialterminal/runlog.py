@@ -28,6 +28,31 @@ def console_log_path(path: str | Path) -> Path:
     return raw_path.with_name(name)
 
 
+def format_console_record(
+    session: str,
+    direction: str,
+    text: str,
+    *,
+    timestamp: float | None = None,
+) -> str:
+    """Render one shared human-console audit record for any frontend."""
+    markers = {">": "I", "<": "O"}
+    if direction not in markers:
+        raise ValueError("console direction must be '>' or '<'")
+    moment = (
+        datetime.now().astimezone()
+        if timestamp is None
+        else datetime.fromtimestamp(timestamp).astimezone()
+    )
+    # Одна logical record должна оставаться одной физической строкой logfile,
+    # даже если caller передал control characters внутри line text.
+    visible_text = text.replace("\r", "\\r").replace("\n", "\\n")
+    return (
+        f"{moment.isoformat(timespec='milliseconds')} "
+        f"[{session}] [{markers[direction]}] {visible_text}\n"
+    )
+
+
 class RunLog:
     """Thread-safe forensic log plus companion human-console view for one run."""
 
@@ -125,16 +150,14 @@ class RunLog:
         *,
         timestamp: float | None = None,
     ) -> None:
-        markers = {">": "I", "<": "O"}
-        if direction not in markers:
-            raise ValueError("console direction must be '>' or '<'")
-        # Одна logical record должна оставаться одной физической строкой logfile,
-        # даже если caller передал control characters внутри send_line text.
-        visible_text = text.replace("\r", "\\r").replace("\n", "\\n")
         with self._lock:
             self._console_file.write(
-                f"{self._timestamp(timestamp)} [{session}] [{markers[direction]}] "
-                f"{visible_text}\n"
+                format_console_record(
+                    session,
+                    direction,
+                    text,
+                    timestamp=timestamp,
+                )
             )
             self._console_file.flush()
 

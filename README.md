@@ -22,13 +22,16 @@ python3 serialterminal.py --profile chatter
 
 Human `chatter` profile сохраняет Chatter-aware presentation/hotkeys и для USB Serial отправляет `/id` как connect/reconnect preamble. Human BLE/SPP не получают автоматический `/id`.
 
-По умолчанию каждый отдельный запуск human terminal создаёт отдельный session log:
+По умолчанию каждый отдельный запуск human terminal создаёт связанную пару:
 
 ```text
 logs/serialterminal-YYYYMMDD-HHMMSS-ffffff-pPID.log
+logs/serialterminal-YYYYMMDD-HHMMSS-ffffff-pPID.console.log
 ```
 
-Явный `--log <path>` доступен для отладки и явного выбора пути.
+Основной human `.log` сохраняет исторический terminal transcript для обратной совместимости. Companion `.console.log` использует общий human-console формат с agent: offset-aware ISO timestamp с миллисекундами, process-local session token, направление `[I]/[O]` и одна logical line на физическую строку logfile.
+
+Явный `--log <path>` выбирает путь основного файла; companion автоматически получает тот же basename с суффиксом `.console.log`. Полный общий logging contract описан в `LOGGING.md`.
 
 После запуска terminal показывает выбранный profile и предлагает локальный help:
 
@@ -174,6 +177,8 @@ Receive/observation использует один `cursors` object и retained r
 Один agent process может держать несколько разных `device_key` одновременно. Повторный `open` того же `device_key` внутри одного manager возвращает structured `device_busy`.
 
 ## Agent run logs
+
+Agent использует тот же companion `.console.log` contract, что и human frontend, но его основной `.log` имеет forensic/API/transport роль. Полная frontend-neutral спецификация находится в `LOGGING.md`.
 
 Каждый agent run создаёт связанную пару файлов с одним timestamp/PID prefix:
 

@@ -12,6 +12,7 @@ from prompt_toolkit import PromptSession
 from prompt_toolkit.key_binding import KeyBindings
 from prompt_toolkit.patch_stdout import patch_stdout
 
+from .runlog import console_log_path, format_console_record
 from .profiles import (
     GENERIC_PROFILE,
     ProfileAction,
@@ -48,8 +49,11 @@ class TerminalSession(ManagedSession):
             line_ending=line_ending,
             reconnect_delay=reconnect_delay,
             connect_preamble=self._human_connect_preamble,
+            line_notifier=self._record_console_output_line,
         )
         self.log_path = Path(log_path)
+        self.console_path = console_log_path(self.log_path)
+        self.console_session = "s1"
         self.device_chooser = device_chooser
 
         self.output_lock = threading.Lock()
@@ -59,6 +63,9 @@ class TerminalSession(ManagedSession):
         self._received_line_buffers = {}
 
         self.log_file = self.log_path.open("a", encoding="utf-8", buffering=1)
+        # Human frontend сохраняет исторический transcript .log, а рядом создаёт
+        # общий с agent timestamped console view для сопоставимого timing analysis.
+        self.console_path.touch(exist_ok=True)
         stamp = datetime.now().astimezone().strftime("%Y-%m-%d %H:%M:%S %z")
         self.log_file.write(f"\n===== serialterminal session {stamp} =====\n")
         self.log_file.flush()
@@ -94,6 +101,29 @@ class TerminalSession(ManagedSession):
         with self.output_lock:
             sys.stdout.write(text)
             sys.stdout.flush()
+
+    def _record_console(
+        self,
+        direction: str,
+        text: str,
+        *,
+        timestamp: float | None = None,
+    ) -> None:
+        with self.output_lock:
+            with self.console_path.open("a", encoding="utf-8", buffering=1) as file:
+                file.write(
+                    format_console_record(
+                        self.console_session,
+                        direction,
+                        text,
+                        timestamp=timestamp,
+                    )
+                )
+
+    def _record_console_output_line(self, line) -> None:
+        if line.stream not in self.profile.human_console_streams():
+            return
+        self._record_console("<", line.text, timestamp=line.timestamp)
 
     def _received_visible(self, stream: str) -> bool:
         return stream in self.profile.human_console_streams()
@@ -200,9 +230,10 @@ class TerminalSession(ManagedSession):
         """Queue one complete line; it is never split into per-key writes."""
         try:
             self.queue_line(line)
-            return True
         except SessionClosedError:
             return False
+        self._record_console(">", line)
+        return True
 
     def _queue_profile_action(self, action: ProfileAction) -> bool:
         if isinstance(action, SendLine):
@@ -407,7 +438,8 @@ class TerminalSession(ManagedSession):
         self.write_output("Press Ctrl+T ? for SerialTerminal help.\n")
         self.write_output("Ctrl+C exits immediately.\n")
         self.write_output("Input is sent only after Enter and survives reconnects.\n")
-        self.write_output(f"Log: {self.log_path}\n\n")
+        self.write_output(f"Log: {self.log_path}\n")
+        self.write_output(f"Console log: {self.console_path}\n\n")
 
         prompt = self._make_prompt_session()
         buffered_line = ""

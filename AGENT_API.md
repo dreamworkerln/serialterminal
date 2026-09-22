@@ -45,6 +45,8 @@ close
 
 ## Run logs
 
+The companion human-console record format is shared with the interactive frontend and is specified in `LOGGING.md`. The agent's primary `.log` remains the stronger forensic/API/transport record described below.
+
 Every agent process creates a paired forensic and human-console log unless an explicit forensic path is supplied:
 
 ```text

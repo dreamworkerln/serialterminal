@@ -1,3 +1,5 @@
+from datetime import datetime
+
 import serialterminal.terminal as terminal_module
 from serialterminal.profiles.chatter import (
     CHATTER_ECHO_TOGGLE,
@@ -157,6 +159,71 @@ def test_chat_prompt_erases_committed_console_echo(tmp_path, monkeypatch):
         assert isinstance(prompt, FakePromptSession)
         assert captured["erase_when_done"] is True
         assert captured["key_bindings"] is not None
+    finally:
+        session.log_file.close()
+
+
+def test_human_terminal_creates_shared_timestamped_console_log(tmp_path):
+    log_path = tmp_path / "terminal.log"
+    session = _chatter_session(
+        DummyBleLikeTransport(),
+        log_path=log_path,
+    )
+    try:
+        assert session.console_path == tmp_path / "terminal.console.log"
+        assert session.console_path.exists()
+
+        assert session.send_line("/id")
+        session._record_event(
+            "rx",
+            stream="chat",
+            data=b"REA",
+            text="REA",
+            device_key="dummy",
+        )
+        assert "[O]" not in session.console_path.read_text()
+
+        session._record_event(
+            "rx",
+            stream="chat",
+            data=b"DY\n",
+            text="DY\n",
+            device_key="dummy",
+        )
+        session._record_event(
+            "rx",
+            stream="telemetry",
+            data=b"MACHINE ONLY\n",
+            text="MACHINE ONLY\n",
+            device_key="dummy",
+        )
+
+        lines = session.console_path.read_text().splitlines()
+        assert len(lines) == 2
+        assert lines[0].endswith(" [s1] [I] /id")
+        assert lines[1].endswith(" [s1] [O] READY")
+        assert "MACHINE ONLY" not in "\n".join(lines)
+
+        for line in lines:
+            timestamp = line.split(" [s1] ", 1)[0]
+            parsed = datetime.fromisoformat(timestamp)
+            assert parsed.utcoffset() is not None
+            fraction = timestamp.split(".", 1)[1].split("+", 1)[0].split("-", 1)[0]
+            assert len(fraction) == 3
+    finally:
+        session.log_file.close()
+
+
+def test_human_console_log_escapes_control_characters_in_queued_input(tmp_path):
+    session = _chatter_session(
+        DummyBleLikeTransport(),
+        log_path=tmp_path / "terminal.log",
+    )
+    try:
+        assert session.send_line("one\ntwo\r")
+        console = session.console_path.read_text()
+        assert " [s1] [I] one\\ntwo\\r\n" in console
+        assert console.count("\n") == 1
     finally:
         session.log_file.close()
 
