@@ -57,6 +57,32 @@ python3 ../serialterminal/serialterminal.py agent --log /tmp/<unique-log-name>.l
 
 The log path is unique for every run/probe. Never reuse a fixed forensic /tmp filename.
 
+The SerialTerminal launch command must remain a direct argv-style command so host approval rules can match it reliably.
+
+Do not use shell wrappers or shell expansion in the launch command:
+
+```text
+forbidden:
+    bash -lc "python3 ..."
+    sh -c "python3 ..."
+    $(date ...)
+    \`date ...\`
+```
+
+Construct the unique log filename first as a literal string, then pass that literal path to `--log`. Example:
+
+```bash
+python3 ../serialterminal/serialterminal.py agent --log /tmp/chatter-probe-20260922T134500Z.log
+```
+
+The stable executable prefix is:
+
+```text
+python3 ../serialterminal/serialterminal.py agent
+```
+
+Do not vary that prefix merely to generate a unique logfile name.
+
 Normal JSONL sequence:
 
 ```text
