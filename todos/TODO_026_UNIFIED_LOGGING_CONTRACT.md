@@ -1,7 +1,7 @@
 # Unified logging contract TODO
 
 TODO-ID: TODO_026
-Status: OPEN
+Status: IMPLEMENTED / PHYSICAL VALIDATION OPEN
 
 ## Purpose
 
@@ -76,28 +76,77 @@ Machine-facing `serialterminal agent` использует `RunLog` и созд�
 
 ## Investigation
 
-- [ ] перечислить все log paths/classes и точки записи в interactive/agent режимах;
-- [ ] определить, почему interactive mode использует отдельный transcript writer вместо `RunLog`;
-- [ ] определить текущих consumers каждого файла;
-- [ ] проверить naming, rotation/creation, timestamps, timezone, direction и session/device identity;
-- [ ] выбрать canonical contract и migration plan.
+- [x] перечислить все log paths/classes и точки записи в interactive/agent режимах;
+- [x] определить, почему interactive mode использует отдельный transcript writer вместо `RunLog`;
+- [x] определить текущих consumers каждого файла;
+- [x] проверить naming, rotation/creation, timestamps, timezone, direction и session/device identity;
+- [x] выбрать canonical contract и migration plan.
+
+Selected contract:
+
+```text
+primary .log
+    human -> compatibility transcript
+    agent -> forensic/API/transport truth
+
+companion .console.log
+    shared format for both frontends
+    offset-aware ISO-8601 timestamp, millisecond precision
+    process-local session token
+    [I] queued line
+    [O] completed ManagedSession logical line from a human-console stream
+```
+
+Interactive mode uses process-local `s1`. Agent mode keeps its normal `s1`, `s2`, ... identifiers.
+
+The historical human transcript is intentionally preserved instead of being silently replaced by the agent forensic format. This keeps existing operator workflows compatible while giving both frontends the same timestamped logical timeline.
 
 ## Implementation
 
-- [ ] реализовать выбранный общий logging contract;
-- [ ] сохранить forensic/raw и human/presentation роли раздельными, если это требуется design;
-- [ ] обновить CLI/help/API docs;
-- [ ] обновить evidence/publication integrations при необходимости.
+- [x] реализовать выбранный общий logging contract;
+- [x] сохранить forensic/raw и human/presentation роли раздельными;
+- [x] обновить CLI/help/API docs;
+- [x] review evidence/publication integrations: no schema or publisher change required because canonical agent `.log/.console.log` names and semantics remain compatible.
+
+Implementation checkpoint:
+
+```text
+dev@5965d576c3bb124d85adf7842282684e755894c7
+GitHub Actions 35733796357 -> SUCCESS
+156 pytest tests passed
+```
+
+Changed contract documentation:
+
+```text
+LOGGING.md
+README.md
+AGENT_API.md
+```
 
 ## Validation
 
-- [ ] unit tests на создание/закрытие всех обязательных log files;
-- [ ] unit tests на timestamp/session/direction semantics;
-- [ ] agent regression tests, включая raw RX + logical console + forensic gap;
-- [ ] interactive regression test;
+- [x] unit tests на создание обязательного human companion log;
+- [x] unit tests на timestamp/session/direction semantics;
+- [x] existing agent regression suite, including raw RX/logical console/forensic-gap behavior, PASS in full CI;
+- [x] interactive regression test for queued input, canonical completed output, background-stream exclusion and CR/LF escaping;
 - [ ] ручной interactive smoke с физической нодой;
 - [ ] agent smoke с физической нодой;
-- [ ] сравнить временную пригодность логов двух режимов на одном типе firmware событий.
+- [ ] физически сравнить временную пригодность логов двух режимов на одном типе firmware событий.
+
+Software regression gate:
+
+```text
+accepted base: 84f78aa1054eab8a95320410c34036f3f803f0e0
+source change: 5965d576c3bb124d85adf7842282684e755894c7
+BASE..HEAD diff reviewed
+all deletions reviewed
+function/method definition comparison: no definitions removed
+compile: PASS
+ruff: PASS
+pytest: 156 PASS
+full GitHub Actions: 35733796357 SUCCESS
+```
 
 ## Findings
 
@@ -115,12 +164,28 @@ agent mode:
     companion .console.log with per-line timestamps + session + direction
 ```
 
-Finding source checkpoint for current implementation: `dev@3c9140589f5664910178cbdfd89e29550c6118f2`.
+Finding source checkpoint for original behavior: `dev@3c9140589f5664910178cbdfd89e29550c6118f2`.
+
+Implemented finding:
+
+```text
+interactive now creates:
+    <name>.log
+    <name>.console.log
+
+agent remains:
+    <name>.log
+    <name>.console.log
+```
+
+The shared companion renderer is `format_console_record()`. Interactive receive records are fed from the existing canonical `ManagedSession` line notifier, so companion output uses the same logical-line boundary/timestamp model as agent output without changing the existing human presentation parser in this TODO.
 
 ## Result
 
-Implemented: not yet.
+Implemented: `dev@5965d576c3bb124d85adf7842282684e755894c7`.
 
-Validated: not yet.
+Software validated: GitHub Actions `35733796357` SUCCESS; 156 tests PASS.
 
-Status: OPEN.
+Physical manual/agent smoke: OPEN.
+
+Status: IMPLEMENTED / PHYSICAL VALIDATION OPEN.
