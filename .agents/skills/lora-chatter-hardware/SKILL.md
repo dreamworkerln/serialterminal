@@ -95,15 +95,13 @@ Establish identity through /id. Do not hard-code node IDs, MACs, device keys, US
 
 Run-specific prompts may provide concrete endpoints. They remain run facts.
 
-## BLE default and host preflight
+## BLE transport
 
 Default Chatter transport is BLE unless the operator or scenario explicitly requires another transport. Do not silently fall back to USB.
 
-Before an ordinary measured BLE scenario, perform a short read-only host Bluetooth/audio preflight. If a connected Bluetooth audio endpoint/path is present, do not begin the ordinary measured run; ask the operator to disconnect it. Do not mutate BlueZ/PipeWire/PulseAudio/WirePlumber.
+No host Bluetooth-audio/headset preflight is part of the normal hardware contract.
 
-If the task is specifically BLE/audio coexistence, use the exception rules in references/bluetooth.md.
-
-Repeated BLE flapping is an environment/evidence boundary; do not automatically label it firmware FAIL.
+If expected BLE targets are absent or BLE repeatedly disconnects/reconnects, use the focused rules in references/bluetooth.md and treat unresolved transport instability as an environment/evidence boundary rather than automatically labeling it firmware FAIL.
 
 ## RF safety gate
 
@@ -165,7 +163,7 @@ references/reliable-user.md
     USER/ACK, retries, duplicates, queue, cancellation, lost-ACK gates
 
 references/bluetooth.md
-    detailed BLE/audio preflight and coexistence handling
+    BLE discovery, permissions and reconnect/flapping handling
 
 references/diagnostic-and-faults.md
     ECHO, reboot, degraded/fatal radio semantics
