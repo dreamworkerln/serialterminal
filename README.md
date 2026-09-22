@@ -84,6 +84,16 @@ Normal CLI передаёт выбранный profile явно в terminal/sess
 
 Chatter-specific возможности — `/id`, `/help`, output/echo shortcuts, `chat`/`telemetry`, pending USER/ECHO presentation и optional BLE `0004` — принадлежат bundled `chatter` profile, а не generic default.
 
+## Codex hardware-test setup
+
+Для physical-node runs с Codex отдельный machine/workspace setup описан в
+[`CODEX_HARDWARE_TEST_SETUP.md`](CODEX_HARDWARE_TEST_SETUP.md).
+
+Там зафиксированы независимый sibling clone `serialterminal-observations`,
+дополнительный Codex `writable_roots` для evidence publication, один
+long-lived `serialterminal agent` process на run и LoRa-Chatter transport
+default BLE, если оператор явно не потребовал USB.
+
 ## Agent / Codex JSONL interface
 
 Agent mode запускается без TUI:
