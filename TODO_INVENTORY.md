@@ -138,7 +138,17 @@ Partial implementation: optional same-run `artifacts/` publication added at `dev
 
 Remaining work: align the primary `NODE_OBSERVATION_RECORDING_POLICY.md` and node-agent skill so they distinguish same-run auxiliary captures from separately executed material control/reproduction runs, while not requiring publication of every scratch experiment.
 
+TODO_026 logging-contract investigation is also OPEN and may be scheduled independently when log-format work is selected.
+
 Suggested implementation order for the next pass: finish the HCI boundary isolation in `TODO_024`, then correctness/evidence boundaries (`TODO_011`, `TODO_013`, `TODO_016`, `TODO_017`, `TODO_021`, remaining `TODO_025` docs), then lifecycle/API robustness (`TODO_018`, `TODO_019`, `TODO_022`, `TODO_023`), then consistency/docs follow-ups (`TODO_012`, `TODO_014`, `TODO_015`, `TODO_020`). Re-evaluate ordering if implementation exposes dependencies.
+
+### TODO_026 — `todos/TODO_026_UNIFIED_LOGGING_CONTRACT.md`
+
+Status: OPEN
+
+Goal: unify or explicitly standardize interactive and agent logging so manual and machine-driven runs have a documented, comparable timestamp/session/direction contract without weakening forensic evidence.
+
+Finding checkpoint: `dev@3c9140589f5664910178cbdfd89e29550c6118f2`; operator manual run on 2026-09-22 confirmed interactive mode currently produces one untimestamped-per-line transcript while agent mode produces timestamped forensic + companion console logs.
 
 ## Closed
 
