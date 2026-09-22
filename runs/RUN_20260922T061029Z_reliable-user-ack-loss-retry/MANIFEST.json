@@ -1,0 +1,23 @@
+{
+  "schema": 1,
+  "observed_at": "2026-09-22T06:10:29Z",
+  "topic": "reliable-user-ack-loss-retry",
+  "result": "BLOCKED",
+  "serialterminal": {
+    "repo": "dreamworkerln/serialterminal",
+    "sha": "fedfa29d5c8b07613e49e9425bbc2bbc5b74c165"
+  },
+  "firmware": {
+    "repo": "dreamworkerln/lora-sack-protocol",
+    "sha": "6c08084891f4940dcbe804c0c4ef26feea9b4eb5"
+  },
+  "observation": {
+    "state": "recorded",
+    "path": "../../observations/OBS_20260922T061029Z_reliable-user-ack-loss-retry.md"
+  },
+  "files": {
+    "report": "REPORT.md",
+    "console": "serialterminal.console.log",
+    "serialterminal_log": "serialterminal.log"
+  }
+}
