@@ -2,8 +2,6 @@
 
 Read this only when BLE discovery, permissions, reconnect or flapping behavior matters.
 
-There is no routine Bluetooth-audio/headset preflight in the hardware executor contract.
-
 ## BLE discovery
 
 Discovery is capability-based. A LoRa-looking advertised name is not enough.
@@ -24,4 +22,4 @@ If reconnect/flapping prevents complete evidence, stop the affected scenario cle
 
 Do not mutate BlueZ or other host Bluetooth services as an automatic recovery action. Host-stack changes require an explicit operator task.
 
-If the task specifically investigates host Bluetooth coexistence or interference, record only the environment facts relevant to that requested diagnostic. Do not introduce unrelated host checks into ordinary runs.
+If the task specifically investigates host Bluetooth transport coexistence or interference, record only the environment facts relevant to that requested diagnostic. Do not introduce unrelated host checks into ordinary runs.
