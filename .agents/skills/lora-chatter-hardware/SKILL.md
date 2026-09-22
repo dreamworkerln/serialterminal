@@ -79,6 +79,32 @@ Important:
 - tx_state unknown is ambiguous; do not blindly resend;
 - forensic_gap means the affected evidence range is incomplete.
 
+### Observe timeout policy
+
+Treat `observe.timeout_ms` as the maximum wait for one long-poll, not as the scenario deadline. An observe request returns immediately when any watched session produces a new raw event.
+
+Use the smallest timeout appropriate to the expected response:
+
+```text
+local command / QUICK probe:
+    timeout_ms = 1000
+    if timed_out with no relevant event, retry once
+    after the second empty 1 s poll, stop or report the local no-response boundary
+
+ordinary measured RF/protocol step:
+    choose a timeout from the expected airtime/protocol window
+    do not use 15/20/30 s merely as a generic safety margin
+
+known long retry/exhaustion scenario:
+    use the task/protocol deadline, not an arbitrary observe timeout
+```
+
+A 1 s timeout is not a universal protocol deadline. At slow LoRa PHY settings a valid RF outcome can legitimately take longer than 1 s.
+
+After every observe response, continue from the returned cursors. If an event arrives without a complete logical line, issue the next observe immediately with those cursors.
+
+Avoid repeated empty 15-30 second waits. Conversely, do not create dozens of 1-second LLM reasoning turns for a known long wait; when a scenario requires tight/long deterministic polling, use an existing scenario helper or a task-specific local orchestration path.
+
 Do not read the entire AGENT_API.md for the normal path. Read ../serialterminal/AGENT_API.md only when the task directly depends on API semantics not stated here or a structured API error cannot be handled from this skill.
 
 If expected BLE targets are absent from discover, use the supported capability scanner/prober workflow before concluding absence. Do not treat an advertised name alone as NUS capability.
