@@ -130,7 +130,7 @@ AGENT_API.md
 - [x] unit tests на timestamp/session/direction semantics;
 - [x] existing agent regression suite, including raw RX/logical console/forensic-gap behavior, PASS in full CI;
 - [x] interactive regression test for queued input, canonical completed output, background-stream exclusion and CR/LF escaping;
-- [ ] ручной interactive smoke с физической нодой;
+- [x] ручной interactive smoke с физической нодой, включая `--profile chatter`;
 - [ ] agent smoke с физической нодой;
 - [ ] физически сравнить временную пригодность логов двух режимов на одном типе firmware событий.
 
@@ -186,6 +186,19 @@ Implemented: `dev@5965d576c3bb124d85adf7842282684e755894c7`.
 
 Software validated: GitHub Actions `35733796357` SUCCESS; 156 tests PASS.
 
-Physical manual/agent smoke: OPEN.
+Physical manual smoke: PASS on 2026-09-22 with physical LoRa-Chatter-1B44 using `Profile: chatter`.
 
-Status: IMPLEMENTED / PHYSICAL VALIDATION OPEN.
+Observed files:
+
+```text
+serialterminal-20260922-165233-281847-p52949.log
+serialterminal-20260922-165233-281847-p52949.console.log
+```
+
+The companion log showed millisecond offset-aware timestamps, `[s1]`, `[I]` for manual commands and one `[O]` record per canonical human-console logical line.
+
+Additional non-blocking observation: the compatibility transcript contained duplicate telemetry text while Chatter machine telemetry was subscribed in background and the firmware human output mode was TELEMETRY. The companion `.console.log` did not duplicate those records because it correctly includes only profile human-console streams. This does not invalidate the shared companion contract; investigate transcript stream attribution/duplication separately if desired.
+
+Physical agent smoke: OPEN.
+
+Status: IMPLEMENTED / AGENT PHYSICAL VALIDATION OPEN.

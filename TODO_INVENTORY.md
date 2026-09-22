@@ -144,7 +144,7 @@ Suggested implementation order for the next pass: finish the HCI boundary isolat
 
 ### TODO_026 — `todos/TODO_026_UNIFIED_LOGGING_CONTRACT.md`
 
-Status: IMPLEMENTED / PHYSICAL VALIDATION OPEN
+Status: IMPLEMENTED / AGENT PHYSICAL VALIDATION OPEN
 
 Goal: unify or explicitly standardize interactive and agent logging so manual and machine-driven runs have a documented, comparable timestamp/session/direction contract without weakening forensic evidence.
 
@@ -152,7 +152,7 @@ Implementation: `dev@5965d576c3bb124d85adf7842282684e755894c7`; GitHub Actions `
 
 Selected contract: both frontends create the same timestamped `.console.log` logical timeline. Human primary `.log` remains the compatibility transcript; agent primary `.log` remains forensic/API/transport truth. Interactive output uses canonical `ManagedSession` completed lines for companion records.
 
-Remaining gate: physical interactive smoke + physical agent smoke and timing comparison on the same firmware event type.
+Physical interactive smoke: PASS on 2026-09-22 with `Profile: chatter`; companion timestamps/session/direction/logical-line behavior confirmed. Remaining gate: physical agent smoke and timing-format comparison.
 
 ## Closed
 
