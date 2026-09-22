@@ -116,42 +116,47 @@ When a change touches discovery, profiles, transport construction, session lifec
 
 [AGENT_API.md](AGENT_API.md) is the canonical repository documentation for the machine-facing SerialTerminal JSONL interface. It owns the API schema, operations, request/response semantics, errors, session/cursor behavior, concurrency guarantees, logging contract, and CLI invocation.
 
-The active generic SerialTerminal agent skill is [.agents/skills/serialterminal-agent/SKILL.md](.agents/skills/serialterminal-agent/SKILL.md).
+The active generic SerialTerminal source/runtime skill is [.agents/skills/serialterminal-agent/SKILL.md](.agents/skills/serialterminal-agent/SKILL.md). Keep it concise and consistent with AGENT_API.md; AGENT_API.md remains the generic API source of truth.
 
-It is a concise operational entry point for an agent. From its location it links back to `../../../AGENT_API.md` and must not duplicate or redefine the full JSONL contract. If the skill and `AGENT_API.md` ever disagree about SerialTerminal behavior, `AGENT_API.md` is the source of truth and the skill must be corrected.
+Physical LoRa-Chatter execution no longer bootstraps from this source workspace. Its lightweight executor instructions, evidence policy and project-specific hardware skill live on branch node_observations in the independent sibling clone serialterminal-observations.
 
-The active project-specific LoRa-Chatter node skill is [.agents/skills/node-agent/SKILL.md](.agents/skills/node-agent/SKILL.md).
-
-Keep this node skill in the `serialterminal` repository so it remains available independently of which branch or worktree of `lora-sack-protocol` is currently selected. It contains class-level Chatter commands, LoRa/echo/reboot behavior, radio diagnostics, reusable fault/recovery guidance, and node-level acceptance rules. It must not store concrete node IDs, MAC/BLE addresses, USB device paths, current measurements, current lab topology, or other instance-specific run state. It must use the generic SerialTerminal API through `AGENT_API.md`/the SerialTerminal skill rather than redefining that API.
-
-For hardware interaction tasks, follow [NODE_OBSERVATION_RECORDING_POLICY.md](NODE_OBSERVATION_RECORDING_POLICY.md) for recording run-specific evidence in the separate observation clone/branch.
+Do not copy the full hardware executor policy back into dev. Source/runtime documentation owns API implementation truth; the observation workspace owns physical-executor operating context and evidence rules.
 
 ## Delegating hardware work to the node agent
 
-When this source-development agent asks a separate local node/hardware agent to execute a hardware scenario, keep the roles strictly separated.
+Keep source-development and physical execution as separate Codex workspaces.
 
-The node/hardware agent is an **executor and evidence collector**, not a source developer or reviewer. Its task is to use the already implemented SerialTerminal agent interface, interact with the requested hardware, evaluate only the requested scenario, restore the required safe final state, and publish factual RUN/OBS evidence according to `NODE_OBSERVATION_RECORDING_POLICY.md`.
+The source-development agent runs from:
 
-When preparing a prompt for the node/hardware agent:
+```text
+serialterminal/                 branch dev
+```
 
-* point it to `.agents/skills/node-agent/SKILL.md` as the project-specific operating skill;
-* use `.agents/skills/serialterminal-agent/SKILL.md` and `AGENT_API.md` only as the existing machine-interface contract needed to execute the scenario;
-* point it to `NODE_OBSERVATION_RECORDING_POLICY.md` for RUN/OBS creation and publication;
-* do **not** give it `AGENTS.md` or `ARCHITECTURE.md` as operating instructions for the hardware run; those documents govern source-development work in this repository;
-* do **not** instruct it to modify SerialTerminal source, firmware source, tests, documentation, TODOs, CI, skills, or development branches as part of a hardware observation task;
-* do **not** ask it to implement diagnostic instrumentation merely because the existing evidence is insufficient; first let it report the observable boundary with the current interface, then make any required source/instrumentation change in a separate source-development task;
-* do **not** ask it to perform reviewer/promotion work from `NODE_SKILL_LEARNING_POLICY.md` or to update `REVIEW_STATE.md`;
-* require it to distinguish observed facts from hypotheses and to use `PASS | FAIL | BLOCKED | INCONCLUSIVE` without assigning a deeper root cause that its available evidence cannot establish.
+The physical hardware executor runs from:
 
-If a hardware investigation shows that new instrumentation, API behavior, tests, documentation, firmware changes, or skill updates are required, stop at the evidence boundary. The source-development agent reviews the RUN/OBS and authoritative source, implements the required change separately, validates it, and only then may delegate a follow-up hardware scenario to the node agent.
+```text
+serialterminal-observations/    branch node_observations
+```
 
-For a run with anomalies, faults, unexpected behavior, reusable findings, `FAIL`, `BLOCKED`, or `INCONCLUSIVE`, require the executor to preserve the relevant exact logs and publish the observation required by policy. The node agent's final response should remain a short pointer layer to the persisted report/evidence rather than replacing it with an ad hoc narrative.
+Start the hardware Codex session with serialterminal-observations as its working directory. This intentionally prevents serialterminal/AGENTS.md from entering the hardware executor's automatic project-instruction chain.
 
-For every source-code change, explicitly review both `AGENT_API.md` and `.agents/skills/serialterminal-agent/SKILL.md` for consistency with the changed generic SerialTerminal behavior.
+The observation workspace supplies its own short AGENTS.md plus the lora-chatter-hardware skill. The hardware executor uses ../serialterminal only as read-only runtime/API source and uses ../lora-sack-protocol as read-only firmware/protocol authority.
 
-If the change affects the agent-facing API, session semantics, discovery/open/send/receive behavior, streams, errors, logging, CLI invocation, or the recommended generic agent workflow, update the affected generic documentation in the same task. Do not leave either active generic document describing behavior that no longer matches the code.
+When preparing a hardware prompt:
 
-Review `.agents/skills/node-agent/SKILL.md` when a change affects how an agent should operate, observe, or validate LoRa-Chatter nodes. Do not update it mechanically for generic API changes unless its project-specific guidance actually became inaccurate.
+* state the concrete scenario and acceptance criteria;
+* identify QUICK vs canonical evidence work when useful;
+* default LoRa-Chatter transport to BLE unless the operator/scenario requires another transport;
+* do not paste the full AGENT_API.md, source AGENTS.md, publication policy or large scripts into the prompt;
+* let the observation-workspace skill load only the task-specific references it needs;
+* do not authorize source/docs/tests/TODO/CI edits or flashing unless the operator explicitly starts a separate task;
+* require factual PASS | FAIL | BLOCKED | INCONCLUSIVE outcomes and evidence-boundary behavior.
+
+The full generic API remains here in AGENT_API.md and should be read by the hardware executor only when the lightweight hardware skill cannot resolve a direct JSONL/API semantic question or structured API error.
+
+For every SerialTerminal source-code change, explicitly review both AGENT_API.md and .agents/skills/serialterminal-agent/SKILL.md for consistency with changed generic behavior.
+
+If a source change materially changes how physical LoRa-Chatter execution must operate or validate behavior, review the sibling observation-workspace hardware skill/policies for consistency. Updating those files is an explicit executor-infrastructure maintenance change on node_observations, not a hidden side effect of a normal hardware run.
 
 ## BLE behavior
 

@@ -84,15 +84,23 @@ Normal CLI передаёт выбранный profile явно в terminal/sess
 
 Chatter-specific возможности — `/id`, `/help`, output/echo shortcuts, `chat`/`telemetry`, pending USER/ECHO presentation и optional BLE `0004` — принадлежат bundled `chatter` profile, а не generic default.
 
-## Codex hardware-test setup
+## Codex hardware-test workspace
 
-Для physical-node runs с Codex отдельный machine/workspace setup описан в
-[`CODEX_HARDWARE_TEST_SETUP.md`](CODEX_HARDWARE_TEST_SETUP.md).
+Physical-node Codex runs now start from the independent sibling clone
+serialterminal-observations on branch node_observations, not from this source
+workspace.
 
-Там зафиксированы независимый sibling clone `serialterminal-observations`,
-дополнительный Codex `writable_roots` для evidence publication, один
-long-lived `serialterminal agent` process на run и LoRa-Chatter transport
-default BLE, если оператор явно не потребовал USB.
+That branch owns the lightweight hardware AGENTS.md, LoRa-Chatter hardware skill,
+evidence policy and operator setup. The source clone remains the read-only runtime
+provider for hardware execution.
+
+The previous extra writable_roots entry for the sibling observation clone is no
+longer needed when serialterminal-observations itself is the Codex working
+directory. Do not make this source repository writable to the hardware executor
+merely for convenience.
+
+See the short migration pointer in CODEX_HARDWARE_TEST_SETUP.md and the authoritative
+setup in the node_observations workspace.
 
 ## Agent / Codex JSONL interface
 
@@ -206,7 +214,7 @@ Companion log — presentation/audit view, а не evidence доставки. `s
 
 Полный контракт, raw/line cursor semantics, concurrent `observe`, out-of-order response rules, paired logging и ошибки: `AGENT_API.md`.
 
-Generic SerialTerminal API остаётся device-agnostic. Project-specific LoRa-Chatter node guidance хранится в `.agents/skills/node-agent/SKILL.md`; firmware/protocol source authority остаётся в соответствующем source state `lora-sack-protocol`.
+Generic SerialTerminal API остаётся device-agnostic. Project-specific physical LoRa-Chatter executor guidance живёт в sibling `serialterminal-observations` на branch `node_observations`; firmware/protocol source authority остаётся в соответствующем source state `lora-sack-protocol`.
 
 ### Historical live hardware/Codex smoke
 
@@ -345,7 +353,7 @@ Chatter firmware queues
     controller/protocol-owned state
 ```
 
-Host-side presentation state не является доказательством RF delivery. Актуальные firmware queue/reliability limits и acceptance criteria смотри в `.agents/skills/node-agent/SKILL.md` и authoritative firmware/docs, а не выводи из SerialTerminal UI.
+Host-side presentation state не является доказательством RF delivery. Для hardware executor-а актуальные operating/acceptance rules живут в sibling `serialterminal-observations`; protocol constants и implementation behavior проверяй по authoritative firmware/docs, а не выводи из SerialTerminal UI.
 
 ### Android / Kai Morich
 
