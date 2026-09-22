@@ -99,8 +99,6 @@ Run-specific prompts may provide concrete endpoints. They remain run facts.
 
 Default Chatter transport is BLE unless the operator or scenario explicitly requires another transport. Do not silently fall back to USB.
 
-No host Bluetooth-audio/headset preflight is part of the normal hardware contract.
-
 If expected BLE targets are absent or BLE repeatedly disconnects/reconnects, use the focused rules in references/bluetooth.md and treat unresolved transport instability as an environment/evidence boundary rather than automatically labeling it firmware FAIL.
 
 ## RF safety gate
