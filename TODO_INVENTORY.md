@@ -154,19 +154,24 @@ Selected contract: both frontends create the same timestamped `.console.log` log
 
 Physical interactive smoke: PASS on 2026-09-22 with `Profile: chatter`; companion timestamps/session/direction/logical-line behavior confirmed. Remaining gate: physical agent smoke and timing-format comparison.
 
+## Closed
+
 ### TODO_027 — `todos/TODO_027_REDUCE_AGENT_CONTEXT_AMPLIFICATION.md`
 
-Status: IMPLEMENTED / EXECUTOR ALIGNMENT OPEN
+Status: CLOSED
 
-Goal: make raw `observe.result.events` explicit opt-in, keep default machine responses logical-line-first, preserve forensic `.log` truth, and stop executor-side replay patterns that amplify model context.
+Goal: reduce agent context/token amplification without weakening forensic evidence.
 
-Implementation: `dev@b7686b809ff4f7121d59b74903a8fa2251c1b4b5`; GitHub Actions `35847984847` SUCCESS; 157 tests PASS.
+```text
+implementation:       dev@b7686b809ff4f7121d59b74903a8fa2251c1b4b5
+implementation CI:    35847984847 SUCCESS (157 tests)
+executor alignment:   node_observations@1dd53cdf121d2acdcc86dba8c8aea24ecde56655
+measured projection:  732,122 -> 99,492 bytes across six recorded observe responses
+reduction:             86.4% / 7.36x smaller
+```
 
-Measured on six previously captured two-node `observe` responses: serialized machine-response payload falls from 732,122 bytes to 99,492 bytes when raw events are omitted by default (-86.4%, 7.36x smaller). Exact tokenizer savings were not claimed.
+Default `observe` now returns logical lines/cursors/timeout state; raw `events/data_b64` require `include_events:true`. Forensic `.log` raw evidence is unchanged. Executor guidance also prohibits accumulated stdout replay and whole-log model-context dumps unless bounded forensics require them.
 
-Remaining gate: align the physical executor skill on `node_observations` with opt-in raw events and no accumulated stdout/log replay.
-
-## Closed
 
 ### TODO_010 — `todos/TODO_010_TERMINAL_VISIBILITY_PREDICATE.md`
 

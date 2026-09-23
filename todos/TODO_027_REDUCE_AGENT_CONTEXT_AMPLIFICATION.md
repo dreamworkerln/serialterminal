@@ -1,7 +1,7 @@
 # Reduce agent context/token amplification TODO
 
 TODO-ID: TODO_027
-Status: IMPLEMENTED / EXECUTOR ALIGNMENT OPEN
+Status: CLOSED
 
 ## Purpose
 
@@ -102,7 +102,7 @@ This is a serialized JSON byte measurement over the same recorded responses, not
 - [x] BASE..HEAD diff reviewed;
 - [x] every deletion reviewed; removed function/method definitions: none;
 - [x] GitHub Actions `35847984847` SUCCESS;
-- [ ] observation-workspace hardware skill aligned with new default consumption rule.
+- [x] observation-workspace hardware skill aligned at `node_observations@1dd53cdf121d2acdcc86dba8c8aea24ecde56655`.
 
 ## Result
 
@@ -110,6 +110,8 @@ Implementation checkpoint: `dev@b7686b809ff4f7121d59b74903a8fa2251c1b4b5`.
 
 Clean CI: GitHub Actions `35847984847` SUCCESS; 157 tests PASS.
 
-Remaining: align the physical executor skill on `node_observations` so ordinary hardware tasks rely on default logical-line responses, request raw events only for explicit forensics, and do not replay accumulated process stdout/finalized logs into model context.
+Physical executor alignment: `node_observations@1dd53cdf121d2acdcc86dba8c8aea24ecde56655`.
 
-Status: IMPLEMENTED / EXECUTOR ALIGNMENT OPEN.
+The hardware skill now uses default logical-line responses, requires `include_events:true` only for bounded forensic work, forbids accumulated stdout replay after consumed close responses, and directs finalized-log checks to targeted search/count/summary operations.
+
+Status: CLOSED.
