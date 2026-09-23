@@ -73,6 +73,19 @@ python3 ../serialterminal/serialterminal.py agent --log /tmp/<unique-log-name>.l
 
 The log path is unique for every run/probe. Never reuse a fixed forensic /tmp filename.
 
+Immediately before launching SerialTerminal, obtain the real current UTC timestamp with a separate command:
+
+```bash
+date -u +%Y%m%dT%H%M%SZ
+```
+
+Use the exact returned value in the basename. The timestamp is run identity, not decoration:
+
+- do not invent, round, normalize or approximate it;
+- do not use placeholder-looking values such as `T000000Z` unless that is literally what the preceding `date -u` command returned;
+- do not reuse a timestamp copied from an example, prompt, previous run or earlier terminal output;
+- before launch, verify that neither the chosen `.log` nor its companion `.console.log` already exists; on collision, obtain a fresh timestamp/name rather than overwriting or appending to old evidence.
+
 The SerialTerminal launch command must remain a direct argv-style command so host approval rules can match it reliably.
 
 Do not use shell wrappers or shell expansion in the launch command:
@@ -85,10 +98,13 @@ forbidden:
     \`date ...\`
 ```
 
-Construct the unique log filename first as a literal string, then pass that literal path to `--log`. Example:
+After the standalone timestamp command, construct the log filename as a literal string and pass that literal path to `--log`. Example shape only:
 
-```bash
-python3 ../serialterminal/serialterminal.py agent --log /tmp/chatter-probe-20260922T134500Z.log
+```text
+date -u +%Y%m%dT%H%M%SZ
+    -> 20260923T142137Z
+
+python3 ../serialterminal/serialterminal.py agent --log /tmp/chatter-probe-20260923T142137Z.log
 ```
 
 The stable executable prefix is:
