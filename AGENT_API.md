@@ -270,18 +270,25 @@ By default, `observe` returns completed logical lines, cursors and timeout state
 
 `cursors` is required and non-empty. Each value is the last raw `SessionEvent.seq` already processed for that session. Sequence spaces are independent per session. There is intentionally one raw cursor model and no separate line cursor.
 
-Result shape:
+Default result shape:
 
 ```json
 {
-  "events":[...],
   "lines":[...],
   "cursors":{"s1":44,"s2":75},
   "timed_out":false
 }
 ```
 
-`events` are forensic raw session events (`state`, `tx`, `rx`, `error`). Exact bytes are in `data_b64`. BLE notifications remain transport-sized chunks; SerialTerminal does not make transports pretend to be line-oriented.
+With `"include_events":true`, the same result additionally contains:
+
+```json
+{
+  "events":[...]
+}
+```
+
+Opt-in `events` are forensic raw session events (`state`, `tx`, `rx`, `error`). Exact bytes are in `data_b64`. BLE notifications remain transport-sized chunks; SerialTerminal does not make transports pretend to be line-oriented. Raw events are still written to the forensic `.log` independently of whether they are projected into a JSON response.
 
 `lines` are completed LF-terminated logical firmware lines assembled once on `ManagedSession`. Each stream has independent UTF-8/line state. A line record contains:
 
@@ -298,8 +305,8 @@ LF is omitted from `text`; CR immediately before LF is removed for the logical l
 Use:
 
 ```text
-firmware/protocol reasoning   -> result.lines
-transport/chunk forensics     -> result.events / data_b64
+firmware/protocol reasoning   -> default result.lines
+transport/chunk forensics     -> include_events:true -> result.events / data_b64
 ```
 
 Do not manually join RX chunks when the completed logical line is already present.
@@ -322,13 +329,13 @@ Only LF-terminated lines become `result.lines`. Incomplete line state is discard
 
 `timeout_ms` must be non-negative.
 
-`timeout_ms:0` returns an immediate snapshot. If no event exists, `timed_out:false` with empty arrays.
+`timeout_ms:0` returns an immediate snapshot. If no event exists, `timed_out:false` with empty `lines` (and empty `events` only when `include_events:true`).
 
-A positive timeout long-polls until the first new raw event on any watched session. If nothing arrives by expiry, it returns empty arrays with `timed_out:true`.
+A positive timeout long-polls until the first new raw event on any watched session. If nothing arrives by expiry, it returns empty `lines` with `timed_out:true`.
 
-If an event arrives without completing a logical line, the request returns immediately with non-empty `events` and possibly empty `lines`; issue the next `observe` using returned cursors.
+If raw activity arrives without completing a logical line, the request still returns immediately and advances the affected event cursor. In the default projection `lines` may therefore be empty while `cursors` changed. With `include_events:true`, the same response also exposes the triggering raw event(s). Continue with the returned cursors; do not manually reconstruct a line from chunks unless transport forensics is the actual task.
 
-There are no receive filters in `observe`; callers may filter returned arrays.
+There are no receive-stream filters in `observe`; `include_events` controls only response projection, not collection, wakeup or forensic logging.
 
 ## Concurrent JSONL behavior
 

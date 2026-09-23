@@ -1,7 +1,7 @@
 # Reduce agent context/token amplification TODO
 
 TODO-ID: TODO_027
-Status: IMPLEMENTED / CLEAN CI OPEN
+Status: IMPLEMENTED / EXECUTOR ALIGNMENT OPEN
 
 ## Purpose
 
@@ -81,22 +81,35 @@ same cursors
 default response < one third of opt-in response size
 ```
 
-A second retrospective measurement will be recorded after implementation against the previously captured two-node diagnostic observe responses.
+Retrospective response-projection measurement against six `observe` responses from the earlier two-node diagnostic capture:
+
+```text
+old always-on events JSON: 732,122 bytes
+new default projection:      99,492 bytes
+reduction:                   632,630 bytes
+reduction percent:              86.4%
+size ratio:                    7.36x smaller
+```
+
+This is a serialized JSON byte measurement over the same recorded responses, not a claim of exact tokenizer/model-token savings. It isolates the API payload effect from unrelated prompt/tool overhead.
 
 ## Validation
 
-- [ ] targeted agent tests PASS;
-- [ ] full pytest PASS;
-- [ ] compile PASS;
-- [ ] static analysis PASS;
-- [ ] BASE..HEAD diff/deletions/function-definition gate PASS;
-- [ ] GitHub Actions PASS;
+- [x] targeted behavior covered by agent regression tests;
+- [x] full pytest PASS: 157 tests;
+- [x] compile PASS;
+- [x] static analysis PASS;
+- [x] BASE..HEAD diff reviewed;
+- [x] every deletion reviewed; removed function/method definitions: none;
+- [x] GitHub Actions `35847984847` SUCCESS;
 - [ ] observation-workspace hardware skill aligned with new default consumption rule.
 
 ## Result
 
-Implementation checkpoint: pending.
+Implementation checkpoint: `dev@b7686b809ff4f7121d59b74903a8fa2251c1b4b5`.
 
-Clean CI: pending.
+Clean CI: GitHub Actions `35847984847` SUCCESS; 157 tests PASS.
 
-Status: IMPLEMENTED / CLEAN CI OPEN.
+Remaining: align the physical executor skill on `node_observations` so ordinary hardware tasks rely on default logical-line responses, request raw events only for explicit forensics, and do not replay accumulated process stdout/finalized logs into model context.
+
+Status: IMPLEMENTED / EXECUTOR ALIGNMENT OPEN.

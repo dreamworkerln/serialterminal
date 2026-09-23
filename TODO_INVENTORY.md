@@ -156,13 +156,15 @@ Physical interactive smoke: PASS on 2026-09-22 with `Profile: chatter`; companio
 
 ### TODO_027 — `todos/TODO_027_REDUCE_AGENT_CONTEXT_AMPLIFICATION.md`
 
-Status: IMPLEMENTED / CLEAN CI OPEN
+Status: IMPLEMENTED / EXECUTOR ALIGNMENT OPEN
 
 Goal: make raw `observe.result.events` explicit opt-in, keep default machine responses logical-line-first, preserve forensic `.log` truth, and stop executor-side replay patterns that amplify model context.
 
-Trigger: a successful two-node CANONICAL_RUN consumed 97,954 total / 90,854 input tokens with only 1,096 reasoning tokens, while ordinary `observe` responses repeatedly serialized raw event/data_b64 payloads.
+Implementation: `dev@b7686b809ff4f7121d59b74903a8fa2251c1b4b5`; GitHub Actions `35847984847` SUCCESS; 157 tests PASS.
 
-Implementation and clean-environment validation are tracked in the dedicated TODO.
+Measured on six previously captured two-node `observe` responses: serialized machine-response payload falls from 732,122 bytes to 99,492 bytes when raw events are omitted by default (-86.4%, 7.36x smaller). Exact tokenizer savings were not claimed.
+
+Remaining gate: align the physical executor skill on `node_observations` with opt-in raw events and no accumulated stdout/log replay.
 
 ## Closed
 
