@@ -1,0 +1,23 @@
+{
+  "schema": 1,
+  "observed_at": "2026-09-23T11:43:06Z",
+  "topic": "agent-dual-session-logging",
+  "result": "PASS",
+  "serialterminal": {
+    "repo": "dreamworkerln/serialterminal",
+    "sha": "5b172ca0894ecf79ae3f714f4f832208f7e651db"
+  },
+  "firmware": {
+    "repo": "dreamworkerln/lora-sack-protocol",
+    "sha": "608f1cd26d76a1b02d3401cbd17a9b4c9ab44716"
+  },
+  "observation": {
+    "state": "recorded",
+    "path": "../../observations/OBS_20260923T114306Z_agent-dual-session-logging.md"
+  },
+  "files": {
+    "report": "REPORT.md",
+    "console": "serialterminal.console.log",
+    "serialterminal_log": "serialterminal.log"
+  }
+}
