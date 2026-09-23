@@ -124,8 +124,10 @@ Minimize model/terminal round-trips without hiding evidence:
 - use returned cursors directly rather than re-querying status/history to rediscover position;
 - do not re-read repository documentation between normal happy-path phases;
 - keep terminal output consumed incrementally; do not intentionally replay the entire accumulated SerialTerminal stdout back into model context after the same responses were already processed;
-- after the final `close` responses are consumed, send the one required EOF/termination action and consider the process retired; do **not** issue a separate wait/run/history interaction merely to prove exit if it would replay accumulated stdout;
-- if the terminal UI automatically emits a collapsed accumulated transcript when the background process exits, leave it collapsed: do not expand it, quote it, or re-read it; use finalized logs for any needed post-run fact;
+- after the final `close` responses are consumed, perform only the control action required to end stdin/process ownership; do **not** issue a separate terminal wait, rerun, history read, transcript fetch or other follow-up whose purpose is merely to prove that the already-closed agent exited;
+- never launch the same SerialTerminal agent command a second time to "finish", "collect", or "confirm" a completed hardware interaction; post-run facts come from the finalized logs, not from replaying process stdout;
+- some terminal UIs emit a collapsed completion card for the original background command when it exits, for example `… +113 lines`. That automatic card is not evidence of a second SerialTerminal launch, but it is still repeated transcript presentation: leave it collapsed and do not expand, quote, search or otherwise re-ingest it;
+- reporting must distinguish these cases accurately. Say `no explicit stdout/history replay was requested` only when true. If an automatic collapsed completion transcript appeared, state that fact; never claim simply `agent completed without replay`;
 - inspect finalized `.log` / `.console.log` with targeted search/count/summary commands; do not read a large forensic log wholesale into model context unless a bounded forensic question requires it;
 - use specialized helpers only when timing/correctness requires local orchestration, not merely to save a few model turns.
 
@@ -140,7 +142,7 @@ discover
 -> status/observe/send_line as needed
 -> cleanup
 -> close
--> terminate the same agent process
+-> terminate process ownership without a post-close stdout/history read
 ```
 
 Minimal happy-path request schemas are part of this skill. Do not guess field names and do not search AGENT_API.md for these operations:
