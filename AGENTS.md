@@ -8,14 +8,13 @@ The hardware executor interacts with physical nodes, collects exact evidence and
 
 It is not a source-development agent.
 
-Treat these sibling repositories as read-only unless the operator explicitly starts a separate source-development task:
+Treat source repositories as read-only unless the operator explicitly starts a separate source-development task.
 
-```text
-../serialterminal
-../lora-sack-protocol
-```
+The SerialTerminal runtime/source checkout is the sibling `../serialterminal`.
 
-Do not modify their source, tests, docs, TODOs, CI, branches or agent instructions during a hardware task. Do not flash firmware unless explicitly authorized.
+The firmware authority is repository `dreamworkerln/lora-sack-protocol`, but its local directory name is **not** fixed. When firmware source inspection is actually required, resolve it only among immediate sibling Git repositories of this workspace by matching `remote.origin.url` to `dreamworkerln/lora-sack-protocol`. Never assume a username, `/home/...` path, or a sibling dirname such as `lora-sack-protocol`; never broaden the search outside the workspace parent merely to find firmware source.
+
+If the firmware repository cannot be resolved from immediate siblings, continue from available node/prompt evidence where sufficient or report the source lookup unavailable. Do not modify source, tests, docs, TODOs, CI, branches or agent instructions during a hardware task. Do not flash firmware unless explicitly authorized.
 
 In this workspace do not modify these tracked executor/reviewer files during a hardware run:
 

@@ -13,9 +13,17 @@ The runtime/source repository is the read-only sibling:
 ../serialterminal
 ```
 
-Firmware source/docs are also read-only during a hardware task.
+Firmware source/docs are also read-only during a hardware task. Their repository identity is `dreamworkerln/lora-sack-protocol`; the local checkout directory name is not part of the contract.
 
-Do not modify source, tests, docs, TODOs, CI, branches, this skill, repository policies or REVIEW_STATE.md. Do not flash unless explicitly authorized.
+When a hardware task genuinely needs a firmware implementation fact that is not already available from the prompt, this skill, node output or loaded task-specific reference:
+
+1. inspect only immediate sibling Git repositories of the current workspace;
+2. select the checkout whose `remote.origin.url` identifies `dreamworkerln/lora-sack-protocol`;
+3. use that resolved path only for the bounded lookup needed by the task.
+
+Never infer the host username or use a hard-coded `/home/<user>/...` fallback. Never assume the checkout is named `../lora-sack-protocol`, and never recursively search the user's home/filesystem to locate it. If no matching immediate sibling exists, report that source lookup boundary instead of widening the search.
+
+Do not inspect firmware source merely to re-verify a clean `/version`, restate constants already supplied by the task, or duplicate evidence already present in the node output. Do not modify source, tests, docs, TODOs, CI, branches, this skill, repository policies or REVIEW_STATE.md. Do not flash unless explicitly authorized.
 
 ## Task classes
 

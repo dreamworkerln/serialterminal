@@ -17,11 +17,13 @@ Recovery from publication failures is intentionally not described in full here. 
 During a hardware task:
 
 ```text
-serialterminal-observations    writable only for canonical evidence
-../serialterminal             read-only runtime/source
-../lora-sack-protocol         read-only firmware authority
-REVIEW_STATE.md               read-only
+serialterminal-observations                 writable only for canonical evidence
+../serialterminal                          read-only runtime/source
+dreamworkerln/lora-sack-protocol checkout  read-only firmware authority; local sibling dirname is not fixed
+REVIEW_STATE.md                            read-only
 ```
+
+Resolve the firmware checkout, only when source inspection is needed, from immediate sibling Git repositories by matching `remote.origin.url`; never use a hard-coded `/home/...` path or assume a particular sibling directory name.
 
 Do not modify source, tests, CI, TODOs, docs, skills or reviewer state. Do not fix a discovered bug inside the measured hardware task.
 
