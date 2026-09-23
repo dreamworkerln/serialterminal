@@ -38,12 +38,26 @@ For QUICK:
 
 ### CANONICAL_RUN
 
-For durable validation/evidence:
+For durable validation/evidence, keep bootstrap compact:
 
-- read NODE_OBSERVATION_RECORDING_POLICY.md before artifact creation/publication;
-- read only the task-specific reference needed below;
-- read provenance.md only when exact physical firmware/source/image identity is required by the task or acceptance gate;
-- read NODE_RUN_AUXILIARY_ARTIFACTS.md only when the task explicitly requests an auxiliary diagnostic capture.
+- do **not** read `NODE_OBSERVATION_RECORDING_POLICY.md` at startup on the normal happy path; the publication contract below is sufficient for an ordinary canonical RUN;
+- read a targeted policy section only when the task has an evidence/layout ambiguity or the guarded helper reports a policy/publication error; do not dump the whole policy into model context;
+- read only the task-specific reference actually needed below;
+- when exact deployed firmware identity is needed, prefer the node's `/version` result; if it reports a clean source SHA plus valid image metadata, do not read `references/provenance.md` merely to restate that result;
+- read `references/provenance.md` only for provenance ambiguity, source/image mismatch, unknown/dirty state, or an acceptance gate that requires deeper provenance reasoning;
+- read `NODE_RUN_AUXILIARY_ARTIFACTS.md` only when the task explicitly requests an auxiliary diagnostic capture.
+
+Normal canonical publication contract after the hardware evidence is finalized:
+
+1. create exactly one unique `runs/RUN_<UTC>_<topic>/`;
+2. copy the exact finalized forensic `serialterminal.log` and companion `serialterminal.console.log`;
+3. write `REPORT.md`; create a matching OBS only for a reusable/material finding;
+4. write `MANIFEST.json` last;
+5. validate only the intended RUN/OBS files and JSON/diff hygiene;
+6. publish only with `python3 -I ../serialterminal/scripts/commit-node-run`;
+7. independently verify `git ls-remote origin refs/heads/node_observations` matches the helper commit.
+
+Do not read helper source, full policy text, or repository history when this happy path succeeds.
 
 ### DIAGNOSTIC
 
@@ -94,7 +108,8 @@ Minimize model/terminal round-trips without hiding evidence:
 - use returned cursors directly rather than re-querying status/history to rediscover position;
 - do not re-read repository documentation between normal happy-path phases;
 - keep terminal output consumed incrementally; do not intentionally replay the entire accumulated SerialTerminal stdout back into model context after the same responses were already processed;
-- after the final `close` responses are consumed, terminate/retire the background agent process without requesting a transcript/history replay; do not invoke a follow-up interaction whose only effect is to emit already-consumed stdout;
+- after the final `close` responses are consumed, send the one required EOF/termination action and consider the process retired; do **not** issue a separate wait/run/history interaction merely to prove exit if it would replay accumulated stdout;
+- if the terminal UI automatically emits a collapsed accumulated transcript when the background process exits, leave it collapsed: do not expand it, quote it, or re-read it; use finalized logs for any needed post-run fact;
 - inspect finalized `.log` / `.console.log` with targeted search/count/summary commands; do not read a large forensic log wholesale into model context unless a bounded forensic question requires it;
 - use specialized helpers only when timing/correctness requires local orchestration, not merely to save a few model turns.
 
