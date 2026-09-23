@@ -94,6 +94,8 @@ Minimize model/terminal round-trips without hiding evidence:
 - use returned cursors directly rather than re-querying status/history to rediscover position;
 - do not re-read repository documentation between normal happy-path phases;
 - keep terminal output consumed incrementally; do not intentionally replay the entire accumulated SerialTerminal stdout back into model context after the same responses were already processed;
+- after the final `close` responses are consumed, terminate/retire the background agent process without requesting a transcript/history replay; do not invoke a follow-up interaction whose only effect is to emit already-consumed stdout;
+- inspect finalized `.log` / `.console.log` with targeted search/count/summary commands; do not read a large forensic log wholesale into model context unless a bounded forensic question requires it;
 - use specialized helpers only when timing/correctness requires local orchestration, not merely to save a few model turns.
 
 The skill is an operational contract, not a catalog of test cases. Do not create scenario-specific skills or instructions for ordinary ad-hoc hardware requests.
@@ -130,9 +132,10 @@ Important:
 - discovery cache is process-local; run discover in the same agent process before open;
 - for Chatter sessions open returned device_key with profile "chatter";
 - save latest_seq/cursors and advance using observe-returned cursors;
-- result.lines is the normal logical firmware view and the default input for ordinary protocol reasoning;
-- do not expand, inspect or reason over result.events/data_b64 unless transport forensics, ambiguity or an explicit diagnostic actually requires raw evidence;
-- result.events/data_b64 remains the forensic transport authority when raw evidence is required;
+- default `observe` returns `lines`, `cursors` and `timed_out`; it intentionally omits raw `events`;
+- `result.lines` is the normal logical firmware view and the default input for ordinary protocol reasoning;
+- request raw events only for a bounded forensic need by adding `"include_events":true` to that specific `observe`;
+- `result.events/data_b64` with `include_events:true` remains the machine-facing raw transport view; the finalized forensic `.log` preserves raw event truth independently of response projection;
 - send_line queued or transport written is not peer delivery;
 - tx_state unknown is ambiguous; do not blindly resend;
 - forensic_gap means the affected evidence range is incomplete.
@@ -159,7 +162,15 @@ known long retry/exhaustion scenario:
 
 A 1 s timeout is not a universal protocol deadline. At slow LoRa PHY settings a valid RF outcome can legitimately take longer than 1 s.
 
-After every observe response, continue from the returned cursors. If an event arrives without a complete logical line, issue the next observe immediately with those cursors.
+After every observe response, continue from the returned cursors. The cursor is still a raw event cursor even when `events` are omitted. If raw activity arrives without completing a logical line, `lines` may be empty while the cursor advances; issue the next observe immediately with those returned cursors.
+
+For exact chunk/event inspection only:
+
+```json
+{"id":6,"op":"observe","cursors":{"s1":42,"s2":75},"timeout_ms":1000,"include_events":true}
+```
+
+Do not enable `include_events` globally for an ordinary hardware scenario.
 
 Avoid repeated empty 15-30 second waits. Conversely, do not create dozens of 1-second LLM reasoning turns for a known long wait; when a scenario requires tight/long deterministic polling, use an existing scenario helper or a task-specific local orchestration path.
 
