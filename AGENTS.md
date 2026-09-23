@@ -22,13 +22,11 @@ Do not make unrelated refactors, formatting changes, renames, or cleanup.
 
 Keep untouched source sections unchanged whenever practical.
 
-The related firmware repository is:
+The related firmware repository is `dreamworkerln/lora-sack-protocol`.
 
-`/home/dream/coding/c++/lora-sack`
+Its local checkout path is not fixed. When a task explicitly requires local firmware source access, resolve the checkout from immediate sibling Git repositories by matching `remote.origin.url` to that repository identity. Never infer a host username, use a hard-coded `/home/...` path, assume a specific sibling directory name, or broaden the search outside the workspace parent merely to locate it.
 
-Inspect or modify that repository only when the task explicitly involves it.
-
-When working there, follow its own `AGENTS.md` if present.
+Inspect or modify that repository only when the task explicitly involves it. When working there, follow its own `AGENTS.md` if present.
 
 ## Existing code and comments
 
@@ -140,7 +138,7 @@ serialterminal-observations/    branch node_observations
 
 Start the hardware Codex session with serialterminal-observations as its working directory. This intentionally prevents serialterminal/AGENTS.md from entering the hardware executor's automatic project-instruction chain.
 
-The observation workspace supplies its own short AGENTS.md plus the lora-chatter-hardware skill. The hardware executor uses ../serialterminal only as read-only runtime/API source and uses ../lora-sack-protocol as read-only firmware/protocol authority.
+The observation workspace supplies its own short AGENTS.md plus the lora-chatter-hardware skill. The hardware executor uses `../serialterminal` as read-only runtime/API source. Firmware/protocol authority is repository `dreamworkerln/lora-sack-protocol`; its local sibling dirname is resolved by Git remote identity rather than assumed.
 
 When preparing a hardware prompt:
 
@@ -212,9 +210,7 @@ Do not assume physical hardware is available unless the task explicitly says it 
 
 Do not claim USB or BLE hardware behavior was tested if only mocks or unit tests were run.
 
-Hardware smoke testing may involve the related firmware repository:
-
-`/home/dream/coding/c++/lora-sack`
+Hardware smoke testing may involve the related firmware repository `dreamworkerln/lora-sack-protocol`. Its local checkout path must be resolved portably by Git remote identity when source access is actually required.
 
 Only perform hardware-facing actions when explicitly requested.
 
