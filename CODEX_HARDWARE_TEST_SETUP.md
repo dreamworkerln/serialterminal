@@ -47,7 +47,9 @@ is no longer needed when the Codex working directory itself is serialterminal-ob
 
 If that writable_roots entry exists only for this old sibling-write arrangement, remove it. If the same table contains other deliberately authorized writable roots, keep those unrelated entries.
 
-Do not replace it with a writable root for ../serialterminal or ../lora-sack-protocol. Those source repositories are read-only from the hardware-executor role.
+Do not replace it with a writable root for `../serialterminal` or for a firmware checkout. Those source repositories are read-only from the hardware-executor role.
+
+The firmware repository is identified by Git remote as `dreamworkerln/lora-sack-protocol`; its local directory name is not fixed. Do not encode a username, absolute `/home/...` path or assumed sibling dirname in sandbox setup. If firmware source read access is needed on a host with restricted reads, first resolve the matching immediate sibling Git repository by `remote.origin.url`, then grant only the minimum read permission for that resolved checkout.
 
 With workspace-write, Codex can normally read outside the workspace while writes remain scoped to the workspace. If the local installation uses explicitly restricted read access, add only the minimum read permission required for the sibling runtime/source repositories; do not make them writable.
 
