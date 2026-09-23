@@ -505,14 +505,10 @@ class SessionManager:
         cursors: dict[str, int],
         *,
         timed_out: bool,
+        include_events: bool,
     ) -> dict[str, Any]:
-        events.sort(key=lambda item: (item[0], item[1], item[2]))
         lines.sort(key=lambda item: (item[0], item[1], item[2]))
-        return {
-            "events": [
-                {"session": session_id, **_event_dict(event)}
-                for _, session_id, _, event in events
-            ],
+        result: dict[str, Any] = {
             "lines": [
                 {"session": session_id, **_line_dict(line)}
                 for _, session_id, _, line in lines
@@ -520,12 +516,22 @@ class SessionManager:
             "cursors": dict(cursors),
             "timed_out": timed_out,
         }
+        if include_events:
+            # Raw event payload дорог для model context и нужен только для
+            # transport forensics; forensic RunLog при этом пишется независимо.
+            events.sort(key=lambda item: (item[0], item[1], item[2]))
+            result["events"] = [
+                {"session": session_id, **_event_dict(event)}
+                for _, session_id, _, event in events
+            ]
+        return result
 
     def observe(
         self,
         cursors: dict[str, int],
         *,
         timeout_ms: int = 0,
+        include_events: bool = False,
     ) -> dict[str, Any]:
         if not cursors:
             raise AgentError("invalid_request", "observe requires non-empty cursors")
@@ -550,6 +556,7 @@ class SessionManager:
                         lines,
                         current_cursors,
                         timed_out=False,
+                        include_events=include_events,
                     )
                 if timeout_ms == 0:
                     return self._observation_result(
@@ -557,6 +564,7 @@ class SessionManager:
                         [],
                         current_cursors,
                         timed_out=False,
+                        include_events=include_events,
                     )
 
                 remaining = deadline - time.monotonic()
@@ -566,6 +574,7 @@ class SessionManager:
                         [],
                         current_cursors,
                         timed_out=True,
+                        include_events=include_events,
                     )
                 self._observe_condition.wait(timeout=remaining)
 
@@ -697,7 +706,17 @@ class AgentProtocol:
                 "invalid_timeout",
                 "timeout_ms must be an integer",
             ) from exc
-        return self.manager.observe(cursors, timeout_ms=timeout_ms)
+        include_events = request.get("include_events", False)
+        if not isinstance(include_events, bool):
+            raise AgentError(
+                "invalid_request",
+                "observe field 'include_events' must be boolean",
+            )
+        return self.manager.observe(
+            cursors,
+            timeout_ms=timeout_ms,
+            include_events=include_events,
+        )
 
     def _handle_close(self, request: dict[str, Any]) -> dict[str, Any]:
         return self.manager.close(str(request.get("session", "")))

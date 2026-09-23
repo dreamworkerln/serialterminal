@@ -154,6 +154,16 @@ Selected contract: both frontends create the same timestamped `.console.log` log
 
 Physical interactive smoke: PASS on 2026-09-22 with `Profile: chatter`; companion timestamps/session/direction/logical-line behavior confirmed. Remaining gate: physical agent smoke and timing-format comparison.
 
+### TODO_027 — `todos/TODO_027_REDUCE_AGENT_CONTEXT_AMPLIFICATION.md`
+
+Status: IMPLEMENTED / CLEAN CI OPEN
+
+Goal: make raw `observe.result.events` explicit opt-in, keep default machine responses logical-line-first, preserve forensic `.log` truth, and stop executor-side replay patterns that amplify model context.
+
+Trigger: a successful two-node CANONICAL_RUN consumed 97,954 total / 90,854 input tokens with only 1,096 reasoning tokens, while ordinary `observe` responses repeatedly serialized raw event/data_b64 payloads.
+
+Implementation and clean-environment validation are tracked in the dedicated TODO.
+
 ## Closed
 
 ### TODO_010 — `todos/TODO_010_TERMINAL_VISIBILITY_PREDICATE.md`

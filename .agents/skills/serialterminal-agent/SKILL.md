@@ -27,9 +27,9 @@ python3 serialterminal.py agent
 2. `open` — открыть одну или несколько sessions; `generic` используется по умолчанию, controller profile выбирай явно;
 3. сохранить `latest_seq` каждой session;
 4. передавать через `send_line` / `send_bytes`;
-5. получать новые raw events и completed logical lines через `observe` + `cursors`;
+5. получать completed logical lines через `observe` + `cursors`;
 6. после каждого `observe` продолжать именно с возвращёнными cursors;
-7. для protocol reasoning использовать `result.lines`, для exact forensic evidence — `result.events`/`data_b64`;
+7. для protocol reasoning использовать default `result.lines`; raw `result.events`/`data_b64` запрашивать только через `include_events:true` для конкретной forensic необходимости;
 8. закрыть sessions через `close`; EOF agent process закроет оставшиеся.
 
 Переиспользуй один agent process и уже открытые sessions. Для большой автономной проверки предпочитай один длинный сценарный проход с явными phases/checkpoints вместо десятков одинаковых `discover/open/close` циклов.
@@ -52,7 +52,7 @@ Connect preamble полностью принадлежит profile. Не исп�
 
 ## Observe и cursors
 
-`observe` — единственный receive/cursor workflow:
+`observe` — единственный receive/cursor workflow. По умолчанию ответ не содержит raw `events`:
 
 ```json
 {"id":20,"op":"observe","cursors":{"s1":42},"timeout_ms":15000}
@@ -63,6 +63,14 @@ Connect preamble полностью принадлежит profile. Не исп�
 ```json
 {"id":21,"op":"observe","cursors":{"s1":42,"s2":75},"timeout_ms":15000}
 ```
+
+Raw transport evidence запрашивай только явно:
+
+```json
+{"id":22,"op":"observe","cursors":{"s1":42,"s2":75},"timeout_ms":15000,"include_events":true}
+```
+
+Без `include_events:true` поле `result.events` отсутствует. Cursor всё равно остаётся event cursor и двигается при raw activity; если chunk ещё не завершил LF-line, `result.lines` может быть пустым при уже продвинувшемся cursor.
 
 `observe` требует непустой request `id`. Пока observation pending, этот ID нельзя использовать снова. Ответы могут приходить не в порядке запросов, поэтому всегда коррелируй по `id`.
 
@@ -77,7 +85,7 @@ firmware/protocol reasoning   -> result.lines
 transport/chunk forensics     -> result.events / data_b64
 ```
 
-`result.events` сохраняет raw session event truth: `seq`, state/TX metadata, stream, chunk boundaries, decoded chunk text и exact bytes через `data_b64`.
+`result.events` при `include_events:true` сохраняет raw session event truth: `seq`, state/TX metadata, stream, chunk boundaries, decoded chunk text и exact bytes через `data_b64`. Без opt-in эти данные остаются в forensic `.log`, но не размножаются в model-facing JSON response.
 
 `result.lines` содержит только завершённые LF-terminated lines. Line assembly выполняется один раз на session layer независимо для каждого stream.
 
@@ -128,5 +136,7 @@ Permission errors Bluetooth/D-Bus/sandbox не означают отсутств
 - обрабатывай `unknown`, `cursor_expired`, `forensic_gap`, disconnect/reconnect как first-class outcomes;
 - собирай один run bundle после полного сценария вместо множества ручных повторов, если project policy это допускает;
 - UI-only hotkeys/visual presentation не пытайся доказывать machine API, если для них нет отдельного PTY/UI harness.
+- не перечитывай накопленный stdout background agent process после того, как его JSON responses уже были обработаны; после clean close/EOF проверяй только нужный final state или finalized logs;
+- finalized `.log`/`.console.log` проверяй targeted search/count/summary; не загружай целиком большой forensic log обратно в model context без конкретной forensic необходимости.
 
 Firmware-specific команды, RSSI/SNR/Q, radio collision rules, reboot/cancel semantics и acceptance criteria остаются в project-specific skill, а не здесь.

@@ -130,17 +130,19 @@ class _BlockingObserveManager:
         self.observe_release = threading.Event()
         self.cancelled = threading.Event()
 
-    def observe(self, cursors, *, timeout_ms=0):
+    def observe(self, cursors, *, timeout_ms=0, include_events=False):
         self.observe_started.set()
         self.observe_release.wait(timeout=2.0)
         if self.cancelled.is_set():
             raise AgentError("agent_stopping", "agent process is stopping")
-        return {
-            "events": [],
+        result = {
             "lines": [],
             "cursors": dict(cursors),
             "timed_out": True,
         }
+        if include_events:
+            result["events"] = []
+        return result
 
     def status(self, session_id):
         return {
@@ -277,7 +279,8 @@ def test_protocol_rejects_removed_auto_id_field(tmp_path):
         assert response["error"]["code"] == "invalid_request"
 
 
-def test_observe_one_session_returns_raw_event_and_completed_line():
+
+def test_observe_one_session_defaults_to_lines_and_can_include_raw_events():
     factory = FakeSelectorFactory()
     manager = SessionManager(selector_factory=factory, reconnect_delay=0.01)
     try:
@@ -296,23 +299,28 @@ def test_observe_one_session_returns_raw_event_and_completed_line():
         observed = manager.observe({session_id: cursor}, timeout_ms=500)
 
         assert observed["timed_out"] is False
-        assert len(observed["events"]) == 1
-        event = observed["events"][0]
+        assert "events" not in observed
+        assert len(observed["lines"]) == 1
+        line = observed["lines"][0]
+        assert line["session"] == session_id
+        assert line["stream"] == "chat"
+        assert line["text"] == "привет"
+        assert observed["cursors"][session_id] == line["seq_last"]
+
+        forensic = manager.observe(
+            {session_id: cursor},
+            timeout_ms=0,
+            include_events=True,
+        )
+        assert len(forensic["events"]) == 1
+        event = forensic["events"][0]
         assert event["session"] == session_id
         assert event["kind"] == "rx"
         assert event["stream"] == "chat"
         assert event["text"] == "привет\n"
         assert event["data_b64"] == "0L/RgNC40LLQtdGCCg=="
-        assert observed["lines"] == [
-            {
-                "session": session_id,
-                "stream": "chat",
-                "seq_first": event["seq"],
-                "seq_last": event["seq"],
-                "text": "привет",
-            }
-        ]
-        assert observed["cursors"] == {session_id: event["seq"]}
+        assert forensic["lines"] == observed["lines"]
+        assert forensic["cursors"] == observed["cursors"]
     finally:
         manager.close_all()
 
@@ -344,14 +352,13 @@ def test_observe_two_sessions_wakes_for_either_session():
 
         assert not observer.is_alive()
         assert result["timed_out"] is False
-        assert [event["session"] for event in result["events"]] == [second["session"]]
-        assert result["events"][0]["text"] == "from-b\n"
+        assert "events" not in result
         assert result["lines"] == [
             {
                 "session": second["session"],
                 "stream": "main",
-                "seq_first": result["events"][0]["seq"],
-                "seq_last": result["events"][0]["seq"],
+                "seq_first": result["lines"][0]["seq_first"],
+                "seq_last": result["lines"][0]["seq_last"],
                 "text": "from-b",
             }
         ]
@@ -373,7 +380,8 @@ def test_observe_returns_full_line_started_before_input_cursor():
             "rx", stream="main", data=b"DELIVERY WA", text="DELIVERY WA"
         )
         first_result = manager.observe({session_id: opened["latest_seq"]})
-        assert first_result["events"][-1]["seq"] == first.seq
+        assert "events" not in first_result
+        assert first_result["cursors"][session_id] == first.seq
         assert first_result["lines"] == []
 
         second = session._record_event(
@@ -381,7 +389,8 @@ def test_observe_returns_full_line_started_before_input_cursor():
         )
         result = manager.observe({session_id: first.seq})
 
-        assert [event["seq"] for event in result["events"]] == [second.seq]
+        assert "events" not in result
+        assert result["cursors"][session_id] == second.seq
         assert result["lines"] == [
             {
                 "session": session_id,
@@ -406,7 +415,6 @@ def test_observe_timeout_and_session_specific_cursor_errors():
 
         immediate = manager.observe({session_id: cursor}, timeout_ms=0)
         assert immediate == {
-            "events": [],
             "lines": [],
             "cursors": {session_id: cursor},
             "timed_out": False,
@@ -414,10 +422,21 @@ def test_observe_timeout_and_session_specific_cursor_errors():
 
         timed_out = manager.observe({session_id: cursor}, timeout_ms=30)
         assert timed_out == {
-            "events": [],
             "lines": [],
             "cursors": {session_id: cursor},
             "timed_out": True,
+        }
+
+        forensic_empty = manager.observe(
+            {session_id: cursor},
+            timeout_ms=0,
+            include_events=True,
+        )
+        assert forensic_empty == {
+            "lines": [],
+            "cursors": {session_id: cursor},
+            "timed_out": False,
+            "events": [],
         }
 
         with pytest.raises(AgentError) as negative:
@@ -461,7 +480,7 @@ def test_protocol_dispatches_observe_and_rejects_old_operations(tmp_path):
                 wait_connected_ms=500,
             )
             session_id = opened["session"]
-            response = json.loads(
+            default_response = json.loads(
                 protocol.process_line(
                     json.dumps(
                         {
@@ -474,16 +493,48 @@ def test_protocol_dispatches_observe_and_rejects_old_operations(tmp_path):
                     + "\n"
                 )
             )
-            assert response == {
+            assert default_response == {
                 "id": 19,
                 "ok": True,
                 "result": {
-                    "events": [],
                     "lines": [],
                     "cursors": {session_id: opened["latest_seq"]},
                     "timed_out": False,
                 },
             }
+
+            forensic_response = json.loads(
+                protocol.process_line(
+                    json.dumps(
+                        {
+                            "id": 20,
+                            "op": "observe",
+                            "cursors": {session_id: opened["latest_seq"]},
+                            "timeout_ms": 0,
+                            "include_events": True,
+                        }
+                    )
+                    + "\n"
+                )
+            )
+            assert forensic_response["ok"] is True
+            assert forensic_response["result"]["events"] == []
+
+            invalid_include_events = json.loads(
+                protocol.process_line(
+                    json.dumps(
+                        {
+                            "id": 21,
+                            "op": "observe",
+                            "cursors": {session_id: opened["latest_seq"]},
+                            "include_events": 1,
+                        }
+                    )
+                    + "\n"
+                )
+            )
+            assert invalid_include_events["ok"] is False
+            assert invalid_include_events["error"]["code"] == "invalid_request"
 
             missing_id = json.loads(
                 protocol.process_line(
@@ -507,6 +558,80 @@ def test_protocol_dispatches_observe_and_rejects_old_operations(tmp_path):
                 )
                 assert old["ok"] is False
                 assert old["error"]["code"] == "unknown_operation"
+        finally:
+            manager.close_all()
+
+def test_observe_default_avoids_raw_event_payload_amplification(tmp_path):
+    factory = FakeSelectorFactory()
+    log_path = tmp_path / "agent.log"
+    with RunLog(log_path) as run_log:
+        manager = SessionManager(
+            selector_factory=factory,
+            run_log=run_log,
+            reconnect_delay=0.01,
+        )
+        protocol = AgentProtocol(manager, run_log=run_log)
+        try:
+            manager.discover()
+            opened = manager.open(
+                "ble:a",
+                profile="chatter",
+                wait_connected_ms=500,
+            )
+            session_id = opened["session"]
+            cursor = opened["latest_seq"]
+            session = manager._get_session(session_id)
+
+            for _ in range(64):
+                session._record_event(
+                    "rx",
+                    stream="chat",
+                    data=b"0123456789abcdef",
+                    text="0123456789abcdef",
+                )
+            session._record_event(
+                "rx",
+                stream="chat",
+                data=b"\n",
+                text="\n",
+            )
+
+            default_response = protocol.handle(
+                {
+                    "id": 1,
+                    "op": "observe",
+                    "cursors": {session_id: cursor},
+                }
+            )
+            forensic_response = protocol.handle(
+                {
+                    "id": 2,
+                    "op": "observe",
+                    "cursors": {session_id: cursor},
+                    "include_events": True,
+                }
+            )
+
+            default_bytes = len(
+                json.dumps(
+                    default_response,
+                    ensure_ascii=False,
+                    separators=(",", ":"),
+                ).encode("utf-8")
+            )
+            forensic_bytes = len(
+                json.dumps(
+                    forensic_response,
+                    ensure_ascii=False,
+                    separators=(",", ":"),
+                ).encode("utf-8")
+            )
+
+            assert "events" not in default_response["result"]
+            assert len(forensic_response["result"]["events"]) == 65
+            assert default_response["result"]["lines"] == forensic_response["result"]["lines"]
+            assert default_response["result"]["cursors"] == forensic_response["result"]["cursors"]
+            assert forensic_bytes > default_bytes * 3
         finally:
             manager.close_all()
 

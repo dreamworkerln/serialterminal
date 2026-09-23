@@ -260,6 +260,14 @@ Multiple sessions use the same shape:
 {"id":21,"op":"observe","cursors":{"s1":42,"s2":75},"timeout_ms":15000}
 ```
 
+By default, `observe` returns completed logical lines, cursors and timeout state only. Raw session events are opt-in:
+
+```json
+{"id":22,"op":"observe","cursors":{"s1":42,"s2":75},"timeout_ms":15000,"include_events":true}
+```
+
+`include_events` is optional and defaults to `false`; when present it must be a JSON boolean. With `false`, the `events` field is omitted from `result`. With `true`, `result.events` contains the same raw event objects used by the previous always-on response contract.
+
 `cursors` is required and non-empty. Each value is the last raw `SessionEvent.seq` already processed for that session. Sequence spaces are independent per session. There is intentionally one raw cursor model and no separate line cursor.
 
 Result shape:
@@ -372,7 +380,7 @@ JSONL adapter / future MCP adapter
 SessionManager
         ↓
 ManagedSession
-        ├─ raw SessionEvent ring ────────> observe.result.events
+        ├─ raw SessionEvent ring ────────> observe(include_events=true).result.events
         └─ canonical logical lines ──────> observe.result.lines
                                       └──> human-console companion logger
         ↓
