@@ -1,0 +1,25 @@
+{
+  "schema": 1,
+  "observed_at": "2026-09-23T17:08:03Z",
+  "topic": "heartbeat-phase-collision",
+  "result": "INCONCLUSIVE",
+  "serialterminal": {
+    "repo": "dreamworkerln/serialterminal",
+    "sha": "0db99efb5155ca0068d6dd3ecf6ed0f272537a10"
+  },
+  "firmware": {
+    "repo": "dreamworkerln/lora-sack-protocol",
+    "sha": "8b62d6c4d50577da6a8927e52f123645d63f24a5",
+    "state": "clean",
+    "image_validation": "OK"
+  },
+  "observation": {
+    "state": "recorded",
+    "path": "../../observations/OBS_20260923T170803Z_heartbeat-phase-collision.md"
+  },
+  "files": {
+    "report": "REPORT.md",
+    "console": "serialterminal.console.log",
+    "serialterminal_log": "serialterminal.log"
+  }
+}
