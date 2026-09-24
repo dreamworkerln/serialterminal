@@ -33,6 +33,14 @@ When an operation that is both necessary for the task and already allowed by thi
 
 Different operation types may require separate approvals. A successful or failed approval for BLE discovery does not replace a later required approval for a guarded Git helper, Git metadata lock, remote verification, serial-device access, or another independently sandboxed operation. Request the minimum permission for each required class as it is encountered.
 
+When the execution environment supports a persistent command-prefix approval, do not request an "always allow" rule that includes run-unique arguments such as `--log /tmp/<timestamp>.log`. For the SerialTerminal agent, the reusable approval prefix is exactly:
+
+```text
+python3 ../serialterminal/serialterminal.py agent
+```
+
+The unique `--log ...` argument belongs to the invocation, not to the persistent approval identity. If the environment cannot express a prefix rule separately and offers only approval for the exact full command, request/run it as a one-time approval rather than presenting that timestamp-specific command as a useful persistent rule.
+
 For Git/publication work, elevate the guarded publication helper or the exact required Git/read-only remote-verification command. Do not use elevated access to bypass the guarded publication workflow with raw `git add/commit/push`.
 
 Privilege elevation never expands task scope. It does not authorize firmware source/docs inspection, source modification, flashing, host Bluetooth stack mutation, destructive Git operations, or any action otherwise forbidden by this skill.
