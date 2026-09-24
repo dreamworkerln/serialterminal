@@ -1,0 +1,26 @@
+{
+  "schema": 1,
+  "observed_at": "2026-09-24T11:19:17Z",
+  "topic": "todo-006-diagnostic-cadence-matrix",
+  "result": "PASS",
+  "serialterminal": {
+    "repo": "dreamworkerln/serialterminal",
+    "sha": "04756c38a41dae8ebac063fed584a066187071b6"
+  },
+  "firmware": {
+    "repo": "dreamworkerln/lora-sack-protocol",
+    "sha": "3b386dfa3eae68be057ab9aeec37a89367773839",
+    "state": "clean",
+    "image_validation": "OK"
+  },
+  "observation": {
+    "state": "recorded",
+    "path": "../../observations/OBS_20260924T111917Z_todo-006-diagnostic-cadence-matrix.md",
+    "workspace_base": "be7b3b184941a3826a9727abbaf3f8d6abee3638"
+  },
+  "files": {
+    "report": "REPORT.md",
+    "console": "serialterminal.console.log",
+    "serialterminal_log": "serialterminal.log"
+  }
+}
