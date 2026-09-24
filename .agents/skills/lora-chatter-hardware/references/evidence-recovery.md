@@ -38,14 +38,32 @@ The helper's safe retry logic may repush validated local-ahead append-only publi
 Hard boundaries include:
 
 ```text
-remote ahead with unpublished local work
-branch divergence
+true branch divergence (ahead>0 and behind>0)
 local-ahead commit modifying/deleting historical evidence
 local-ahead commit outside canonical publication namespaces
 tracked/staged residue
+remote changes that touch or collide with the pending RUN/OBS paths
 ```
 
-Do not solve these with destructive Git operations inside a hardware task.
+A strictly behind-only workspace is recoverable when ALL of the following are true:
+
+- `ahead=0` and `behind>0`;
+- the pending hardware evidence exists only as untracked canonical `runs/RUN_...` and optional `observations/OBS_...` paths;
+- there are no staged or tracked modifications;
+- inspection of `HEAD..origin/node_observations` shows no change to any pending RUN/OBS path and no rewrite/deletion of historical evidence;
+- the remote commits are ordinary fast-forward additions such as executor-skill/policy maintenance or unrelated immutable evidence.
+
+In that case, after a successful fetch, advance the local branch only with:
+
+```bash
+git merge --ff-only origin/node_observations
+```
+
+Request elevated permission for that exact Git operation if the sandbox requires it. Then re-check `git status --short`, confirm the pending evidence files are still the only untracked paths, and retry the guarded publication helper.
+
+Do not use rebase, non-fast-forward merge, reset, checkout-overwrite, stash, clean, amend, force-push, or raw `git add/commit/push` as recovery.
+
+If the remote diff touches a pending evidence path or any condition above is false, stop and report the boundary instead of attempting automatic recovery.
 
 ## Helper failures
 
