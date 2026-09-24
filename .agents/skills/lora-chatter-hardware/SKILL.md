@@ -80,10 +80,17 @@ Normal canonical publication contract after the hardware evidence is finalized:
 1. create exactly one unique `runs/RUN_<UTC>_<topic>/`;
 2. copy the exact finalized forensic `serialterminal.log` and companion `serialterminal.console.log`;
 3. write `REPORT.md`; create a matching OBS only for a reusable/material finding;
-4. write `MANIFEST.json` last;
-5. validate only the intended RUN/OBS files and JSON/diff hygiene;
-6. publish only with `python3 -I ../serialterminal/scripts/commit-node-run`;
-7. independently verify `git ls-remote origin refs/heads/node_observations` matches the helper commit.
+4. if an OBS is run-bound, its identity MUST exactly match the RUN identity: the OBS filename suffix must use the same `<UTC>_<topic>` as the RUN directory, and `MANIFEST.json observation.path` must point to that exact matching OBS. A narrower finding name belongs in the OBS title/body, not in a different filename topic;
+5. before writing `MANIFEST.json`, verify the identity invariant explicitly:
+   - `RUN_<UTC>_<topic>`
+   - `OBS_<UTC>_<topic>.md` when recorded
+   - manifest `observed_at` derived from the same UTC stamp
+   - manifest `topic` exactly equal to the same topic
+   - manifest `observation.path` exactly equal to the matching OBS path;
+6. write `MANIFEST.json` last;
+7. validate only the intended RUN/OBS files and JSON/diff hygiene;
+8. publish only with `python3 -I ../serialterminal/scripts/commit-node-run`;
+9. independently verify `git ls-remote origin refs/heads/node_observations` matches the helper commit.
 
 Do not read helper source, full policy text, or repository history when this happy path succeeds.
 
