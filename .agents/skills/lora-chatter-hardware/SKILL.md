@@ -67,11 +67,26 @@ Load only the relevant diagnostic/reference file. Do not automatically expand in
 
 ## Normal SerialTerminal happy path
 
-Use one long-lived process for one hardware interaction:
+Use one long-lived **interactive** process for one hardware interaction. The `agent`
+subcommand is a JSONL stdin/stdout protocol and must keep stdin open for the whole
+hardware task.
+
+Launch it only through a terminal/session API that allocates a persistent PTY or
+equivalent interactive process handle and lets later tool calls write additional
+JSONL requests to the same stdin:
 
 ```bash
 python3 ../serialterminal/serialterminal.py agent --log /tmp/<unique-log-name>.log
 ```
+
+A one-shot command execution without a persistent stdin/PTY is **not** a valid
+SerialTerminal agent launch. If stdin closes immediately, the process may log
+`ready` and then `stop` before discovery. Treat that as a bootstrap/executor
+error, not as hardware evidence.
+
+Before sending `discover`, verify that the interactive process is still alive and
+that its stdin remains writable. Do not proceed merely because the forensic log
+contains an `AGENT ready` line.
 
 The log path is unique for every run/probe. Never reuse a fixed forensic /tmp filename.
 
@@ -169,6 +184,8 @@ Save each successful `open` result's `latest_seq` as the initial cursor when sta
 Important:
 
 - keep one SerialTerminal agent process for the whole hardware task; do not restart it between phases merely for convenience;
+- that process must be the same persistent interactive/PTY-backed process launched above; every JSONL request is written to its still-open stdin, and responses are consumed from that same process;
+- never use a plain one-shot exec invocation for `serialterminal.py agent` when the execution API will close stdin after launch;
 - discovery cache is process-local; run discover in the same agent process before open;
 - for Chatter sessions open returned device_key with profile "chatter";
 - save latest_seq/cursors and advance using observe-returned cursors;
@@ -215,6 +232,8 @@ Do not enable `include_events` globally for an ordinary hardware scenario.
 Avoid repeated empty 15-30 second waits. Conversely, do not create dozens of 1-second LLM reasoning turns for a known long wait; when a scenario requires tight/long deterministic polling, use an existing scenario helper or a task-specific local orchestration path.
 
 Do not read the entire AGENT_API.md for the normal path. Read ../serialterminal/AGENT_API.md only when the task directly depends on API semantics not stated here or a structured API error cannot be handled from this skill.
+
+If the agent process exits before the first `discover` response because stdin/PTY ownership was not preserved, do not classify the hardware as absent or failed. Do not publish RUN/OBS from that empty attempt unless the operator explicitly asks to preserve executor-failure evidence. Start a fresh run identity only after fixing the interactive launch mechanism.
 
 If expected BLE targets are absent from discover, use the supported capability scanner/prober workflow before concluding absence. Do not treat an advertised name alone as NUS capability.
 
