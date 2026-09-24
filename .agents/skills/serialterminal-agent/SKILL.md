@@ -122,7 +122,11 @@ serialterminal-...console.log
 
 `cursor_expired` относится к raw SessionEvent retention window; отдельного line cursor нет.
 
-Permission errors Bluetooth/D-Bus/sandbox не означают отсутствие устройства. Используй разрешённый способ запуска с нужными host privileges или зафиксируй environment boundary.
+Permission errors Bluetooth/D-Bus/sandbox не означают отсутствие устройства и не являются основанием сразу завершать workflow как BLOCKED. Если операция необходима для текущей задачи и уже разрешена её scope, сначала запроси минимально необходимое elevated permission для конкретной операции или command prefix, затем повтори её.
+
+Ошибки вида `Operation not permitted`, `Permission denied`, `EACCES`, `EPERM`, read-only sandbox path или заблокированный доступ к device/D-Bus/network трактуй как access boundary. BLOCKED допустим только если elevation недоступно, явно отклонено или повтор после одобренного elevation всё равно не может выполнить необходимую операцию.
+
+Разные классы операций могут требовать отдельных approvals. Не предполагай, что разрешение на BLE discovery автоматически покрывает open/write/device access, а разрешение на одну Git operation покрывает другую. Для разрешённых Git/evidence операций при sandbox failure также запрашивай узкое elevated permission для точной команды/helper или необходимого Git metadata/network access и повторяй операцию. Elevation не расширяет task scope и не разрешает действия, которые исходно запрещены.
 
 ## Большие автономные сценарии
 
