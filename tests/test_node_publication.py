@@ -332,6 +332,86 @@ def test_failed_push_is_retried_then_new_backlog_is_published(repos):
     assert remote_head(remote) == git(obs, "rev-parse", "HEAD").stdout.strip()
 
 
+def test_behind_only_remote_update_fast_forwards_before_publication(repos, tmp_path: Path):
+    main, obs, remote = repos
+    local_obs = write_obs(obs, "20260908T108500Z_local")
+
+    other = tmp_path / "other-behind-only"
+    subprocess.run(
+        [
+            "git",
+            "clone",
+            "--single-branch",
+            "--branch",
+            "node_observations",
+            str(remote),
+            str(other),
+        ],
+        check=True,
+        stdout=subprocess.PIPE,
+        stderr=subprocess.PIPE,
+        text=True,
+    )
+    configure(other)
+    (other / "EXECUTOR_POLICY.md").write_text("remote maintenance\n", encoding="utf-8")
+    git(other, "add", "EXECUTOR_POLICY.md")
+    git(other, "commit", "-m", "remote executor maintenance")
+    git(other, "push", "origin", "node_observations")
+
+    result = run_helper(main, "commit-node-observation")
+
+    assert result.returncode == 0, result.stderr
+    assert "observations committed and pushed: 1" in result.stdout
+    assert git(obs, "ls-files", local_obs).stdout.strip() == local_obs
+    assert (obs / "EXECUTOR_POLICY.md").read_text(encoding="utf-8") == "remote maintenance\n"
+    relation = git(
+        obs,
+        "rev-list",
+        "--left-right",
+        "--count",
+        "origin/node_observations...HEAD",
+    ).stdout.split()
+    assert relation == ["0", "0"]
+    assert remote_head(remote) == git(obs, "rev-parse", "HEAD").stdout.strip()
+
+
+def test_behind_only_remote_collision_is_hard_failure(repos, tmp_path: Path):
+    main, obs, remote = repos
+    suffix = "20260908T108600Z_collision"
+    local_obs = write_obs(obs, suffix)
+
+    other = tmp_path / "other-collision"
+    subprocess.run(
+        [
+            "git",
+            "clone",
+            "--single-branch",
+            "--branch",
+            "node_observations",
+            str(remote),
+            str(other),
+        ],
+        check=True,
+        stdout=subprocess.PIPE,
+        stderr=subprocess.PIPE,
+        text=True,
+    )
+    configure(other)
+    remote_obs = other / local_obs
+    remote_obs.parent.mkdir(parents=True, exist_ok=True)
+    remote_obs.write_text("# conflicting remote observation\n", encoding="utf-8")
+    git(other, "add", local_obs)
+    git(other, "commit", "-m", "remote conflicting observation")
+    git(other, "push", "origin", "node_observations")
+
+    result = run_helper(main, "commit-node-observation")
+
+    assert result.returncode == 1
+    assert "remote changes collide with pending publication paths" in result.stderr
+    assert (obs / local_obs).read_text(encoding="utf-8") == "# Node observation\n\nResult: PASS\n"
+    assert not git(obs, "ls-files", local_obs).stdout.strip()
+
+
 def test_divergence_after_failed_push_is_hard_failure(repos, tmp_path: Path):
     main, obs, remote = repos
     write_obs(obs, "20260908T109000Z_local")

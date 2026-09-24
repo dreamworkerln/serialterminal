@@ -520,11 +520,42 @@ def validate_local_ahead(repo: Path) -> list[str]:
 def retry_safe_local_ahead(repo: Path) -> list[str]:
     run_git(repo, "fetch", "--quiet", "origin", OBS_BRANCH)
     behind, ahead = branch_counts(repo)
-    if behind:
+    if behind and ahead:
         raise PublicationError(
             f"observation clone remote is ahead/diverged (behind={behind}, ahead={ahead}); "
             "refusing automatic recovery"
         )
+    if behind:
+        pending = pending_untracked(repo)
+        unknown = [path for path in pending if not is_allowed_publication_path(path)]
+        if unknown:
+            raise PublicationError(
+                "unexpected untracked files in observation clone: " + ", ".join(unknown)
+            )
+        remote_changed = set(
+            nul_paths(
+                run_git(
+                    repo,
+                    "diff",
+                    "--name-only",
+                    "-z",
+                    "HEAD",
+                    f"origin/{OBS_BRANCH}",
+                ).stdout
+            )
+        )
+        collisions = sorted(set(pending) & remote_changed)
+        if collisions:
+            raise PublicationError(
+                "remote changes collide with pending publication paths: "
+                + ", ".join(collisions)
+            )
+        run_git(repo, "merge", "--ff-only", f"origin/{OBS_BRANCH}")
+        if branch_counts(repo) != (0, 0):
+            raise PublicationError(
+                "behind-only fast-forward completed but local/remote refs are not synchronized"
+            )
+        return []
     if not ahead:
         return []
 
