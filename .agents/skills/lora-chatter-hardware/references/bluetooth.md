@@ -12,7 +12,9 @@ If an expected BLE node is missing, use the SerialTerminal Bluetooth capability 
 
 Discovery cache is process-local, so discover and the subsequent open must occur in the same SerialTerminal agent process.
 
-Permission errors are environment boundaries, not proof that a device does not exist.
+Permission errors are environment boundaries, not proof that a device does not exist. If discovery, scanner/prober, open, subscribe, write or other required BLE access fails because the sandbox/host denies access, request the minimum elevated permission needed for that BLE/D-Bus/device operation and retry it. Do not return `BLOCKED` merely from the first permission error. Use `BLOCKED` only when elevation is unavailable/denied or the approved retry still cannot access the required BLE operation.
+
+If a later BLE operation hits a different permission boundary, request the corresponding narrow permission for that operation as well; do not assume one discovery approval covers every device/D-Bus action.
 
 ## Reconnect and flapping
 

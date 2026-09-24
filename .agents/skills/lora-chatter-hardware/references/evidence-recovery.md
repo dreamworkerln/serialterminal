@@ -55,7 +55,9 @@ Guard/Git failures return non-zero with a concrete diagnostic such as RUN COMMIT
 
 Report the exact diagnostic. Do not collapse it to a generic "publication failed".
 
-If sandbox blocks Git metadata or network, request the minimum permission for the exact standalone guarded helper or read-only remote verification command. Do not use that approval for unrelated shell/source writes.
+If sandbox blocks Git metadata or network, do not stop at the first permission error. Request the minimum elevated permission for the exact standalone guarded helper or exact read-only Git/remote-verification command, then retry that operation. Typical recoverable environment failures include inability to create `.git/index.lock` or `.git/worktrees/.../index.lock`, read-only Git metadata, `Permission denied`/`Operation not permitted`, and sandboxed network access.
+
+Git metadata access, guarded publication, and independent remote verification may be separate permission classes. Request narrowly scoped elevation for each required operation when encountered. Report `BLOCKED` only when elevation is unavailable/denied or the approved retry still cannot perform the required Git operation. Do not use any approval for unrelated shell/source writes, destructive Git operations, or to bypass the guarded helper with raw `git add/commit/push`.
 
 ## Remote verification
 
