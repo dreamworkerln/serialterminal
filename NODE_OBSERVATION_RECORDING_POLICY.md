@@ -19,11 +19,11 @@ During a hardware task:
 ```text
 serialterminal-observations                 writable only for canonical evidence
 ../serialterminal                          read-only runtime/source
-dreamworkerln/lora-sack-protocol checkout  read-only firmware authority; local sibling dirname is not fixed
+firmware source checkout                   outside executor boundary; do not inspect
 REVIEW_STATE.md                            read-only
 ```
 
-Resolve the firmware checkout, only when source inspection is needed, from immediate sibling Git repositories by matching `remote.origin.url`; never use a hard-coded `/home/...` path or assume a particular sibling directory name.
+The hardware executor never resolves or reads a firmware source checkout. Required implementation facts must be supplied through maintained executor references/task input or established from physical-node output. Missing implementation facts are an evidence boundary, not a reason to inspect source.
 
 Do not modify source, tests, CI, TODOs, docs, skills or reviewer state. Do not fix a discovered bug inside the measured hardware task.
 

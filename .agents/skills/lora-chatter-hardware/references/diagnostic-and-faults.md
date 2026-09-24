@@ -45,6 +45,6 @@ A successful SX1278 register/version read proves digital/SPI liveness only, not 
 
 For current firmware, physical TX truth is based on radio TxDone evidence; DIO0 is diagnostic only.
 
-Runtime radio-loss/fatal behavior can differ from boot degraded behavior. Use the current task-specific firmware source/docs as authority.
+Runtime radio-loss/fatal behavior can differ from boot degraded behavior. Use only the maintained hardware contract, explicit task facts and physical evidence available to the executor. If the scenario depends on an unstated implementation detail, report that boundary rather than inspecting firmware source/docs.
 
 Do not perform destructive fault injection unless the operator explicitly requests it.

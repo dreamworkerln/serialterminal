@@ -19,7 +19,7 @@ maximum physical USER attempts = 5
 reliable USER queue depth = 8
 ```
 
-Treat these as implementation policy, not eternal wire constants. If current firmware source/docs differ, they are authoritative.
+Treat these as maintained executor policy, not eternal wire constants. A task that depends on changed implementation semantics must supply the updated contract explicitly; the hardware executor does not inspect firmware source/docs to discover it.
 
 ## Normal delivery
 

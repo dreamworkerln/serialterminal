@@ -13,17 +13,11 @@ The runtime/source repository is the read-only sibling:
 ../serialterminal
 ```
 
-Firmware source/docs are also read-only during a hardware task. Their repository identity is `dreamworkerln/lora-sack-protocol`; the local checkout directory name is not part of the contract.
+Firmware source/docs are outside this executor's evidence boundary. During a hardware task, do **not** inspect, search, open or locate any firmware source checkout, including `dreamworkerln/lora-sack-protocol`, even read-only.
 
-When a hardware task genuinely needs a firmware implementation fact that is not already available from the prompt, this skill, node output or loaded task-specific reference:
+Use firmware implementation facts only when they are already present in this maintained skill/references, explicitly supplied by the operator/source-development task, or directly observable from the physical node. If a required implementation fact is missing, report the missing fact/evidence boundary and stop or return `INCONCLUSIVE` as appropriate. Do not resolve sibling Git repositories, search the filesystem, infer usernames or consult firmware source/docs.
 
-1. inspect only immediate sibling Git repositories of the current workspace;
-2. select the checkout whose `remote.origin.url` identifies `dreamworkerln/lora-sack-protocol`;
-3. use that resolved path only for the bounded lookup needed by the task.
-
-Never infer the host username or use a hard-coded `/home/<user>/...` fallback. Never assume the checkout is named `../lora-sack-protocol`, and never recursively search the user's home/filesystem to locate it. If no matching immediate sibling exists, report that source lookup boundary instead of widening the search.
-
-Do not inspect firmware source merely to re-verify a clean `/version`, restate constants already supplied by the task, or duplicate evidence already present in the node output. Do not modify source, tests, docs, TODOs, CI, branches, this skill, repository policies or REVIEW_STATE.md. Do not flash unless explicitly authorized.
+Do not modify source, tests, docs, TODOs, CI, branches, this skill, repository policies or REVIEW_STATE.md. Do not flash unless explicitly authorized.
 
 ## Task classes
 
@@ -254,7 +248,7 @@ Confirm power=2 dBm on every participating node before measured RF.
 
 Local/controller commands such as /id, /version, stop commands, /power and /config are not themselves the measured LoRa RF phase.
 
-If a stop command is not supported, establish capability from the task-specific firmware contract before sending it; do not accidentally transmit an unknown command as USER payload.
+If a stop command is not supported, establish capability from the task prompt, maintained hardware references or node `/help` before sending it; do not accidentally transmit an unknown command as USER payload. Do not consult firmware source/docs.
 
 If power=2 cannot be applied/confirmed, do not start measured RF. Report the precondition boundary.
 
@@ -283,7 +277,7 @@ Common controls:
 /reboot
 ```
 
-When command availability is uncertain, use the task-specific firmware docs or /help before sending an uncertain token that could become USER traffic.
+When command availability is uncertain, use the task prompt, maintained hardware references or `/help` before sending an uncertain token that could become USER traffic. Do not consult firmware source/docs.
 
 ## Task-specific references
 
@@ -306,7 +300,7 @@ references/evidence-recovery.md
     only after publication/helper/storage/Git failure
 ```
 
-For authoritative protocol behavior beyond these operating summaries, read the task-specific current lora-sack-protocol source/docs. Do not read unrelated firmware documents.
+For protocol behavior beyond these operating summaries, use only explicit task facts, maintained hardware references and physical-node evidence. If those are insufficient, report the missing source-development fact; do not inspect firmware source/docs.
 
 ## Timing-sensitive scenarios
 

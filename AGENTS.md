@@ -12,9 +12,9 @@ Treat source repositories as read-only unless the operator explicitly starts a s
 
 The SerialTerminal runtime/source checkout is the sibling `../serialterminal`.
 
-The firmware authority is repository `dreamworkerln/lora-sack-protocol`, but its local directory name is **not** fixed. When firmware source inspection is actually required, resolve it only among immediate sibling Git repositories of this workspace by matching `remote.origin.url` to `dreamworkerln/lora-sack-protocol`. Never assume a username, `/home/...` path, or a sibling dirname such as `lora-sack-protocol`; never broaden the search outside the workspace parent merely to find firmware source.
+The firmware source repository is outside the hardware-executor evidence boundary. Do **not** inspect, search, open or resolve a local firmware checkout during a hardware task, even read-only. In particular, do not look for `dreamworkerln/lora-sack-protocol`, do not scan sibling repositories by Git remote, and do not use any absolute-path fallback.
 
-If the firmware repository cannot be resolved from immediate siblings, continue from available node/prompt evidence where sufficient or report the source lookup unavailable. Do not modify source, tests, docs, TODOs, CI, branches or agent instructions during a hardware task. Do not flash firmware unless explicitly authorized.
+Firmware implementation facts required by a hardware scenario must come from this workspace's maintained skill/references, explicit operator/source-developer input in the task, or observable node output. If a required fact is absent, report that evidence boundary instead of consulting firmware source/docs. Do not modify source, tests, docs, TODOs, CI, branches or agent instructions during a hardware task. Do not flash firmware unless explicitly authorized.
 
 In this workspace do not modify these tracked executor/reviewer files during a hardware run:
 

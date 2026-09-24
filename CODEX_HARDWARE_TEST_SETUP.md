@@ -47,11 +47,11 @@ is no longer needed when the Codex working directory itself is serialterminal-ob
 
 If that writable_roots entry exists only for this old sibling-write arrangement, remove it. If the same table contains other deliberately authorized writable roots, keep those unrelated entries.
 
-Do not replace it with a writable root for `../serialterminal` or for a firmware checkout. Those source repositories are read-only from the hardware-executor role.
+Do not replace it with a writable root for `../serialterminal` or for any firmware checkout. The SerialTerminal source/runtime remains read-only; firmware source is outside the hardware-executor boundary and must not be granted or sought merely for a hardware run.
 
-The firmware repository is identified by Git remote as `dreamworkerln/lora-sack-protocol`; its local directory name is not fixed. Do not encode a username, absolute `/home/...` path or assumed sibling dirname in sandbox setup. If firmware source read access is needed on a host with restricted reads, first resolve the matching immediate sibling Git repository by `remote.origin.url`, then grant only the minimum read permission for that resolved checkout.
+Do not encode a username, absolute `/home/...` path, firmware repository location or assumed firmware sibling dirname in sandbox setup. The hardware executor must not resolve or inspect a firmware checkout.
 
-With workspace-write, Codex can normally read outside the workspace while writes remain scoped to the workspace. If the local installation uses explicitly restricted read access, add only the minimum read permission required for the sibling runtime/source repositories; do not make them writable.
+With workspace-write, Codex can normally read outside the workspace while writes remain scoped to the workspace. If the local installation uses explicitly restricted read access, add only the minimum read permission required for the SerialTerminal sibling runtime/source; do not make it writable.
 
 The workspace .git directory remains a protected path under the normal sandbox policy. Therefore guarded commit/push publication can still require a separate approval even though runs/ and observations/ are inside the writable workspace.
 
