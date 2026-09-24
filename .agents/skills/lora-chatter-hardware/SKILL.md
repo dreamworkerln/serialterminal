@@ -119,9 +119,14 @@ Do not vary that prefix merely to generate a unique logfile name.
 
 ### Interaction efficiency
 
-Minimize model/terminal round-trips without hiding evidence:
+Minimize model/terminal round-trips without overflowing a node's bounded input queue or hiding evidence:
 
-- when several independent `send_line` requests are ready at the same checkpoint, submit them together in one terminal interaction and correlate responses by request id;
+- do not treat SerialTerminal's ability to submit many `send_line` requests in one host interaction as permission to burst an arbitrary number of local commands at one node;
+- for routine bootstrap, configuration and cleanup, send at most **3 local-control commands per session** before an `observe` checkpoint confirms that the batch was consumed; this conservative bound applies even when the currently tested firmware is known to have a deeper input queue;
+- independent commands for different sessions may share one host interaction, but the per-session batch limit still applies;
+- after each local-control batch, consume the resulting lines/cursors and confirm the intended state before sending the next batch;
+- send state transitions whose result controls the next step individually or in the smallest independent batch, then confirm them before proceeding. This includes `/heartbeat on|off`, `/diag on|off`, and PHY/config changes immediately before a measured phase;
+- never rely on queue depth as normal flow control. `INPUT QUEUE FULL`, a dropped local command, or a missing expected acknowledgement means the affected setup/cleanup state must be re-established and confirmed before measurement or exit;
 - do not batch commands whose ordering depends on an earlier result;
 - use returned cursors directly rather than re-querying status/history to rediscover position;
 - do not re-read repository documentation between normal happy-path phases;
@@ -233,7 +238,7 @@ If expected BLE targets are absent or BLE repeatedly disconnects/reconnects, use
 
 ## RF safety gate
 
-After establishing participating node identities and before the first measured LoRa RF transmission:
+After establishing participating node identities and before the first measured LoRa RF transmission, establish the following state **without sending the whole block as one per-node burst**:
 
 ```text
 /heartbeat off
@@ -243,6 +248,8 @@ After establishing participating node identities and before the first measured L
 /power 2
 /config
 ```
+
+Use the bounded local-control batching rule above: small batches with `observe`/confirmation between them. A typical safe shape is stop/cancel controls first, confirm; then power/radio controls, confirm; then `/config` as the final state check.
 
 Confirm power=2 dBm on every participating node before measured RF.
 
@@ -338,5 +345,7 @@ TX power restored to 2 dBm after temporary calibration/high-power work
 test sessions closed
 SerialTerminal process terminated
 ```
+
+Apply cleanup controls with the same bounded per-session batching rule used for bootstrap; do not fire the entire cleanup sequence as one local-command burst. Confirm the final node state before closing the sessions.
 
 If cancellation occurs after physical USER TX, delivery status may remain unknown; cancellation is not proof of non-delivery.
