@@ -19,6 +19,24 @@ Use firmware implementation facts only when they are already present in this mai
 
 Do not modify source, tests, docs, TODOs, CI, branches, this skill, repository policies or REVIEW_STATE.md. Do not flash unless explicitly authorized.
 
+## Sandbox / permission elevation
+
+A sandbox/access-control failure is an environment boundary to recover from, not an immediate hardware, transport, Git or test outcome.
+
+When an operation that is both necessary for the task and already allowed by this skill fails with an access error such as `Operation not permitted`, `Permission denied`, `EACCES`, `EPERM`, a read-only sandbox path, inability to create a Git `*.lock`, blocked Bluetooth/D-Bus/device access, or blocked network access:
+
+1. identify the smallest concrete operation or command class that needs additional access;
+2. request elevated permission for that operation through the execution environment;
+3. retry the same operation after approval instead of immediately returning `BLOCKED`;
+4. preserve the existing long-lived SerialTerminal process/session state when the environment permits it; if the permission boundary necessarily requires a fresh process, record that executor fact and establish a fresh run identity when evidence continuity requires it;
+5. classify the step as `BLOCKED` only when elevation is unavailable, explicitly denied, or the approved retry still cannot perform the required operation.
+
+Different operation types may require separate approvals. A successful or failed approval for BLE discovery does not replace a later required approval for a guarded Git helper, Git metadata lock, remote verification, serial-device access, or another independently sandboxed operation. Request the minimum permission for each required class as it is encountered.
+
+For Git/publication work, elevate the guarded publication helper or the exact required Git/read-only remote-verification command. Do not use elevated access to bypass the guarded publication workflow with raw `git add/commit/push`.
+
+Privilege elevation never expands task scope. It does not authorize firmware source/docs inspection, source modification, flashing, host Bluetooth stack mutation, destructive Git operations, or any action otherwise forbidden by this skill.
+
 ## Task classes
 
 Choose the lightest class that satisfies the operator request.
