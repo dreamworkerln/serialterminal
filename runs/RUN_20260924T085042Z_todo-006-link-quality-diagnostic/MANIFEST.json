@@ -1,0 +1,25 @@
+{
+  "schema": 1,
+  "observed_at": "2026-09-24T08:50:42Z",
+  "topic": "todo-006-link-quality-diagnostic",
+  "result": "INCONCLUSIVE",
+  "serialterminal": {
+    "repo": "dreamworkerln/serialterminal",
+    "sha": "04756c38a41dae8ebac063fed584a066187071b6"
+  },
+  "firmware": {
+    "repo": "dreamworkerln/lora-sack-protocol",
+    "sha": "0fa01bd7a220d25101716bc84089a21e714739b9",
+    "state": "clean",
+    "image_validation": "OK"
+  },
+  "observation": {
+    "state": "recorded",
+    "path": "../../observations/OBS_20260924T085042Z_todo-006-link-quality-diagnostic.md"
+  },
+  "files": {
+    "report": "REPORT.md",
+    "console": "serialterminal.console.log",
+    "serialterminal_log": "serialterminal.log"
+  }
+}
