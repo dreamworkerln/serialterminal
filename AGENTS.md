@@ -138,16 +138,17 @@ serialterminal-observations/    branch node_observations
 
 Start the hardware Codex session with serialterminal-observations as its working directory. This intentionally prevents serialterminal/AGENTS.md from entering the hardware executor's automatic project-instruction chain.
 
-The observation workspace supplies its own short AGENTS.md plus the lora-chatter-hardware skill. The hardware executor uses `../serialterminal` as read-only runtime/API source. Firmware/protocol authority is repository `dreamworkerln/lora-sack-protocol`; its local sibling dirname is resolved by Git remote identity rather than assumed.
+The observation workspace supplies its own short AGENTS.md plus the lora-chatter-hardware skill. The hardware executor uses `../serialterminal` as read-only runtime/API source. It does **not** inspect firmware source/docs. Any firmware implementation facts required by a physical test must be supplied by the operator/source-development task through the prompt or maintained executor references; if absent, the hardware executor reports an evidence boundary instead of opening `dreamworkerln/lora-sack-protocol`.
 
 When preparing a hardware prompt:
 
 * state the concrete scenario and acceptance criteria;
 * identify QUICK vs canonical evidence work when useful;
 * default LoRa-Chatter transport to BLE unless the operator/scenario requires another transport;
+* supply any implementation constants/semantics needed to judge the scenario; derive them in the source-development workspace, not by telling the hardware executor to inspect firmware source;
 * do not paste the full AGENT_API.md, source AGENTS.md, publication policy or large scripts into the prompt;
 * let the observation-workspace skill load only the task-specific references it needs;
-* do not authorize source/docs/tests/TODO/CI edits or flashing unless the operator explicitly starts a separate task;
+* do not authorize firmware source/docs inspection, source/docs/tests/TODO/CI edits or flashing unless the operator explicitly starts a separate source-development task outside the hardware run;
 * require factual PASS | FAIL | BLOCKED | INCONCLUSIVE outcomes and evidence-boundary behavior.
 
 The full generic API remains here in AGENT_API.md and should be read by the hardware executor only when the lightweight hardware skill cannot resolve a direct JSONL/API semantic question or structured API error.
@@ -210,7 +211,7 @@ Do not assume physical hardware is available unless the task explicitly says it 
 
 Do not claim USB or BLE hardware behavior was tested if only mocks or unit tests were run.
 
-Hardware smoke testing may involve the related firmware repository `dreamworkerln/lora-sack-protocol`. Its local checkout path must be resolved portably by Git remote identity when source access is actually required.
+Source-development work around a hardware smoke may involve the related firmware repository `dreamworkerln/lora-sack-protocol`, but the separate hardware executor must not inspect that firmware checkout. Resolve/read firmware source only in the source-development workspace when the operator's task actually requires it, then pass the necessary test contract/facts to the hardware executor.
 
 Only perform hardware-facing actions when explicitly requested.
 
