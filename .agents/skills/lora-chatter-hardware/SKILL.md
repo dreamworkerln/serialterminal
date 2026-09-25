@@ -31,7 +31,7 @@ When an operation that is both necessary for the task and already allowed by thi
 4. preserve the existing long-lived SerialTerminal process/session state when the environment permits it; if the permission boundary necessarily requires a fresh process, record that executor fact and establish a fresh run identity when evidence continuity requires it;
 5. classify the step as `BLOCKED` only when elevation is unavailable, explicitly denied, or the approved retry still cannot perform the required operation.
 
-Different operation types may require separate approvals. A successful or failed approval for BLE discovery does not replace a later required approval for a guarded Git helper, Git metadata lock, remote verification, serial-device access, or another independently sandboxed operation. Request the minimum permission for each required class as it is encountered.
+Different operation types may require separate approvals. A successful or failed approval for BLE discovery does not replace a later required approval for Git metadata access, fetch/push, remote verification, serial-device access, or another independently sandboxed operation. Request the minimum permission for each required class as it is encountered.
 
 When the execution environment supports a persistent command-prefix approval, do not request an "always allow" rule that includes run-unique arguments such as `--log /tmp/<timestamp>.log`. For the SerialTerminal agent, the reusable approval prefix is exactly:
 
@@ -41,7 +41,7 @@ python3 ../serialterminal/serialterminal.py agent
 
 The unique `--log ...` argument belongs to the invocation, not to the persistent approval identity. If the environment cannot express a prefix rule separately and offers only approval for the exact full command, request/run it as a one-time approval rather than presenting that timestamp-specific command as a useful persistent rule.
 
-For Git/publication work, elevate the guarded publication helper or the exact required Git/read-only remote-verification command. Do not use elevated access to bypass the guarded publication workflow with raw `git add/commit/push`.
+For Git/publication work, operate directly in the current serialterminal-observations workspace. Elevate only the exact Git operation that is blocked by sandbox protection. Direct `git add`, `git commit`, `git fetch`, `git push` and `git ls-remote` are allowed only under the exact-path append-only publication contract below. Never use force-push, rebase, reset, amend, checkout-overwrite, stash or clean as publication shortcuts.
 
 Privilege elevation never expands task scope. It does not authorize firmware source/docs inspection, source modification, flashing, host Bluetooth stack mutation, destructive Git operations, or any action otherwise forbidden by this skill.
 
@@ -69,7 +69,7 @@ For QUICK:
 For durable validation/evidence, keep bootstrap compact:
 
 - do **not** read `NODE_OBSERVATION_RECORDING_POLICY.md` at startup on the normal happy path; the publication contract below is sufficient for an ordinary canonical RUN;
-- read a targeted policy section only when the task has an evidence/layout ambiguity or the guarded helper reports a policy/publication error; do not dump the whole policy into model context;
+- read a targeted policy section only when the task has an evidence/layout ambiguity or a Git/publication step reports an unusual state or failure; do not dump the whole policy into model context;
 - read only the task-specific reference actually needed below;
 - when exact deployed firmware identity is needed, prefer the node's `/version` result; if it reports a clean source SHA plus valid image metadata, do not read `references/provenance.md` merely to restate that result;
 - read `references/provenance.md` only for provenance ambiguity, source/image mismatch, unknown/dirty state, or an acceptance gate that requires deeper provenance reasoning;
@@ -88,11 +88,14 @@ Normal canonical publication contract after the hardware evidence is finalized:
    - manifest `topic` exactly equal to the same topic
    - manifest `observation.path` exactly equal to the matching OBS path;
 6. write `MANIFEST.json` last;
-7. validate only the intended RUN/OBS files and JSON/diff hygiene;
-8. publish only with `python3 -I ../serialterminal/scripts/commit-node-run`;
-9. independently verify `git ls-remote origin refs/heads/node_observations` matches the helper commit.
+7. validate the intended RUN/OBS files, JSON and hygiene before staging;
+8. run `git fetch origin node_observations` and require the current workspace branch to be `node_observations`, with no unrelated tracked/staged/untracked residue and no branch divergence;
+9. stage only the exact current RUN directory and optional matching OBS with `git add -- <exact paths>`;
+10. verify `git diff --cached --name-status` contains only expected append-only `A` entries under those exact paths, and run `git diff --cached --check`;
+11. commit normally in this workspace, then push with `git push origin HEAD:node_observations`; never force-push;
+12. independently verify `git ls-remote origin refs/heads/node_observations` exactly matches `git rev-parse HEAD`.
 
-Do not read helper source, full policy text, or repository history when this happy path succeeds.
+Do not use `../serialterminal/scripts/commit-node-run`, `commit-node-observation` or `node-publication-common.py` for executor publication. Do not read their source on the happy path. Read the evidence-recovery reference only when Git/publication state is unusual.
 
 ### DIAGNOSTIC
 
@@ -383,18 +386,20 @@ references/diagnostic-and-faults.md
     ECHO, reboot, degraded/fatal radio semantics
 
 references/evidence-recovery.md
-    only after publication/helper/storage/Git failure
+    only after publication/storage/Git failure
 ```
 
 For protocol behavior beyond these operating summaries, use only explicit task facts, maintained hardware references and physical-node evidence. If those are insufficient, report the missing source-development fact; do not inspect firmware source/docs.
 
 ## Timing-sensitive scenarios
 
-When correctness depends on reacting faster than an LLM/tool round-trip, prefer an existing repository helper in ../serialterminal/scripts/ when the task matches it.
+Do not enumerate or probe `../serialterminal/scripts/` for generic hardware work.
 
-A helper is orchestration, not independent evidence authority. It must still use SerialTerminal transport/session ownership and its result must be interpreted against the requested acceptance criteria.
+The normal executor runtime is `../serialterminal/serialterminal.py agent`. At the current SerialTerminal revision, `scripts/run-chatter-scenario` is a narrow scenario helper for `cancel-all-current-plus-queue`; it is not a generic PHY/payload sweep runner. Use it only when the requested task exactly matches a supported scenario.
 
-Do not invent an ad-hoc helper merely for convenience unless the operator asks for it or the scenario cannot be executed correctly at model round-trip speed.
+Publication scripts in `../serialterminal/scripts/` are not part of the hardware-executor workflow.
+
+If correctness depends on orchestration faster than an LLM/tool round-trip and no maintained helper exactly matches the task, use a small task-local orchestration program only when necessary for correctness. It must drive the same long-lived SerialTerminal agent API, preserve exact evidence, and must not become an alternative transport implementation.
 
 ## Outcomes
 
