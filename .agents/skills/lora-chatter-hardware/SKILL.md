@@ -338,6 +338,22 @@ Common controls:
 
 When command availability is uncertain, use the task prompt, maintained hardware references or `/help` before sending an uncertain token that could become USER traffic. Do not consult firmware source/docs.
 
+## PHY / payload sweep integrity
+
+For SF/BW/payload characterization, read
+`references/phy-payload-sweep.md` before measured USER traffic.
+
+The non-negotiable sweep invariants are:
+
+- keep measured TX power at 2 dBm unless the task explicitly defines another controlled power stage;
+- permit only one measured reliable USER transaction in flight across both nodes combined;
+- capture the current USER sequence/identity and require the matching ACK for that exact transaction before sending the next USER;
+- never accept an unrelated or merely recent ACK as completion;
+- never start the opposite direction while the current reliable transaction is unsettled;
+- preserve CRC/HDR as unsequenced RF evidence and do not invent a protocol sequence for a corrupted frame;
+- do not stop at the first failure or assume a monotonic payload boundary; finish the requested sparse payload grid through its largest point unless a real blocker/fatal condition prevents it;
+- if measured USER transmissions overlap or correlation is lost, mark the affected sample contaminated, re-establish clean state and repeat it rather than using it in radio conclusions.
+
 ## Task-specific references
 
 Read only when needed:
@@ -348,6 +364,9 @@ references/provenance.md
 
 references/reliable-user.md
     USER/ACK, retries, duplicates, queue, cancellation, lost-ACK gates
+
+references/phy-payload-sweep.md
+    SF/BW/payload sparse sweeps, exact ACK correlation, repetitions, CRC handling and contamination recovery
 
 references/bluetooth.md
     BLE discovery, permissions and reconnect/flapping handling
