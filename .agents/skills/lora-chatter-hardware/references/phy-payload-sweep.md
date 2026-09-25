@@ -33,6 +33,29 @@ Do not insert an unrequested "fix", extra BW toggle/reapply, reboot, or other hi
 configuration experiment into the baseline sweep. A PHY re-apply A/B is a separate
 control and must be reported as such.
 
+## Default practical PHY matrix
+
+When the operator asks for a broad/full practical SF/BW characterization but does not
+provide an exact matrix, use:
+
+```text
+main matrix:
+    SF = 7, 8, 9, 10, 11, 12
+    BW = 125, 250, 500 kHz
+
+slow-PHY extension:
+    SF = 7, 8, 9, 10, 11, 12
+    BW = 62.5 kHz
+```
+
+Run the main matrix first. Treat BW62.5 as a separately labeled slow-PHY stage so its
+long airtime cannot obscure which part of the campaign is complete.
+
+Do not automatically expand a generic practical sweep to BW
+`7.8/10.4/15.6/20.8/31.25/41.7 kHz`; those very narrow settings can make long USER
+transactions extremely slow. Include them only when the operator explicitly requests
+those bandwidths.
+
 ## Sparse payload scan
 
 When the operator asks to scan the application range `1..200` bytes without a
