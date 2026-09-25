@@ -53,7 +53,7 @@ Do not encode a username, absolute `/home/...` path, firmware repository locatio
 
 With workspace-write, Codex can normally read outside the workspace while writes remain scoped to the workspace. If the local installation uses explicitly restricted read access, add only the minimum read permission required for the SerialTerminal sibling runtime/source; do not make it writable.
 
-The workspace .git directory remains a protected path under the normal sandbox policy. Therefore guarded commit/push publication can still require a separate approval even though runs/ and observations/ are inside the writable workspace.
+The workspace .git directory remains a protected path under the normal sandbox policy. Therefore direct Git publication can still require separate approval for metadata writes and network operations even though runs/ and observations/ are inside the writable workspace.
 
 ## Runtime invocation
 
@@ -77,28 +77,29 @@ Do not read that entire file by default. The hardware skill contains the normal 
 
 ## Publication
 
-Canonical evidence is created directly in this workspace:
+Canonical evidence is created and published directly from this workspace:
 
 ```text
 runs/RUN_<stamp>_<topic>/
 observations/OBS_<stamp>_<topic>.md
 ```
 
-The trusted publication implementation remains in the dev clone and locates this sibling clone from its own path.
+The hardware executor does not use sibling publication scripts.
 
-From the hardware workspace invoke it as a standalone command:
+Publication uses exact-path append-only Git in the current `node_observations` clone:
 
-```bash
-python3 -I ../serialterminal/scripts/commit-node-run
+```text
+preflight/fetch
+-> exact-path git add
+-> verify staged A-only paths + diff hygiene
+-> git commit
+-> normal git push
+-> independent git ls-remote verification
 ```
 
-or, for an eligible standalone observation:
+The detailed contract is in `NODE_OBSERVATION_RECORDING_POLICY.md`; unusual states use the skill's `references/evidence-recovery.md`.
 
-```bash
-python3 -I ../serialterminal/scripts/commit-node-observation
-```
-
-Do not chain those commands with other shell operations. Git/network approval may still be required.
+Git metadata and network approval may still be required separately.
 
 ## Transport default
 
