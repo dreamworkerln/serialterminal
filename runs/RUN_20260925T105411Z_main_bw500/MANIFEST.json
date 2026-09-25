@@ -1,0 +1,28 @@
+{
+  "schema": 1,
+  "observed_at": "2026-09-25T10:54:11Z",
+  "topic": "main_bw500",
+  "result": "PASS",
+  "serialterminal": {
+    "repo": "dreamworkerln/serialterminal",
+    "sha": "08c1b8d919cfb04c32068c9b9d63fdb1443139c9",
+    "state": "clean"
+  },
+  "firmware": {
+    "repo": "dreamworkerln/lora-sack-protocol",
+    "sha": "b76ffa04ab47a3f344b8270159ab274256f6ff62",
+    "state": "clean",
+    "image_validation": "OK",
+    "image_validation_sha256": "c4e8407581882b7ca53680197748d4e8dabdf2cf9a389ad62bf271d6ef9307b6"
+  },
+  "observation": {
+    "state": "recorded",
+    "path": "../../observations/OBS_20260925T105411Z_main_bw500.md",
+    "workspace_base": "333e56c82f5c944c7603b23d1d130cfbc7150d80"
+  },
+  "files": {
+    "report": "REPORT.md",
+    "console": "serialterminal.console.log",
+    "serialterminal_log": "serialterminal.log"
+  }
+}
