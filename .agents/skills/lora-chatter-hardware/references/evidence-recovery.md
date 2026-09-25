@@ -1,98 +1,214 @@
 # Evidence publication recovery
 
-Read this only after a publication/storage/Git helper failure or when the observation workspace is already in an unusual state.
+Read this only after a publication/storage/Git failure or when the observation workspace is already in an unusual state.
 
 Normal publication rules are in ../../../../NODE_OBSERVATION_RECORDING_POLICY.md.
 
 ## Core rule
 
-Do not bypass guarded publication with raw git add/commit/push, merge, rebase, reset, amend or force-push.
+The hardware executor publishes directly from the current serialterminal-observations workspace.
+
+Direct Git is allowed only for append-only canonical evidence under:
+
+```text
+runs/RUN_<UTC>_<topic>/
+observations/OBS_<UTC>_<topic>.md
+```
 
 Do not repair or rewrite historical RUN/OBS evidence.
 
-Do not modify REVIEW_STATE.md.
+Do not modify REVIEW_STATE.md, executor skills/policies or source during a hardware run.
 
-## Pending backlog
-
-The observation clone may legitimately contain:
-
-- pending standalone observations;
-- complete pending RUN bundles;
-- incomplete RUN from an interrupted executor;
-- run-bound OBS whose RUN is not complete.
-
-A complete unrelated run may be publishable while an incomplete canonical run remains pending.
-
-Do not delete stale/incomplete evidence-like paths automatically. Removal is a separate explicit maintenance task.
-
-Unexpected untracked paths outside the allowed observation/run namespaces are a hard publication boundary.
-
-## Push failure
-
-A guarded helper can create a local commit and then fail to push.
-
-Preserve the local commit and exact diagnostic.
-
-The helper's safe retry logic may repush validated local-ahead append-only publication commits when remote is not ahead and history is not divergent.
-
-Hard boundaries include:
+Never use:
 
 ```text
-true branch divergence (ahead>0 and behind>0)
-local-ahead commit modifying/deleting historical evidence
-local-ahead commit outside canonical publication namespaces
-tracked/staged residue
-remote changes that touch or collide with the pending RUN/OBS paths
+force-push
+rebase
+reset
+amend
+checkout-overwrite
+stash
+clean
+history rewrite
 ```
 
-A strictly behind-only workspace is recoverable when ALL of the following are true:
+Do not use sibling publication scripts as recovery:
 
-- `ahead=0` and `behind>0`;
-- the pending hardware evidence exists only as untracked canonical `runs/RUN_...` and optional `observations/OBS_...` paths;
+```text
+../serialterminal/scripts/commit-node-run
+../serialterminal/scripts/commit-node-observation
+../serialterminal/scripts/node-publication-common.py
+```
+
+## First inspection
+
+Preserve the exact failing Git diagnostic, then inspect:
+
+```bash
+git branch --show-current
+git status --short
+git rev-parse HEAD
+git fetch origin node_observations
+git rev-list --left-right --count origin/node_observations...HEAD
+```
+
+The branch must be `node_observations`.
+
+Classify the state before changing anything.
+
+## Pending untracked evidence
+
+The workspace may legitimately contain:
+
+- one complete pending RUN bundle;
+- its matching run-bound OBS;
+- one eligible standalone OBS;
+- an incomplete RUN from an interrupted executor.
+
+Expected untracked canonical evidence is not itself an error.
+
+Unexpected untracked paths outside the intended current RUN/OBS are a publication boundary. Do not delete them automatically.
+
+Before staging, confirm the pending bundle identity and exact files. For a canonical RUN, verify:
+
+```text
+RUN_<UTC>_<topic>/
+    MANIFEST.json
+    REPORT.md
+    serialterminal.log
+    serialterminal.console.log
+optional matching OBS_<UTC>_<topic>.md
+```
+
+and verify MANIFEST/OBS identity rules from the recording policy.
+
+## Behind-only workspace before commit
+
+A strictly behind-only workspace is recoverable when all of the following are true:
+
+- local `ahead=0`;
+- remote `behind>0`;
 - there are no staged or tracked modifications;
-- inspection of `HEAD..origin/node_observations` shows no change to any pending RUN/OBS path and no rewrite/deletion of historical evidence;
-- the remote commits are ordinary fast-forward additions such as executor-skill/policy maintenance or unrelated immutable evidence.
+- pending evidence exists only as intended untracked canonical RUN/OBS paths;
+- `HEAD..origin/node_observations` does not add the same pending paths or rewrite/delete historical evidence.
 
-In that case, after a successful fetch, advance the local branch only with:
+Then advance only with:
 
 ```bash
 git merge --ff-only origin/node_observations
 ```
 
-Request elevated permission for that exact Git operation if the sandbox requires it. Then re-check `git status --short`, confirm the pending evidence files are still the only untracked paths, and retry the guarded publication helper.
+Re-check `git status --short` and the branch counts before staging.
 
-Do not use rebase, non-fast-forward merge, reset, checkout-overwrite, stash, clean, amend, force-push, or raw `git add/commit/push` as recovery.
+If remote changes collide with the pending RUN/OBS path, stop and report the boundary.
 
-If the remote diff touches a pending evidence path or any condition above is false, stop and report the boundary instead of attempting automatic recovery.
+## Staging recovery
 
-## Helper failures
+Normal staging is exact-path only:
 
-Invalid invocation normally returns exit 2.
+```bash
+git add -- runs/RUN_<stamp>_<topic>/ observations/OBS_<stamp>_<topic>.md
+```
 
-Guard/Git failures return non-zero with a concrete diagnostic such as RUN COMMIT FAILED or OBSERVATION COMMIT FAILED.
+or for a standalone observation:
 
-Report the exact diagnostic. Do not collapse it to a generic "publication failed".
+```bash
+git add -- observations/OBS_<stamp>_<topic>.md
+```
 
-If sandbox blocks Git metadata or network, do not stop at the first permission error. Request the minimum elevated permission for the exact standalone guarded helper or exact read-only Git/remote-verification command, then retry that operation. Typical recoverable environment failures include inability to create `.git/index.lock` or `.git/worktrees/.../index.lock`, read-only Git metadata, `Permission denied`/`Operation not permitted`, and sandboxed network access.
+After staging:
 
-Git metadata access, guarded publication, and independent remote verification may be separate permission classes. Request narrowly scoped elevation for each required operation when encountered. Report `BLOCKED` only when elevation is unavailable/denied or the approved retry still cannot perform the required Git operation. Do not use any approval for unrelated shell/source writes, destructive Git operations, or to bypass the guarded helper with raw `git add/commit/push`.
+```bash
+git diff --cached --name-status
+git diff --cached --check
+git status --short
+```
+
+Every staged entry must be `A` and must belong only to the intended current evidence.
+
+If unrelated content is already staged, do not silently unstage or overwrite another actor's state. Stop and report it.
+
+## Commit failure
+
+If `git commit` fails because Git metadata is sandbox-protected, request the minimum elevation for that exact commit operation and retry it.
+
+If it fails for identity/config/hook/content reasons, preserve the exact diagnostic. Do not bypass hooks or change global Git configuration unless the operator explicitly starts a maintenance task.
+
+After a successful commit, record the exact local SHA:
+
+```bash
+git rev-parse HEAD
+```
+
+## Push failure
+
+If `git push origin HEAD:node_observations` fails, preserve the local commit and exact diagnostic.
+
+Fetch and classify:
+
+```bash
+git fetch origin node_observations
+git rev-list --left-right --count origin/node_observations...HEAD
+```
+
+If remote is not ahead and local is only ahead by the append-only publication commit(s), retry the normal push.
+
+If both sides are ahead, the branch diverged after the local commit. Stop. Do not rebase, merge, reset, amend or force-push during the hardware task.
+
+The local commit remains valid local evidence and can be reconciled later in an explicit maintenance step.
+
+## Local-ahead state discovered at startup
+
+If a previous hardware run already created local commit(s) that are not on origin:
+
+1. inspect each local-ahead commit with `git show --name-status --format=fuller <sha>`;
+2. require only append-only `A` entries under canonical RUN/OBS paths;
+3. require no historical modification/deletion and no executor/source changes;
+4. require remote not to be ahead/divergent.
+
+If all conditions hold, a normal push is allowed.
+
+Otherwise stop and report the branch state.
+
+## Sandbox / permission recovery
+
+Sandbox failure is not a hardware FAIL.
+
+For a required Git operation blocked by `Permission denied`, `Operation not permitted`, inability to create `.git/index.lock`, protected Git metadata or blocked network access:
+
+1. request the minimum elevation for the exact Git operation;
+2. retry the same operation;
+3. re-check repository state afterward.
+
+Git metadata, fetch/push and remote verification may be separate permission classes.
+
+Report `BLOCKED` only when elevation is unavailable/denied or the approved retry still cannot perform the required operation.
 
 ## Remote verification
 
-After helper exit 0, verify remote independently:
+After successful push, verify independently:
 
 ```bash
 git ls-remote origin refs/heads/node_observations
+git rev-parse HEAD
 ```
 
-If the remote SHA matches the helper commit, verification is verified.
+The SHAs must match exactly.
 
-If it differs, report mismatch.
+Report:
 
-If network/permission prevents the independent read after a minimal retry/approval attempt, report not verified. Do not reinterpret a local origin ref as independent remote verification.
+```text
+remote verification: verified
+remote verification: mismatch
+remote verification: not verified
+```
+
+Do not replace the independent remote read with a local `origin/node_observations` ref.
 
 ## Storage/config failure
 
-If the hardware executor is not actually running from the independent serialterminal-observations clone on node_observations, do not improvise a new clone/worktree or rewrite sandbox config during the measured hardware task. Report the storage/config boundary.
+If the hardware executor is not actually running from the independent serialterminal-observations clone on `node_observations`, do not improvise a new clone/worktree or rewrite sandbox config during the measured hardware task.
+
+Report the storage/config boundary.
 
 Executor infrastructure changes belong to a separate maintenance task.
