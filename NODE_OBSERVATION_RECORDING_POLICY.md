@@ -4,9 +4,9 @@
 
 This is the canonical happy-path evidence policy for the hardware executor working from the serialterminal-observations clone.
 
-The executor creates and interprets hardware evidence. Guarded publication helpers validate and publish already prepared artifacts; they never invent evidence.
+The executor creates and interprets hardware evidence, then publishes it directly from the serialterminal-observations workspace with a constrained append-only Git workflow.
 
-Recovery from publication failures is intentionally not described in full here. If a guarded helper fails or branch state is unusual, read:
+Recovery from publication failures is intentionally not described in full here. If Git publication fails or branch state is unusual, read:
 
 ```text
 .agents/skills/lora-chatter-hardware/references/evidence-recovery.md
@@ -212,41 +212,91 @@ After measured interaction:
 8. decide whether OBS is required;
 9. if required, create matching observations/OBS_<stamp>_<topic>.md;
 10. write MANIFEST.json last;
-11. invoke the guarded publication helper.
+11. publish through the direct exact-path Git workflow below.
 
 Do not stage hardware evidence in ../serialterminal.
 
-## Guarded publication
+## Direct append-only publication
 
-From the serialterminal-observations workspace use the trusted sibling helper as a standalone command:
+Publication happens in the current serialterminal-observations workspace. Do not invoke sibling publication helpers.
 
-```bash
-python3 -I ../serialterminal/scripts/commit-node-run
-```
-
-For an eligible standalone observation:
+Before staging:
 
 ```bash
-python3 -I ../serialterminal/scripts/commit-node-observation
+git branch --show-current
+git status --short
+git fetch origin node_observations
+git rev-list --left-right --count origin/node_observations...HEAD
 ```
 
-Do not prepend/append commands with &&, ;, pipes, subshells or command substitution.
+Requirements:
 
-The helper uses exact-path staging and normal push only. It never force-pushes.
+- current branch is exactly `node_observations`;
+- no unrelated tracked, staged or untracked residue exists;
+- committed historical RUN/OBS files are never modified or deleted;
+- before the new commit, the branch must not be divergent from origin;
+- if the workspace is strictly behind with no local commits and only the intended untracked evidence, `git merge --ff-only origin/node_observations` is allowed, then re-check state;
+- if state is not simple/append-only, stop and read evidence-recovery.md.
 
-If sandbox protection prevents Git metadata/network access, request only the minimum approval needed for the exact standalone helper command.
+For a canonical RUN, stage only the exact current bundle and optional matching OBS:
 
-If the helper returns non-zero, stop normal publication reasoning and read evidence-recovery.md. Do not bypass the helper with raw git add/commit/push.
+```bash
+git add -- runs/RUN_<stamp>_<topic>/ observations/OBS_<stamp>_<topic>.md
+```
+
+Omit the OBS path when `observation.state=not-required`.
+
+For an eligible standalone observation, stage only its exact OBS path:
+
+```bash
+git add -- observations/OBS_<stamp>_<topic>.md
+```
+
+Then verify the index before committing:
+
+```bash
+git diff --cached --name-status
+git diff --cached --check
+git status --short
+```
+
+Every staged entry must be an append-only `A` entry and must belong only to the exact intended RUN/OBS paths. Any staged modification/deletion, unrelated path or unexpected residue is a hard boundary.
+
+Commit normally in this workspace, for example:
+
+```bash
+git commit -m "hardware: publish <topic>"
+```
+
+Then push normally:
+
+```bash
+git push origin HEAD:node_observations
+```
+
+Never use force-push, rebase, reset, amend, checkout-overwrite, stash or clean as part of evidence publication.
+
+If sandbox protection blocks Git metadata or network access, request the minimum approval for the exact Git operation and retry that same operation.
+
+If any Git step returns non-zero or branch state changes unexpectedly, preserve evidence and read evidence-recovery.md.
+
+Do not use these sibling scripts for executor publication:
+
+```text
+../serialterminal/scripts/commit-node-run
+../serialterminal/scripts/commit-node-observation
+../serialterminal/scripts/node-publication-common.py
+```
 
 ## Independent remote verification
 
-After helper success, verify the actual remote ref with one standalone command:
+After successful push, verify the actual remote ref with one standalone command:
 
 ```bash
 git ls-remote origin refs/heads/node_observations
 ```
 
-Compare the returned SHA with the helper commit SHA.
+Compare the returned SHA with `git rev-parse HEAD`.
 
 Report:
 
