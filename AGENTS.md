@@ -28,7 +28,7 @@ README.md
 REVIEW_STATE.md
 ```
 
-Hardware-run writes belong only to canonical observations/ and runs/ paths, through the guarded publication workflow when publication is required.
+Hardware-run writes belong only to canonical observations/ and runs/ paths. Publication is direct from this workspace through the exact-path append-only Git workflow defined by NODE_OBSERVATION_RECORDING_POLICY.md.
 
 ## Start here
 
