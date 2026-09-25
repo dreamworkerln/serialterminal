@@ -35,7 +35,7 @@ Auxiliary capture is opt-in.
 
 Do not start btmon or another host diagnostic automatically.
 
-The executor owns creation and interpretation of auxiliary artifacts. Publication helpers do not start diagnostics, choose tools, repair captures or synthesize evidence.
+The executor owns creation and interpretation of auxiliary artifacts. Git publication does not start diagnostics, choose tools, repair captures or synthesize evidence.
 
 If an auxiliary artifact materially supports the verdict, REPORT.md names its RUN-relative path and explains what evidence boundary it supports.
 
@@ -43,4 +43,4 @@ A distinct control/reproduction performed as a separate process/run is a separat
 
 Exploratory scratch output that is not used as durable evidence need not be published.
 
-The guarded run helper publishes allowed auxiliary files atomically with the RUN. Do not add an artifact to an already published historical RUN.
+Allowed auxiliary files are staged and committed atomically with the exact RUN path during direct Git publication. Do not add an artifact to an already published historical RUN.
