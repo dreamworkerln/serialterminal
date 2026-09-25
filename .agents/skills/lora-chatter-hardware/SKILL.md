@@ -340,8 +340,13 @@ When command availability is uncertain, use the task prompt, maintained hardware
 
 ## PHY / payload sweep integrity
 
-For SF/BW/payload characterization, read
+For a single SF/BW/payload sweep, read
 `references/phy-payload-sweep.md` before measured USER traffic.
+
+For a full multi-stage radio characterization campaign, also read
+`references/radio-characterization-program.md`. That document defines campaign
+stages, canonical sharding, adaptive ultra-slow coverage and coordinator/executor
+boundaries; the sweep reference remains the low-level per-run execution contract.
 
 The non-negotiable sweep invariants are:
 
@@ -366,7 +371,10 @@ references/reliable-user.md
     USER/ACK, retries, duplicates, queue, cancellation, lost-ACK gates
 
 references/phy-payload-sweep.md
-    SF/BW/payload sparse sweeps, exact ACK correlation, repetitions, CRC handling and contamination recovery
+    one-run SF/BW/payload execution, exact ACK correlation, repetitions, CRC handling and contamination recovery
+
+references/radio-characterization-program.md
+    full MAIN/SLOW/ULTRA-SLOW campaign structure, sharding, adaptive coverage and interpretation
 
 references/bluetooth.md
     BLE discovery, permissions and reconnect/flapping handling
