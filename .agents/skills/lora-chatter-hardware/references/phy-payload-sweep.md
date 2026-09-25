@@ -33,28 +33,50 @@ Do not insert an unrequested "fix", extra BW toggle/reapply, reboot, or other hi
 configuration experiment into the baseline sweep. A PHY re-apply A/B is a separate
 control and must be reported as such.
 
-## Default practical PHY matrix
+## Full PHY characterization stages
 
-When the operator asks for a broad/full practical SF/BW characterization but does not
-provide an exact matrix, use:
+When the operator asks to characterize **all supported SF/BW combinations**, treat the
+campaign as three separately reported stages:
 
 ```text
-main matrix:
+MAIN MATRIX:
     SF = 7, 8, 9, 10, 11, 12
     BW = 125, 250, 500 kHz
 
-slow-PHY extension:
+SLOW:
     SF = 7, 8, 9, 10, 11, 12
     BW = 62.5 kHz
+
+ULTRA-SLOW:
+    SF = 7, 8, 9, 10, 11, 12
+    BW = 41.7, 31.25, 20.8, 15.6, 10.4, 7.8 kHz
 ```
 
-Run the main matrix first. Treat BW62.5 as a separately labeled slow-PHY stage so its
-long airtime cannot obscure which part of the campaign is complete.
+Run and publish these as distinct stages so a long ultra-slow campaign cannot obscure
+which earlier matrix is already complete.
 
-Do not automatically expand a generic practical sweep to BW
-`7.8/10.4/15.6/20.8/31.25/41.7 kHz`; those very narrow settings can make long USER
-transactions extremely slow. Include them only when the operator explicitly requests
-those bandwidths.
+For a new full characterization campaign, start with **MAIN MATRIX** unless the
+operator explicitly selects another stage.
+
+A historical or partial sweep does not close a stage merely because it sampled some
+of the same SF/BW/payload points. A stage is complete only when its requested matrix
+was executed under the current serialization/correlation rules with no unresolved
+contaminated points. Preserve earlier runs as historical evidence, but label them
+partial/incomplete relative to the stricter campaign when appropriate.
+
+The standard sparse payload grid below applies to MAIN MATRIX and SLOW.
+
+For ULTRA-SLOW, airtime can become extremely large. Unless the operator requests the
+full standard grid, begin each SF/BW point with this reduced coverage grid:
+
+```text
+1, 16, 64, 128, 200 user bytes
+```
+
+Still test both directions and obey the same one-global-transaction invariant. If an
+ultra-slow point shows CRC/HDR/retry/timeout/failure, preserve it and add a few
+neighboring/midpoint payload sizes around the anomaly. Do not silently skip 200 B and
+do not switch automatically to a 1-byte exhaustive scan.
 
 ## Sparse payload scan
 
