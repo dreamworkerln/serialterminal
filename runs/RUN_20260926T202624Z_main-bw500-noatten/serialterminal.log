@@ -1,0 +1,5 @@
+2026-09-26T23:24:54.715+03:00 [RUN] {"event":"start","pid":16338}
+2026-09-26T23:24:54.715+03:00 [AGENT] {"console_log_path":"/tmp/chatter-main-bw500-noatten-20260926T202443Z.console.log","event":"ready","log_path":"/tmp/chatter-main-bw500-noatten-20260926T202443Z.log"}
+2026-09-26T23:24:58.626+03:00 [AGENT REQUEST] {"id":1,"op":"discover","scope":"ble"}
+2026-09-26T23:25:01.677+03:00 [AGENT RESPONSE] {"id":1,"ok":true,"result":{"devices":[]}}
+2026-09-26T23:25:49.125+03:00 [RUN] {"event":"stop","pid":16338}
