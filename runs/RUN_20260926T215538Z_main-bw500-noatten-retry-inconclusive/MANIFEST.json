@@ -1,0 +1,23 @@
+{
+  "schema": 1,
+  "observed_at": "2026-09-26T21:55:38Z",
+  "topic": "main-bw500-noatten-retry-inconclusive",
+  "result": "INCONCLUSIVE",
+  "serialterminal": {
+    "repo": "dreamworkerln/serialterminal",
+    "sha": "08c1b8d919cfb04c32068c9b9d63fdb1443139c9"
+  },
+  "firmware": {
+    "repo": "dreamworkerln/lora-sack-protocol",
+    "sha": "unknown"
+  },
+  "observation": {
+    "state": "recorded",
+    "path": "../../observations/OBS_20260926T215538Z_main-bw500-noatten-retry-inconclusive.md"
+  },
+  "files": {
+    "report": "REPORT.md",
+    "console": "serialterminal.console.log",
+    "serialterminal_log": "serialterminal.log"
+  }
+}
