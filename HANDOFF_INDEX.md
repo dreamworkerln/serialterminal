@@ -7,11 +7,11 @@ Recorded hardware evidence/executor checkpoint: dreamworkerln/serialterminal/nod
 
 ## Current recovery state
 
-The source-development checkpoint records `TODO_028_CHATTER_SWEEP_RUNNER` as OPEN and selected as the next implementation task.
+The source-development checkpoint records `TODO_028_GENERIC_SWEEP_AGENT_API` as OPEN and selected as the next implementation task.
 
-No sweep implementation exists at the recorded source checkpoint. `scripts/run-chatter-scenario` remains the maintained starting point for reusable child-agent/orchestration behavior.
+No sweep implementation exists yet. After `HANDOFF_001.md`, TODO_028 was deliberately redesigned at `dev@70e217c30180c4bf09a2f1e1c948cea4c2114af8`: the selected task is now a generic long-running sweep-job API inside the existing `serialterminal agent`, with fixed caller-specified repetitions, cursor/window long-poll progress, no unsolicited JSON, and no RF/protocol analytics in the generic sweeper.
 
-The two handoff publication commits after the recorded source checkpoint are documentation/recovery-only. Refetch the actual `dev` head before editing or claiming current implementation state.
+`HANDOFF_001.md` remains immutable historical state and therefore still describes the superseded initial Chatter-runner formulation. For current TODO_028 semantics, the revised TODO/inventory at and after `dev@70e217c30180c4bf09a2f1e1c948cea4c2114af8` take precedence. Refetch actual `dev` before editing or claiming current implementation state.
 
 ## Repository roles
 
@@ -28,14 +28,16 @@ Read as needed from the exact source checkpoint recorded by the snapshot:
 - `AGENT_API.md` — machine-facing JSONL contract;
 - `LOGGING.md` — forensic vs console logging contract;
 - `TODO_INVENTORY.md` — authoritative current task/status map;
-- `todos/TODO_028_CHATTER_SWEEP_RUNNER.md` — selected next source task;
+- `todos/TODO_028_GENERIC_SWEEP_AGENT_API.md` — selected next source task and authoritative revised sweep design;
 - `NODE_SKILL_LEARNING_POLICY.md` — reviewer boundary for hardware evidence;
 - `HANDOFF_MANAGEMENT_POLICY.md` — handoff publication/recovery rules.
 
 ## Standing reminders
 
-- Implement `TODO_028` above the generic JSONL agent API; do not make `agent.py` Chatter-specific.
-- Use one child SerialTerminal agent process for the sweep; do not bypass it with direct Bleak/pyserial.
+- Implement `TODO_028` as a generic long-running job facility in the existing JSONL agent API, with the generic engine separated from measurement adapters.
+- The sweeper executes exactly the requested repetitions; it does not perform anomaly analytics or autonomously extend a plan.
+- Reuse the established cursor + timeout long-poll pattern for `sweep_observe`; no unsolicited JSON push.
+- Do not bypass SerialTerminal transports with direct Bleak/pyserial.
 - Do not modify `node_observations` during the source-development implementation.
 - Do not perform a real hardware sweep unless explicitly requested as a separate hardware task.
 - GitHub CI is software validation, not physical-node validation.
@@ -47,7 +49,7 @@ Read as needed from the exact source checkpoint recorded by the snapshot:
 2. read this `HANDOFF_INDEX.md`;
 3. read `HANDOFF_001.md`;
 4. read `TODO_INVENTORY.md`;
-5. read the specific selected TODO, currently `todos/TODO_028_CHATTER_SWEEP_RUNNER.md`;
+5. read the specific selected TODO, currently `todos/TODO_028_GENERIC_SWEEP_AGENT_API.md`;
 6. refetch actual `dev` before source work;
 7. inspect current source/tests at that ref before editing;
 8. use the independent hardware executor workspace only for an explicitly separate physical-node task.
