@@ -140,7 +140,7 @@ Remaining work: align the primary `NODE_OBSERVATION_RECORDING_POLICY.md` and nod
 
 TODO_026 logging-contract investigation is also OPEN and may be scheduled independently when log-format work is selected.
 
-Suggested implementation order for the next pass: finish the HCI boundary isolation in `TODO_024`, then correctness/evidence boundaries (`TODO_011`, `TODO_013`, `TODO_016`, `TODO_017`, `TODO_021`, remaining `TODO_025` docs), then lifecycle/API robustness (`TODO_018`, `TODO_019`, `TODO_022`, `TODO_023`), then consistency/docs follow-ups (`TODO_012`, `TODO_014`, `TODO_015`, `TODO_020`). Re-evaluate ordering if implementation exposes dependencies.
+Suggested implementation order for the next pass: implement `TODO_028` maintained Chatter sweep orchestration selected by the current workstream, then finish the HCI boundary isolation in `TODO_024`; after that continue correctness/evidence boundaries (`TODO_011`, `TODO_013`, `TODO_016`, `TODO_017`, `TODO_021`, remaining `TODO_025` docs), lifecycle/API robustness (`TODO_018`, `TODO_019`, `TODO_022`, `TODO_023`), and consistency/docs follow-ups (`TODO_012`, `TODO_014`, `TODO_015`, `TODO_020`). Re-evaluate ordering if implementation exposes dependencies.
 
 ### TODO_026 — `todos/TODO_026_UNIFIED_LOGGING_CONTRACT.md`
 
@@ -153,6 +153,18 @@ Implementation: `dev@5965d576c3bb124d85adf7842282684e755894c7`; GitHub Actions `
 Selected contract: both frontends create the same timestamped `.console.log` logical timeline. Human primary `.log` remains the compatibility transcript; agent primary `.log` remains forensic/API/transport truth. Interactive output uses canonical `ManagedSession` completed lines for companion records.
 
 Physical interactive smoke: PASS on 2026-09-22 with `Profile: chatter`; companion timestamps/session/direction/logical-line behavior confirmed. Remaining gate: physical agent smoke and timing-format comparison.
+
+### TODO_028 — `todos/TODO_028_CHATTER_SWEEP_RUNNER.md`
+
+Status: OPEN
+
+Goal: add a maintained deterministic local LoRa-Chatter reliable-USER PHY/payload sweep runner above the generic SerialTerminal JSONL API, so one child agent process performs serialized measurement/correlation locally without per-USER LLM/tool orchestration.
+
+Trigger/evidence: recent hardware executor runs `node_observations@707bfc07ddeaddb1a778bc87ebe90df2e129e8b6` and `node_observations@7fdfc328fa70e200d40ee6636dc5de2523bc816c` exposed orchestration/parser failures and avoidable multi-second transaction spacing. Creation checkpoint: `dev@08c1b8d919cfb04c32068c9b9d63fdb1443139c9`.
+
+Required design: keep `src/serialterminal/agent.py` generic; build `scripts/run-chatter-sweep` above the public JSONL API; reuse/extract maintained Chatter orchestration from `scripts/run-chatter-scenario` without breaking it; enforce one measured USER in flight globally, identifier-based correlation, exact anomaly semantics, 3+3 normal -> 10+10 anomaly extension, explicit `/sf -> SAVED -> /config -> CFG` transitions, bounded timeouts and a structured result.
+
+Validation: fake/mock agent state-machine coverage for normal/anomaly/correlation/order/config-transition/cleanup cases, existing scenario regressions, full repository validation and GitHub Actions. No physical sweep is part of this source-development TODO unless separately requested.
 
 ## Closed
 
