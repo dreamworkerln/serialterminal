@@ -203,7 +203,8 @@ Rules:
 After measured interaction:
 
 1. restore the required safe hardware state;
-2. close sessions and terminate the SerialTerminal process so both logs are final;
+2. close sessions, terminate the SerialTerminal process, and verify the exact PID
+   launched for this attempt is no longer running so both logs are final;
 3. create one UTC stamp/topic;
 4. create runs/RUN_<stamp>_<topic>/ in this workspace;
 5. write REPORT.md;
@@ -310,7 +311,7 @@ Do not replace this with a local origin/node_observations check.
 
 ## Final response
 
-After successful publication keep the chat result short:
+After successful publication, a normal PASS stays concise:
 
 ```text
 Result: PASS
@@ -320,4 +321,25 @@ Commit: <SHA>
 Remote verification: verified
 ```
 
-The detailed narrative belongs in REPORT.md.
+For FAIL, BLOCKED or INCONCLUSIVE, the operator must not have to open REPORT.md and ask
+what happened. Keep the response concise but include the concrete failure:
+
+```text
+Result: FAIL | BLOCKED | INCONCLUSIVE
+Reason: <concrete failure>
+Stopped at: <preflight/phase/SF-payload-direction>
+RF conclusion: <valid unaffected conclusion or none>
+Recovery: <cleanup/state restored>
+Automatic retry: <not applicable|attempted|succeeded|failed>
+Observation: observations/OBS_...   # when recorded
+Run bundle: runs/RUN_.../
+Commit: <SHA>
+Remote verification: verified|mismatch|not verified
+```
+
+If the task used an allowed automatic retry, identify both the failed historical RUN
+and the fresh retry RUN in the final response. When the retry succeeds, the successful
+RUN may be reported as PASS, but the earlier failed attempt must still be named.
+
+The detailed narrative still belongs in REPORT.md; the final response only needs enough
+detail to make the outcome and failure/recovery path immediately understandable.

@@ -332,6 +332,26 @@ stop new USER submission
 If a canonical shard cannot be fully repaired during the run, publish it as
 INCONCLUSIVE with exact unmeasured/invalid points rather than fabricating completion.
 
+## Executor-caused shard retry
+
+RF anomalies belong to the measurement and are not a reason to rerun until clean.
+
+If a shard is interrupted or invalidated solely by a clearly understood executor
+procedural/orchestration error, the executor may make **one** automatic full-shard
+retry after preserving the failed attempt as required by the evidence policy.
+
+The retry must use a fresh UTC identity, fresh SerialTerminal process and fresh log
+files, and must start the shard from the beginning. Do not splice apparently clean
+points from the failed attempt into the retry.
+
+Automatic retry is allowed only when the executor can restore a known safe/quiet node
+state, verify its failed-attempt SerialTerminal PID is gone, reopen both targets, keep
+the physical RF topology unchanged, and correct the problem without changing source,
+docs, skills or policy.
+
+If the retry fails, or the cause is unknown/external, stop and return the concrete
+failure. Do not loop.
+
 ## Adaptive anomaly follow-up
 
 The main campaign maps the space. It does not try to prove root cause inside every

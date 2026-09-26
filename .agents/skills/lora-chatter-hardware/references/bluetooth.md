@@ -16,6 +16,31 @@ Permission errors are environment boundaries, not proof that a device does not e
 
 If a later BLE operation hits a different permission boundary, request the corresponding narrow permission for that operation as well; do not assume one discovery approval covers every device/D-Bus action.
 
+## Competing BLE ownership
+
+Before launching a canonical BLE run, check for already-running local SerialTerminal
+agent processes with:
+
+```bash
+pgrep -af 'serialterminal.py agent'
+```
+
+Do not automatically kill a pre-existing process. Treat it as a possible competing
+owner and resolve the conflict before starting the run.
+
+This local process check is intentionally incomplete: an Android/iOS client, another
+computer, Blueman/another BlueZ client, or another BLE application may already hold a
+node without appearing in that process list.
+
+Therefore the real preflight gate is that the **same fresh run SerialTerminal process**
+must be able to discover and open every required target node before measured RF traffic
+starts. A target that advertises but cannot be opened is a BLE/transport ownership
+boundary until proven otherwise; it is not a LoRa RF failure.
+
+Do not mutate the host Bluetooth stack or kill unrelated clients automatically. Close
+sessions opened by the current task, terminate its own process and report the concrete
+failure.
+
 ## Reconnect and flapping
 
 Repeated BLE disconnect/reconnect during a measured run is not automatically firmware FAIL.

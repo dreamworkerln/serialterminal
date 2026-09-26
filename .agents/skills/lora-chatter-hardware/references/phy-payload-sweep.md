@@ -125,7 +125,16 @@ In particular:
 - do not submit A->B and B->A together during a sweep;
 - do not use reliable queue depth as sweep throughput;
 - do not infer completion from local TxDone, `>`, SerialTerminal `queued`/`written`,
-  or an unrelated DELIVERY ACK.
+  or an unrelated DELIVERY ACK;
+- do not pre-build a host-side batch/list of future measured USER `send_line` requests.
+  Submit/create the next measured USER only after the previous logical transaction has
+  settled.
+
+One `observe` response may contain lines from both sessions in an order that is not a
+safe causal ordering across nodes. Do not correlate sender/receiver evidence merely by
+array/list position. Use the established sender session and USER sequence, deterministic
+payload marker, direction, timestamps/order evidence and the finalized forensic log
+when exact cross-session ordering matters.
 
 When the sender telemetry exposes the USER sequence, the completion ACK must match that
 exact sequence under the established sender session. If exact correlation is lost or
@@ -195,13 +204,15 @@ A CRC/HDR event is evidence to preserve, not a reason to throw away the row.
 
 Cross-node USER overlap invalidates the affected radio sample.
 
-If overlapping measured USER transmissions are detected, or if orchestration launches
-a new USER before the previous logical transaction settles:
+If overlapping measured USER transmissions are detected, if exact correlation is lost,
+or if orchestration launches a new USER before the previous logical transaction
+settles:
 
-1. mark every affected point from the first overlap as contaminated until clean state
+1. mark every affected point from the first overlap/correlation-loss boundary as contaminated until clean state
    is re-established;
 2. do not use those samples for PHY reliability conclusions;
-3. stop submitting new USER traffic;
+3. stop submitting new USER traffic **immediately**; do not finish a pre-planned local
+   batch and do not begin the next payload point;
 4. settle or `/cancel all` as appropriate on both nodes and verify retries/queues are
    quiet;
 5. re-confirm the intended power/SF/BW on both nodes;

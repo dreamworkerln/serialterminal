@@ -107,6 +107,36 @@ Use one long-lived **interactive** process for one hardware interaction. The `ag
 subcommand is a JSONL stdin/stdout protocol and must keep stdin open for the whole
 hardware task.
 
+### Pre-launch BLE ownership gate
+
+Before launching a SerialTerminal agent for a BLE hardware task, check for pre-existing
+local SerialTerminal agent processes:
+
+```bash
+pgrep -af 'serialterminal.py agent'
+```
+
+Any matching process that was not created by the current task is a possible competing
+BLE owner. Do **not** kill it automatically. For a CANONICAL_RUN, do not launch the run
+process until that ownership conflict is resolved by the operator/environment.
+
+No local SerialTerminal process does **not** prove that a node is free. A phone/tablet,
+another computer, another BLE application or another BlueZ client may already hold a
+target node.
+
+The single SerialTerminal process for a canonical BLE run must successfully discover
+and open **all required target nodes** before measured RF traffic begins. If one target
+cannot be opened, treat that as a BLE/transport/possible external-ownership boundary,
+not as a LoRa RF failure. Do not begin the RF matrix. Cleanly close anything opened by
+the current process, terminate that process and report the concrete open/discovery
+failure.
+
+Do not restart BlueZ, toggle rfkill, reset the adapter or kill unrelated BLE clients as
+automatic recovery. Host Bluetooth mutation requires an explicit operator task.
+
+Retain the exact PID of the SerialTerminal process launched by the current task so
+cleanup can verify that this specific process is gone.
+
 Launch it only through a terminal/session API that allocates a persistent PTY or
 equivalent interactive process handle and lets later tool calls write additional
 JSONL requests to the same stdin:
@@ -182,7 +212,7 @@ Minimize model/terminal round-trips without overflowing a node's bounded input q
 - use returned cursors directly rather than re-querying status/history to rediscover position;
 - do not re-read repository documentation between normal happy-path phases;
 - keep terminal output consumed incrementally; do not intentionally replay the entire accumulated SerialTerminal stdout back into model context after the same responses were already processed;
-- after the final `close` responses are consumed, perform only the control action required to end stdin/process ownership; do **not** issue a separate terminal wait, rerun, history read, transcript fetch or other follow-up whose purpose is merely to prove that the already-closed agent exited;
+- after the final `close` responses are consumed, end stdin/process ownership and then perform one bounded OS-level liveness check for the exact SerialTerminal PID launched by this task; do not re-read stdout/history merely to prove exit. If that exact PID is still alive, cleanup is incomplete and must be reported;
 - never launch the same SerialTerminal agent command a second time to "finish", "collect", or "confirm" a completed hardware interaction; post-run facts come from the finalized logs, not from replaying process stdout;
 - some terminal UIs emit a collapsed completion card for the original background command when it exits, for example `… +113 lines`. That automatic card is not evidence of a second SerialTerminal launch, but it is still repeated transcript presentation: leave it collapsed and do not expand, quote, search or otherwise re-ingest it;
 - reporting must distinguish these cases accurately. Say `no explicit stdout/history replay was requested` only when true. If an automatic collapsed completion transcript appeared, state that fact; never claim simply `agent completed without replay`;
@@ -360,7 +390,9 @@ The non-negotiable sweep invariants are:
 - never start the opposite direction while the current reliable transaction is unsettled;
 - preserve CRC/HDR as unsequenced RF evidence and do not invent a protocol sequence for a corrupted frame;
 - do not stop at the first failure or assume a monotonic payload boundary; finish the requested sparse payload grid through its largest point unless a real blocker/fatal condition prevents it;
-- if measured USER transmissions overlap or correlation is lost, mark the affected sample contaminated, re-establish clean state and repeat it rather than using it in radio conclusions.
+- if measured USER transmissions overlap or correlation is lost, mark the affected sample contaminated, stop new USER submission immediately, re-establish clean state and repeat it rather than using it in radio conclusions;
+- do not pre-build or submit a host-side queue/list of future measured `send_line` operations; create the next measured USER only after the current logical transaction is settled;
+- do not assume the relative ordering of lines from different sessions inside one `observe` response is causal ordering. Correlate by session, USER identity/sequence, deterministic payload marker and timestamp/event order as available; use the finalized forensic log for exact cross-session ordering when needed.
 
 ## Task-specific references
 
@@ -415,6 +447,56 @@ INCONCLUSIVE
 Do not promote queued, written, local TxDone, a partial telemetry fragment or an assumption about fault injection into higher-level delivery PASS.
 
 If expected behavior and actual evidence disagree, preserve the evidence and stop at the hardware boundary. Do not repair source.
+
+### Executor-caused canonical retry
+
+A genuine RF anomaly (CRC/HDR/retry/ACK loss/final delivery failure) is measurement
+evidence and must **not** be retried merely to obtain a cleaner result.
+
+For a CANONICAL_RUN that becomes BLOCKED/INCONCLUSIVE/INVALID because of a clearly
+understood **executor-caused procedural/orchestration mistake**, one automatic retry of
+the requested shard is allowed only when all of the following hold:
+
+- the cause is understood and can be corrected by execution procedure alone;
+- no SerialTerminal/firmware/source/docs/skill modification is required;
+- the physical RF topology has not changed;
+- the nodes can be returned to the required safe/quiet state;
+- the failed attempt's SerialTerminal process is terminated and its exact PID is
+  verified gone;
+- both required BLE targets can be opened again normally.
+
+Preserve and, when the recording policy requires it, publish the failed attempt as its
+own immutable historical RUN/OBS. Then start the retry from the beginning as a **new**
+canonical RUN with a fresh UTC identity, fresh unique logs and a fresh SerialTerminal
+process. Do not reuse successful points from the failed attempt.
+
+Maximum automatic retries for one requested shard is **one** unless the operator
+explicitly authorizes more. If the retry also fails, or the cause is unknown/external,
+stop and report it rather than looping.
+
+### Final console result
+
+A PASS may use the compact publication summary.
+
+For FAIL, BLOCKED or INCONCLUSIVE, the final console response must state the concrete
+reason without requiring the operator to open REPORT.md or ask what happened. Include,
+as applicable:
+
+```text
+Result: <FAIL|BLOCKED|INCONCLUSIVE>
+Reason: <concrete failure>
+Stopped at: <preflight/phase/SF-payload-direction>
+RF conclusion: <valid unaffected conclusion or none>
+Recovery: <cleanup/state restored>
+Automatic retry: <not applicable|attempted|succeeded|failed>
+Observation: <path when recorded>
+Run bundle: <path>
+Commit: <SHA>
+Remote verification: <verified|mismatch|not verified>
+```
+
+If an allowed automatic retry succeeds, the final response must also identify the
+failed historical RUN and the fresh successful retry RUN.
 
 ## Safe final state
 
