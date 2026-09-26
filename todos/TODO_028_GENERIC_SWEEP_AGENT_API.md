@@ -45,6 +45,20 @@ The existing agent API already has the right process model for long waits:
 
 The sweep API should extend that model rather than create a second process/protocol.
 
+Current TX semantics are intentionally weaker than device-operation completion:
+
+```text
+send_line
+    -> queued
+
+later tx event
+    -> written
+```
+
+`queued` means only that the SerialTerminal TX queue accepted the item. `written` means only that the transport write completed; it does not prove peer receipt, firmware command completion, RF completion, ACK completion, or that it is safe to mutate radio configuration.
+
+Therefore a deterministic sweep must add a higher-level operational settlement barrier through its adapter. The generic session core must not learn controller/radio semantics in order to provide that barrier.
+
 ## Target behavior
 
 Add a generic long-running sweep-job facility to the existing agent API.
@@ -120,6 +134,144 @@ For the first Chatter use case this may internally involve commands such as `/sf
 - deciding whether a point was good/bad/interesting;
 - deciding whether another sweep should be run;
 - deciding whether a later sweep should use a different repetition count.
+
+### Adapter registry / dependency boundary
+
+The generic sweep engine and generic agent dispatch must not branch on concrete adapter names.
+
+Forbidden shape:
+
+```python
+if adapter == "chatter.reliable_user":
+    ...
+```
+
+Required shape:
+
+```text
+adapter name
+    -> generic registry/factory lookup
+    -> SweepAdapter implementation
+```
+
+The generic engine knows only the adapter interface. Concrete controller adapters live on the controller/profile/scenario side of the dependency boundary and register through the composition layer.
+
+This is required by `ARCHITECTURE.md`: the generic core must not learn concrete controller commands, names, protocol outcomes or one-off compatibility behavior.
+
+## Session ownership and concurrency
+
+### Already-open sessions only
+
+`sweep_start` operates only on **already-open SerialTerminal sessions**.
+
+The caller remains responsible for:
+
+```text
+discover
+open
+sweep_start
+```
+
+The sweep facility does not discover devices, open transports or take ownership of connection creation.
+
+The adapter validates that participating sessions exist and satisfy its requirements, for example selected profile, distinct identities or other adapter-specific prerequisites.
+
+### One active sweep per agent process
+
+The first maintained API supports at most one active sweep job per `serialterminal agent` process:
+
+```text
+max_active_sweeps = 1
+```
+
+A second `sweep_start` while another sweep is `running` or `cancelling` must fail mechanically with a stable busy error.
+
+This intentionally avoids pretending that different session sets are independent measurement domains. In particular, two disjoint session pairs may still share the same physical RF environment.
+
+Parallel active sweeps are out of scope until a future generic resource-domain ownership model is explicitly designed.
+
+### Exclusive mutation ownership of participating sessions
+
+A successful `sweep_start` atomically acquires exclusive **mutation ownership** of all participating sessions for the lifetime of the active sweep.
+
+Acquisition is all-or-nothing:
+
+```text
+check all participating sessions
+-> acquire all
+OR
+-> acquire none
+```
+
+No partial ownership may remain after a failed start.
+
+While a sweep owns a session, external read-only operations may remain available, including where safe:
+
+```text
+status
+observe
+list_sessions
+sweep_observe
+```
+
+External mutating operations on an owned session must be rejected before side effects occur, including at least:
+
+```text
+send_line
+send_bytes
+close
+another sweep using the session
+future mutating session operations
+```
+
+Use one generic busy/ownership error model rather than controller-specific command filtering. Conceptually:
+
+```json
+{
+  "code": "session_busy",
+  "details": {
+    "session": "s1",
+    "owner": {
+      "kind": "sweep",
+      "sweep_id": "sw1"
+    }
+  }
+}
+```
+
+The generic layer must not inspect `send_line` text to decide whether a command is dangerous. During ownership, all external mutation is blocked consistently.
+
+Mutation ownership is released on terminal sweep transition:
+
+```text
+completed
+failed
+cancelled
+agent shutdown / worker fatal cleanup
+```
+
+It is **not** held until `sweep_close`. `sweep_close` releases retained job metadata/events, whereas session mutation becomes available again once the active operation is terminal.
+
+Release must be guaranteed through failure-safe/finally-style cleanup so an exception cannot leave a session permanently busy.
+
+### Agent concurrency contract
+
+TODO_028 changes the current concurrency model materially.
+
+Today only `observe` is asynchronous at the JSONL frontend while ordinary commands are handled by the main request reader. A running sweep introduces a background worker that actively mutates participating sessions.
+
+Therefore implementation must define one explicit ownership/concurrency gate shared by:
+
+- background sweep mutation;
+- ordinary `send_line` / `send_bytes`;
+- `close`;
+- future session mutations.
+
+Do not protect only sweep code with a private lock while leaving other mutation paths unaware of ownership.
+
+The ownership check and mutation admission must be centralized at the session-management boundary so new mutating operations cannot accidentally bypass sweep ownership.
+
+Read-only observation of owned sessions remains separate from mutation admission.
 
 ## Dumb repetition semantics
 
@@ -272,6 +424,35 @@ start one sample
 
 Do not pre-submit future samples in a way that violates the adapter's declared sample boundary.
 
+### Operational settlement barrier
+
+Generic traversal must never advance merely because a host TX reached `queued` or `written`.
+
+For every sample/coordinate transition:
+
+```text
+adapter apply requested coordinate
+-> adapter verify requested coordinate
+-> adapter start one sample
+-> adapter wait until that sample is operationally settled
+-> generic engine records mechanical sample completion
+-> only then next sample or next coordinate mutation may begin
+```
+
+The adapter defines operational settlement using controller/protocol semantics needed only for synchronization.
+
+For the first Chatter reliable-USER adapter this prevents cases such as:
+
+```text
+USER queued/written
+-> radio transaction still active
+-> host changes SF/BW/frequency/power
+```
+
+The next radio/config mutation is forbidden until the adapter reports the active sample settled.
+
+This is synchronization/control, not analytics. The adapter may need to observe ACK/terminal protocol state to know that it is safe to proceed, but the generic sweep result must not classify the quality of that ACK/outcome.
+
 ## Existing agent process and logs
 
 Do not create a separate `run-chatter-sweep` child API process as the primary machine interface.
@@ -293,6 +474,34 @@ The existing process remains owner of:
 The sweep facility must not reconstruct, rewrite or append its own versions of those logs.
 
 No additional `sweep-results.jsonl` durable evidence file is required by this TODO.
+
+### Mechanical sweep records in the existing forensic log
+
+Sweep lifecycle/progress events are first-class actions of SerialTerminal and must also be written by the existing `RunLog` into the normal forensic `.log`.
+
+Use a dedicated record category such as:
+
+```text
+[SWEEP]
+```
+
+with mechanical fields such as:
+
+```text
+sweep_id
+event_seq
+event kind
+coordinate
+repetition
+opaque sample id where applicable
+execution state/reason
+```
+
+The in-memory sweep event sequence and the forensic `[SWEEP]` event sequence must use the same job-local identifier so an API progress event can be located precisely in the durable forensic timeline.
+
+These records must not add RF/protocol analytics such as CLEAN/DEGRADED, CRC interpretation or ACK quality.
+
+`sweep_close` may discard bounded in-memory job history, but it must not remove or rewrite already persisted `[SWEEP]` records.
 
 Detailed ACK/retry/CRC/HDR/RSSI/SNR evidence is read from the existing logs after/during the run by the caller/reviewer as needed.
 
@@ -345,7 +554,7 @@ If asynchronous adapter preparation later fails, that is a sweep job failure rep
 
 ### Event cursor semantics
 
-Sweep execution events use a monotonically increasing job-local sequence.
+Sweep execution events use a monotonically increasing gap-free job-local sequence.
 
 Request cursor semantics are strictly:
 
@@ -355,6 +564,52 @@ return events with seq > cursor
 ```
 
 The cursor belongs to the reader. Reading or not reading events must not control or throttle sweep execution.
+
+If retained events are:
+
+```text
+101 .. 500
+```
+
+then:
+
+```text
+head_cursor = 500
+oldest_retained_event_seq = 101
+oldest_valid_cursor = 100
+```
+
+Validation is exact:
+
+```text
+cursor < oldest_valid_cursor
+    -> sweep_cursor_expired
+
+cursor == oldest_valid_cursor
+    -> valid, first returned event may be oldest_retained_event_seq
+
+oldest_valid_cursor <= cursor <= head_cursor
+    -> valid
+
+cursor > head_cursor
+    -> invalid_sweep_cursor
+```
+
+Negative, boolean, floating-point and string cursors are invalid. Duplicate reads using the same valid cursor are allowed and return the same retained range subject to the requested window.
+
+Use the unambiguous API term `oldest_valid_cursor` rather than `oldest_cursor`.
+
+The tuple:
+
+```text
+events
+response.cursor
+head_cursor
+state
+progress
+```
+
+must be captured from one coherent job snapshot under the same synchronization boundary. Do not compose these fields from independently changing state.
 
 ### `sweep_observe`
 
@@ -508,7 +763,8 @@ Return a structured API error such as:
     "code": "sweep_cursor_expired",
     "message": "requested sweep cursor is older than retained event history",
     "requested_cursor": 120,
-    "oldest_cursor": 947,
+    "oldest_valid_cursor": 946,
+    "oldest_retained_event_seq": 947,
     "head_cursor": 5042
   }
 }
@@ -556,7 +812,7 @@ The adapter/engine reaches a safe sample boundary as defined by its contract, pe
 
 The caller observes the terminal transition through `sweep_observe`.
 
-### `sweep_close`
+### `sweep_close` and bounded terminal-job lifetime
 
 Completed/failed/cancelled jobs must have an explicit bounded lifecycle so a long-lived agent process does not retain job state forever.
 
@@ -570,6 +826,19 @@ Prefer an explicit close/release operation analogous to session `close`.
 - must not delete or alter SerialTerminal log files.
 
 Do not auto-destroy a job merely because one reader observed its terminal event; reads may be retried and callers may need to drain retained windows.
+
+Explicit close alone is not a sufficient memory bound because clients can forget to call it.
+
+The agent must enforce a hard global bound on retained terminal jobs, for example a fixed `max_retained_terminal_sweeps`. When the bound is exceeded, evict the oldest terminal job state/events deterministically. Already persisted forensic `[SWEEP]` records remain available.
+
+The exact limit is an implementation choice, but it must be:
+
+- finite;
+- documented;
+- tested;
+- independent from whether a caller behaves correctly.
+
+A terminal TTL may be added later if justified, but a deterministic count bound is required for this TODO.
 
 ## Progress event model
 
@@ -628,7 +897,7 @@ The first maintained adapter should prove that the generic API can support the c
 
 It must accept sweep coordinates/options sufficient for at least:
 
-- two already/openable target sessions/nodes;
+- two already-open target sessions;
 - frequency;
 - TX power;
 - bandwidth;
@@ -672,20 +941,29 @@ Where the adapter must observe protocol output to know that a control change or 
 - [ ] inspect `scripts/run-chatter-scenario` only for reusable orchestration mechanics, not as the sweep abstraction;
 - [ ] define generic sweep plan/job/event data model;
 - [ ] define measurement-adapter interface;
+- [ ] define generic adapter registry/factory with no concrete-adapter branching in the engine/dispatch;
 - [ ] implement generic sweep engine independent of Chatter semantics;
+- [ ] require already-open participating sessions;
+- [ ] implement one-active-sweep-per-agent-process admission;
+- [ ] implement atomic all-or-nothing mutation ownership for participating sessions;
+- [ ] centralize ownership checks for all session mutation paths;
+- [ ] release ownership on every terminal/error/shutdown path;
 - [ ] add agent API dispatch/validation for `sweep_start`;
-- [ ] implement bounded per-job event history with monotonic cursor;
+- [ ] implement bounded per-job event history with monotonic gap-free cursor;
+- [ ] implement exact `oldest_valid_cursor` / future-cursor validation and coherent event/progress snapshots;
 - [ ] implement `sweep_observe` long-poll with requested `window`, advertised `max_window`, `head_cursor`, timeout and progress snapshot;
 - [ ] implement explicit expired-cursor error without silent event loss;
 - [ ] preserve one-request/one-response and no-unsolicited-JSON rules;
 - [ ] keep unrelated agent requests serviceable while `sweep_observe` waits;
 - [ ] implement `sweep_cancel` request/terminal-state separation;
 - [ ] implement explicit terminal-job `sweep_close` resource release;
+- [ ] enforce a finite global retained-terminal-job bound even when callers never close jobs;
 - [ ] implement exact fixed repetition semantics;
 - [ ] implement first Chatter reliable-USER measurement adapter without leaking its semantics into the generic engine;
 - [ ] verify adapter applies and verifies requested coordinates before sampling;
 - [ ] ensure sequential sample boundary for the first adapter;
 - [ ] ensure existing forensic and console logs remain owned by normal SerialTerminal logging;
+- [ ] persist mechanical sweep events through existing RunLog `[SWEEP]` records using the same job-local event sequence as the API ring;
 - [ ] update `AGENT_API.md` with final exact schema and semantics;
 - [ ] update architecture docs if the new sweep/adapter dependency boundary requires it.
 
@@ -694,6 +972,12 @@ Where the adapter must observe protocol output to know that a control change or 
 Generic API/engine tests:
 
 - [ ] `sweep_start` returns promptly with unique sweep id;
+- [ ] only one active sweep is allowed per agent process;
+- [ ] second concurrent `sweep_start` fails without disturbing the active job;
+- [ ] ownership acquisition for participating sessions is atomic all-or-nothing;
+- [ ] external `send_line`, `send_bytes` and `close` on owned sessions fail before side effects;
+- [ ] read-only `status` / ordinary `observe` remain usable for owned sessions where documented;
+- [ ] ownership is released on completed/failed/cancelled/shutdown/error paths;
 - [ ] advertised `max_window` and retention are stable and enforced;
 - [ ] `repetitions=3` executes exactly 3 samples per requested coordinate;
 - [ ] `repetitions=10` executes exactly 10 samples per requested coordinate;
@@ -708,20 +992,31 @@ Generic API/engine tests:
 - [ ] long-poll wakes on terminal transition;
 - [ ] long-poll returns `timed_out:true` when no wake condition occurs;
 - [ ] unrelated agent request can complete while `sweep_observe` is pending;
+- [ ] `oldest_valid_cursor` boundary is exact and off-by-one safe;
+- [ ] cursor greater than `head_cursor` returns explicit invalid-cursor error;
+- [ ] negative/bool/float/string sweep cursors are rejected;
+- [ ] duplicate valid cursor reads are deterministic;
+- [ ] events/cursor/head/state/progress come from one coherent snapshot;
 - [ ] expired cursor returns explicit structured error;
 - [ ] job execution failure is returned as terminal job state with `ok:true` observe response;
 - [ ] malformed/unknown sweep request is returned as API `ok:false`;
 - [ ] cancellation first returns/enters cancelling and later reaches terminal cancelled;
 - [ ] `sweep_close` rejects non-terminal jobs and releases terminal jobs;
 - [ ] closed sweep ids become unknown and retained memory is released;
-- [ ] no unsolicited JSON is emitted.
+- [ ] forgotten terminal jobs cannot grow memory without bound; oldest terminal retention is evicted at the configured cap;
+- [ ] no unsolicited JSON is emitted;
+- [ ] generic agent/sweep engine contains no concrete `chatter.reliable_user` branch or Chatter command knowledge;
+- [ ] mechanical sweep events are present in the existing forensic log and correlate 1:1 by sweep event sequence.
 
 Adapter boundary tests:
 
 - [ ] generic engine tests contain no Chatter command/parser knowledge;
+- [ ] Chatter adapter accepts already-open compatible sessions and does not perform discover/open;
 - [ ] Chatter adapter applies/verifies requested sweep coordinates;
 - [ ] adapter never waits for a response to a command it has not actually issued;
+- [ ] `queued`/`written` alone never satisfy the sample settlement barrier;
 - [ ] first adapter does not pre-submit the next sample before the previous sample reaches its operational settle boundary;
+- [ ] no SF/BW/frequency/power mutation begins while the preceding reliable USER sample is still operationally active;
 - [ ] protocol content used only for operational synchronization does not become generic point analytics;
 - [ ] existing `scripts/run-chatter-scenario` behavior remains passing if any reusable mechanics are extracted.
 
@@ -774,6 +1069,7 @@ Sweep progress/completion should reuse that pattern through `sweep_observe`.
 ## Known limitations
 
 - The first adapter/use case is Chatter reliable USER because that is the immediate hardware need.
+- The first API version deliberately supports only one active sweep job per agent process; parallel measurement domains require a separate future resource-ownership design.
 - Final plan/adapter JSON schema is not yet implemented and may be refined while preserving the abstraction and API semantics in this TODO.
 - Job event history is operational progress, not a replacement for forensic logs.
 - This TODO does not define cross-process persistence/resume of a sweep job after the agent process exits.
