@@ -1,0 +1,120 @@
+2026-09-27T00:28:06.252+03:00 [s1] [O] [SYS] CHATTER NODE LoRa-Chatter-1B44
+2026-09-27T00:28:11.119+03:00 [s2] [O] [SYS] CHATTER NODE LoRa-Chatter-72E0
+2026-09-27T00:28:31.706+03:00 [s1] [I] /id
+2026-09-27T00:28:31.707+03:00 [s1] [I] /version
+2026-09-27T00:28:31.707+03:00 [s1] [I] /config
+2026-09-27T00:28:31.708+03:00 [s2] [I] /id
+2026-09-27T00:28:31.709+03:00 [s2] [I] /version
+2026-09-27T00:28:31.709+03:00 [s2] [I] /config
+2026-09-27T00:28:31.772+03:00 [s1] [O] [SYS] CHATTER NODE LoRa-Chatter-1B44
+2026-09-27T00:28:31.775+03:00 [s1] [O] [SYS] FIRMWARE Chatter git=b76ffa04ab47a3f344b8270159ab274256f6ff62 state=dirty env=esp32-s3-n16r8
+2026-09-27T00:28:31.779+03:00 [s1] [O] [SYS] FIRMWARE IMAGE validation_sha256=5b197539057946356cb9b379aafaaaef9487b501452d5c50c6adc9abc6aeea88 status=OK slot=0
+2026-09-27T00:28:31.782+03:00 [s1] [O] [SYS] BUILD META toolchain_sha256=a087c73c0094f7d5c7bce96d3b44b5349361527190730cac76aaf8087289bbfb pio=6.2.0
+2026-09-27T00:28:31.785+03:00 [s1] [O] [SYS] CFG schema=2 storage=NVS freq_oob=OFF
+2026-09-27T00:28:31.786+03:00 [s1] [O] [SYS] CFG RADIO power=2 dBm freq=470 MHz sf=7 bw=500 kHz
+2026-09-27T00:28:31.788+03:00 [s1] [O] [SYS] CFG LINK heartbeat=OFF retry=ON attempts=5 diag=OFF
+2026-09-27T00:28:31.821+03:00 [s2] [O] [SYS] CHATTER NODE LoRa-Chatter-72E0
+2026-09-27T00:28:31.824+03:00 [s2] [O] [SYS] FIRMWARE Chatter git=b76ffa04ab47a3f344b8270159ab274256f6ff62 state=dirty env=esp32-s3-n16r8
+2026-09-27T00:28:31.830+03:00 [s2] [O] [SYS] FIRMWARE IMAGE validation_sha256=5b197539057946356cb9b379aafaaaef9487b501452d5c50c6adc9abc6aeea88 status=OK slot=0
+2026-09-27T00:28:31.832+03:00 [s2] [O] [SYS] BUILD META toolchain_sha256=a087c73c0094f7d5c7bce96d3b44b5349361527190730cac76aaf8087289bbfb pio=6.2.0
+2026-09-27T00:28:31.834+03:00 [s2] [O] [SYS] CFG schema=2 storage=NVS freq_oob=OFF
+2026-09-27T00:28:31.837+03:00 [s2] [O] [SYS] CFG RADIO power=2 dBm freq=470 MHz sf=7 bw=500 kHz
+2026-09-27T00:28:31.838+03:00 [s2] [O] [SYS] CFG LINK heartbeat=OFF retry=ON attempts=5 diag=OFF
+2026-09-27T00:29:27.871+03:00 [s1] [I] /heartbeat off
+2026-09-27T00:29:27.872+03:00 [s1] [I] /diag off
+2026-09-27T00:29:27.872+03:00 [s1] [I] /echo-loop stop
+2026-09-27T00:29:27.873+03:00 [s2] [I] /heartbeat off
+2026-09-27T00:29:27.873+03:00 [s2] [I] /diag off
+2026-09-27T00:29:27.874+03:00 [s2] [I] /echo-loop stop
+2026-09-27T00:29:27.943+03:00 [s1] [O] [SYS] HEARTBEAT OFF
+2026-09-27T00:29:27.943+03:00 [s1] [O] [SYS] DIAG already OFF
+2026-09-27T00:29:27.944+03:00 [s1] [O] [SYS] ECHO LOOP already stopped
+2026-09-27T00:29:27.944+03:00 [s2] [O] [SYS] HEARTBEAT OFF
+2026-09-27T00:29:27.944+03:00 [s2] [O] [SYS] DIAG already OFF
+2026-09-27T00:29:27.946+03:00 [s2] [O] [SYS] ECHO LOOP already stopped
+2026-09-27T00:29:55.500+03:00 [s1] [I] /cancel all
+2026-09-27T00:29:55.506+03:00 [s2] [I] /cancel all
+2026-09-27T00:29:55.575+03:00 [s1] [O] [SYS] DELIVERY CANCEL: nothing pending
+2026-09-27T00:29:55.580+03:00 [s2] [O] [SYS] DELIVERY CANCEL: nothing pending
+2026-09-27T00:30:28.107+03:00 [s1] [I] /config
+2026-09-27T00:30:28.109+03:00 [s2] [I] /config
+2026-09-27T00:30:28.206+03:00 [s1] [O] [SYS] CFG schema=2 storage=NVS freq_oob=OFF
+2026-09-27T00:30:28.207+03:00 [s1] [O] [SYS] CFG RADIO power=2 dBm freq=470 MHz sf=7 bw=500 kHz
+2026-09-27T00:30:28.209+03:00 [s1] [O] [SYS] CFG LINK heartbeat=OFF retry=ON attempts=5 diag=OFF
+2026-09-27T00:30:28.255+03:00 [s2] [O] [SYS] CFG schema=2 storage=NVS freq_oob=OFF
+2026-09-27T00:30:28.257+03:00 [s2] [O] [SYS] CFG RADIO power=2 dBm freq=470 MHz sf=7 bw=500 kHz
+2026-09-27T00:30:28.258+03:00 [s2] [O] [SYS] CFG LINK heartbeat=OFF retry=ON attempts=5 diag=OFF
+2026-09-27T00:31:20.269+03:00 [s1] [I] /help
+2026-09-27T00:31:20.365+03:00 [s1] [O] [SYS] CHATTER HELP
+2026-09-27T00:31:20.365+03:00 [s1] [O] [SYS] CHATTER NODE LoRa-Chatter-1B44
+2026-09-27T00:31:20.365+03:00 [s1] [O] [SYS] CHAT OUTPUT:
+2026-09-27T00:31:20.368+03:00 [s1] [O] [SYS]   > text                       local USER TX confirmed
+2026-09-27T00:31:20.369+03:00 [s1] [O] [SYS]   < [RSSI/SNR Q] text          USER received from peer
+2026-09-27T00:31:20.374+03:00 [s1] [O] [SYS]   > [ECHO TX] text             local echo TX confirmed
+2026-09-27T00:31:20.376+03:00 [s1] [O] [SYS]   < [ECHO RSSI/SNR Q] text     matching echo reply received
+2026-09-27T00:31:20.378+03:00 [s1] [O] [SYS]   [ECHO] NO RESPONSE           matching echo reply timed out
+2026-09-27T00:31:20.380+03:00 [s1] [O] [SYS]   delivery retry details       TELEMETRY only
+2026-09-27T00:31:20.456+03:00 [s1] [O] [SYS]   RSSI/SNR=dBm/dB, Q=0..100 rolling transaction link quality
+2026-09-27T00:31:20.501+03:00 [s1] [O] [SYS] HUMAN CONSOLE MODES:
+2026-09-27T00:31:20.501+03:00 [s1] [O] [SYS]   CHAT       chat + SYSTEM
+2026-09-27T00:31:20.501+03:00 [s1] [O] [SYS]   TELEMETRY  telemetry + SYSTEM
+2026-09-27T00:31:20.504+03:00 [s1] [O] [SYS]   BOTH       chat + telemetry + SYSTEM
+2026-09-27T00:31:20.506+03:00 [s1] [O] [SYS]   BLE 0004 machine telemetry is independent when subscribed
+2026-09-27T00:31:20.506+03:00 [s1] [O] [SYS]   current=CHAT echo=OFF
+2026-09-27T00:31:20.507+03:00 [s1] [O] [SYS] COMMANDS:
+2026-09-27T00:31:20.509+03:00 [s1] [O] [SYS]   /help       show this help
+2026-09-27T00:31:20.510+03:00 [s1] [O] [SYS]   /id         show node identity
+2026-09-27T00:31:20.512+03:00 [s1] [O] [SYS]   /version    show firmware provenance (/firmware alias)
+2026-09-27T00:31:20.634+03:00 [s1] [O] [SYS]   /power      show SX1278 PA_BOOST setting
+2026-09-27T00:31:20.634+03:00 [s1] [O] [SYS]   /power N    set/persist N=2..17 or 20 dBm
+2026-09-27T00:31:20.637+03:00 [s1] [O] [SYS]   /freq       show frequency in MHz
+2026-09-27T00:31:20.640+03:00 [s1] [O] [SYS]   /freq MHz   set/persist frequency; 1 kHz precision, truncates extra decimals
+2026-09-27T00:31:20.642+03:00 [s1] [O] [SYS]   /freq-oob   show experimental out-of-band flag
+2026-09-27T00:31:20.644+03:00 [s1] [O] [SYS]   /freq-oob on|off persist frequency-range policy
+2026-09-27T00:31:20.726+03:00 [s1] [O] [SYS]   /sf /sf N   show/set SF, N=7..12
+2026-09-27T00:31:20.769+03:00 [s1] [O] [SYS]   /bw /bw KHz show/set BW: 7.8 10.4 15.6 20.8 31.25 41.7 62.5 125 250 500
+2026-09-27T00:31:20.770+03:00 [s1] [O] [SYS]   /config     show persisted PHY + runtime link config
+2026-09-27T00:31:20.772+03:00 [s1] [O] [SYS]   /config reset restore persisted PHY defaults
+2026-09-27T00:31:20.775+03:00 [s1] [O] [SYS]   /heartbeat  show runtime heartbeat state
+2026-09-27T00:31:20.776+03:00 [s1] [O] [SYS]   /heartbeat on|off set runtime heartbeat state
+2026-09-27T00:31:20.778+03:00 [s1] [O] [SYS]   /diag       show radio diagnostic state
+2026-09-27T00:31:20.780+03:00 [s1] [O] [SYS]   /diag on|off enter/leave radio diagnostic mode
+2026-09-27T00:31:20.782+03:00 [s1] [O] [SYS]   /diag size N set total heartbeat RF frame N=16..255 bytes
+2026-09-27T00:31:20.813+03:00 [s1] [O] [SYS]   /chat       human console CHAT
+2026-09-27T00:31:20.815+03:00 [s1] [O] [SYS]   /tele       human console TELEMETRY
+2026-09-27T00:31:20.816+03:00 [s1] [O] [SYS]   /both       human console BOTH
+2026-09-27T00:31:20.817+03:00 [s1] [O] [SYS]   /echo       toggle manual echo mode
+2026-09-27T00:31:20.819+03:00 [s1] [O] [SYS]   /echo-loop  show continuous echo status
+2026-09-27T00:31:20.823+03:00 [s1] [O] [SYS]   /echo-loop N start continuous echo with N=1..200 payload bytes
+2026-09-27T00:31:20.825+03:00 [s1] [O] [SYS]   /echo-loop stop stop scheduling continuous echo requests
+2026-09-27T00:31:20.827+03:00 [s1] [O] [SYS]   /cancel     stop current USER delivery/retries
+2026-09-27T00:31:20.830+03:00 [s1] [O] [SYS]   /cancel all stop current USER and discard queued USERs
+2026-09-27T00:31:20.831+03:00 [s1] [O] [SYS]   /reboot     reboot ESP32 controller
+2026-09-27T00:31:20.832+03:00 [s1] [O] [SYS] RAW CONTROLS (HEX):
+2026-09-27T00:31:20.859+03:00 [s1] [O] [SYS]   14 31=CHAT  14 32=TELEMETRY  14 33=BOTH  14 65=ECHO toggle
+2026-09-27T00:31:20.903+03:00 [s1] [O] [SYS] ANDROID BLE TERMINAL MACROS:
+2026-09-27T00:31:20.948+03:00 [s1] [O] [SYS]   HEX macro, no EOL: 14 31 / 14 32 / 14 33 / 14 65
+2026-09-27T00:31:20.956+03:00 [s1] [O] [SYS]   or TEXT macro + LF: /help /id /version /power /freq /freq-oob /sf /bw /config /heartbeat on|off /diag on|off /diag size N /chat /tele /both /echo /echo-loop N /echo-loop stop /cancel /cancel all /reboot
+2026-09-27T00:31:20.958+03:00 [s1] [O] [SYS]   Nordic UART human console=0003; machine telemetry=0004 optional
+2026-09-27T00:31:20.960+03:00 [s1] [O] [SYS] BLE CLIENT: machine telemetry 0004 subscribed in background
+2026-09-27T00:32:41.615+03:00 [s1] [I] A
+2026-09-27T00:32:41.691+03:00 [s1] [O] > A
+2026-09-27T00:32:41.741+03:00 [s2] [O] < [-44/6 Q100] A
+2026-09-27T00:33:27.036+03:00 [s1] [I] A
+2026-09-27T00:33:27.152+03:00 [s2] [O] < [-45/5 Q100] A
+2026-09-27T00:33:27.189+03:00 [s1] [O] > A
+2026-09-27T00:36:28.947+03:00 [s1] [I] A
+2026-09-27T00:36:29.074+03:00 [s1] [O] > A
+2026-09-27T00:36:29.168+03:00 [s2] [O] < [-44/5 Q100] A
+2026-09-27T00:37:52.994+03:00 [s1] [I] /cancel all
+2026-09-27T00:37:52.995+03:00 [s2] [I] /cancel all
+2026-09-27T00:37:53.052+03:00 [s1] [O] [SYS] DELIVERY CANCEL: nothing pending
+2026-09-27T00:37:53.100+03:00 [s2] [O] [SYS] DELIVERY CANCEL: nothing pending
+2026-09-27T00:38:01.167+03:00 [s1] [I] /config
+2026-09-27T00:38:01.168+03:00 [s2] [I] /config
+2026-09-27T00:38:01.239+03:00 [s1] [O] [SYS] CFG schema=2 storage=NVS freq_oob=OFF
+2026-09-27T00:38:01.240+03:00 [s1] [O] [SYS] CFG RADIO power=2 dBm freq=470 MHz sf=7 bw=500 kHz
+2026-09-27T00:38:01.284+03:00 [s1] [O] [SYS] CFG LINK heartbeat=OFF retry=ON attempts=5 diag=OFF
+2026-09-27T00:38:01.289+03:00 [s2] [O] [SYS] CFG schema=2 storage=NVS freq_oob=OFF
+2026-09-27T00:38:01.290+03:00 [s2] [O] [SYS] CFG RADIO power=2 dBm freq=470 MHz sf=7 bw=500 kHz
+2026-09-27T00:38:01.292+03:00 [s2] [O] [SYS] CFG LINK heartbeat=OFF retry=ON attempts=5 diag=OFF
