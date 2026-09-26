@@ -140,7 +140,7 @@ Remaining work: align the primary `NODE_OBSERVATION_RECORDING_POLICY.md` and nod
 
 TODO_026 logging-contract investigation is also OPEN and may be scheduled independently when log-format work is selected.
 
-Suggested implementation order for the next pass: implement `TODO_028` maintained Chatter sweep orchestration selected by the current workstream, then finish the HCI boundary isolation in `TODO_024`; after that continue correctness/evidence boundaries (`TODO_011`, `TODO_013`, `TODO_016`, `TODO_017`, `TODO_021`, remaining `TODO_025` docs), lifecycle/API robustness (`TODO_018`, `TODO_019`, `TODO_022`, `TODO_023`), and consistency/docs follow-ups (`TODO_012`, `TODO_014`, `TODO_015`, `TODO_020`). Re-evaluate ordering if implementation exposes dependencies.
+Suggested implementation order for the next pass: implement `TODO_028` generic long-running sweep agent API and its first Chatter measurement adapter, then finish the HCI boundary isolation in `TODO_024`; after that continue correctness/evidence boundaries (`TODO_011`, `TODO_013`, `TODO_016`, `TODO_017`, `TODO_021`, remaining `TODO_025` docs), lifecycle/API robustness (`TODO_018`, `TODO_019`, `TODO_022`, `TODO_023`), and consistency/docs follow-ups (`TODO_012`, `TODO_014`, `TODO_015`, `TODO_020`). Re-evaluate ordering if implementation exposes dependencies.
 
 ### TODO_026 — `todos/TODO_026_UNIFIED_LOGGING_CONTRACT.md`
 
@@ -154,17 +154,19 @@ Selected contract: both frontends create the same timestamped `.console.log` log
 
 Physical interactive smoke: PASS on 2026-09-22 with `Profile: chatter`; companion timestamps/session/direction/logical-line behavior confirmed. Remaining gate: physical agent smoke and timing-format comparison.
 
-### TODO_028 — `todos/TODO_028_CHATTER_SWEEP_RUNNER.md`
+### TODO_028 — `todos/TODO_028_GENERIC_SWEEP_AGENT_API.md`
 
 Status: OPEN
 
-Goal: add a maintained deterministic local LoRa-Chatter reliable-USER PHY/payload sweep runner above the generic SerialTerminal JSONL API, so one child agent process performs serialized measurement/correlation locally without per-USER LLM/tool orchestration.
+Goal: add a generic long-running sweep-job facility to the existing `serialterminal agent` JSONL API. The sweeper executes exactly the caller-supplied axes/traversal/repetition count, reports bounded cursor-based execution progress, and performs no RF/protocol analytics or autonomous repetition changes.
 
-Trigger/evidence: recent hardware executor runs `node_observations@707bfc07ddeaddb1a778bc87ebe90df2e129e8b6` and `node_observations@7fdfc328fa70e200d40ee6636dc5de2523bc816c` exposed orchestration/parser failures and avoidable multi-second transaction spacing. Creation checkpoint: `dev@08c1b8d919cfb04c32068c9b9d63fdb1443139c9`.
+API direction: reuse the existing no-unsolicited-JSON request/response model. A quick `sweep_start` creates a job and advertises event `max_window`/retention; `sweep_observe` is a cursor + requested-window + timeout long-poll returning bounded events, `head_cursor`, current state/progress and terminal transitions; `sweep_cancel` requests cancellation; terminal jobs are explicitly released with `sweep_close`.
 
-Required design: keep `src/serialterminal/agent.py` generic; build `scripts/run-chatter-sweep` above the public JSONL API; reuse/extract maintained Chatter orchestration from `scripts/run-chatter-scenario` without breaking it; enforce one measured USER in flight globally, identifier-based correlation, exact anomaly semantics, 3+3 normal -> 10+10 anomaly extension, explicit `/sf -> SAVED -> /config -> CFG` transitions, bounded timeouts and a structured result.
+Architecture boundary: generic engine owns traversal/repetitions/job lifecycle; a measurement adapter applies/verifies coordinates and defines one-sample operational settlement; caller/reviewer analyzes the existing SerialTerminal logs and decides any later sweep. First adapter/use case is Chatter reliable USER, but Chatter commands, ACK/CRC/HDR/retry interpretation and policies such as adaptive 3->10 repeats are not generic sweep semantics.
 
-Validation: fake/mock agent state-machine coverage for normal/anomaly/correlation/order/config-transition/cleanup cases, existing scenario regressions, full repository validation and GitHub Actions. No physical sweep is part of this source-development TODO unless separately requested.
+Design correction supersedes the initial TODO_028 wording recorded at `dev@1f90928c79b894b3bd6fae425d6336644db55e10`. Historical `HANDOFF_001.md` remains immutable; current TODO/inventory are authoritative for the revised task.
+
+Validation: fixed repetition semantics, deterministic traversal, long-poll reactivity, bounded window/retention and expired-cursor handling, request-vs-job failure separation, cancellation/close lifecycle, no unsolicited JSON, adapter boundary tests, existing scenario regressions, full repository validation and GitHub Actions. No physical sweep is part of this source-development TODO unless separately requested.
 
 ## Closed
 
