@@ -96,6 +96,25 @@ class _SilentCommandContext:
         return self.base.send_line(session, text)
 
 
+class _SilentSessionCommandContext:
+    def __init__(self, base, session, command):
+        self.base = base
+        self.session = session
+        self.command = command
+
+    def __getattr__(self, name):
+        return getattr(self.base, name)
+
+    def send_line(self, session, text):
+        if session == self.session and text == self.command:
+            self.base.commands.append((session, text))
+            return {
+                "tx_id": len(self.base.commands),
+                "state": "queued",
+            }
+        return self.base.send_line(session, text)
+
+
 class _SilentCancelContext:
     def __init__(self, base):
         self.base = base
@@ -708,3 +727,24 @@ def test_sample_settlement_wait_is_cooperatively_deadline_bounded():
             _phase("sample_settlement", seconds=0.05),
         )
     assert caught.value.phase == "sample_settlement"
+
+
+
+def test_cleanup_attempts_exit_on_both_sessions_before_waiting():
+    base = _ScriptContext()
+    context = _SilentSessionCommandContext(
+        base,
+        "s1",
+        "/sweep off",
+    )
+    adapter = ChatterReliableUserSweepAdapter(
+        context,
+        ("s1", "s2"),
+        _plan(),
+    )
+
+    with pytest.raises(SweepPhaseTimeout):
+        adapter.cleanup(_phase("cleanup", seconds=0.05))
+
+    assert ("s1", "/sweep off") in base.commands
+    assert ("s2", "/sweep off") in base.commands
