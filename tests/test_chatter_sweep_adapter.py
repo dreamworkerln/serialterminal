@@ -590,6 +590,9 @@ def test_cancel_uses_separate_short_settlement_budget(monkeypatch):
         1,
         _phase("sample_start"),
     )
+    # Не даём fake синтезировать нормальный ACK: проверяем именно потерянный
+    # cancel/terminal response и отдельный cancel budget.
+    base.pending_ack.clear()
     cancel = threading.Event()
     cancel.set()
     monkeypatch.setattr(
