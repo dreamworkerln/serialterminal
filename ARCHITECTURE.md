@@ -42,9 +42,10 @@ A `TerminalProfile` owns controller-specific configuration and convenience behav
 - human help additions;
 - presentation policy;
 - human-console stream selection;
-- BLE characteristic-to-stream configuration supplied to the generic BLE transport.
+- BLE characteristic-to-stream configuration supplied to the generic BLE transport;
+- controller-specific measurement adapters exposed through the generic sweep-adapter registry.
 
-A profile describes controller semantics through generic interfaces. It does not open serial ports, create Bleak clients, own RFCOMM sockets, implement reconnect loops, own TX queues, or create an alternative event/cursor model.
+A profile describes controller semantics through generic interfaces. A profile-owned sweep adapter may apply controller commands and recognize controller/protocol settlement only through the capability-limited sweep context supplied by the agent. It does not open serial ports, create Bleak clients, own RFCOMM sockets, implement reconnect loops, own TX queues, or create an alternative session/event/cursor implementation.
 
 Profile selection is explicit and per session. `generic` is the default. Different sessions in one agent process may use different profiles without changing process-global transport semantics.
 
@@ -61,6 +62,33 @@ Profile selection is explicit and per session. `generic` is the default. Differe
 - session shutdown.
 
 The session core receives profile-derived configuration through generic callbacks/data. It must not branch on concrete profile names such as `chatter`.
+
+### Generic sweep job layer
+
+`SweepJob` / `SweepJobManager` own controller-independent long-running measurement execution:
+
+- generic plan validation, ordered axes and exact repetition counts;
+- one active sweep job per agent process;
+- job lifecycle and bounded terminal retention;
+- bounded job-local event history and cursor/window long-poll semantics;
+- progress snapshots;
+- finite phase deadlines and cancellation plumbing;
+- mechanical `[SWEEP]` forensic records.
+
+The generic sweep layer consumes only the `SweepAdapter` interface. It must not branch on concrete adapter/profile names or recognize controller commands, ACK/CRC/HDR/retry semantics, radio quality, or experiment-specific classifications.
+
+`SessionManager` owns sweep mutation admission around existing sessions. A successful sweep atomically acquires mutation ownership of all declared participating sessions. External session mutations are rejected while ownership is active; ordinary read-only observation remains available. `ManagedSession` itself remains controller-independent and does not learn sweep/controller protocol semantics.
+
+A sweep adapter owns only the operational synchronization needed to make one requested measurement well-defined:
+
+```text
+apply coordinate
+-> verify actual coordinate
+-> start one sample
+-> wait until that sample is operationally settled
+```
+
+That settlement may require controller-specific protocol evidence, but interpreting measurement quality remains above the sweep engine.
 
 ### Generic transports
 
@@ -93,6 +121,11 @@ human CLI -------------------+
                              |
 JSONL agent -----------------+----> profile interface/config
                              |              |
+                             |              +----> profile-owned SweepAdapter
+                             |                            ^
+                             |                            |
+                             +-------> SweepJobManager ---+
+                             |              |
                              |              v
                              +-------> SessionManager / TerminalSession
                                             |
@@ -116,6 +149,8 @@ transport -> concrete controller profile
 generic discovery -> controller advertised-name convention
 ManagedSession -> concrete profile name/controller command
 agent generic API -> one-off controller compatibility toggle
+generic sweep engine -> concrete adapter/profile name or controller command
+generic sweep engine -> RF/protocol quality classification
 terminal generic module -> re-export of controller constants for old callers
 ```
 
@@ -126,7 +161,8 @@ For the bundled `chatter` profile, controller-specific ownership currently inclu
 - `/id` connect preamble for the agent session path;
 - Chatter human command/hotkey/presentation behavior;
 - BLE `0003 -> chat` plus optional `0004 -> telemetry` mapping;
-- command classification helpers and Chatter presentation state.
+- command classification helpers and Chatter presentation state;
+- the `chatter.reliable_user` sweep adapter, including Chatter command/config application and reliable-USER operational settlement.
 
 The following remain generic and must not depend on Chatter naming:
 
@@ -136,7 +172,9 @@ The following remain generic and must not depend on Chatter naming:
 - raw notification delivery;
 - TX queueing;
 - `observe` events/lines/cursors;
-- run logging mechanics.
+- run logging mechanics;
+- generic sweep plan/job/cursor/retention semantics;
+- participating-session mutation ownership.
 
 ## Extension rule for a new controller
 
@@ -144,9 +182,10 @@ To add another controller family:
 
 1. keep physical discovery generic and capability-based;
 2. implement a new `TerminalProfile` for controller-specific configuration/commands/presentation;
-3. pass profile-provided BLE layout/configuration into `BleNusTransport` rather than creating a controller transport;
-4. keep `ManagedSession` and agent cursor/event semantics unchanged unless the generic contract itself truly needs to evolve;
-5. put project-specific operating and acceptance guidance in a consuming skill, not in the generic agent API;
-6. add tests proving both the new profile behavior and continued zero-controller-assumption behavior of `generic`.
+3. if long-running measurement support is needed, register a profile-owned `SweepAdapter` through the generic adapter interface rather than branching in `agent.py` or `sweep.py`;
+4. pass profile-provided BLE layout/configuration into `BleNusTransport` rather than creating a controller transport;
+5. keep `ManagedSession` and session cursor/event semantics unchanged unless the generic contract itself truly needs to evolve;
+6. put project-specific analysis/acceptance guidance in a consuming skill, not in the generic sweep engine;
+7. add tests proving both the new profile behavior and continued zero-controller-assumption behavior of `generic`.
 
 If a proposed change requires the generic core to recognize a controller name, advertised-name prefix, alias, command, application identity, or protocol outcome, treat that as an architecture warning: first determine whether the behavior belongs in a profile or a consuming project-specific layer.

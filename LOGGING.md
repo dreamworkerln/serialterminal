@@ -38,9 +38,39 @@ Agent:
 .log = forensic/API/transport record
 ```
 
-It contains timestamped `[RUN]`, `[AGENT]`, request/response, state, TX, raw RX and error records. Raw RX preserves transport chunk boundaries and byte-accurate `data_b64`. Persisted sequence gaps remain explicit through `forensic_gap`.
+It contains timestamped `[RUN]`, `[AGENT]`, request/response, state, TX, raw RX, error and generic sweep-mechanics records. Raw RX preserves transport chunk boundaries and byte-accurate `data_b64`. Persisted sequence gaps remain explicit through `forensic_gap`.
 
 Do not replace the agent forensic log with the human transcript format.
+
+### Sweep forensic records
+
+When the agent runs a generic sweep job, its own mechanical job actions are written into the same forensic file as:
+
+```text
+[SWEEP]
+```
+
+A sweep record is structured JSON and contains at least the job identity and the same job-local event sequence used by `sweep_observe`:
+
+```json
+{
+  "sweep_id":"sw1",
+  "event_seq":17,
+  "kind":"sample_completed",
+  "coordinate":{"sf":8,"payload_bytes":32,"direction":"s1>s2"},
+  "repetition":2
+}
+```
+
+The exact fields vary by mechanical event kind. Current events include sweep/coordinate/sample lifecycle and terminal outcomes.
+
+These records are execution evidence, not RF/protocol analysis. They do not classify a point as CLEAN/DEGRADED, interpret CRC/HDR/retry quality, or replace the surrounding TX/RX/controller telemetry.
+
+Publication order is intentional: the forensic `[SWEEP]` record is flushed before the corresponding event becomes visible in the in-memory sweep event ring. API `event.seq` and forensic `event_seq` therefore provide the correlation key between live progress and the durable timeline.
+
+`sweep_close` and terminal-job eviction release only bounded in-memory job state; they do not delete or rewrite already persisted `[SWEEP]` records.
+
+Sweep records are not copied into `.console.log`.
 
 ## Shared `.console.log`
 
