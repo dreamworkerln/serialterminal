@@ -76,6 +76,30 @@ class _FailingAdapter(_RecordingAdapter):
         raise RuntimeError("boom")
 
 
+class _CleanupTimeoutAdapter(_RecordingAdapter):
+    def phase_timeout_s(self, phase, coordinate):
+        if phase == "cleanup":
+            return 0.01
+        return 1.0
+
+    def cleanup(self, phase):
+        time.sleep(0.02)
+
+
+class _BlockingRunLog:
+    def __init__(self):
+        self.terminal_record_started = threading.Event()
+        self.release_terminal_record = threading.Event()
+
+    def record(self, tag, payload):
+        if (
+            tag == "SWEEP"
+            and payload.get("kind") == "sweep_completed"
+        ):
+            self.terminal_record_started.set()
+            assert self.release_terminal_record.wait(timeout=1.0)
+
+
 def _wait_until(predicate, timeout=1.0):
     deadline = time.monotonic() + timeout
     while time.monotonic() < deadline:
@@ -162,7 +186,8 @@ def test_plan_rejects_oversized_serialized_input():
     assert caught.value.code == "sweep_plan_too_large"
 
 
-def test_exact_repetitions_and_ordered_axis_traversal():
+@pytest.mark.parametrize("repetitions", [3, 10])
+def test_exact_repetitions_and_ordered_axis_traversal(repetitions):
     plan = normalize_sweep_plan(
         {
             "constants": {"fixed": 1},
@@ -170,7 +195,7 @@ def test_exact_repetitions_and_ordered_axis_traversal():
                 {"name": "sf", "values": [7, 8]},
                 {"name": "direction", "values": ["a>b", "b>a"]},
             ],
-            "repetitions": 3,
+            "repetitions": repetitions,
         }
     )
     adapter = _RecordingAdapter()
@@ -191,12 +216,12 @@ def test_exact_repetitions_and_ordered_axis_traversal():
         )["state"]
         == "completed"
     )
-    assert len(adapter.samples) == 12
+    assert len(adapter.samples) == 4 * repetitions
     assert adapter.samples == [
         ({"fixed": 1, "sf": sf, "direction": direction}, repetition)
         for sf in [7, 8]
         for direction in ["a>b", "b>a"]
-        for repetition in [1, 2, 3]
+        for repetition in range(1, repetitions + 1)
     ]
     assert not owned
 
@@ -318,6 +343,79 @@ def test_cancel_converges_to_terminal_state_and_releases_ownership():
         in {"cancelled", "failed"}
     )
     assert not owned
+
+
+def test_terminal_state_event_and_forensic_record_publish_together():
+    plan = normalize_sweep_plan({"axes": [], "repetitions": 1})
+    run_log = _BlockingRunLog()
+    job = SweepJob(
+        sweep_id="sw1",
+        sessions=("s1",),
+        plan=plan,
+        adapter=_RecordingAdapter(),
+        release_sessions=lambda *_: None,
+        run_log=run_log,
+    )
+
+    terminal_thread = threading.Thread(
+        target=job._terminal,
+        args=("completed",),
+    )
+    terminal_thread.start()
+    assert run_log.terminal_record_started.wait(timeout=1.0)
+
+    result_holder = {}
+    observe_done = threading.Event()
+
+    def observe():
+        result_holder["result"] = job.observe(
+            0,
+            100,
+            1000,
+        )
+        observe_done.set()
+
+    observe_thread = threading.Thread(target=observe)
+    observe_thread.start()
+    assert not observe_done.wait(timeout=0.05)
+
+    run_log.release_terminal_record.set()
+    terminal_thread.join(timeout=1.0)
+    observe_thread.join(timeout=1.0)
+    assert not terminal_thread.is_alive()
+    assert not observe_thread.is_alive()
+
+    result = result_holder["result"]
+    assert result["state"] == "completed"
+    assert result["events"][-1]["kind"] == "sweep_completed"
+    assert result["cursor"] == result["head_cursor"]
+
+
+def test_cleanup_timeout_becomes_terminal_job_failure():
+    plan = normalize_sweep_plan({"axes": [], "repetitions": 1})
+    manager, _ = _manager(_CleanupTimeoutAdapter())
+    sweep_id = manager.start(
+        sessions=("s1",),
+        plan=plan,
+        adapter=_CleanupTimeoutAdapter(),
+    )["sweep_id"]
+
+    assert _wait_until(
+        lambda: manager.observe(
+            sweep_id,
+            cursor=0,
+            window=100,
+            timeout_ms=0,
+        )["state"]
+        == "failed"
+    )
+    result = manager.observe(
+        sweep_id,
+        cursor=0,
+        window=100,
+        timeout_ms=0,
+    )
+    assert result["failure"]["code"] == "cleanup_timeout"
 
 
 def test_job_failure_is_state_not_observe_api_failure():

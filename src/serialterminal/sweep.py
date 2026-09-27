@@ -435,20 +435,20 @@ class SweepJob:
                 "timestamp": time.time(),
                 **fields,
             }
+            if self.run_log is not None:
+                self.run_log.record(
+                    "SWEEP",
+                    {
+                        "sweep_id": self.sweep_id,
+                        "event_seq": event["seq"],
+                        "kind": kind,
+                        **fields,
+                    },
+                )
             self._next_event_seq += 1
             self._events.append(event)
             self._condition.notify_all()
-        if self.run_log is not None:
-            self.run_log.record(
-                "SWEEP",
-                {
-                    "sweep_id": self.sweep_id,
-                    "event_seq": event["seq"],
-                    "kind": kind,
-                    **fields,
-                },
-            )
-        return event
+            return event
 
     def _set_current(
         self,
@@ -483,14 +483,13 @@ class SweepJob:
             self._state = state
             self._failure = failure
             self._current = None
-            # Terminal state становится видимым только вместе с event wakeup.
-            # Ownership освобождается раньше, чтобы видимый terminal snapshot
-            # уже соответствовал доступности внешних session mutations.
+            # Keep ownership release, terminal state, forensic record and
+            # retained terminal event behind one observable job boundary.
             self.release_sessions(self.sweep_id, self.sessions)
-        self._record_event(
-            kind,
-            **({"failure": failure} if failure is not None else {}),
-        )
+            self._record_event(
+                kind,
+                **({"failure": failure} if failure is not None else {}),
+            )
 
     def _run(self) -> None:
         terminal = "completed"
