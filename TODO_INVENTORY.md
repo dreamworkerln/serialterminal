@@ -140,7 +140,7 @@ Remaining work: align the primary `NODE_OBSERVATION_RECORDING_POLICY.md` and nod
 
 TODO_026 logging-contract investigation is also OPEN and may be scheduled independently when log-format work is selected.
 
-Suggested implementation order for the next pass: implement `TODO_028` generic long-running sweep agent API and its first Chatter measurement adapter, then finish the HCI boundary isolation in `TODO_024`; after that continue correctness/evidence boundaries (`TODO_011`, `TODO_013`, `TODO_016`, `TODO_017`, `TODO_021`, remaining `TODO_025` docs), lifecycle/API robustness (`TODO_018`, `TODO_019`, `TODO_022`, `TODO_023`), and consistency/docs follow-ups (`TODO_012`, `TODO_014`, `TODO_015`, `TODO_020`). Re-evaluate ordering if implementation exposes dependencies.
+Suggested implementation order for the next pass: resume and finish/validate the interrupted `TODO_028` generic long-running sweep agent API implementation, then finish the HCI boundary isolation in `TODO_024`; after that continue correctness/evidence boundaries (`TODO_011`, `TODO_013`, `TODO_016`, `TODO_017`, `TODO_021`, remaining `TODO_025` docs), lifecycle/API robustness (`TODO_018`, `TODO_019`, `TODO_022`, `TODO_023`), and consistency/docs follow-ups (`TODO_012`, `TODO_014`, `TODO_015`, `TODO_020`). Re-evaluate ordering if implementation exposes dependencies.
 
 ### TODO_026 — `todos/TODO_026_UNIFIED_LOGGING_CONTRACT.md`
 
@@ -156,7 +156,7 @@ Physical interactive smoke: PASS on 2026-09-22 with `Profile: chatter`; companio
 
 ### TODO_028 — `todos/TODO_028_GENERIC_SWEEP_AGENT_API.md`
 
-Status: OPEN
+Status: PARTIAL / IMPLEMENTATION STOPPED
 
 Goal: add a generic long-running sweep-job facility to the existing `serialterminal agent` JSONL API. The sweeper executes exactly the caller-supplied axes/traversal/repetition count, reports bounded cursor-based execution progress, and performs no RF/protocol analytics or autonomous repetition changes.
 
@@ -167,6 +167,13 @@ Architecture boundary: generic engine owns traversal/repetitions/job lifecycle; 
 Design correction supersedes the initial TODO_028 wording recorded at `dev@1f90928c79b894b3bd6fae425d6336644db55e10`. Historical `HANDOFF_001.md` remains immutable; current TODO/inventory are authoritative for the revised task.
 
 Validation: fixed repetition semantics, deterministic traversal, session-ownership/concurrency races, bounded cancellation-aware adapter phases and settlement barriers, long-poll reactivity, exact cursor algebra/coherent snapshots, bounded event and terminal-job retention, forensic [SWEEP] correlation, request-vs-job failure separation, cancellation/close lifecycle, documented external-environment isolation boundary, no unsolicited JSON, adapter-registry boundary tests, existing scenario regressions, full repository validation and GitHub Actions. No physical sweep is part of this source-development TODO unless separately requested.
+
+
+Interrupted implementation checkpoint: `dev@a131ac14ea5956d4511c0695aeff10f1760482db`. Generic sweep engine/job lifecycle, adapter registry, agent API operations, session mutation ownership, initial Chatter reliable-USER adapter and regression tests exist as a partial implementation. This checkpoint is **not accepted**.
+
+Latest implementation CI checked before handoff: GitHub Actions `36284195278`; compile/ruff/complexity PASS, pytest **1 failed / 182 passed**. Remaining failure is `tests/test_chatter_sweep_adapter.py::test_apply_then_verify_issues_config_only_after_saved_transitions`, timing out in Chatter adapter `apply` after the fake transcript was changed to mirror firmware canonical `formatMilli()` output. Operator requested implementation stop at that point; resume from the exact TODO handoff rather than continuing from memory.
+
+No hardware validation or real sweep was performed.
 
 ## Closed
 
