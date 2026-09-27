@@ -3,6 +3,7 @@ from __future__ import annotations
 from collections.abc import Mapping
 import math
 import re
+import time
 from typing import Any
 
 from ...sweep import (
@@ -71,6 +72,7 @@ _MAX_ATTEMPTS = 5
 _FRAME_HEADER_BYTES = 12
 _ACK_FRAME_BYTES = 14
 _CONTROL_FAILURE_MARKERS = (" REJECTED", " NOT SAVED", " BUSY")
+_CANCEL_SETTLEMENT_TIMEOUT_S = 5.0
 
 
 def _is_control_failure(line: str) -> bool:
@@ -316,10 +318,23 @@ class ChatterReliableUserSweepAdapter:
         phase: SweepPhaseContext,
         *,
         respect_cancel: bool = True,
+        deadline: float | None = None,
+        timeout_phase: str | None = None,
     ) -> list[dict[str, Any]]:
         if respect_cancel:
             phase.raise_if_cancelled()
-        timeout_ms = phase.remaining_ms(250)
+        effective_deadline = (
+            phase.deadline
+            if deadline is None
+            else min(phase.deadline, deadline)
+        )
+        remaining = effective_deadline - time.monotonic()
+        if remaining <= 0:
+            raise SweepPhaseTimeout(timeout_phase or phase.name)
+        timeout_ms = max(
+            1,
+            min(250, int(math.ceil(remaining * 1000.0))),
+        )
         result = self.context.observe(
             dict(self.cursors),
             timeout_ms=timeout_ms,
@@ -383,41 +398,15 @@ class ChatterReliableUserSweepAdapter:
     def prepare(self, phase: SweepPhaseContext) -> None:
         identities: dict[str, str] = {}
         for session in self.sessions:
-            # Старый USER мог быть поставлен в TX queue прямо перед lease.
-            # Сначала приводим reliable flow в settled state, и только потом
-            # меняем background modes или radio configuration.
+            # Session-level TX fence уже завершил все pre-lease host writes.
+            # Firmware sweep transition теперь атомарно гасит normal reliable
+            # backlog и фоновые RF-механизмы до первого measured USER.
             self._send_wait(
                 session,
-                "/cancel all",
+                "/sweep on",
                 lambda line:
-                    line.startswith("[SYS] DELIVERY CANCEL"),
-                phase,
-            )
-            self._send_wait(
-                session,
-                "/diag off",
-                lambda line:
-                    line in {
-                        "[SYS] DIAG OFF",
-                        "[SYS] DIAG already OFF",
-                    },
-                phase,
-            )
-            self._send_wait(
-                session,
-                "/heartbeat off",
-                lambda line:
-                    line == "[SYS] HEARTBEAT OFF",
-                phase,
-            )
-            self._send_wait(
-                session,
-                "/echo-loop stop",
-                lambda line:
-                    line in {
-                        "[SYS] ECHO LOOP STOPPED",
-                        "[SYS] ECHO LOOP already stopped",
-                    },
+                    line.startswith("[SYS] SWEEP ON source=")
+                    or line.startswith("[SYS] SWEEP already ON source="),
                 phase,
             )
             # Reliable settlement is reported as TELEMETRY. BLE 0004 is an
@@ -666,6 +655,7 @@ class ChatterReliableUserSweepAdapter:
         source = str(token["source"])
         user_id: str | None = None
         cancel_sent = False
+        cancel_deadline: float | None = None
 
         while True:
             if (
@@ -677,10 +667,20 @@ class ChatterReliableUserSweepAdapter:
                     "/cancel all",
                 )
                 cancel_sent = True
+                cancel_deadline = (
+                    time.monotonic()
+                    + _CANCEL_SETTLEMENT_TIMEOUT_S
+                )
 
             for line in self._observe_lines(
                 phase,
                 respect_cancel=False,
+                deadline=cancel_deadline,
+                timeout_phase=(
+                    "cancel_settlement"
+                    if cancel_deadline is not None
+                    else None
+                ),
             ):
                 if line.get("session") != source:
                     continue
@@ -753,12 +753,15 @@ class ChatterReliableUserSweepAdapter:
         for session in self.sessions:
             self.context.send_line(
                 session,
-                "/cancel all",
+                "/sweep off",
             )
             self._wait_line(
                 session,
                 lambda line:
-                    line.startswith("[SYS] DELIVERY CANCEL"),
+                    line in {
+                        "[SYS] SWEEP OFF",
+                        "[SYS] SWEEP already OFF",
+                    },
                 phase,
                 respect_cancel=False,
             )
