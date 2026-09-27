@@ -27,7 +27,6 @@ Rules for future handoff work:
 - create the next HANDOFF_NNN.md there, verify it, then advance HANDOFF_INDEX.md;
 - use CONTEXT.md there as the mutable write-ahead/recovery journal for substantial multi-step work;
 - refetch current branch HEAD before making implementation claims or writes;
-- dev_handoff is a separate SACK handoff and must not be used for this workstream.
 ```
 
 This branch remains the source-code authority for the current non-reliable componentized Chatter implementation. Project-local documentation such as `STATIC_ANALYSIS.md` belongs here and is separate from the handoff mechanism.
