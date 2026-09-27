@@ -4,6 +4,7 @@ from collections.abc import Mapping
 from dataclasses import dataclass
 from types import MappingProxyType
 
+from ...sweep import SweepAdapterFactory
 from ...transports.ble_nus import NUS_RX_UUID, NUS_TX_UUID
 from ..base import (
     BleProfileConfig,
@@ -14,6 +15,7 @@ from ..base import (
     SendLine,
 )
 from .presentation import ChatterPresentation, recognized_chatter_command
+from .sweep import create_reliable_user_sweep_adapter
 
 
 CHATTER_ECHO_TOGGLE = "\x14e"
@@ -66,6 +68,9 @@ _HUMAN_HELP_LINES = (
     "Ctrl+T e     Chatter echo mode toggle",
     "Ctrl+T ?     full help (this list + Chatter /help)",
 )
+_SWEEP_ADAPTERS: Mapping[str, SweepAdapterFactory] = MappingProxyType(
+    {"chatter.reliable_user": create_reliable_user_sweep_adapter}
+)
 _BLE_CONFIG = BleProfileConfig(
     write_characteristic=NUS_RX_UUID,
     receive_streams=(
@@ -112,6 +117,9 @@ class ChatterProfile:
 
     def recognized_command(self, line: str) -> str | None:
         return recognized_chatter_command(line)
+
+    def sweep_adapters(self) -> Mapping[str, SweepAdapterFactory]:
+        return _SWEEP_ADAPTERS
 
 
 CHATTER_PROFILE = ChatterProfile()
