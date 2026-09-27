@@ -1,17 +1,38 @@
 # SerialTerminal handoff index
 
-Latest verified snapshot: `HANDOFF_001.md`
-Snapshot publication commit: `06b2c56c9c7e7f51125e38e8e7a2c5a14901f054`
-Recorded active source checkpoint: dreamworkerln/serialterminal/dev@`1f90928c79b894b3bd6fae425d6336644db55e10`
+Latest verified snapshot: `HANDOFF_002.md`
+Snapshot publication commit: `4adc721be89fb62d7941dda829d8e06c6d5d0a1c`
+Recorded interrupted implementation checkpoint: dreamworkerln/serialterminal/dev@`a131ac14ea5956d4511c0695aeff10f1760482db`
+Recorded documentation/recovery baseline before snapshot: dreamworkerln/serialterminal/dev@`c263a7f90c17012141e52bca673d64e76edd2be3`
 Recorded hardware evidence/executor checkpoint: dreamworkerln/serialterminal/node_observations@`7fdfc328fa70e200d40ee6636dc5de2523bc816c`
 
 ## Current recovery state
 
-The source-development checkpoint records `TODO_028_GENERIC_SWEEP_AGENT_API` as OPEN and selected as the next implementation task.
+TODO_028 is **PARTIAL / IMPLEMENTATION STOPPED**.
 
-No sweep implementation exists yet. After `HANDOFF_001.md`, TODO_028 was deliberately redesigned at `dev@70e217c30180c4bf09a2f1e1c948cea4c2114af8`: the selected task is now a generic long-running sweep-job API inside the existing `serialterminal agent`, with fixed caller-specified repetitions, cursor/window long-poll progress, no unsolicited JSON, and no RF/protocol analytics in the generic sweeper.
+The operator explicitly stopped implementation at:
 
-`HANDOFF_001.md` remains immutable historical state and therefore still describes the superseded initial Chatter-runner formulation. For current TODO_028 semantics, the revised TODO/inventory at and after `dev@70e217c30180c4bf09a2f1e1c948cea4c2114af8` take precedence. Refetch actual `dev` before editing or claiming current implementation state.
+```text
+dev@a131ac14ea5956d4511c0695aeff10f1760482db
+```
+
+Do not continue from memory. `HANDOFF_002.md` records the exact partial implementation, commit sequence, architecture boundary, known risks and resume procedure.
+
+Latest implementation validation checked before handoff:
+
+```text
+GitHub Actions 36284195278
+compile PASS
+ruff PASS
+complexity PASS
+pytest 1 failed / 182 passed
+```
+
+The remaining failure is the Chatter adapter apply test after aligning the fake transcript with firmware canonical `formatMilli()` output. No further code debugging was performed after the stop request.
+
+No hardware sweep or physical validation was performed.
+
+`HANDOFF_001.md` remains immutable historical state and contains the earlier pre-implementation/superseded TODO wording.
 
 ## Repository roles
 
@@ -34,7 +55,7 @@ Read as needed from the exact source checkpoint recorded by the snapshot:
 
 ## Standing reminders
 
-- Implement `TODO_028` as a generic long-running job facility in the existing JSONL agent API, with the generic engine separated from measurement adapters.
+- Resume `TODO_028` only from `HANDOFF_002.md`; first reproduce/fix the single known failing Chatter adapter test, then complete repository validation before any hardware use.
 - The sweeper executes exactly the requested repetitions; it does not perform anomaly analytics or autonomously extend a plan.
 - Reuse the established cursor + timeout long-poll pattern for `sweep_observe`; no unsolicited JSON push.
 - Do not bypass SerialTerminal transports with direct Bleak/pyserial.
@@ -47,7 +68,7 @@ Read as needed from the exact source checkpoint recorded by the snapshot:
 
 1. read root `AGENTS.md`;
 2. read this `HANDOFF_INDEX.md`;
-3. read `HANDOFF_001.md`;
+3. read `HANDOFF_002.md`;
 4. read `TODO_INVENTORY.md`;
 5. read the specific selected TODO, currently `todos/TODO_028_GENERIC_SWEEP_AGENT_API.md`;
 6. refetch actual `dev` before source work;
