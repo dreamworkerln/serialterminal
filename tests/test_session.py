@@ -345,6 +345,18 @@ class UnknownWriteTransport(FakeTransport):
         raise TransportWriteOutcomeUnknown("injected ambiguous write")
 
 
+def test_failed_line_encoding_does_not_create_phantom_tx_fence():
+    transport = FakeTransport()
+    session = ManagedSession(transport)
+
+    with pytest.raises(UnicodeEncodeError):
+        session.queue_line("\ud800")
+
+    assert session.capture_tx_fence() == 0
+    session.wait_tx_fence(0, 0.0)
+    assert session.outgoing.qsize() == 0
+
+
 def test_tx_fence_waits_until_preexisting_write_has_terminal_outcome():
     transport = BlockingWriteTransport()
     session = ManagedSession(transport, reconnect_delay=0.01)

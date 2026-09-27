@@ -383,9 +383,12 @@ class ManagedSession:
     def queue_line(self, line: str, *, line_ending: str | None = None) -> int:
         if self.stop_event.is_set():
             raise SessionClosedError("managed session is stopped")
-        tx_id = self._next_tx()
         ending = self.line_ending if line_ending is None else line_ending
-        item = _QueuedLine(line, tx_id=tx_id, data=encode_line(line, ending))
+        data = encode_line(line, ending)
+        # Резервируем accepted TX id только после локальной подготовки payload:
+        # ошибка кодирования не должна создавать phantom pending TX для fence.
+        tx_id = self._next_tx()
+        item = _QueuedLine(line, tx_id=tx_id, data=data)
         self.outgoing.put(item)
         self._record_event(
             "tx",
