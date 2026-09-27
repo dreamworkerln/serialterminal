@@ -400,14 +400,40 @@ class ChatterReliableUserSweepAdapter:
         identities: dict[str, str] = {}
         for session in self.sessions:
             # Session-level TX fence уже завершил все pre-lease host writes.
-            # Firmware sweep transition теперь атомарно гасит normal reliable
-            # backlog и фоновые RF-механизмы до первого measured USER.
+            # Дальше сам host-side sweep приводит обычный Chatter runtime в
+            # тихое диагностическое состояние без firmware sweep-mode API.
             self._send_wait(
                 session,
-                "/sweep on",
+                "/cancel all",
                 lambda line:
-                    line.startswith("[SYS] SWEEP ON source=")
-                    or line.startswith("[SYS] SWEEP already ON source="),
+                    line.startswith("[SYS] DELIVERY CANCEL"),
+                phase,
+            )
+            self._send_wait(
+                session,
+                "/diag off",
+                lambda line:
+                    line in {
+                        "[SYS] DIAG OFF",
+                        "[SYS] DIAG already OFF",
+                    },
+                phase,
+            )
+            self._send_wait(
+                session,
+                "/heartbeat off",
+                lambda line:
+                    line == "[SYS] HEARTBEAT OFF",
+                phase,
+            )
+            self._send_wait(
+                session,
+                "/echo-loop stop",
+                lambda line:
+                    line in {
+                        "[SYS] ECHO LOOP STOPPED",
+                        "[SYS] ECHO LOOP already stopped",
+                    },
                 phase,
             )
             # Reliable settlement is reported as TELEMETRY. BLE 0004 is an
@@ -757,7 +783,7 @@ class ChatterReliableUserSweepAdapter:
             try:
                 self.context.send_line(
                     session,
-                    "/sweep off",
+                    "/cancel all",
                 )
                 pending.add(session)
             except Exception as exc:
@@ -779,10 +805,7 @@ class ChatterReliableUserSweepAdapter:
                     raise RuntimeError(
                         f"{session}: Chatter cleanup failed: {text}"
                     )
-                if text in {
-                    "[SYS] SWEEP OFF",
-                    "[SYS] SWEEP already OFF",
-                }:
+                if text.startswith("[SYS] DELIVERY CANCEL"):
                     pending.remove(session)
 
         if send_failure is not None:
