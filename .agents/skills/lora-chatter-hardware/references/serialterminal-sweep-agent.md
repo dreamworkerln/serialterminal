@@ -17,9 +17,9 @@ campaign policy in `radio-characterization-program.md`.
 The corrected source/API implementation is validated at:
 
 ```text
-dreamworkerln/serialterminal/dev@bce891f74a435307303333911cff2107a7317899
-GitHub Actions 36315186620 SUCCESS
-224 tests PASS
+dreamworkerln/serialterminal/dev@1ecfd4aa0ce83e2e30b060e42dab24b4c8ebdec8
+GitHub Actions 36326214664 SUCCESS
+225 tests PASS
 ```
 
 The validated Chatter firmware checkpoint implementing the required local
