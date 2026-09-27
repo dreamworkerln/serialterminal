@@ -700,3 +700,54 @@ def test_cleanup_failure_preserves_primary_failure():
     assert result["failure"]["code"] == "adapter_failed"
     assert result["failure"]["message"] == "primary boom"
     assert result["cleanup_failure"]["code"] == "cleanup_timeout"
+
+
+
+def test_preflight_failure_does_not_enter_adapter_cleanup():
+    plan = normalize_sweep_plan({"axes": [], "repetitions": 1})
+    adapter = _RecordingAdapter()
+    owned = set()
+
+    def acquire(sweep_id, sessions):
+        owned.update(sessions)
+
+        def preflight(phase):
+            raise SweepError(
+                "session_tx_unknown",
+                "ambiguous pre-sweep TX",
+            )
+
+        return preflight
+
+    def release(sweep_id, sessions):
+        owned.difference_update(sessions)
+
+    manager = SweepJobManager(
+        acquire_sessions=acquire,
+        release_sessions=release,
+        run_log=None,
+    )
+    sweep_id = manager.start(
+        sessions=("s1",),
+        plan=plan,
+        adapter=adapter,
+    )["sweep_id"]
+
+    assert _wait_until(
+        lambda: manager.observe(
+            sweep_id,
+            cursor=0,
+            window=100,
+            timeout_ms=0,
+        )["state"]
+        == "failed"
+    )
+    result = manager.observe(
+        sweep_id,
+        cursor=0,
+        window=100,
+        timeout_ms=0,
+    )
+    assert result["failure"]["code"] == "session_tx_unknown"
+    assert adapter.cleaned is False
+    assert not owned
