@@ -273,6 +273,28 @@ The ownership check and mutation admission must be centralized at the session-ma
 
 Read-only observation of owned sessions remains separate from mutation admission.
 
+### Non-participating sessions and physical-environment isolation
+
+Sweep mutation ownership applies only to the sessions explicitly declared as participating/owned by the sweep plan.
+
+A sweep does **not** claim that the surrounding physical measurement environment is isolated from unrelated sessions, processes or external devices.
+
+For example, while `sw1` owns `s1` and `s2`, an unrelated `send_line(s3, ...)` is not blocked merely because `s3` might transmit in the same RF environment.
+
+Therefore the caller/measurement coordinator is responsible for keeping all non-participating sessions/devices that could affect the experiment quiescent.
+
+This is a documented boundary, not a hidden guarantee of the generic sweeper.
+
+If future workloads require stronger isolation, the plan/API may be extended with additional generic owned resources such as:
+
+```text
+owned_sessions
+resource domains
+measurement-environment leases
+```
+
+Those resources may be owned without directly participating in samples, but such a resource model is outside this TODO.
+
 ## Dumb repetition semantics
 
 `repetitions=N` means exactly:
@@ -452,6 +474,42 @@ USER queued/written
 The next radio/config mutation is forbidden until the adapter reports the active sample settled.
 
 This is synchronization/control, not analytics. The adapter may need to observe ACK/terminal protocol state to know that it is safe to proceed, but the generic sweep result must not classify the quality of that ACK/outcome.
+
+### Bounded adapter phases and cancellation-aware waits
+
+Every adapter phase that may block must have an explicit finite deadline and must observe sweep cancellation.
+
+This applies at least to:
+
+```text
+prepare
+apply coordinate
+verify coordinate
+start/sample operation where blocking is possible
+wait for sample settlement
+cleanup
+```
+
+No adapter wait may depend on an unbounded firmware/protocol/event wait.
+
+Cancellation contract:
+
+```text
+cancel requested
+-> currently running adapter wait is awakened/cooperatively cancelled
+   OR reaches its explicit bounded deadline
+-> adapter reaches the safest available bounded boundary
+-> cleanup runs with its own finite deadline
+-> job reaches cancelled or failed
+```
+
+A physical operation such as an RF transmission does not have to be interrupted unsafely in the middle merely to make cancellation instantaneous. Safe operational settlement takes priority over immediate abort.
+
+However, `state="cancelling"` must itself be bounded: a missing event, stalled device or buggy adapter may not leave the job cancelling indefinitely.
+
+If cancellation-aware settlement or cleanup cannot complete before its defined deadline, the job must terminate as a bounded failure with a mechanical reason rather than remain permanently active.
+
+The generic engine must provide the cancellation signal/deadline plumbing; each adapter is responsible for honoring it in every blocking phase.
 
 ## Existing agent process and logs
 
@@ -810,6 +868,8 @@ Conceptual response:
 
 The adapter/engine reaches a safe sample boundary as defined by its contract, performs required cleanup, then publishes terminal `cancelled` state.
 
+All waits on that path are cancellation-aware and deadline-bounded. Cancellation must therefore converge to a terminal `cancelled` or `failed` state within the adapter's documented finite bounds; it may not remain indefinitely in `cancelling`.
+
 The caller observes the terminal transition through `sweep_observe`.
 
 ### `sweep_close` and bounded terminal-job lifetime
@@ -948,6 +1008,9 @@ Where the adapter must observe protocol output to know that a control change or 
 - [ ] implement atomic all-or-nothing mutation ownership for participating sessions;
 - [ ] centralize ownership checks for all session mutation paths;
 - [ ] release ownership on every terminal/error/shutdown path;
+- [ ] define cancellation signal/deadline plumbing shared by engine and adapters;
+- [ ] require finite deadlines for every blocking adapter phase, including settlement and cleanup;
+- [ ] document that physical-environment isolation beyond declared owned sessions is caller responsibility;
 - [ ] add agent API dispatch/validation for `sweep_start`;
 - [ ] implement bounded per-job event history with monotonic gap-free cursor;
 - [ ] implement exact `oldest_valid_cursor` / future-cursor validation and coherent event/progress snapshots;
@@ -978,6 +1041,11 @@ Generic API/engine tests:
 - [ ] external `send_line`, `send_bytes` and `close` on owned sessions fail before side effects;
 - [ ] read-only `status` / ordinary `observe` remain usable for owned sessions where documented;
 - [ ] ownership is released on completed/failed/cancelled/shutdown/error paths;
+- [ ] cancellation wakes or otherwise bounds an adapter blocked in apply/verify/sample-settlement wait;
+- [ ] missing firmware/protocol events cannot leave a sweep permanently running/cancelling;
+- [ ] cleanup is deadline-bounded and cleanup timeout produces terminal mechanical failure;
+- [ ] non-participating session mutation is not implicitly blocked by sweep ownership;
+- [ ] documented tests make clear that RF/environment isolation outside declared ownership remains caller responsibility;
 - [ ] advertised `max_window` and retention are stable and enforced;
 - [ ] `repetitions=3` executes exactly 3 samples per requested coordinate;
 - [ ] `repetitions=10` executes exactly 10 samples per requested coordinate;
@@ -1015,6 +1083,8 @@ Adapter boundary tests:
 - [ ] Chatter adapter applies/verifies requested sweep coordinates;
 - [ ] adapter never waits for a response to a command it has not actually issued;
 - [ ] `queued`/`written` alone never satisfy the sample settlement barrier;
+- [ ] every blocking Chatter adapter phase has an explicit finite deadline;
+- [ ] Chatter adapter waits observe cancellation and converge to terminal state within documented bounds;
 - [ ] first adapter does not pre-submit the next sample before the previous sample reaches its operational settle boundary;
 - [ ] no SF/BW/frequency/power mutation begins while the preceding reliable USER sample is still operationally active;
 - [ ] protocol content used only for operational synchronization does not become generic point analytics;
@@ -1070,6 +1140,7 @@ Sweep progress/completion should reuse that pattern through `sweep_observe`.
 
 - The first adapter/use case is Chatter reliable USER because that is the immediate hardware need.
 - The first API version deliberately supports only one active sweep job per agent process; parallel measurement domains require a separate future resource-ownership design.
+- Exclusive mutation ownership covers only declared participating sessions. Isolation of unrelated sessions/devices and the surrounding physical RF environment remains caller/coordinator responsibility.
 - Final plan/adapter JSON schema is not yet implemented and may be refined while preserving the abstraction and API semantics in this TODO.
 - Job event history is operational progress, not a replacement for forensic logs.
 - This TODO does not define cross-process persistence/resume of a sweep job after the agent process exits.
