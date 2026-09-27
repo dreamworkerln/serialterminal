@@ -4,6 +4,8 @@ from collections.abc import Mapping
 from dataclasses import dataclass
 from typing import Protocol, TypeAlias
 
+from ..sweep import SweepAdapterFactory
+
 
 @dataclass(frozen=True)
 class SendLine:
@@ -77,4 +79,7 @@ class TerminalProfile(Protocol):
         ...
 
     def recognized_command(self, line: str) -> str | None:
+        ...
+
+    def sweep_adapters(self) -> Mapping[str, SweepAdapterFactory]:
         ...
