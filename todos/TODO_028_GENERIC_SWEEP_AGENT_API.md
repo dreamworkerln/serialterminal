@@ -1146,10 +1146,79 @@ Sweep progress/completion should reuse that pattern through `sweep_observe`.
 - This TODO does not define cross-process persistence/resume of a sweep job after the agent process exits.
 - This TODO does not define adaptive experiment orchestration above the sweeper.
 
+## Interrupted implementation checkpoint
+
+Source implementation stopped on operator request at:
+
+```text
+dev@a131ac14ea5956d4511c0695aeff10f1760482db
+```
+
+This checkpoint contains a **partial implementation**, not an accepted/validated TODO closure.
+
+Implemented so far:
+
+- generic sweep plan normalization and schema hygiene for duplicate/colliding axes, empty axis values, invalid repetitions, serialized plan size, axis count and total Cartesian sample bound;
+- generic `SweepJob` / `SweepJobManager` with fixed deterministic repetitions/traversal, bounded event retention/window, job-local cursors, terminal retention bound, cancellation state and explicit close;
+- profile-owned sweep-adapter registry boundary;
+- agent integration for `sweep_start`, `sweep_observe`, `sweep_cancel`, `sweep_close`;
+- capability-limited adapter context for declared sessions;
+- session mutation ownership gates for external `send_line`, `send_bytes` and `close`;
+- async runner treatment of `sweep_observe` alongside existing `observe`;
+- first `chatter.reliable_user` adapter draft with preparation, radio apply/verify, sequential reliable-USER settlement, cancellation cleanup and airtime-aware settlement timeout;
+- initial generic, ownership/async and Chatter adapter regression tests;
+- firmware-format review caught that Chatter `formatMilli()` canonicalizes values such as `470.000 -> 470` and `500.000 -> 500`; the adapter was changed to parse/compare numeric SAVED values instead of matching padded strings.
+
+Important implementation commits on the interrupted path:
+
+```text
+c87e200d4d4ef3d43b265fb1365554084934ed00  sweep: add generic job engine
+665404041dd19901a0a87802954d9a42e1611064  sweep: add Chatter reliable-user adapter
+7fb27bd0e49c4efe39471cfd51f85d2a25fdebd8  sweep: expose profile adapter registry
+87f5eaee7604a8e69451ad85ea9ef6f42b188cbc  sweep: keep generic profile adapter-free
+d49af2f4253308af8c16ddff8ed48ef4918c118b  sweep: register Chatter adapter through profile
+2dfaf0410b3784f141ac377f70190ed9e1971f6a  sweep: scope adapter context per job
+508783a33610e8ba052c14effe16eb867fe806d4  sweep: integrate jobs with agent session ownership
+5eb1f2c9dbcdfbf00a83181ee53042f090374bb4  sweep: join retained workers on shutdown
+e4ab9ff95da04dba22356f62a6ee75a1ae324343  test: cover generic sweep job semantics
+f5c88f079f391969570b87719e276c1b74f40d77  test: cover sweep ownership and async observe
+73daf7d31c40fb9f5187f9a48404aaa49c068b1a  test: cover Chatter sweep settlement boundary
+eaca564106be36788e20cff2072c013243d9883d  test: fix sweep lint imports
+027a8045415d6ce904c6e31e44a8efc95cd5e0f2  test: fix sweep lint imports
+ec05bfd5b068eef5a465397325fa6ab678a3970b  test: align agent shutdown fake with sweep hooks
+f942ff927ed540fbe34e40bd63ed60eb518adbef  sweep: parse canonical Chatter saved values
+a131ac14ea5956d4511c0695aeff10f1760482db  test: mirror firmware canonical radio formatting
+```
+
+Validation actually observed:
+
+- GitHub Actions run `36283994197`: compile PASS; ruff FAILED only on two unused test imports; tests not run.
+- GitHub Actions run `36284047762`: compile PASS; ruff PASS; complexity PASS; pytest **1 failed, 182 passed** because the existing shutdown test double lacked new `cancel_sweeps/join_sweeps` hooks. That test double was updated at `ec05bfd...`.
+- GitHub Actions run `36284195278` on final interrupted implementation checkpoint `a131ac14...`: compile PASS; ruff PASS; complexity PASS; pytest **1 failed, 182 passed**.
+- Remaining current failure: `tests/test_chatter_sweep_adapter.py::test_apply_then_verify_issues_config_only_after_saved_transitions` times out in adapter `apply`. The immediately preceding change intentionally made the fake transcript mirror firmware canonical numeric formatting; the implementation has **not** been debugged further because the operator requested a stop.
+- No local pytest/compile run was executed in this ChatGPT environment.
+- No hardware validation or real sweep was performed.
+
+Do not call this checkpoint green, accepted, implemented-complete, or ready for hardware use.
+
+### Resume point
+
+Before any further implementation:
+
+1. read the latest handoff snapshot/index;
+2. refetch actual `dev`;
+3. reproduce the single failing Chatter adapter test from GitHub Actions `36284195278`;
+4. inspect the numeric SAVED parser/test fake interaction introduced at `f942ff9...` / `a131ac1...`;
+5. do not change architecture while fixing that narrow failure unless a real contradiction is found;
+6. after targeted tests pass, run the full repository gates and only then update API/architecture/logging/skill docs to the final exact contract;
+7. perform the mandatory BASE..HEAD deletion/comment/function-definition review before declaring the source checkpoint accepted.
+
 ## Result
 
-Implemented: not yet
+Implemented: PARTIAL / interrupted at `dev@a131ac14ea5956d4511c0695aeff10f1760482db`
 
-Validated: not yet
+Validated: NO — latest GitHub Actions `36284195278` failed one Chatter adapter test; 182 tests passed
 
-Status: OPEN
+Hardware validation: NOT RUN
+
+Status: PARTIAL / IMPLEMENTATION STOPPED
