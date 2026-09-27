@@ -1,6 +1,6 @@
 ---
 name: serialterminal-agent
-description: Работа с machine-facing SerialTerminal JSONL agent API для capability-based discovery, long-lived sessions, send и canonical observe.
+description: Работа с machine-facing SerialTerminal JSONL agent API для capability-based discovery, long-lived sessions, send, canonical observe и generic long-running sweep jobs.
 ---
 
 # SerialTerminal agent
@@ -30,7 +30,9 @@ python3 serialterminal.py agent
 5. получать completed logical lines через `observe` + `cursors`;
 6. после каждого `observe` продолжать именно с возвращёнными cursors;
 7. для protocol reasoning использовать default `result.lines`; raw `result.events`/`data_b64` запрашивать только через `include_events:true` для конкретной forensic необходимости;
-8. закрыть sessions через `close`; EOF agent process закроет оставшиеся.
+8. для длинной детерминированной матрицы измерений используй generic `sweep_start` / `sweep_observe` вместо LLM/tool turn на каждый sample;
+9. после terminal sweep освободи retained job через `sweep_close`;
+10. закрыть sessions через `close`; EOF agent process закроет оставшиеся.
 
 Переиспользуй один agent process и уже открытые sessions. Для большой автономной проверки предпочитай один длинный сценарный проход с явными phases/checkpoints вместо десятков одинаковых `discover/open/close` циклов.
 
@@ -77,6 +79,65 @@ Raw transport evidence запрашивай только явно:
 `timeout_ms` — максимум конкретного long-poll, а не protocol constant. После timeout или event при необходимости сразу запускай следующий `observe` с возвращёнными cursors.
 
 Если raw event пришёл, но LF ещё не завершил firmware line, `result.lines` может быть пустым. Не склеивай chunks вручную; продолжай observation, session layer хранит незавершённый line state.
+
+## Generic sweep jobs
+
+Для длинного повторяемого измерительного прохода не делай вручную:
+
+```text
+send_line
+-> observe
+-> следующий model/tool turn
+-> send_line
+-> observe
+...
+```
+
+Если controller profile предоставляет подходящий adapter, запускай один generic sweep job поверх уже открытых sessions.
+
+Каноническая schema находится только в `AGENT_API.md`; здесь важны operational rules:
+
+- сначала обычными `discover/open` получи already-open sessions;
+- `sweep_start` должен описывать deterministic ordered axes и **точное** `repetitions=N`;
+- sweeper не решает сам увеличить N и не выполняет RF/protocol analytics;
+- после быстрого `sweep_start` сохрани `sweep_id`, initial cursor, advertised `max_window` и retention;
+- держи pending `sweep_observe` long-poll для реактивного progress/terminal state;
+- sweep cursor отдельный от session `observe.cursors`;
+- запрашиваемый window может быть больше server maximum — сервер вернёт не больше advertised `max_window`;
+- если `response.cursor < head_cursor`, сразу вычитай retained backlog следующими окнами;
+- `sweep_cursor_expired` означает явную потерю части RAM event history; не скрывай этот gap;
+- `state=failed` внутри успешного `sweep_observe` — failure самого job, а не JSONL request failure;
+- `sweep_cancel` только запрашивает отмену; terminal `cancelled/failed` подтверждай через `sweep_observe`;
+- после terminal state вызови `sweep_close`, когда больше не нужна retained RAM history.
+
+Во время active sweep participating sessions mutation-owned. Не пытайся параллельно делать на них обычные `send_line`, `send_bytes` или `close`: это должно вернуть `session_busy`. Read-only `status`/обычный `observe` остаются допустимы.
+
+Sweep ownership не изолирует физический эфир. Неучаствующие sessions/processes/devices generic API не блокирует; project-specific executor обязан держать другие влияющие на эксперимент передатчики quiet.
+
+### Execution vs analysis
+
+Sweep events — только mechanical execution progress:
+
+```text
+coordinate/sample lifecycle
+repetition
+terminal job state
+```
+
+Не превращай их в:
+
+```text
+ACK quality
+CRC/HDR anomaly
+retry quality
+CLEAN/DEGRADED
+```
+
+Controller adapter может читать protocol lines, чтобы определить operational settlement и не менять PHY посреди активной операции. Это synchronization, не measurement analysis.
+
+После sweep consuming project skill/reviewer может читать обычный forensic log и анализировать protocol/RF evidence по своим правилам. `[SWEEP] event_seq` в forensic `.log` коррелирует с `sweep_observe.events[].seq` и остаётся после `sweep_close`.
+
+Для bundled `chatter.reliable_user` adapter не делай вручную конкурирующие radio/config commands. Adapter сам приводит participating Chatter sessions к измерительному состоянию, применяет/проверяет coordinate и сериализует reliable USER samples. Его конкретные plan fields/limits смотри в `AGENT_API.md`; interpretation ACK/retry/CRC/RSSI/SNR остаётся в LoRa-Chatter consuming skill.
 
 ## Два уровня receive evidence
 
