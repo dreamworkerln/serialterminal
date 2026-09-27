@@ -1397,6 +1397,12 @@ compile PASS
 ruff PASS
 complexity step PASS
 pytest 225 passed
+
+validation tree:
+  dev@f689d2590ee0e42affd65761516185ac3494cb85
+  GitHub Actions 36327613962 SUCCESS
+  225 tests PASS
+  quiet-state preparation order locked by regression assertions
 ```
 
 Documentation/alignment validation:
@@ -1441,7 +1447,11 @@ historical first accepted implementation:
 
 final host-only corrected implementation:
   dev@ed685dc15b4ee2232c9e01d2379ce094bd796c26
-  GitHub Actions 36327209517 SUCCESS
+  implementation CI 36327209517 SUCCESS
+
+final validation tree:
+  dev@f689d2590ee0e42affd65761516185ac3494cb85
+  GitHub Actions 36327613962 SUCCESS
   225 tests PASS
 
 hardware executor alignment:

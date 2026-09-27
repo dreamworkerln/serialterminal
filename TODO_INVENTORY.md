@@ -155,7 +155,7 @@ Status: CLOSED
 
 Goal: generic long-running sweep jobs implemented entirely in SerialTerminal, with exact repetitions, safe session ownership/TX fencing, profile-owned quiet-state preparation, bounded lifecycle/cancellation and no firmware sweep-mode dependency.
 
-Final host-only implementation: `dev@ed685dc15b4ee2232c9e01d2379ce094bd796c26`; GitHub Actions `36327209517` SUCCESS; compile/ruff/complexity PASS; **225 tests PASS**.
+Final host-only implementation: `dev@ed685dc15b4ee2232c9e01d2379ce094bd796c26`; implementation CI `36327209517` SUCCESS. Final validation tree: `dev@f689d2590ee0e42affd65761516185ac3494cb85`; GitHub Actions `36327613962` SUCCESS; compile/ruff/complexity PASS; **225 tests PASS**.
 
 The Chatter adapter uses existing commands only: `/cancel all`, `/diag off`, `/heartbeat off`, `/echo-loop stop`, conditional `/echo`, and `/both`. SerialTerminal sweep ownership plus the pre-sweep TX fence provides local host orchestration; no firmware `/sweep` command, scheduler mode, wire flag or firmware-repository change is part of the accepted TODO.
 
