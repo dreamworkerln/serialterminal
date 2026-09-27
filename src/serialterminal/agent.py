@@ -14,6 +14,8 @@ from .session import (
     ManagedSession,
     SessionClosedError,
     SessionCursorExpired,
+    SessionTxFenceTimeout,
+    SessionTxOutcomeUnknown,
     SessionEvent,
     SessionLine,
     encode_line,
@@ -233,10 +235,12 @@ class SessionManager:
         self,
         sweep_id: str,
         sessions: tuple[str, ...],
-    ) -> None:
+    ):
         with self._lock:
+            owned: list[tuple[str, ManagedSession, int]] = []
             for session_id in sessions:
-                if session_id not in self._sessions:
+                session = self._sessions.get(session_id)
+                if session is None:
                     raise SweepError(
                         "unknown_session",
                         f"unknown session: {session_id}",
@@ -261,8 +265,43 @@ class SessionManager:
                             "owner": {"kind": "external_mutation"},
                         },
                     )
+                owned.append(
+                    (session_id, session, session.capture_tx_fence())
+                )
             for session_id in sessions:
                 self._session_sweep_owners[session_id] = sweep_id
+
+        def preflight(phase) -> None:
+            for session_id, session, fence_tx_id in owned:
+                phase.raise_if_cancelled()
+                try:
+                    session.wait_tx_fence(
+                        fence_tx_id,
+                        phase.remaining_s(),
+                    )
+                except SessionTxFenceTimeout as exc:
+                    raise SweepError(
+                        "session_fence_timeout",
+                        f"pre-sweep TX fence timed out: {session_id}",
+                        {
+                            "session": session_id,
+                            "fence_tx_id": fence_tx_id,
+                        },
+                    ) from exc
+                except SessionTxOutcomeUnknown as exc:
+                    raise SweepError(
+                        "session_tx_unknown",
+                        (
+                            "pre-sweep TX outcome is ambiguous; "
+                            f"reopen session before sweep: {session_id}"
+                        ),
+                        {
+                            "session": session_id,
+                            "tx_id": exc.tx_id,
+                        },
+                    ) from exc
+
+        return preflight
 
     def _release_sweep_sessions(
         self,
@@ -1167,7 +1206,8 @@ class _AgentJsonlRunner:
         self._output_lock = threading.Lock()
         self._pending_lock = threading.Lock()
         self._pending_ids: set[str] = set()
-        self._observe_threads: list[threading.Thread] = []
+        self._observe_threads: set[threading.Thread] = set()
+        self._next_observe_thread_id = 1
 
     def _emit_response(self, response: dict[str, Any]) -> None:
         rendered = _render_response(response)
@@ -1205,8 +1245,10 @@ class _AgentJsonlRunner:
         try:
             self._emit_response(self.protocol.handle(request))
         finally:
+            current = threading.current_thread()
             with self._pending_lock:
                 self._pending_ids.discard(request_key)
+                self._observe_threads.discard(current)
 
     def _request_is_pending(self, request_key: str) -> bool:
         with self._pending_lock:
@@ -1223,13 +1265,15 @@ class _AgentJsonlRunner:
     def _start_observe(self, request: dict[str, Any], request_key: str) -> None:
         with self._pending_lock:
             self._pending_ids.add(request_key)
-        thread = threading.Thread(
-            target=self._finish_observe,
-            args=(request, request_key),
-            name=f"serialterminal-agent-observe-{len(self._observe_threads) + 1}",
-            daemon=True,
-        )
-        self._observe_threads.append(thread)
+            thread_id = self._next_observe_thread_id
+            self._next_observe_thread_id += 1
+            thread = threading.Thread(
+                target=self._finish_observe,
+                args=(request, request_key),
+                name=f"serialterminal-agent-observe-{thread_id}",
+                daemon=True,
+            )
+            self._observe_threads.add(thread)
         thread.start()
 
     def _handle_request(self, request: Any) -> None:
@@ -1265,7 +1309,9 @@ class _AgentJsonlRunner:
         self.manager.join_sweeps(1.0)
         self.manager.close_all()
         self.manager.join_sweeps(5.0)
-        for thread in self._observe_threads:
+        with self._pending_lock:
+            observe_threads = list(self._observe_threads)
+        for thread in observe_threads:
             thread.join(timeout=1.0)
 
     def run(self) -> None:
