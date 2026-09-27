@@ -7,7 +7,6 @@ from serialterminal.sweep import (
     SweepError,
     SweepJob,
     SweepJobManager,
-    SweepPhaseContext,
     normalize_sweep_plan,
 )
 
