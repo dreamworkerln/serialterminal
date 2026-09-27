@@ -293,14 +293,13 @@ def test_sweep_session_acquisition_is_all_or_none(
     monkeypatch,
     tmp_path,
 ):
+    def factory(context, sessions, plan):
+        return _BlockingAdapter()
+
     monkeypatch.setattr(
         GenericProfile,
         "sweep_adapters",
-        lambda self: {
-            "test.blocking": (
-                lambda context, sessions, plan: _BlockingAdapter()
-            )
-        },
+        lambda self: {"test.blocking": factory},
     )
     selector = _SelectorFactory()
     with RunLog(tmp_path / "agent.log") as run_log:
