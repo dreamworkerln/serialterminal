@@ -376,6 +376,10 @@ When command availability is uncertain, use the task prompt, maintained hardware
 For a single SF/BW/payload sweep, read
 `references/phy-payload-sweep.md` before measured USER traffic.
 
+When that sweep is executed through the maintained `sweep_start` / `sweep_observe`
+agent API, also read `references/serialterminal-sweep-agent.md`. It defines the exact
+JSONL workflow, ownership/cancellation semantics and current isolation limitations.
+
 For a full multi-stage radio characterization campaign, also read
 `references/radio-characterization-program.md`. That document defines campaign
 stages, canonical sharding, adaptive ultra-slow coverage and coordinator/executor
@@ -408,6 +412,9 @@ references/reliable-user.md
 references/phy-payload-sweep.md
     one-run SF/BW/payload execution, exact ACK correlation, repetitions, CRC handling and contamination recovery
 
+references/serialterminal-sweep-agent.md
+    maintained sweep_start/observe/cancel/close JSONL workflow, session ownership, cancellation and host-side isolation boundary
+
 references/radio-characterization-program.md
     full MAIN/SLOW/ULTRA-SLOW campaign structure, sharding, adaptive coverage and interpretation
 
@@ -427,7 +434,7 @@ For protocol behavior beyond these operating summaries, use only explicit task f
 
 Do not enumerate or probe `../serialterminal/scripts/` for generic hardware work.
 
-The normal executor runtime is `../serialterminal/serialterminal.py agent`. At the current SerialTerminal revision, `scripts/run-chatter-scenario` is a narrow scenario helper for `cancel-all-current-plus-queue`; it is not a generic PHY/payload sweep runner. Use it only when the requested task exactly matches a supported scenario.
+The normal executor runtime is `../serialterminal/serialterminal.py agent`. For long deterministic PHY/payload execution supported by the built-in generic sweep API, prefer `sweep_start` / `sweep_observe` and follow `references/serialterminal-sweep-agent.md`; do not replace that maintained API with an ad-hoc per-sample host loop. At the current SerialTerminal revision, `scripts/run-chatter-scenario` is a narrow scenario helper for `cancel-all-current-plus-queue`; it is not a generic PHY/payload sweep runner. Use it only when the requested task exactly matches a supported scenario.
 
 Publication scripts in `../serialterminal/scripts/` are not part of the hardware-executor workflow.
 
