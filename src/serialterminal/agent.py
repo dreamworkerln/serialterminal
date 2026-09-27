@@ -18,6 +18,12 @@ from .session import (
     SessionLine,
     encode_line,
 )
+from .sweep import (
+    SWEEP_MAX_WINDOW,
+    SweepError,
+    SweepJobManager,
+    normalize_sweep_plan,
+)
 
 
 _EOL = {"lf": "\n", "crlf": "\r\n", "cr": "\r"}
@@ -94,6 +100,57 @@ def _profile_preamble_bytes(actions, line_ending: str) -> bytes:
     return bytes(payload)
 
 
+class _SessionSweepContext:
+    """Capability-limited adapter view over sessions owned by one sweep."""
+
+    def __init__(
+        self,
+        manager: "SessionManager",
+        sessions: tuple[str, ...],
+    ):
+        self.manager = manager
+        self.sessions = frozenset(sessions)
+
+    def _require_session(self, session_id: str) -> None:
+        if session_id not in self.sessions:
+            raise SweepError(
+                "invalid_sweep_session",
+                f"adapter tried to access undeclared session: {session_id}",
+                {"session": session_id},
+            )
+
+    def status(self, session_id: str) -> dict[str, Any]:
+        self._require_session(session_id)
+        return self.manager.status(session_id)
+
+    def profile_name(self, session_id: str) -> str:
+        self._require_session(session_id)
+        return self.manager.session_profile(session_id)
+
+    def send_line(self, session_id: str, text: str) -> dict[str, Any]:
+        self._require_session(session_id)
+        return self.manager._sweep_send_line(session_id, text)
+
+    def send_bytes(self, session_id: str, data: bytes) -> dict[str, Any]:
+        self._require_session(session_id)
+        return self.manager._sweep_send_bytes(session_id, data)
+
+    def observe(
+        self,
+        cursors: dict[str, int],
+        *,
+        timeout_ms: int,
+        include_events: bool = False,
+    ) -> dict[str, Any]:
+        for session_id in cursors:
+            self._require_session(session_id)
+        return self.manager.observe(
+            cursors,
+            timeout_ms=timeout_ms,
+            include_events=include_events,
+        )
+
+
 class SessionManager:
     """Own multiple independent ManagedSession objects for machine clients."""
 
@@ -122,7 +179,14 @@ class SessionManager:
         self._session_profiles: dict[str, str] = {}
         self._device_sessions: dict[str, str] = {}
         self._event_loggers: dict[str, tuple[threading.Event, threading.Thread]] = {}
+        self._session_mutations: dict[str, int] = {}
+        self._session_sweep_owners: dict[str, str] = {}
         self._next_session_id = 1
+        self._sweep_manager = SweepJobManager(
+            acquire_sessions=self._acquire_sweep_sessions,
+            release_sessions=self._release_sweep_sessions,
+            run_log=run_log,
+        )
 
     def _get_session(self, session_id: str) -> ManagedSession:
         with self._lock:
@@ -130,6 +194,129 @@ class SessionManager:
         if session is None:
             raise AgentError("unknown_session", f"unknown session: {session_id}")
         return session
+
+    def session_profile(self, session_id: str) -> str:
+        with self._lock:
+            if session_id not in self._sessions:
+                raise AgentError("unknown_session", f"unknown session: {session_id}")
+            return self._session_profiles.get(session_id, "generic")
+
+    def _begin_external_mutation(self, session_id: str) -> ManagedSession:
+        with self._lock:
+            session = self._sessions.get(session_id)
+            if session is None:
+                raise AgentError("unknown_session", f"unknown session: {session_id}")
+            owner = self._session_sweep_owners.get(session_id)
+            if owner is not None:
+                raise AgentError(
+                    "session_busy",
+                    f"session is owned by sweep {owner}: {session_id}",
+                    {
+                        "session": session_id,
+                        "owner": {"kind": "sweep", "sweep_id": owner},
+                    },
+                )
+            self._session_mutations[session_id] = (
+                self._session_mutations.get(session_id, 0) + 1
+            )
+            return session
+
+    def _finish_external_mutation(self, session_id: str) -> None:
+        with self._lock:
+            count = self._session_mutations.get(session_id, 0)
+            if count <= 1:
+                self._session_mutations.pop(session_id, None)
+            else:
+                self._session_mutations[session_id] = count - 1
+
+    def _acquire_sweep_sessions(
+        self,
+        sweep_id: str,
+        sessions: tuple[str, ...],
+    ) -> None:
+        with self._lock:
+            for session_id in sessions:
+                if session_id not in self._sessions:
+                    raise SweepError(
+                        "unknown_session",
+                        f"unknown session: {session_id}",
+                        {"session": session_id},
+                    )
+                owner = self._session_sweep_owners.get(session_id)
+                if owner is not None:
+                    raise SweepError(
+                        "session_busy",
+                        f"session is owned by sweep {owner}: {session_id}",
+                        {
+                            "session": session_id,
+                            "owner": {"kind": "sweep", "sweep_id": owner},
+                        },
+                    )
+                if self._session_mutations.get(session_id, 0) != 0:
+                    raise SweepError(
+                        "session_busy",
+                        f"session has a concurrent mutation: {session_id}",
+                        {
+                            "session": session_id,
+                            "owner": {"kind": "external_mutation"},
+                        },
+                    )
+            for session_id in sessions:
+                self._session_sweep_owners[session_id] = sweep_id
+
+    def _release_sweep_sessions(
+        self,
+        sweep_id: str,
+        sessions: tuple[str, ...],
+    ) -> None:
+        with self._lock:
+            for session_id in sessions:
+                if self._session_sweep_owners.get(session_id) == sweep_id:
+                    self._session_sweep_owners.pop(session_id, None)
+
+    def _sweep_owned_session(self, session_id: str) -> ManagedSession:
+        with self._lock:
+            session = self._sessions.get(session_id)
+            if session is None:
+                raise SweepError(
+                    "unknown_session",
+                    f"unknown session: {session_id}",
+                    {"session": session_id},
+                )
+            owner = self._session_sweep_owners.get(session_id)
+            if owner is None:
+                raise SweepError(
+                    "sweep_session_not_owned",
+                    f"session is no longer owned by an active sweep: {session_id}",
+                    {"session": session_id},
+                )
+            return session
+
+    def _sweep_send_line(
+        self,
+        session_id: str,
+        text: str,
+    ) -> dict[str, Any]:
+        session = self._sweep_owned_session(session_id)
+        try:
+            tx_id = session.queue_line(text)
+        except SessionClosedError as exc:
+            raise SweepError("session_closed", str(exc)) from exc
+        if self.run_log is not None:
+            self.run_log.record_console(session_id, ">", text)
+        return {"tx_id": tx_id, "state": "queued"}
+
+    def _sweep_send_bytes(
+        self,
+        session_id: str,
+        data: bytes,
+    ) -> dict[str, Any]:
+        session = self._sweep_owned_session(session_id)
+        try:
+            tx_id = session.queue_bytes(data)
+        except SessionClosedError as exc:
+            raise SweepError("session_closed", str(exc)) from exc
+        return {"tx_id": tx_id, "state": "queued", "size": len(data)}
 
     def _notify_event_activity(self) -> None:
         # Это только manager-level doorbell. Сами raw events, logical lines и
@@ -397,27 +584,33 @@ class SessionManager:
         *,
         eol: str | None = None,
     ) -> dict[str, Any]:
-        session = self._get_session(session_id)
-        ending = None
-        if eol is not None:
-            if eol not in _EOL:
-                raise AgentError("invalid_eol", f"unsupported eol: {eol}")
-            ending = _EOL[eol]
+        session = self._begin_external_mutation(session_id)
         try:
-            tx_id = session.queue_line(text, line_ending=ending)
-        except SessionClosedError as exc:
-            raise AgentError("session_closed", str(exc)) from exc
-        if self.run_log is not None:
-            self.run_log.record_console(session_id, ">", text)
-        return {"tx_id": tx_id, "state": "queued"}
+            ending = None
+            if eol is not None:
+                if eol not in _EOL:
+                    raise AgentError("invalid_eol", f"unsupported eol: {eol}")
+                ending = _EOL[eol]
+            try:
+                tx_id = session.queue_line(text, line_ending=ending)
+            except SessionClosedError as exc:
+                raise AgentError("session_closed", str(exc)) from exc
+            if self.run_log is not None:
+                self.run_log.record_console(session_id, ">", text)
+            return {"tx_id": tx_id, "state": "queued"}
+        finally:
+            self._finish_external_mutation(session_id)
 
     def send_bytes(self, session_id: str, data: bytes) -> dict[str, Any]:
-        session = self._get_session(session_id)
+        session = self._begin_external_mutation(session_id)
         try:
-            tx_id = session.queue_bytes(data)
-        except SessionClosedError as exc:
-            raise AgentError("session_closed", str(exc)) from exc
-        return {"tx_id": tx_id, "state": "queued", "size": len(data)}
+            try:
+                tx_id = session.queue_bytes(data)
+            except SessionClosedError as exc:
+                raise AgentError("session_closed", str(exc)) from exc
+            return {"tx_id": tx_id, "state": "queued", "size": len(data)}
+        finally:
+            self._finish_external_mutation(session_id)
 
     def _resolve_observe_sessions(
         self,
@@ -578,8 +771,11 @@ class SessionManager:
                     )
                 self._observe_condition.wait(timeout=remaining)
 
-    def close(self, session_id: str) -> dict[str, Any]:
-        session = self._get_session(session_id)
+    def _force_close_session(
+        self,
+        session_id: str,
+        session: ManagedSession,
+    ) -> dict[str, Any]:
         with self._lock:
             device_key = self._session_device_keys.get(session_id)
 
@@ -590,16 +786,144 @@ class SessionManager:
             self._sessions.pop(session_id, None)
             self._session_device_keys.pop(session_id, None)
             self._session_profiles.pop(session_id, None)
+            self._session_mutations.pop(session_id, None)
+            self._session_sweep_owners.pop(session_id, None)
             if device_key is not None:
                 self._device_sessions.pop(device_key, None)
         return {"session": session_id, "state": "closed"}
 
+    def close(self, session_id: str) -> dict[str, Any]:
+        session = self._begin_external_mutation(session_id)
+        try:
+            return self._force_close_session(session_id, session)
+        finally:
+            self._finish_external_mutation(session_id)
+
+    @staticmethod
+    def _sweep_error(exc: SweepError) -> AgentError:
+        return AgentError(exc.code, exc.message, exc.details)
+
+    def _sweep_adapter_factory(
+        self,
+        adapter_name: str,
+        sessions: tuple[str, ...],
+    ):
+        factories = []
+        seen: set[int] = set()
+        for session_id in sessions:
+            profile_name = self.session_profile(session_id)
+            try:
+                profile = resolve_profile(profile_name)
+            except ValueError as exc:
+                raise AgentError("unknown_profile", str(exc)) from exc
+            factory = profile.sweep_adapters().get(adapter_name)
+            if factory is not None and id(factory) not in seen:
+                seen.add(id(factory))
+                factories.append(factory)
+        if not factories:
+            raise AgentError(
+                "unknown_sweep_adapter",
+                f"no participating profile provides sweep adapter: {adapter_name}",
+                {"adapter": adapter_name},
+            )
+        if len(factories) != 1:
+            raise AgentError(
+                "ambiguous_sweep_adapter",
+                f"multiple adapter factories provide: {adapter_name}",
+                {"adapter": adapter_name},
+            )
+        return factories[0]
+
+    def sweep_start(
+        self,
+        adapter_name: Any,
+        raw_sessions: Any,
+        raw_plan: Any,
+    ) -> dict[str, Any]:
+        if not isinstance(adapter_name, str) or not adapter_name:
+            raise AgentError(
+                "invalid_request",
+                "sweep_start requires non-empty string field 'adapter'",
+            )
+        if not isinstance(raw_sessions, list) or not raw_sessions:
+            raise AgentError(
+                "invalid_request",
+                "sweep_start requires non-empty array field 'sessions'",
+            )
+        if len(raw_sessions) > 32:
+            raise AgentError(
+                "invalid_request",
+                "sweep_start sessions exceeds maximum of 32",
+            )
+        if any(
+            not isinstance(session_id, str) or not session_id
+            for session_id in raw_sessions
+        ):
+            raise AgentError(
+                "invalid_request",
+                "sweep_start sessions must be non-empty strings",
+            )
+        if len(set(raw_sessions)) != len(raw_sessions):
+            raise AgentError(
+                "invalid_request",
+                "sweep_start sessions must be distinct",
+            )
+        sessions = tuple(raw_sessions)
+        try:
+            plan = normalize_sweep_plan(raw_plan)
+            factory = self._sweep_adapter_factory(adapter_name, sessions)
+            context = _SessionSweepContext(self, sessions)
+            adapter = factory(context, sessions, plan)
+            return self._sweep_manager.start(
+                sessions=sessions,
+                plan=plan,
+                adapter=adapter,
+            )
+        except SweepError as exc:
+            raise self._sweep_error(exc) from exc
+
+    def sweep_observe(
+        self,
+        sweep_id: str,
+        *,
+        cursor: int,
+        window: int,
+        timeout_ms: int,
+    ) -> dict[str, Any]:
+        try:
+            return self._sweep_manager.observe(
+                sweep_id,
+                cursor=cursor,
+                window=window,
+                timeout_ms=timeout_ms,
+            )
+        except SweepError as exc:
+            raise self._sweep_error(exc) from exc
+
+    def sweep_cancel(self, sweep_id: str) -> dict[str, Any]:
+        try:
+            return self._sweep_manager.cancel(sweep_id)
+        except SweepError as exc:
+            raise self._sweep_error(exc) from exc
+
+    def sweep_close(self, sweep_id: str) -> dict[str, Any]:
+        try:
+            return self._sweep_manager.close(sweep_id)
+        except SweepError as exc:
+            raise self._sweep_error(exc) from exc
+
+    def cancel_sweeps(self) -> None:
+        self._sweep_manager.cancel_active()
+
+    def join_sweeps(self, timeout: float) -> None:
+        self._sweep_manager.join_all(timeout)
+
     def close_all(self) -> None:
         with self._lock:
-            ids = list(self._sessions)
-        for session_id in ids:
+            pairs = list(self._sessions.items())
+        for session_id, session in pairs:
             try:
-                self.close(session_id)
+                self._force_close_session(session_id, session)
             except Exception:
                 pass
 
@@ -721,6 +1045,45 @@ class AgentProtocol:
     def _handle_close(self, request: dict[str, Any]) -> dict[str, Any]:
         return self.manager.close(str(request.get("session", "")))
 
+    @staticmethod
+    def _sweep_id(request: dict[str, Any]) -> str:
+        sweep_id = request.get("sweep_id")
+        if not isinstance(sweep_id, str) or not sweep_id:
+            raise AgentError(
+                "invalid_request",
+                "sweep operation requires non-empty string field 'sweep_id'",
+            )
+        return sweep_id
+
+    def _handle_sweep_start(self, request: dict[str, Any]) -> dict[str, Any]:
+        return self.manager.sweep_start(
+            request.get("adapter"),
+            request.get("sessions"),
+            request.get("plan"),
+        )
+
+    def _handle_sweep_observe(self, request: dict[str, Any]) -> dict[str, Any]:
+        if request.get("id") is None:
+            raise AgentError(
+                "invalid_request",
+                "sweep_observe requires a non-null request id",
+            )
+        cursor = request.get("cursor")
+        window = request.get("window", SWEEP_MAX_WINDOW)
+        timeout_ms = request.get("timeout_ms", 0)
+        return self.manager.sweep_observe(
+            self._sweep_id(request),
+            cursor=cursor,
+            window=window,
+            timeout_ms=timeout_ms,
+        )
+
+    def _handle_sweep_cancel(self, request: dict[str, Any]) -> dict[str, Any]:
+        return self.manager.sweep_cancel(self._sweep_id(request))
+
+    def _handle_sweep_close(self, request: dict[str, Any]) -> dict[str, Any]:
+        return self.manager.sweep_close(self._sweep_id(request))
+
     def _dispatch(self, request: dict[str, Any]) -> dict[str, Any]:
         op = request.get("op")
         if not isinstance(op, str):
@@ -735,6 +1098,10 @@ class AgentProtocol:
             "send_bytes": self._handle_send_bytes,
             "observe": self._handle_observe,
             "close": self._handle_close,
+            "sweep_start": self._handle_sweep_start,
+            "sweep_observe": self._handle_sweep_observe,
+            "sweep_cancel": self._handle_sweep_cancel,
+            "sweep_close": self._handle_sweep_close,
         }
         handler = handlers.get(op)
         if handler is None:
@@ -849,7 +1216,7 @@ class _AgentJsonlRunner:
     def _is_async_observe(request: Any, request_id: Any) -> bool:
         return (
             isinstance(request, dict)
-            and request.get("op") == "observe"
+            and request.get("op") in {"observe", "sweep_observe"}
             and request_id is not None
         )
 
@@ -890,13 +1257,16 @@ class _AgentJsonlRunner:
         self._handle_request(request)
 
     def _shutdown(self) -> None:
-        # EOF/agent shutdown не должен ждать произвольно долгий user timeout. Сначала
-        # отменяем pending observe, даём им вернуть correlated reply, затем закрываем
-        # device sessions, пока RunLog/stdout ещё доступны.
+        # EOF не должен ждать user long-poll или многоминутный PHY deadline.
+        # Сначала просим waits/jobs завершиться кооперативно, затем force-close
+        # sessions разрывает оставшиеся adapter waits до закрытия RunLog.
         self.manager.cancel_observes()
+        self.manager.cancel_sweeps()
+        self.manager.join_sweeps(1.0)
+        self.manager.close_all()
+        self.manager.join_sweeps(5.0)
         for thread in self._observe_threads:
             thread.join(timeout=1.0)
-        self.manager.close_all()
 
     def run(self) -> None:
         try:
