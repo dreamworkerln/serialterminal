@@ -17,17 +17,17 @@ campaign policy in `radio-characterization-program.md`.
 The corrected source/API implementation is validated at:
 
 ```text
-dreamworkerln/serialterminal/dev@4792fc2bdc357ce3eaee2755ccfb39fa4144a855
-GitHub Actions 36314768924 SUCCESS
-222 tests PASS
+dreamworkerln/serialterminal/dev@bce891f74a435307303333911cff2107a7317899
+GitHub Actions 36315186620 SUCCESS
+224 tests PASS
 ```
 
-The first Chatter firmware checkpoint implementing the required local `/sweep on|off`
-mode is:
+The validated Chatter firmware checkpoint implementing the required local
+`/sweep on|off` mode is:
 
 ```text
-dreamworkerln/lora-sack-protocol/dev_chat_ack@895b643695d58d2672ec153f7a04cb703cf70c1e
-Chatter CI 36314540193 SUCCESS
+dreamworkerln/lora-sack-protocol/dev_chat_ack@020ebe39288681cc58b8a5109717f6b55fbf675c
+Chatter CI 36315420318 SUCCESS
 ```
 
 A later firmware/source checkpoint may also be compatible, but the hardware executor
