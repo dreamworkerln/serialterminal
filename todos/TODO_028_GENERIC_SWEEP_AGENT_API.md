@@ -1,7 +1,7 @@
 # Generic long-running sweep API TODO
 
 TODO-ID: TODO_028
-Status: REOPENED
+Status: CLOSED
 
 ## Purpose
 
@@ -1554,59 +1554,175 @@ The correction must preserve the good boundaries from the first implementation:
 
 ### Re-close implementation checklist
 
-- [ ] define and implement a safe pre-sweep TX fence that prevents pre-lease host
+- [x] define and implement a safe pre-sweep TX fence that prevents pre-lease host
   mutation from executing inside the sweep ownership interval;
-- [ ] add deterministic regression coverage for the pre-existing queued/in-flight TX
+- [x] add deterministic regression coverage for the pre-existing queued/in-flight TX
   race;
-- [ ] define the Chatter local sweep-mode transition and normal-mode exit;
-- [ ] settle/clear ordinary reliable USER work on sweep entry with explicit semantics;
-- [ ] reject ordinary local USER submission while sweep mode is active;
-- [ ] suppress participating-node heartbeat/diagnostic/echo-loop and other unrelated
+- [x] define the Chatter local sweep-mode transition and normal-mode exit;
+- [x] settle/clear ordinary reliable USER work on sweep entry with explicit semantics;
+- [x] reject ordinary local USER submission while sweep mode is active;
+- [x] suppress participating-node heartbeat/diagnostic/echo-loop and other unrelated
   self-generated RF while sweep mode is active;
-- [ ] keep current USER/ACK wire format unchanged;
-- [ ] document operator-controlled quiet-frequency/environment isolation and third-node
+- [x] keep current USER/ACK wire format unchanged;
+- [x] document operator-controlled quiet-frequency/environment isolation and third-node
   contamination semantics;
-- [ ] make `sweep_cancel` drive a separately bounded Chatter cancel/cleanup path;
-- [ ] define/test firmware/controller `/cancel` and `/cancel all` interaction with
+- [x] make `sweep_cancel` drive a separately bounded Chatter cancel/cleanup path;
+- [x] define/test firmware/controller `/cancel` and `/cancel all` interaction with
   the active sweep diagnostic routine without adding Chatter special cases to the
   generic agent layer;
-- [ ] explicitly document cooperative adapter deadline enforcement and test all
+- [x] explicitly document cooperative adapter deadline enforcement and test all
   maintained Chatter blocking phases;
-- [ ] preserve primary failure plus separate cleanup failure/causal detail;
-- [ ] bound shared async observe/sweep_observe completed-thread bookkeeping and
+- [x] preserve primary failure plus separate cleanup failure/causal detail;
+- [x] bound shared async observe/sweep_observe completed-thread bookkeeping and
   reconcile the existing TODO_018 tracking;
-- [ ] update AGENT_API.md, ARCHITECTURE.md, logging/skill docs and hardware executor
+- [x] update AGENT_API.md, ARCHITECTURE.md, logging/skill docs and hardware executor
   references to the final corrected semantics;
-- [ ] targeted tests PASS;
-- [ ] full repository validation PASS;
-- [ ] mandatory BASE..HEAD deletion/function-definition/source diff review PASS;
-- [ ] GitHub Actions SUCCESS on the new accepted implementation checkpoint;
-- [ ] update TODO_028 with exact new implementation/validation checkpoints;
-- [ ] only then mark TODO_028 CLOSED again.
+- [x] targeted tests PASS;
+- [x] full repository validation PASS;
+- [x] mandatory BASE..HEAD deletion/function-definition/source diff review PASS;
+- [x] GitHub Actions SUCCESS on the new accepted implementation checkpoint;
+- [x] update TODO_028 with exact new implementation/validation checkpoints;
+- [x] only then mark TODO_028 CLOSED again.
 
 Hardware execution is not automatically required merely to implement the host/source
 corrections, but any claim that the new **firmware local sweep mode** works on physical
 nodes requires explicit hardware validation. Automated source tests must not be
 presented as proof of that physical behavior.
 
+## Corrected implementation completion
+
+The post-closure correction was implemented and reviewed in the requested order.
+
+### SerialTerminal corrected source checkpoint
+
+```text
+dev@bce891f74a435307303333911cff2107a7317899
+GitHub Actions 36315186620 SUCCESS
+compile PASS
+ruff PASS
+complexity step PASS
+pytest 224 passed
+```
+
+Implemented/validated corrections include:
+
+- atomic participating-session ownership plus pre-sweep accepted-TX fence;
+- delayed transport regression proving a pre-lease TX cannot execute after adapter
+  preparation begins;
+- explicit `session_tx_unknown` failure before adapter lifecycle when a pre-lease
+  write outcome is ambiguous;
+- no adapter cleanup call when the session fence itself fails;
+- Chatter adapter transition to firmware `/sweep on` and idempotent `/sweep off`;
+- separate short cancellation-settlement budget for active Chatter samples;
+- best-effort `/sweep off` submission to all participating sessions before cleanup
+  waits, so one silent node does not prevent exit being requested on the other;
+- primary `failure` preserved separately from `cleanup_failure`;
+- shared async `observe` / `sweep_observe` worker bookkeeping bounded to active
+  workers, with TODO_018 closed by the shared fix;
+- cooperative deadline coverage for maintained Chatter prepare/apply/verify/sample
+  settlement/cleanup waits;
+- corrected AGENT_API / architecture / logging / SerialTerminal-agent skill docs.
+
+### Chatter firmware local sweep-mode checkpoint
+
+```text
+dreamworkerln/lora-sack-protocol/dev_chat_ack@
+  020ebe39288681cc58b8a5109717f6b55fbf675c
+Chatter CI 36315420318 SUCCESS
+PlatformIO build PASS
+native protocol/reliability tests PASS
+clang-tidy PASS
+cppcheck PASS
+complexity step PASS
+```
+
+The firmware implementation adds an explicit local `/sweep on|off` Scheduler mode.
+
+While active it:
+
+- clears pending/queued ordinary reliable USER work at entry;
+- records the requesting local input source as the sweep owner;
+- rejects ordinary local USER from non-owner input sources;
+- keeps owner-driven measured USER/config operations available;
+- forces heartbeat/diagnostic/echo-loop/manual-echo activity off;
+- suppresses unrelated self-generated background RF;
+- ignores heartbeat/PONG/ECHO receive obligations that would create unrelated RF;
+- keeps ordinary USER/ACK wire framing unchanged;
+- clears receive-side sweep RF obligations on exit so a stale ACK/ECHO/PONG does not
+  escape after returning to normal mode;
+- defines `/cancel` and `/cancel all` during sweep as sweep exit plus clear-all
+  reliable cancellation semantics, covered by native cancellation-policy tests.
+
+There is deliberately no sweep bit/token/session in the radio protocol. Isolation from
+third-party nodes remains an operator/coordinator responsibility through a quiet
+measurement frequency/environment. Third-party traffic is contamination, not something
+the current wire protocol classifies.
+
+### Hardware executor alignment
+
+The physical executor reference was updated at:
+
+```text
+node_observations@612dfb824401b4c22b7737097e83836804aca577
+.agents/skills/lora-chatter-hardware/references/serialterminal-sweep-agent.md
+```
+
+It records the validated SerialTerminal/firmware checkpoints, enforced pre-sweep TX
+fence, firmware local sweep mode, cancellation workflow and the remaining
+operator-controlled RF-isolation boundary.
+
+### Final source-review gate
+
+Correction review bases:
+
+```text
+SerialTerminal:
+  base  bae0a590fb9260c024857d9e7820acba9e91ee49
+  head  bce891f74a435307303333911cff2107a7317899
+
+Chatter firmware:
+  base  4c952dd13c87999dda6529db06c91aa224383e8a
+  head  020ebe39288681cc58b8a5109717f6b55fbf675c
+```
+
+Review outcome:
+
+- all correction-range source deletions were inspected;
+- no pre-existing Python function/class definition disappeared;
+- no pre-existing Scheduler/TerminalIo C++ function definition disappeared;
+- SerialTerminal generic `agent.py` / `sweep.py` remain free of concrete Chatter
+  command/adaptor-name branches;
+- controller-specific `/sweep` semantics remain in the Chatter profile/firmware;
+- no wire-format/frame-flag change was made;
+- no physical-node execution or flashing was performed.
+
+Hardware validation of the corrected local sweep mode remains **NOT RUN**. The source,
+build, native tests and host automated tests validate implementation structure and
+software behavior; they are not evidence that the physical two-node RF sweep has run.
+
 ## Current result
 
 ```text
 TODO_028:
-  REOPENED
+  CLOSED
 
-reason:
-  independent post-closure review found ownership/isolation/lifecycle defects not
-  covered by the original 209-test acceptance suite
-
-historical accepted implementation:
-  dev@d868d026c05dac9373a47c0935673836432f9073
+historical first implementation:
+  dev@d868d026c05dac937e07907913a30cd6c7e9190c
   GitHub Actions 36286979122 SUCCESS
   209 tests PASS
 
-new corrected implementation:
-  NOT YET IMPLEMENTED
+corrected SerialTerminal implementation:
+  dev@bce891f74a435307303333911cff2107a7317899
+  GitHub Actions 36315186620 SUCCESS
+  224 tests PASS
 
-current hardware validation for corrected local sweep mode:
+corrected Chatter firmware implementation:
+  dev_chat_ack@020ebe39288681cc58b8a5109717f6b55fbf675c
+  Chatter CI 36315420318 SUCCESS
+
+hardware executor alignment:
+  node_observations@612dfb824401b4c22b7737097e83836804aca577
+
+physical validation of corrected sweep mode:
   NOT RUN
 ```

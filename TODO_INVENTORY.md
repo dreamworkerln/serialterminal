@@ -147,21 +147,25 @@ Selected contract: both frontends create the same timestamped `.console.log` log
 Physical interactive smoke: PASS on 2026-09-22 with `Profile: chatter`; companion timestamps/session/direction/logical-line behavior confirmed. Remaining gate: physical agent smoke and timing-format comparison.
 
 
+## Closed
+
 ### TODO_028 — `todos/TODO_028_GENERIC_SWEEP_AGENT_API.md`
 
-Status: REOPENED
+Status: CLOSED
 
-Goal: retain the generic long-running sweep-job API while correcting post-closure ownership/isolation/lifecycle defects found by independent review.
+Goal: generic long-running sweep jobs with exact repetitions, safe session ownership/TX fencing, profile-owned measurement adapters, bounded lifecycle/cancellation, and a Chatter local diagnostic sweep mode without adding a wire-protocol sweep flag.
 
-Historical accepted implementation remains `dev@d868d026c05dac9373a47c0935673836432f9073`, GitHub Actions `36286979122` SUCCESS, 209 tests PASS. That checkpoint is provenance, not the current closure state.
+Corrected SerialTerminal checkpoint: `dev@bce891f74a435307303333911cff2107a7317899`; GitHub Actions `36315186620` SUCCESS; compile/ruff/complexity PASS; **224 tests PASS**.
 
-Reopen scope is authoritative in the TODO itself. It includes: a safe pre-sweep TX fence for already accepted host mutations; an exclusive **local** Chatter sweep diagnostic mode with ordinary local USER/background RF suppressed but no new wire-protocol sweep flag; separately bounded cancellation/cleanup; cooperative adapter-deadline semantics; preservation of primary plus cleanup failures; and bounded shared async observe/sweep_observe worker bookkeeping (shared root cause with TODO_018).
+Corrected Chatter firmware checkpoint: `dev_chat_ack@020ebe39288681cc58b8a5109717f6b55fbf675c`; Chatter CI `36315420318` SUCCESS; PlatformIO build, native protocol/reliability tests, clang-tidy, cppcheck and complexity PASS.
 
-External RF isolation remains operator/coordinator responsibility: use a quiet sweep frequency/environment; unrelated third-node traffic is contamination, not protocol-level sweep classification.
+Hardware executor alignment: `node_observations@612dfb824401b4c22b7737097e83836804aca577`.
 
-Corrected implementation checkpoint: NOT YET IMPLEMENTED.
+Key corrected semantics: pre-lease external TX is fenced before adapter prepare; ambiguous pre-sweep TX fails explicitly; firmware `/sweep on` provides exclusive **local** diagnostic ownership, suppresses ordinary local/background RF and clears normal reliable backlog; USER/ACK wire frames remain unchanged; `sweep_cancel` uses separately bounded controller cancellation; primary and cleanup failures are both preserved; shared async observe worker retention is bounded (TODO_018 CLOSED).
 
-## Closed
+External RF isolation remains operator/coordinator responsibility. Physical validation of the corrected two-node sweep mode is **NOT RUN** and is not implied by software CI.
+
+
 
 ### TODO_018 — `todos/TODO_018_OBSERVE_THREAD_RETENTION.md`
 
