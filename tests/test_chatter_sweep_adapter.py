@@ -100,13 +100,13 @@ class _ScriptContext:
                 f"[SYS] POWER {state['power']} dBm SAVED",
             )
         elif text.startswith("/freq "):
-            state["freq"] = text.split()[1]
+            state["freq"] = text.split()[1].rstrip("0").rstrip(".")
             self._line(
                 session,
                 f"[SYS] FREQ {state['freq']} MHz SAVED",
             )
         elif text.startswith("/bw "):
-            state["bw"] = text.split()[1]
+            state["bw"] = text.split()[1].rstrip("0").rstrip(".")
             self._line(
                 session,
                 f"[SYS] BW {state['bw']} kHz SAVED",
