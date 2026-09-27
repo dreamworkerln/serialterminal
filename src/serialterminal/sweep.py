@@ -764,7 +764,6 @@ class SweepJobManager:
     def __init__(
         self,
         *,
-        adapter_context: SweepAdapterContext,
         acquire_sessions:
             Callable[[str, tuple[str, ...]], None],
         release_sessions:
@@ -773,7 +772,6 @@ class SweepJobManager:
         max_retained_terminal: int =
             SWEEP_MAX_RETAINED_TERMINAL,
     ):
-        self.adapter_context = adapter_context
         self.acquire_sessions = acquire_sessions
         self.release_sessions = release_sessions
         self.run_log = run_log
