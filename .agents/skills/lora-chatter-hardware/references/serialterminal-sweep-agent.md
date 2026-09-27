@@ -14,11 +14,25 @@ This reference is an executor guide for the existing host-side sweep facility. I
 not redefine the RF/protocol acceptance rules in `phy-payload-sweep.md` or the
 campaign policy in `radio-characterization-program.md`.
 
-The maintained source/API implementation was accepted at:
+The corrected source/API implementation is validated at:
 
 ```text
-dreamworkerln/serialterminal/dev@d868d026c05dac9373a47c0935673836432f9073
+dreamworkerln/serialterminal/dev@4792fc2bdc357ce3eaee2755ccfb39fa4144a855
+GitHub Actions 36314768924 SUCCESS
+222 tests PASS
 ```
+
+The first Chatter firmware checkpoint implementing the required local `/sweep on|off`
+mode is:
+
+```text
+dreamworkerln/lora-sack-protocol/dev_chat_ack@895b643695d58d2672ec153f7a04cb703cf70c1e
+Chatter CI 36314540193 SUCCESS
+```
+
+A later firmware/source checkpoint may also be compatible, but the hardware executor
+must establish deployed support from maintained task/provenance facts or physical-node
+evidence; it must not inspect firmware source during the hardware task.
 
 Later source-branch commits may move documentation/handoff state. During a hardware
 task do not inspect SerialTerminal source merely to rediscover this API. If the runtime
@@ -27,36 +41,37 @@ source/runtime boundary and report it.
 
 ## Current semantic boundary
 
-The current sweep is a **host-side SerialTerminal job**, not a firmware-wide exclusive
-radio mode.
-
-It provides:
-
-- one active sweep per SerialTerminal agent process;
-- mutation ownership of the declared SerialTerminal sessions;
-- deterministic ordered coordinates;
-- exact caller-specified repetitions;
-- a profile-owned `chatter.reliable_user` adapter;
-- bounded sweep-event history and progress;
-- cancellation and terminal job state;
-- mechanical `[SWEEP]` records in the normal forensic log.
-
-It does **not** currently prove that a Chatter node has entered a firmware mode in
-which all non-sweep LoRa RX/TX is disabled. In particular, physical RF activity from
-unrelated nodes/processes/devices remains outside the SerialTerminal session lease.
-
-Therefore, until a later firmware/source task explicitly implements an exclusive
-firmware sweep mode:
+The maintained sweep has **two coordinated layers**:
 
 ```text
-SerialTerminal sweep ownership
-    !=
-exclusive RF-environment ownership
+SerialTerminal host sweep job
+    mutation ownership + pre-sweep TX fence + deterministic plan
+
+Chatter local firmware sweep mode
+    /sweep on -> local RF isolation for the participating node
+    /sweep off or cancellation -> normal local mode
 ```
 
-Keep all non-participating transmitters quiet. Incoming unrelated USER/ACK/heartbeat
-traffic can contaminate a physical measurement and must not be silently treated as
-part of the sweep.
+A successful host lease now captures every participating session's pre-existing TX
+fence. Adapter preparation does not begin until every externally accepted TX through
+that fence has reached a known terminal transport outcome. An ambiguous
+`tx_state:"unknown"` fails the job with `session_tx_unknown`; it is never silently
+discarded as though the queue were clean.
+
+The Chatter adapter then enters `/sweep on` on both nodes. That local firmware mode:
+
+- clears/settles ordinary reliable USER backlog at entry;
+- blocks ordinary local USER from non-owner input sources;
+- disables heartbeat, diagnostic heartbeat, echo-loop and manual echo generation;
+- suppresses other unrelated self-generated local RF;
+- permits the sweep owner to submit the serialized measured USER/config work;
+- exits on normal `/sweep off` cleanup or controller cancellation.
+
+This is **local node isolation**, not global RF ownership. Measured packets still use
+the normal USER/ACK wire protocol with no sweep flag/token. A third node on the same
+frequency cannot be distinguished as "ordinary" versus "sweep" by frame semantics.
+The operator/coordinator must therefore choose a quiet measurement frequency/environment;
+unrelated third-party RF is contamination.
 
 ## Required companion references
 
@@ -104,32 +119,25 @@ Do not launch a second SerialTerminal agent to run the sweep.
 
 ## Pre-start mutation fence
 
-A successful sweep lease blocks **new** external `send_line`, `send_bytes` and
-`close` mutations on participating sessions. It does not retroactively cancel an
-ordinary TX that was accepted before the lease and is still queued/in flight.
+The pre-sweep host TX race is enforced by SerialTerminal itself.
 
-Therefore the executor must not enter a sweep with unresolved ordinary session
-mutation.
+At atomic sweep ownership acquisition, each participating `ManagedSession` records the
+last externally accepted TX. Before the Chatter adapter can run `prepare`, the job
+waits until all such pre-lease TX have known terminal transport outcome.
 
-Safe operational rule:
+Executor implications:
 
-1. do not pre-submit USER traffic or a batch of future control commands before
-   `sweep_start`;
-2. if an ordinary pre-sweep control command was necessary, wait for its explicit node
-   response proving that command was processed;
-3. require the relevant setup state to be confirmed before starting the sweep;
-4. do not issue another ordinary `send_line`/`send_bytes` between the final
-   confirmed setup observation and `sweep_start`;
-5. if a pre-sweep TX has `tx_state:"unknown"`, or its side effect is otherwise
-   ambiguous, do not start measured sweep traffic from that session state. Establish a
-   fresh known state according to the task/evidence rules.
+1. do not deliberately pre-submit future USER/control batches before `sweep_start`;
+2. do not treat `queued` or queue depth as delivery/side-effect proof;
+3. `session_fence_timeout` means the pre-sweep ownership boundary did not settle;
+4. `session_tx_unknown` means an accepted pre-sweep write has ambiguous side effects;
+   do not retry it blindly or start measurement from that session state;
+5. for `session_tx_unknown`, close/reopen/re-establish the session according to the
+   task evidence policy before a new sweep attempt.
 
-Do not treat `queued_tx == 0` alone as proof that an ambiguous transport write had no
-side effect.
-
-The bundled Chatter sweep adapter performs its own preparation after ownership,
-including reliable-work cancellation and measurement-state setup. Do not duplicate
-those commands immediately before `sweep_start` merely out of habit.
+The executor must not manually purge arbitrary SerialTerminal TX queue entries as a
+workaround. The fence exists specifically to avoid silent loss of already accepted
+control operations.
 
 ## Plan schema
 
@@ -287,25 +295,32 @@ must still keep them physically quiet when they could affect RF evidence.
 The maintained `chatter.reliable_user` adapter currently:
 
 - requires exactly two distinct connected Chatter sessions;
-- settles prior reliable USER work;
-- disables diagnostic/heartbeat/echo-loop activity;
+- requires deployed Chatter firmware with the maintained local `/sweep on|off` mode;
+- enters `/sweep on` only after the generic pre-sweep TX fence has settled;
+- relies on that firmware transition to clear ordinary reliable USER work and suppress
+  local heartbeat/diagnostic/echo background RF;
 - makes delivery telemetry visible;
 - verifies distinct node identities;
 - applies and verifies frequency/power/BW/SF;
 - sends one reliable USER sample at a time;
 - waits for operational terminal ACK/FAILED settlement before the next sample/config
   transition;
-- uses finite phase deadlines;
-- performs bounded cleanup.
+- uses cooperative finite phase deadlines;
+- performs bounded cleanup with `/sweep off`.
 
-It uses delivery telemetry for synchronization only. RF-quality interpretation still
-belongs to the hardware measurement/reporting rules.
+It uses ordinary USER/ACK wire frames. The adapter does not create a protocol-level
+sweep identity and does not classify RF quality.
+
+Before a canonical physical sweep, deployed firmware compatibility must be known. If
+the task did not provide compatible provenance and node output cannot establish the
+`/sweep` capability without ambiguity, report that precondition boundary rather than
+silently falling back to a hand-written low-level USER loop.
 
 ## Cancellation
 
-Do not send ordinary firmware `/cancel` or `/cancel all` from outside while the
-sweep owns the sessions; those external `send_line` calls are expected to be rejected
-as `session_busy`.
+Do not send ordinary firmware `/cancel` or `/cancel all` through external
+`send_line` while the sweep owns the sessions; those external mutations are expected
+to be rejected as `session_busy`.
 
 Cancel the host-side job with:
 
@@ -313,17 +328,15 @@ Cancel the host-side job with:
 {"id":102,"op":"sweep_cancel","sweep_id":"sw1"}
 ```
 
-The immediate response normally means:
+The immediate response normally reports `state:"cancelling"`; this is only
+acknowledgement of the request.
 
-```text
-state = cancelling
-```
+For an active Chatter sample, the adapter sends controller `/cancel all`. Current
+firmware defines `/cancel` and `/cancel all` during local sweep mode as also exiting
+that mode. The adapter uses a separate short cancellation-settlement budget rather than
+waiting through the original potentially long slow-PHY sample budget.
 
-That is only acknowledgement of the cancel request.
-
-The Chatter adapter cooperatively settles/cancels the active reliable transaction and
-its cleanup path issues the controller cancellation needed to leave reliable USER work
-settled. Continue `sweep_observe` until terminal:
+Continue `sweep_observe` until terminal:
 
 ```text
 cancelled
@@ -331,11 +344,11 @@ OR
 failed
 ```
 
-Only after the terminal transition is session mutation ownership released.
+Normal final cleanup sends idempotent `/sweep off`; if cancellation already exited
+local mode, `[SYS] SWEEP already OFF` is acceptable.
 
-Current host-side semantics do **not** mean that an arbitrary incoming RF frame is
-disabled during cancellation or during the sweep. That stronger behavior requires a
-separate firmware/source design.
+Only after terminal transition is SerialTerminal session mutation ownership released.
+Cancellation after a physical USER TX still does not prove that USER was not received.
 
 ## Closing retained job state
 
@@ -420,7 +433,28 @@ If `sweep_start` itself is unknown at runtime, treat that as a SerialTerminal
 runtime/source mismatch. Do not silently replace a requested maintained sweep with a
 large hand-written `send_line` loop.
 
-## Current isolation limitation
+## Current isolation boundary
+
+The implemented boundary is now:
+
+```text
+host session ownership + pre-sweep TX fence
+-> firmware local /sweep on mode on both participating nodes
+-> only owner-driven local measured USER/config work is generated
+-> ordinary USER/ACK wire protocol remains unchanged
+-> operator keeps the measurement frequency/environment quiet
+-> /sweep off or cancellation returns normal local operation
+```
+
+Do **not** claim stronger protocol-level RF isolation. There is no sweep frame
+flag/session/token in this version. Incoming ordinary USER/ACK on the same frequency
+cannot be identified as third-party versus intended sweep traffic by wire semantics.
+
+Therefore any unrelated third-node RF observed in the measurement environment is
+contamination/evidence to preserve. Do not invent protocol classification or attempt to
+repair it inside the hardware run.
+
+
 
 The desired stronger architecture for a future source/firmware task may be:
 
