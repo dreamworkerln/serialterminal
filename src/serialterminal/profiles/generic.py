@@ -4,6 +4,7 @@ from collections.abc import Mapping
 from dataclasses import dataclass
 from types import MappingProxyType
 
+from ..sweep import SweepAdapterFactory
 from ..transports.ble_nus import NUS_RX_UUID, NUS_TX_UUID
 from .base import (
     BleProfileConfig,
@@ -14,6 +15,7 @@ from .base import (
 
 
 _EMPTY_ACTIONS: Mapping[str, ProfileAction] = MappingProxyType({})
+_EMPTY_SWEEP_ADAPTERS: Mapping[str, SweepAdapterFactory] = MappingProxyType({})
 _BLE_CONFIG = BleProfileConfig(
     write_characteristic=NUS_RX_UUID,
     receive_streams=(ReceiveCharacteristic(NUS_TX_UUID, "main"),),
@@ -51,6 +53,9 @@ class GenericProfile:
 
     def recognized_command(self, line: str) -> str | None:
         return None
+
+    def sweep_adapters(self) -> Mapping[str, SweepAdapterFactory]:
+        return _EMPTY_SWEEP_ADAPTERS
 
 
 GENERIC_PROFILE = GenericProfile()
