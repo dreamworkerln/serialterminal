@@ -9,6 +9,7 @@ from serialterminal.profiles.chatter.sweep import (
 from serialterminal.sweep import (
     SweepCancelled,
     SweepPhaseContext,
+    SweepPhaseTimeout,
     normalize_sweep_plan,
 )
 
@@ -52,6 +53,23 @@ class _RejectingConfigContext:
                 "[SYS] CFG BUSY: radio/protocol transaction active; "
                 "setting not changed",
             )
+            return {
+                "tx_id": len(self.base.commands),
+                "state": "queued",
+            }
+        return self.base.send_line(session, text)
+
+
+class _SilentSfContext:
+    def __init__(self, base):
+        self.base = base
+
+    def __getattr__(self, name):
+        return getattr(self.base, name)
+
+    def send_line(self, session, text):
+        if text.startswith("/sf "):
+            self.base.commands.append((session, text))
             return {
                 "tx_id": len(self.base.commands),
                 "state": "queued",
@@ -409,6 +427,22 @@ def test_control_rejection_fails_apply_without_waiting_for_deadline():
 
     assert (("s1", "/config") not in base.commands)
     assert (("s2", "/power 2") not in base.commands)
+
+
+def test_missing_control_response_hits_explicit_phase_deadline():
+    base = _ScriptContext()
+    context = _SilentSfContext(base)
+    adapter = ChatterReliableUserSweepAdapter(
+        context,
+        ("s1", "s2"),
+        _plan(),
+    )
+
+    with pytest.raises(SweepPhaseTimeout):
+        adapter.apply_coordinate(
+            _coordinate(),
+            _phase("apply", seconds=0.05),
+        )
 
 
 def test_sample_queue_rejection_is_execution_failure_not_settlement_timeout():

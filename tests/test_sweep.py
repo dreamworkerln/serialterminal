@@ -319,6 +319,135 @@ def test_sweep_cursor_is_strictly_typed(cursor):
     assert caught.value.code == "invalid_sweep_cursor"
 
 
+def test_start_metadata_progress_and_long_poll_wakeup():
+    plan = normalize_sweep_plan({"axes": [], "repetitions": 1})
+    adapter = _BlockingAdapter()
+    manager, _ = _manager(adapter)
+    started = manager.start(
+        sessions=("s1",),
+        plan=plan,
+        adapter=adapter,
+    )
+    sweep_id = started["sweep_id"]
+
+    assert started["state"] == "running"
+    assert started["total_samples"] == 1
+    assert started["events"] == {
+        "cursor": 0,
+        "max_window": 100,
+        "retention": 4096,
+    }
+    assert started["jobs"] == {
+        "max_active": 1,
+        "max_retained_terminal": 16,
+    }
+    assert adapter.prepare_started.wait(timeout=1.0)
+
+    initial = manager.observe(
+        sweep_id,
+        cursor=0,
+        window=100,
+        timeout_ms=0,
+    )
+    assert initial["state"] == "running"
+    assert initial["progress"]["total_samples"] == 1
+    assert initial["progress"]["current"]["phase"] == "prepare"
+
+    result_holder = {}
+    done = threading.Event()
+
+    def long_poll():
+        result_holder["result"] = manager.observe(
+            sweep_id,
+            cursor=initial["cursor"],
+            window=100,
+            timeout_ms=1000,
+        )
+        done.set()
+
+    thread = threading.Thread(target=long_poll)
+    thread.start()
+    assert not done.wait(timeout=0.05)
+
+    adapter.release.set()
+    assert done.wait(timeout=1.0)
+    thread.join(timeout=1.0)
+    assert not thread.is_alive()
+    result = result_holder["result"]
+    assert result["timed_out"] is False
+    assert result["events"]
+    assert result["cursor"] > initial["cursor"]
+
+
+def test_positive_long_poll_timeout_is_explicit():
+    plan = normalize_sweep_plan({"axes": [], "repetitions": 1})
+    adapter = _BlockingAdapter()
+    manager, _ = _manager(adapter)
+    sweep_id = manager.start(
+        sessions=("s1",),
+        plan=plan,
+        adapter=adapter,
+    )["sweep_id"]
+    assert adapter.prepare_started.wait(timeout=1.0)
+
+    initial = manager.observe(
+        sweep_id,
+        cursor=0,
+        window=100,
+        timeout_ms=0,
+    )
+    result = manager.observe(
+        sweep_id,
+        cursor=initial["head_cursor"],
+        window=100,
+        timeout_ms=20,
+    )
+    assert result["events"] == []
+    assert result["cursor"] == initial["head_cursor"]
+    assert result["head_cursor"] == initial["head_cursor"]
+    assert result["state"] == "running"
+    assert result["timed_out"] is True
+
+    manager.cancel(sweep_id)
+    assert _wait_until(
+        lambda: manager.observe(
+            sweep_id,
+            cursor=initial["head_cursor"],
+            window=100,
+            timeout_ms=0,
+        )["state"]
+        == "cancelled"
+    )
+
+
+def test_close_rejects_non_terminal_job():
+    plan = normalize_sweep_plan({"axes": [], "repetitions": 1})
+    adapter = _BlockingAdapter()
+    manager, _ = _manager(adapter)
+    sweep_id = manager.start(
+        sessions=("s1",),
+        plan=plan,
+        adapter=adapter,
+    )["sweep_id"]
+    assert adapter.prepare_started.wait(timeout=1.0)
+
+    with pytest.raises(SweepError) as caught:
+        manager.close(sweep_id)
+    assert caught.value.code == "sweep_not_terminal"
+
+    adapter.release.set()
+    assert _wait_until(
+        lambda: manager.observe(
+            sweep_id,
+            cursor=0,
+            window=100,
+            timeout_ms=0,
+        )["state"]
+        == "completed"
+    )
+    assert manager.close(sweep_id)["state"] == "closed"
+
+
 def test_cancel_converges_to_terminal_state_and_releases_ownership():
     plan = normalize_sweep_plan({"axes": [], "repetitions": 1})
     adapter = _BlockingAdapter()
