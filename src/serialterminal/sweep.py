@@ -18,6 +18,7 @@ SWEEP_MAX_PLAN_BYTES = 64 * 1024
 SWEEP_MAX_AXES = 16
 SWEEP_MAX_TOTAL_SAMPLES = 100_000
 SWEEP_MAX_PHASE_TIMEOUT_S = 3600.0
+SWEEP_SESSION_FENCE_TIMEOUT_S = 10.0
 
 
 class SweepError(RuntimeError):
@@ -324,6 +325,7 @@ class SweepJob:
         sessions: tuple[str, ...],
         plan: SweepPlan,
         adapter: SweepAdapter,
+        preflight: Callable[[SweepPhaseContext], None] | None,
         release_sessions: Callable[[str, tuple[str, ...]], None],
         run_log: Any | None,
         event_retention: int = SWEEP_EVENT_RETENTION,
@@ -333,6 +335,7 @@ class SweepJob:
         self.sessions = sessions
         self.plan = plan
         self.adapter = adapter
+        self.preflight = preflight
         self.release_sessions = release_sessions
         self.run_log = run_log
         self.event_retention = event_retention
@@ -345,6 +348,7 @@ class SweepJob:
         self._completed_samples = 0
         self._current: dict[str, Any] | None = None
         self._failure: dict[str, Any] | None = None
+        self._cleanup_failure: dict[str, Any] | None = None
         self._thread: threading.Thread | None = None
 
     @property
@@ -371,7 +375,11 @@ class SweepJob:
         phase: str,
         coordinate: Mapping[str, Any] | None = None,
     ) -> SweepPhaseContext:
-        timeout = self.adapter.phase_timeout_s(phase, coordinate)
+        timeout = (
+            SWEEP_SESSION_FENCE_TIMEOUT_S
+            if phase == "session_fence"
+            else self.adapter.phase_timeout_s(phase, coordinate)
+        )
         if (
             isinstance(timeout, bool)
             or not isinstance(timeout, (int, float))
@@ -419,6 +427,11 @@ class SweepJob:
             "failure": (
                 dict(self._failure)
                 if self._failure is not None
+                else None
+            ),
+            "cleanup_failure": (
+                dict(self._cleanup_failure)
+                if self._cleanup_failure is not None
                 else None
             ),
         }
@@ -472,6 +485,7 @@ class SweepJob:
         state: str,
         *,
         failure: dict[str, Any] | None = None,
+        cleanup_failure: dict[str, Any] | None = None,
     ) -> None:
         assert state in self._TERMINAL
         kind = {
@@ -482,21 +496,28 @@ class SweepJob:
         with self._condition:
             self._state = state
             self._failure = failure
+            self._cleanup_failure = cleanup_failure
             self._current = None
             # Keep ownership release, terminal state, forensic record and
             # retained terminal event behind one observable job boundary.
             self.release_sessions(self.sweep_id, self.sessions)
-            self._record_event(
-                kind,
-                **({"failure": failure} if failure is not None else {}),
-            )
+            event_fields: dict[str, Any] = {}
+            if failure is not None:
+                event_fields["failure"] = failure
+            if cleanup_failure is not None:
+                event_fields["cleanup_failure"] = cleanup_failure
+            self._record_event(kind, **event_fields)
 
     def _run(self) -> None:
         terminal = "completed"
         failure: dict[str, Any] | None = None
+        cleanup_failure: dict[str, Any] | None = None
         prepared = False
         try:
             self._record_event("sweep_started")
+            if self.preflight is not None:
+                self._set_current({}, None, "session_fence")
+                self._run_phase("session_fence", self.preflight)
             self._set_current({}, None, "prepare")
             self._run_phase("prepare", self.adapter.prepare)
             prepared = True
@@ -592,9 +613,20 @@ class SweepJob:
         except SweepPhaseTimeout as exc:
             terminal = "failed"
             failure = {
-                "code": "adapter_timeout",
+                "code": (
+                    "session_fence_timeout"
+                    if exc.phase == "session_fence"
+                    else "adapter_timeout"
+                ),
                 "phase": exc.phase,
                 "message": str(exc),
+            }
+        except SweepError as exc:
+            terminal = "failed"
+            failure = {
+                "code": exc.code,
+                "message": exc.message,
+                **({"details": dict(exc.details)} if exc.details else {}),
             }
         except Exception as exc:
             terminal = "failed"
@@ -613,18 +645,26 @@ class SweepJob:
                     )
                 except SweepPhaseTimeout as exc:
                     terminal = "failed"
-                    failure = {
+                    cleanup_failure = {
                         "code": "cleanup_timeout",
                         "phase": exc.phase,
                         "message": str(exc),
                     }
+                    if failure is None:
+                        failure = dict(cleanup_failure)
                 except Exception as exc:
                     terminal = "failed"
-                    failure = {
+                    cleanup_failure = {
                         "code": "cleanup_failed",
                         "message": str(exc),
                     }
-            self._terminal(terminal, failure=failure)
+                    if failure is None:
+                        failure = dict(cleanup_failure)
+            self._terminal(
+                terminal,
+                failure=failure,
+                cleanup_failure=cleanup_failure,
+            )
 
     def cancel(self) -> dict[str, Any]:
         with self._condition:
@@ -740,6 +780,8 @@ class SweepJob:
                     }
                     if snapshot["failure"] is not None:
                         result["failure"] = snapshot["failure"]
+                    if snapshot["cleanup_failure"] is not None:
+                        result["cleanup_failure"] = snapshot["cleanup_failure"]
                     return result
 
                 remaining = deadline - time.monotonic()
@@ -755,6 +797,8 @@ class SweepJob:
                     }
                     if snapshot["failure"] is not None:
                         result["failure"] = snapshot["failure"]
+                    if snapshot["cleanup_failure"] is not None:
+                        result["cleanup_failure"] = snapshot["cleanup_failure"]
                     return result
                 self._condition.wait(timeout=remaining)
 
@@ -764,7 +808,10 @@ class SweepJobManager:
         self,
         *,
         acquire_sessions:
-            Callable[[str, tuple[str, ...]], None],
+            Callable[
+                [str, tuple[str, ...]],
+                Callable[[SweepPhaseContext], None] | None,
+            ],
         release_sessions:
             Callable[[str, tuple[str, ...]], None],
         run_log: Any | None,
@@ -797,12 +844,13 @@ class SweepJobManager:
                 )
             sweep_id = f"sw{self._next_id}"
             self._next_id += 1
-            self.acquire_sessions(sweep_id, sessions)
+            preflight = self.acquire_sessions(sweep_id, sessions)
             job = SweepJob(
                 sweep_id=sweep_id,
                 sessions=sessions,
                 plan=plan,
                 adapter=adapter,
+                preflight=preflight,
                 release_sessions=self._release_from_job,
                 run_log=self.run_log,
             )
