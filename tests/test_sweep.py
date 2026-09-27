@@ -86,6 +86,11 @@ class _CleanupTimeoutAdapter(_RecordingAdapter):
         time.sleep(0.02)
 
 
+class _PrimaryAndCleanupFailureAdapter(_CleanupTimeoutAdapter):
+    def prepare(self, phase):
+        raise RuntimeError("primary boom")
+
+
 class _BlockingRunLog:
     def __init__(self):
         self.terminal_record_started = threading.Event()
@@ -616,3 +621,82 @@ def test_terminal_retention_has_hard_count_bound():
         window=1,
         timeout_ms=0,
     )["state"] == "completed"
+
+
+
+def test_preflight_finishes_before_adapter_prepare_starts():
+    plan = normalize_sweep_plan({"axes": [], "repetitions": 1})
+    owned = set()
+    preflight_started = threading.Event()
+    preflight_release = threading.Event()
+    adapter = _BlockingAdapter()
+
+    def acquire(sweep_id, sessions):
+        owned.update(sessions)
+
+        def preflight(phase):
+            preflight_started.set()
+            while not preflight_release.wait(timeout=0.01):
+                phase.raise_if_cancelled()
+
+        return preflight
+
+    def release(sweep_id, sessions):
+        owned.difference_update(sessions)
+
+    manager = SweepJobManager(
+        acquire_sessions=acquire,
+        release_sessions=release,
+        run_log=None,
+    )
+    sweep_id = manager.start(
+        sessions=("s1",),
+        plan=plan,
+        adapter=adapter,
+    )["sweep_id"]
+
+    assert preflight_started.wait(timeout=1.0)
+    assert not adapter.prepare_started.is_set()
+    assert owned == {"s1"}
+
+    preflight_release.set()
+    assert adapter.prepare_started.wait(timeout=1.0)
+    adapter.release.set()
+    assert _wait_until(
+        lambda: manager.observe(
+            sweep_id,
+            cursor=0,
+            window=100,
+            timeout_ms=0,
+        )["state"]
+        == "completed"
+    )
+
+
+def test_cleanup_failure_preserves_primary_failure():
+    plan = normalize_sweep_plan({"axes": [], "repetitions": 1})
+    manager, _ = _manager(_PrimaryAndCleanupFailureAdapter())
+    sweep_id = manager.start(
+        sessions=("s1",),
+        plan=plan,
+        adapter=_PrimaryAndCleanupFailureAdapter(),
+    )["sweep_id"]
+
+    assert _wait_until(
+        lambda: manager.observe(
+            sweep_id,
+            cursor=0,
+            window=100,
+            timeout_ms=0,
+        )["state"]
+        == "failed"
+    )
+    result = manager.observe(
+        sweep_id,
+        cursor=0,
+        window=100,
+        timeout_ms=0,
+    )
+    assert result["failure"]["code"] == "adapter_failed"
+    assert result["failure"]["message"] == "primary boom"
+    assert result["cleanup_failure"]["code"] == "cleanup_timeout"
