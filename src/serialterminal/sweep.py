@@ -512,15 +512,15 @@ class SweepJob:
         terminal = "completed"
         failure: dict[str, Any] | None = None
         cleanup_failure: dict[str, Any] | None = None
-        prepared = False
+        adapter_started = False
         try:
             self._record_event("sweep_started")
             if self.preflight is not None:
                 self._set_current({}, None, "session_fence")
                 self._run_phase("session_fence", self.preflight)
             self._set_current({}, None, "prepare")
+            adapter_started = True
             self._run_phase("prepare", self.adapter.prepare)
-            prepared = True
 
             for coordinate in self.plan.coordinates():
                 if self.cancel_event.is_set():
@@ -635,7 +635,7 @@ class SweepJob:
                 "message": str(exc),
             }
         finally:
-            if prepared or terminal != "completed":
+            if adapter_started:
                 try:
                     self._set_current({}, None, "cleanup")
                     self._run_phase(
