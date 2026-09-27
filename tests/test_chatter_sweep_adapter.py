@@ -78,6 +78,24 @@ class _SilentSfContext:
         return self.base.send_line(session, text)
 
 
+class _SilentCommandContext:
+    def __init__(self, base, command):
+        self.base = base
+        self.command = command
+
+    def __getattr__(self, name):
+        return getattr(self.base, name)
+
+    def send_line(self, session, text):
+        if text == self.command:
+            self.base.commands.append((session, text))
+            return {
+                "tx_id": len(self.base.commands),
+                "state": "queued",
+            }
+        return self.base.send_line(session, text)
+
+
 class _SilentCancelContext:
     def __init__(self, base):
         self.base = base
@@ -618,3 +636,75 @@ def test_cancel_uses_separate_short_settlement_budget(monkeypatch):
     assert caught.value.phase == "cancel_settlement"
     assert elapsed < 0.5
     assert ("s1", "/cancel all") in base.commands
+
+
+
+@pytest.mark.parametrize(
+    ("phase_name", "silent_command"),
+    [
+        ("prepare", "/sweep on"),
+        ("cleanup", "/sweep off"),
+    ],
+)
+def test_control_wait_phases_are_cooperatively_deadline_bounded(
+    phase_name,
+    silent_command,
+):
+    base = _ScriptContext()
+    context = _SilentCommandContext(base, silent_command)
+    adapter = ChatterReliableUserSweepAdapter(
+        context,
+        ("s1", "s2"),
+        _plan(),
+    )
+
+    with pytest.raises(SweepPhaseTimeout) as caught:
+        if phase_name == "prepare":
+            adapter.prepare(_phase("prepare", seconds=0.05))
+        else:
+            adapter.cleanup(_phase("cleanup", seconds=0.05))
+    assert caught.value.phase == phase_name
+
+
+def test_verify_wait_is_cooperatively_deadline_bounded():
+    base = _ScriptContext()
+    context = _SilentCommandContext(base, "/config")
+    adapter = ChatterReliableUserSweepAdapter(
+        context,
+        ("s1", "s2"),
+        _plan(),
+    )
+    coordinate = _coordinate()
+    adapter.apply_coordinate(coordinate, _phase("apply"))
+
+    with pytest.raises(SweepPhaseTimeout) as caught:
+        adapter.verify_coordinate(
+            coordinate,
+            _phase("verify", seconds=0.05),
+        )
+    assert caught.value.phase == "verify"
+
+
+def test_sample_settlement_wait_is_cooperatively_deadline_bounded():
+    context = _ScriptContext()
+    adapter = ChatterReliableUserSweepAdapter(
+        context,
+        ("s1", "s2"),
+        _plan(),
+    )
+    coordinate = _coordinate()
+    token = adapter.start_sample(
+        coordinate,
+        1,
+        _phase("sample_start"),
+    )
+    context.pending_ack.clear()
+
+    with pytest.raises(SweepPhaseTimeout) as caught:
+        adapter.wait_sample_settled(
+            coordinate,
+            1,
+            token,
+            _phase("sample_settlement", seconds=0.05),
+        )
+    assert caught.value.phase == "sample_settlement"
