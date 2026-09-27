@@ -12,7 +12,7 @@ python3 serialterminal.py agent
 
 Use the privileges required by the host serial/Bluetooth environment.
 
-The process reads one JSON object per stdin line and writes one correlated JSON response per request. It emits no unsolicited JSON events. `observe` may remain pending while later ordinary requests are accepted, so stdout response order is not globally request order; correlate by `id`.
+The process reads one JSON object per stdin line and writes one correlated JSON response per request. It emits no unsolicited JSON events. `observe` and `sweep_observe` may remain pending while later ordinary requests are accepted, so stdout response order is not globally request order; correlate by `id`.
 
 Success envelope:
 
@@ -26,7 +26,7 @@ Error envelope:
 {"id":1,"ok":false,"error":{"code":"unknown_session","message":"unknown session: s1"}}
 ```
 
-`observe` is asynchronous at the JSONL frontend and requires a non-null `id`. Do not reuse an ID while an `observe` with that ID is pending. Duplicate use returns `request_id_busy` without cancelling the original request.
+`observe` and `sweep_observe` are asynchronous at the JSONL frontend and require a non-null `id`. Do not reuse an ID while either long-poll with that ID is pending. Duplicate use returns `request_id_busy` without cancelling the original request.
 
 ## Operations
 
@@ -39,9 +39,13 @@ send_line
 send_bytes
 observe
 close
+sweep_start
+sweep_observe
+sweep_cancel
+sweep_close
 ```
 
-`observe` is the only receive/cursor operation. Historical `events` and `wait_events` operations are removed and return `unknown_operation`.
+`observe` remains the only session receive/cursor operation. Sweep jobs have their own independent job-local cursor through `sweep_observe`. Historical `events` and `wait_events` operations are removed and return `unknown_operation`.
 
 ## Run logs
 
@@ -73,6 +77,7 @@ The main `.log` is forensic/API/transport evidence and contains chronological re
 [TX]
 [RX <stream>]
 [ERROR]
+[SWEEP]
 ```
 
 Raw RX records preserve event `seq`, stream, transport/session chunk boundaries, incremental decoded `text`, and byte-accurate `data_b64`. There are no separate forensic `[RX LINE]` or `[RX PARTIAL]` records.
@@ -337,22 +342,279 @@ If raw activity arrives without completing a logical line, the request still ret
 
 There are no receive-stream filters in `observe`; `include_events` controls only response projection, not collection, wakeup or forensic logging.
 
+## Sweep jobs
+
+Sweep jobs are a generic long-running execution primitive inside the same `serialterminal agent` process. They do not create a second transport/session implementation and do not perform experiment analytics.
+
+A sweep executes exactly the requested ordered Cartesian plan and repetition count. It does not autonomously add repetitions, classify RF quality, or interpret CRC/HDR/retry/ACK quality.
+
+### Start a sweep
+
+Participating sessions must already be open. Discovery and `open` remain ordinary caller-owned API steps.
+
+Generic request shape:
+
+```json
+{
+  "id":100,
+  "op":"sweep_start",
+  "adapter":"chatter.reliable_user",
+  "sessions":["s1","s2"],
+  "plan":{
+    "constants":{
+      "frequency_hz":470000000,
+      "power_dbm":2,
+      "bandwidth_hz":500000
+    },
+    "axes":[
+      {"name":"sf","values":[7,8]},
+      {"name":"payload_bytes","values":[8,32]},
+      {"name":"direction","values":["s1>s2","s2>s1"]}
+    ],
+    "repetitions":3
+  }
+}
+```
+
+The generic plan accepts only:
+
+```text
+constants    object; optional, default {}
+axes         ordered array of {name, values}; optional, default []
+repetitions positive integer; required
+options      adapter-owned object; optional, default {}
+```
+
+Axis order defines traversal order. Axis names must be unique, must not collide with `constants`, and every axis must have at least one value.
+
+Current generic admission bounds are:
+
+```text
+maximum serialized plan size: 64 KiB
+maximum axes:                16
+maximum total samples:       100000
+maximum sessions in request: 32
+```
+
+The sample count is the Cartesian point count multiplied by `repetitions`; oversized plans are rejected synchronously before a job is created.
+
+Only one active sweep is allowed per agent process. A second start while the current job is `running` or `cancelling` returns `sweep_busy`.
+
+A successful start returns promptly:
+
+```json
+{
+  "id":100,
+  "ok":true,
+  "result":{
+    "sweep_id":"sw1",
+    "state":"running",
+    "total_samples":24,
+    "events":{
+      "cursor":0,
+      "max_window":100,
+      "retention":4096
+    },
+    "jobs":{
+      "max_active":1,
+      "max_retained_terminal":16
+    }
+  }
+}
+```
+
+The initial response describes job creation, not experiment success. Adapter preparation and execution continue in a background worker.
+
+### Session mutation ownership
+
+A successful `sweep_start` atomically acquires mutation ownership of every declared participating session.
+
+While that sweep is active, external mutating operations on an owned session are rejected before side effects, including:
+
+```text
+send_line
+send_bytes
+close
+```
+
+The error is `session_busy` and identifies the sweep owner.
+
+Read-only operations such as `status`, `list_sessions` and ordinary `observe` remain available.
+
+Ownership is released when the sweep reaches `completed`, `failed`, or `cancelled`; it is not held until `sweep_close`.
+
+Ownership covers only declared participating sessions. It does not isolate the physical RF environment from unrelated sessions/processes/devices. The caller is responsible for keeping other experiment-affecting transmitters quiescent.
+
+### Observe sweep progress
+
+```json
+{
+  "id":101,
+  "op":"sweep_observe",
+  "sweep_id":"sw1",
+  "cursor":0,
+  "window":1000,
+  "timeout_ms":30000
+}
+```
+
+`cursor` is required and means the last sweep-event sequence already consumed by that reader. The server returns events with `seq > cursor`.
+
+`window` is optional and defaults to the advertised `max_window`. A caller may request a larger number; the server returns at most `max_window` events. There is no `more` flag.
+
+`timeout_ms` is optional and defaults to 0. With a positive timeout, `sweep_observe` long-polls until a new retained sweep event appears, the job becomes terminal, or the timeout expires.
+
+Typical result:
+
+```json
+{
+  "events":[
+    {
+      "seq":17,
+      "kind":"sample_completed",
+      "coordinate":{
+        "frequency_hz":470000000,
+        "power_dbm":2,
+        "bandwidth_hz":500000,
+        "sf":8,
+        "payload_bytes":32,
+        "direction":"s1>s2"
+      },
+      "repetition":2
+    }
+  ],
+  "cursor":17,
+  "head_cursor":19,
+  "state":"running",
+  "progress":{
+    "completed_samples":12,
+    "total_samples":24,
+    "current":{
+      "coordinate":{},
+      "repetition":3,
+      "phase":"sample_settlement"
+    }
+  },
+  "timed_out":false
+}
+```
+
+`response.cursor` is the last event returned to this reader. `head_cursor` is the newest event existing in the same coherent job snapshot. If `cursor < head_cursor`, retained backlog exists and the caller may immediately request the next window.
+
+Event sequence is job-local, monotonically increasing and gap-free while retained. Current execution events are mechanical, for example:
+
+```text
+sweep_started
+coordinate_started
+sample_completed
+coordinate_completed
+sweep_completed
+sweep_failed
+sweep_cancelled
+```
+
+They are not RF-quality classifications.
+
+If retained events are `101..500`, then `oldest_valid_cursor=100`. A request below that boundary fails with `sweep_cursor_expired` and reports `oldest_valid_cursor`, `oldest_retained_event_seq` and `head_cursor`. A cursor newer than the head fails with `invalid_sweep_cursor`.
+
+Cursor, window and timeout use strict integer validation; booleans, floats/strings where integers are required, negative cursors/timeouts, and non-positive windows are rejected.
+
+Job execution failure is not an API request failure. A valid observe of a failed job is still:
+
+```json
+{
+  "id":101,
+  "ok":true,
+  "result":{
+    "state":"failed",
+    "failure":{"code":"adapter_failed","message":"..."}
+  }
+}
+```
+
+Top-level `ok:false` is reserved for request/API errors such as unknown sweep ID, invalid cursor/window/timeout, expired cursor, or an invalid control operation.
+
+### Cancel a sweep
+
+```json
+{"id":102,"op":"sweep_cancel","sweep_id":"sw1"}
+```
+
+For an active job the immediate response reports `state:"cancelling"`. This acknowledges the cancellation request; it does not claim that an in-flight physical operation was interrupted unsafely.
+
+Adapter waits and cleanup are finite/deadline-bounded. The job subsequently converges to terminal `cancelled` or, if bounded safe cleanup cannot complete, `failed`. Observe the terminal transition with `sweep_observe`.
+
+Calling cancel on an already terminal retained job returns its existing terminal state.
+
+### Close retained job state
+
+```json
+{"id":103,"op":"sweep_close","sweep_id":"sw1"}
+```
+
+`sweep_close` succeeds only for a terminal job. It releases the retained in-memory job/event/progress state; later operations on that ID return `unknown_sweep`.
+
+Terminal jobs are also globally bounded to the advertised `max_retained_terminal`; the oldest retained terminal job is evicted when the bound is exceeded.
+
+Closing/evicting a job does not remove its already-written forensic `[SWEEP]` records.
+
+### Bundled Chatter reliable-USER adapter
+
+The bundled `chatter` profile registers:
+
+```text
+chatter.reliable_user
+```
+
+The generic agent/sweep engine does not special-case this name; it resolves adapters through the selected session profiles.
+
+This adapter requires exactly two distinct, already-connected `profile:"chatter"` sessions. Its plan must define these coordinate fields across `constants` and/or axes:
+
+```text
+frequency_hz
+power_dbm
+bandwidth_hz
+sf
+payload_bytes
+direction
+```
+
+Current accepted values follow the Chatter firmware contract:
+
+```text
+frequency_hz   470000000..510000000 in 1 kHz steps
+power_dbm      2..17 or 20
+bandwidth_hz   7800, 10400, 15600, 20800, 31250, 41700,
+               62500, 125000, 250000, 500000
+sf             7..12
+payload_bytes  1..200
+direction      "<session-a>><session-b>" or reverse
+```
+
+`plan.options` is currently empty for this adapter.
+
+Preparation settles prior reliable work, disables Chatter diagnostic/heartbeat/echo-loop activity, forces human output mode `BOTH` so delivery TELEMETRY is available even without optional BLE 0004, disables manual echo-request mode if necessary, and verifies distinct node identities.
+
+For each coordinate the adapter applies and verifies requested radio configuration before sampling. For each repetition it submits exactly one reliable USER and waits for that operation to settle before any next sample or radio-configuration mutation. Host `queued`/`written` state alone is never treated as device/RF settlement.
+
+The adapter may parse delivery telemetry to synchronize execution, but generic sweep events do not classify ACK/retry/CRC/HDR/RSSI/SNR quality. Detailed interpretation remains a caller/reviewer task using the forensic log.
+
 ## Concurrent JSONL behavior
 
-Only `observe` is asynchronous. Ordinary commands are serialized by the main reader, preserving mutation order while one or more observations remain pending.
+`observe` and `sweep_observe` are asynchronous long-polls. Ordinary JSONL requests are handled by the main reader while those waits remain pending; a running sweep also has its own background worker, with participating-session mutations protected by the sweep ownership gate.
 
 Example:
 
 ```text
-id=100 observe(s1,s2) -> pending
-id=101 send_line(s1)  -> response 101
-id=102 status(s1)     -> response 102
-... event on s2 ...   -> response 100
+id=100 sweep_observe(sw1) -> pending
+id=101 status(s1)          -> response 101
+id=102 list_sessions       -> response 102
+... sweep event ...        -> response 100
 ```
 
-Multiple observations may pend under different IDs. stdout JSON lines are serialized and cannot interleave. `[AGENT RESPONSE]` ordering in the forensic log matches stdout response ordering.
+Multiple `observe`/`sweep_observe` requests may pend under different IDs. stdout JSON lines are serialized and cannot interleave. `[AGENT RESPONSE]` ordering in the forensic log matches stdout response ordering.
 
-Continuous observation means issuing a new `observe` after each response using the returned cursors; there is no unsolicited push.
+Continuous observation means issuing a new `observe` or `sweep_observe` after each response using the returned cursor(s); there is no unsolicited push.
 
 ## Close and shutdown
 
@@ -360,7 +622,7 @@ Continuous observation means issuing a new `observe` after each response using t
 {"id":30,"op":"close","session":"s1"}
 ```
 
-EOF/process shutdown cancels pending observations, allows correlated shutdown responses, then closes remaining sessions while logs/stdout are still available. A pending observation cancelled by process shutdown may return structured `agent_stopping`.
+EOF/process shutdown cancels pending session observations, requests cancellation of an active sweep, gives bounded sweep workers a chance to settle, force-closes remaining sessions, then joins sweep/observe workers while logs/stdout are still available. A pending ordinary `observe` cancelled by process shutdown may return structured `agent_stopping`.
 
 ## Multiple devices
 
