@@ -99,6 +99,8 @@ send_line
 
 - сначала обычными `discover/open` получи already-open sessions;
 - `sweep_start` должен описывать deterministic ordered axes и **точное** `repetitions=N`;
+- successful start уже держит mutation ownership; до adapter prepare job автоматически проходит pre-sweep TX fence для всех ранее принятых external TX;
+- `session_tx_unknown` на этом fence означает ambiguous pre-sweep side effect: не пытайся "додренировать" queue, закрой/переоткрой session или следуй project recovery semantics;
 - sweeper не решает сам увеличить N и не выполняет RF/protocol analytics;
 - после быстрого `sweep_start` сохрани `sweep_id`, initial cursor, advertised `max_window` и retention;
 - держи pending `sweep_observe` long-poll для реактивного progress/terminal state;
@@ -106,13 +108,15 @@ send_line
 - запрашиваемый window может быть больше server maximum — сервер вернёт не больше advertised `max_window`;
 - если `response.cursor < head_cursor`, сразу вычитай retained backlog следующими окнами;
 - `sweep_cursor_expired` означает явную потерю части RAM event history; не скрывай этот gap;
-- `state=failed` внутри успешного `sweep_observe` — failure самого job, а не JSONL request failure;
+- `state=failed` внутри успешного `sweep_observe` — failure самого job, а не JSONL request failure; если есть и primary, и cleanup failure, они приходят отдельно как `failure` и `cleanup_failure`;
 - `sweep_cancel` только запрашивает отмену; terminal `cancelled/failed` подтверждай через `sweep_observe`;
 - после terminal state вызови `sweep_close`, когда больше не нужна retained RAM history.
 
 Во время active sweep participating sessions mutation-owned. Не пытайся параллельно делать на них обычные `send_line`, `send_bytes` или `close`: это должно вернуть `session_busy`. Read-only `status`/обычный `observe` остаются допустимы.
 
-Sweep ownership не изолирует физический эфир. Неучаствующие sessions/processes/devices generic API не блокирует; project-specific executor обязан держать другие влияющие на эксперимент передатчики quiet.
+Generic ownership не изолирует физический эфир. Неучаствующие sessions/processes/devices generic API не блокирует; project-specific executor обязан держать другие влияющие на эксперимент передатчики quiet.
+
+Для `chatter.reliable_user` текущий adapter после host TX fence входит на обеих нодах в firmware `/sweep on`: это exclusive **local** diagnostic mode, который гасит normal USER backlog/background RF и оставляет measured USER от sweep-owner input source. Wire USER/ACK при этом обычный, без sweep flag/token. Поэтому третья нода на той же частоте всё ещё может загрязнить эксперимент — frequency/environment isolation остаётся задачей executor/coordinator. Normal cleanup делает `/sweep off`; cancel path использует controller cancellation и отдельный bounded cancel budget.
 
 ### Execution vs analysis
 
@@ -137,7 +141,7 @@ Controller adapter может читать protocol lines, чтобы опред
 
 После sweep consuming project skill/reviewer может читать обычный forensic log и анализировать protocol/RF evidence по своим правилам. `[SWEEP] event_seq` в forensic `.log` коррелирует с `sweep_observe.events[].seq` и остаётся после `sweep_close`.
 
-Для bundled `chatter.reliable_user` adapter не делай вручную конкурирующие radio/config commands. Adapter сам приводит participating Chatter sessions к измерительному состоянию, применяет/проверяет coordinate и сериализует reliable USER samples. Его конкретные plan fields/limits смотри в `AGENT_API.md`; interpretation ACK/retry/CRC/RSSI/SNR остаётся в LoRa-Chatter consuming skill.
+Для bundled `chatter.reliable_user` adapter не делай вручную конкурирующие radio/config commands. Adapter требует firmware с `/sweep on|off`, сам переводит participating Chatter sessions в local sweep mode, применяет/проверяет coordinate и сериализует reliable USER samples. Его конкретные plan fields/limits смотри в `AGENT_API.md`; interpretation ACK/retry/CRC/RSSI/SNR остаётся в LoRa-Chatter consuming skill.
 
 ## Два уровня receive evidence
 

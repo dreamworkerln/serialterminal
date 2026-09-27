@@ -55,6 +55,7 @@ Profile selection is explicit and per session. `generic` is the default. Differe
 
 - reconnect lifecycle;
 - ordered reconnect-safe TX queue;
+- generic accepted-TX fence state used to prove terminal transport outcome across higher-level ownership transitions;
 - raw `SessionEvent` history and cursors;
 - canonical logical-line assembly per stream;
 - connection-state boundaries;
@@ -77,7 +78,7 @@ The session core receives profile-derived configuration through generic callback
 
 The generic sweep layer consumes only the `SweepAdapter` interface. It must not branch on concrete adapter/profile names or recognize controller commands, ACK/CRC/HDR/retry semantics, radio quality, or experiment-specific classifications.
 
-`SessionManager` owns sweep mutation admission around existing sessions. A successful sweep atomically acquires mutation ownership of all declared participating sessions. External session mutations are rejected while ownership is active; ordinary read-only observation remains available. `ManagedSession` itself remains controller-independent and does not learn sweep/controller protocol semantics.
+`SessionManager` owns sweep mutation admission around existing sessions. A successful sweep atomically acquires mutation ownership of all declared participating sessions and captures each session's accepted-TX fence while the same admission lock excludes new external mutation. Before adapter `prepare`, the background job waits for all pre-lease TX through those fences to reach known terminal transport outcome. Ambiguous `tx_state:"unknown"` fails the sweep rather than being erased or treated as drained. External session mutations are rejected while ownership is active; ordinary read-only observation remains available. `ManagedSession` implements only the generic TX-fence primitive and does not learn sweep/controller protocol semantics.
 
 A sweep adapter owns only the operational synchronization needed to make one requested measurement well-defined:
 
@@ -111,6 +112,8 @@ Application/protocol acceptance rules belong above SerialTerminal core:
 - authoritative RF/protocol semantics: corresponding firmware source/docs.
 
 SerialTerminal core must not promote protocol-specific delivery criteria, node roles, retry policy, RSSI/SNR/Q expectations, or lab topology into generic transport/session behavior.
+
+The Chatter local sweep mode is deliberately **not** a global RF ownership mechanism. No new sweep bit/token is introduced into Chatter frames. The participating node suppresses its own unrelated local/background RF while active; quiet-frequency/environment isolation from third-party nodes remains a coordinator responsibility.
 
 ## Dependency direction
 
@@ -162,7 +165,8 @@ For the bundled `chatter` profile, controller-specific ownership currently inclu
 - Chatter human command/hotkey/presentation behavior;
 - BLE `0003 -> chat` plus optional `0004 -> telemetry` mapping;
 - command classification helpers and Chatter presentation state;
-- the `chatter.reliable_user` sweep adapter, including Chatter command/config application and reliable-USER operational settlement.
+- the `chatter.reliable_user` sweep adapter, including Chatter command/config application, firmware local-sweep transition and reliable-USER operational settlement;
+- the external Chatter firmware contract that `/sweep on` enters an exclusive **local** diagnostic mode and `/sweep off`/cancellation exits it; measured USER/ACK frames themselves remain unchanged on the wire.
 
 The following remain generic and must not depend on Chatter naming:
 
@@ -174,7 +178,8 @@ The following remain generic and must not depend on Chatter naming:
 - `observe` events/lines/cursors;
 - run logging mechanics;
 - generic sweep plan/job/cursor/retention semantics;
-- participating-session mutation ownership.
+- participating-session mutation ownership;
+- pre-sweep accepted-TX fencing and ambiguous-TX rejection.
 
 ## Extension rule for a new controller
 

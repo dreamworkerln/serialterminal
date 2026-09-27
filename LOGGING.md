@@ -62,7 +62,7 @@ A sweep record is structured JSON and contains at least the job identity and the
 }
 ```
 
-The exact fields vary by mechanical event kind. Current events include sweep/coordinate/sample lifecycle and terminal outcomes.
+The exact fields vary by mechanical event kind. Current events include sweep/coordinate/sample lifecycle and terminal outcomes. A failed terminal event preserves the primary `failure`; when bounded cleanup independently fails, it may also carry a separate `cleanup_failure` rather than replacing the original cause.
 
 These records are execution evidence, not RF/protocol analysis. They do not classify a point as CLEAN/DEGRADED, interpret CRC/HDR/retry quality, or replace the surrounding TX/RX/controller telemetry.
 

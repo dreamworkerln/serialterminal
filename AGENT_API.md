@@ -429,6 +429,8 @@ The initial response describes job creation, not experiment success. Adapter pre
 
 A successful `sweep_start` atomically acquires mutation ownership of every declared participating session.
 
+At that same ownership boundary the agent captures a **pre-sweep TX fence** for every participating session. The background job must settle every externally accepted TX through that fence before adapter `prepare` begins. A pre-lease TX with known `written` outcome is allowed to finish before measurement preparation; it is never silently dropped. If the fence cannot settle within its bounded phase, the job fails with `session_fence_timeout`. If any fenced TX reached `tx_state:"unknown"`, the job fails with `session_tx_unknown`; the session must be closed/reopened or otherwise re-established by a higher-level workflow before attempting a measurement. Empty queue depth alone is not treated as proof that an ambiguous TX had no side effect.
+
 While that sweep is active, external mutating operations on an owned session are rejected before side effects, including:
 
 ```text
@@ -527,10 +529,13 @@ Job execution failure is not an API request failure. A valid observe of a failed
   "ok":true,
   "result":{
     "state":"failed",
-    "failure":{"code":"adapter_failed","message":"..."}
+    "failure":{"code":"adapter_failed","message":"..."},
+    "cleanup_failure":{"code":"cleanup_timeout","phase":"cleanup","message":"..."}
   }
 }
 ```
+
+`failure` preserves the primary execution cause. When cleanup also fails, `cleanup_failure` is reported separately instead of overwriting that primary cause. If cleanup is the only failure, it is also the primary `failure`.
 
 Top-level `ok:false` is reserved for request/API errors such as unknown sweep ID, invalid cursor/window/timeout, expired cursor, or an invalid control operation.
 
@@ -542,7 +547,9 @@ Top-level `ok:false` is reserved for request/API errors such as unknown sweep ID
 
 For an active job the immediate response reports `state:"cancelling"`. This acknowledges the cancellation request; it does not claim that an in-flight physical operation was interrupted unsafely.
 
-Adapter waits and cleanup are finite/deadline-bounded. The job subsequently converges to terminal `cancelled` or, if bounded safe cleanup cannot complete, `failed`. Observe the terminal transition with `sweep_observe`.
+Maintained adapters are **cooperatively deadline-bounded**: every blocking phase must use the supplied phase deadline/cancellation context. The generic Python worker does not attempt unsafe thread termination of a non-cooperative adapter callback.
+
+The bundled Chatter adapter switches an active sample to a separate short cancellation-settlement budget after `sweep_cancel`; it does not keep waiting through a potentially multi-minute slow-PHY sample budget merely because the cancel response was lost. The job subsequently converges to terminal `cancelled` or, if bounded safe cancellation/cleanup cannot complete, `failed`. Observe the terminal transition with `sweep_observe`.
 
 Calling cancel on an already terminal retained job returns its existing terminal state.
 
@@ -593,11 +600,15 @@ direction      "<session-a>session-b>" or reverse
 
 `plan.options` is currently empty for this adapter.
 
-Preparation settles prior reliable work, disables Chatter diagnostic/heartbeat/echo-loop activity, forces human output mode `BOTH` so delivery TELEMETRY is available even without optional BLE 0004, disables manual echo-request mode if necessary, and verifies distinct node identities.
+The current adapter requires Chatter firmware that supports the local diagnostic commands `/sweep on` and `/sweep off`. After the generic pre-sweep TX fence has settled, preparation enters `/sweep on` on both nodes. That firmware transition clears/settles ordinary reliable USER backlog, blocks ordinary local USER submission from non-owner input sources, disables heartbeat/diagnostic/echo-loop/manual-echo background activity and suppresses unrelated self-generated RF. The adapter then forces human output mode `BOTH` so delivery TELEMETRY is available even without optional BLE 0004 and verifies distinct node identities.
+
+The local sweep mode does **not** change the wire protocol: measured traffic remains ordinary Chatter USER/ACK frames. There is no sweep frame flag/token in this version. Consequently protocol-level isolation from a third node is not provided; the operator/coordinator must use a quiet measurement frequency/environment, and unrelated RF observed there is contamination rather than a frame that firmware can identify as "non-sweep".
 
 For each coordinate the adapter applies and verifies requested radio configuration before sampling. For each repetition it submits exactly one reliable USER and waits for that operation to settle before any next sample or radio-configuration mutation. Host `queued`/`written` state alone is never treated as device/RF settlement.
 
 The adapter may parse delivery telemetry to synchronize execution, but generic sweep events do not classify ACK/retry/CRC/HDR/RSSI/SNR quality. Detailed interpretation remains a caller/reviewer task using the forensic log.
+
+On normal completion/cleanup the adapter leaves local diagnostic mode with `/sweep off`. During cancellation it uses `/cancel all` as the controller-side emergency settlement command; current Chatter firmware defines `/cancel` and `/cancel all` while sweep is active as also leaving local sweep mode. Cleanup remains idempotent if cancellation already exited the mode.
 
 ## Concurrent JSONL behavior
 
@@ -612,7 +623,7 @@ id=102 list_sessions       -> response 102
 ... sweep event ...        -> response 100
 ```
 
-Multiple `observe`/`sweep_observe` requests may pend under different IDs. stdout JSON lines are serialized and cannot interleave. `[AGENT RESPONSE]` ordering in the forensic log matches stdout response ordering.
+Multiple `observe`/`sweep_observe` requests may pend under different IDs. stdout JSON lines are serialized and cannot interleave. `[AGENT RESPONSE]` ordering in the forensic log matches stdout response ordering. Completed async observation worker objects are removed from runner bookkeeping; a long-lived process retains only currently active/pending observation workers rather than the historical thread list.
 
 Continuous observation means issuing a new `observe` or `sweep_observe` after each response using the returned cursor(s); there is no unsolicited push.
 
