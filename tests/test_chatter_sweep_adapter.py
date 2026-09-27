@@ -3,6 +3,7 @@ import time
 
 import pytest
 
+import serialterminal.profiles.chatter.sweep as chatter_sweep
 from serialterminal.profiles.chatter.sweep import (
     ChatterReliableUserSweepAdapter,
 )
@@ -69,6 +70,23 @@ class _SilentSfContext:
 
     def send_line(self, session, text):
         if text.startswith("/sf "):
+            self.base.commands.append((session, text))
+            return {
+                "tx_id": len(self.base.commands),
+                "state": "queued",
+            }
+        return self.base.send_line(session, text)
+
+
+class _SilentCancelContext:
+    def __init__(self, base):
+        self.base = base
+
+    def __getattr__(self, name):
+        return getattr(self.base, name)
+
+    def send_line(self, session, text):
+        if text == "/cancel all":
             self.base.commands.append((session, text))
             return {
                 "tx_id": len(self.base.commands),
@@ -154,7 +172,17 @@ class _ScriptContext:
     def send_line(self, session, text):
         self.commands.append((session, text))
         state = self.radio[session]
-        if text == "/cancel all":
+        if text == "/sweep on":
+            self._line(
+                session,
+                "[SYS] SWEEP ON source=2",
+            )
+        elif text == "/sweep off":
+            self._line(
+                session,
+                "[SYS] SWEEP OFF",
+            )
+        elif text == "/cancel all":
             self._line(
                 session,
                 "[SYS] DELIVERY CANCEL: nothing pending",
@@ -330,8 +358,8 @@ def test_prepare_settles_reliable_flow_before_other_mutations():
         for session, command in context.commands
         if session == "s2"
     )
-    assert first_for_s1 == "/cancel all"
-    assert first_for_s2 == "/cancel all"
+    assert first_for_s1 == "/sweep on"
+    assert first_for_s2 == "/sweep on"
     assert adapter.identities == {
         "s1": "LoRa-Chatter-A001",
         "s2": "LoRa-Chatter-A002",
@@ -532,3 +560,58 @@ def test_cancel_during_settlement_sends_bounded_cancel_and_terminates():
         )
 
     assert ("s1", "/cancel all") in context.commands
+
+
+
+def test_cleanup_exits_firmware_sweep_mode():
+    context = _ScriptContext()
+    adapter = ChatterReliableUserSweepAdapter(
+        context,
+        ("s1", "s2"),
+        _plan(),
+    )
+    adapter.cleanup(_phase("cleanup"))
+
+    assert ("s1", "/sweep off") in context.commands
+    assert ("s2", "/sweep off") in context.commands
+
+
+def test_cancel_uses_separate_short_settlement_budget(monkeypatch):
+    base = _ScriptContext()
+    context = _SilentCancelContext(base)
+    adapter = ChatterReliableUserSweepAdapter(
+        context,
+        ("s1", "s2"),
+        _plan(),
+    )
+    coordinate = _coordinate()
+    token = adapter.start_sample(
+        coordinate,
+        1,
+        _phase("sample_start"),
+    )
+    cancel = threading.Event()
+    cancel.set()
+    monkeypatch.setattr(
+        chatter_sweep,
+        "_CANCEL_SETTLEMENT_TIMEOUT_S",
+        0.05,
+    )
+
+    started = time.monotonic()
+    with pytest.raises(SweepPhaseTimeout) as caught:
+        adapter.wait_sample_settled(
+            coordinate,
+            1,
+            token,
+            _phase(
+                "sample_settlement",
+                cancel_event=cancel,
+                seconds=5.0,
+            ),
+        )
+    elapsed = time.monotonic() - started
+
+    assert caught.value.phase == "cancel_settlement"
+    assert elapsed < 0.5
+    assert ("s1", "/cancel all") in base.commands
