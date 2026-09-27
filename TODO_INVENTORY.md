@@ -60,14 +60,6 @@ Goal: expose configured versus actually active receive streams so an agent can d
 
 Finding checkpoint: `dev@159f7a1ab52fb8f615af33b175545f13e04dd989`.
 
-### TODO_018 — `todos/TODO_018_OBSERVE_THREAD_RETENTION.md`
-
-Status: OPEN
-
-Goal: keep long-lived continuous-observe agent runs from retaining an unbounded history of completed observe thread objects.
-
-Finding checkpoint: `dev@159f7a1ab52fb8f615af33b175545f13e04dd989`.
-
 ### TODO_019 — `todos/TODO_019_AGENT_REQUEST_VALIDATION.md`
 
 Status: OPEN
@@ -170,6 +162,18 @@ External RF isolation remains operator/coordinator responsibility: use a quiet s
 Corrected implementation checkpoint: NOT YET IMPLEMENTED.
 
 ## Closed
+
+### TODO_018 — `todos/TODO_018_OBSERVE_THREAD_RETENTION.md`
+
+Status: CLOSED
+
+Goal: keep long-lived continuous-observe agent runs from retaining an unbounded history of completed observe/sweep_observe thread objects.
+
+Implementation: `dev@dd9856bd540f66c8ca601cc92688a9539a1e0002`.
+
+Validated tree: `dev@4792fc2bdc357ce3eaee2755ccfb39fa4144a855`; GitHub Actions `36314768924` SUCCESS; compile/ruff/complexity PASS; **222 tests PASS**. Completed async observation workers now remove themselves from runner bookkeeping; the stress regression exercises 1000 sequential short observations and requires retained worker bookkeeping to return to zero.
+
+
 
 ### TODO_027 — `todos/TODO_027_REDUCE_AGENT_CONTEXT_AMPLIFICATION.md`
 

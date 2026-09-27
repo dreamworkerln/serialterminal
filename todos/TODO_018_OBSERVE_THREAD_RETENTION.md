@@ -1,6 +1,6 @@
 # TODO_018 — Bound JSONL observe thread lifecycle
 
-Status: OPEN
+Status: CLOSED
 
 ## Purpose
 
@@ -26,8 +26,37 @@ The JSONL runner stores every asynchronous observe worker in `_observe_threads`.
 
 ## Validation
 
-- [ ] stress test hundreds/thousands of sequential short observes and prove worker bookkeeping remains bounded;
-- [ ] multiple simultaneous observes still work;
-- [ ] request-ID reuse is allowed only after prior completion;
-- [ ] EOF cancellation returns correlated shutdown responses and leaves no live observe workers;
-- [ ] full repository CI PASS.
+- [x] stress test 1000 sequential short observes and prove worker bookkeeping returns to zero;
+- [x] multiple simultaneous observes still work;
+- [x] request-ID reuse is allowed only after prior completion;
+- [x] EOF cancellation returns correlated shutdown responses and leaves no live observe workers;
+- [x] full repository CI PASS.
+
+## Result
+
+Implementation:
+
+```text
+dev@dd9856bd540f66c8ca601cc92688a9539a1e0002
+```
+
+The JSONL runner now tracks only active asynchronous `observe` / `sweep_observe`
+workers in a set. Each completed worker removes itself together with its pending request
+ID bookkeeping. Shutdown snapshots and joins only workers that are still active.
+
+Regression coverage submits 1000 sequential short asynchronous observations and
+requires worker bookkeeping to return to zero while the existing concurrent-observe,
+request-ID and EOF-shutdown tests remain passing.
+
+Validated together with the reopened TODO_028 correction at:
+
+```text
+dev@4792fc2bdc357ce3eaee2755ccfb39fa4144a855
+GitHub Actions 36314768924 SUCCESS
+compile PASS
+ruff PASS
+complexity step PASS
+pytest 222 passed
+```
+
+Status: CLOSED
