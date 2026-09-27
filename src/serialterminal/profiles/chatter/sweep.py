@@ -665,12 +665,6 @@ class ChatterReliableUserSweepAdapter:
 
         source = str(token["source"])
         user_id: str | None = None
-        identity = self.identities.get(source)
-        expected_user_prefix = (
-            identity.rsplit("-", 1)[-1].upper() + "/"
-            if identity is not None
-            else None
-        )
         cancel_sent = False
 
         while True:
@@ -712,14 +706,13 @@ class ChatterReliableUserSweepAdapter:
                     if match is None:
                         continue
                     candidate = match.group("user")
-                    if (
-                        expected_user_prefix is not None
-                        and not candidate.upper().startswith(
-                            expected_user_prefix
-                        )
-                    ):
-                        continue
                     if user_id is None:
+                        # Sweep owns this session and prepare cleared prior
+                        # reliable work, so the first new WAIT_ACK identifies
+                        # the sample. /id is a BLE/eFuse identity and must not
+                        # be compared with the protocol's random session ID.
+                        if regex is not _WAIT_ACK_RE:
+                            continue
                         user_id = candidate
                     if candidate != user_id:
                         continue

@@ -434,27 +434,32 @@ def test_sample_queue_rejection_is_execution_failure_not_settlement_timeout():
         )
 
 
-def test_settlement_ignores_other_node_delivery_identity():
+def test_settlement_binds_wait_ack_then_ignores_mismatched_ack():
     context = _ScriptContext()
     adapter = ChatterReliableUserSweepAdapter(
         context,
         ("s1", "s2"),
         _plan(),
     )
-    adapter.identities = {
-        "s1": "LoRa-Chatter-A001",
-        "s2": "LoRa-Chatter-A002",
-    }
-    context._line(
-        "s1",
-        "DELIVERY WAIT_ACK user=BEEF/9 "
-        "attempt=1/5 timeout=100ms queue=0",
-    )
     token = adapter.start_sample(
         _coordinate(),
         1,
         _phase("sample_start"),
     )
+    # Stop the fake from synthesizing its normal ACK after WAIT_ACK and
+    # provide one unrelated ACK before the matching terminal ACK.
+    context.pending_ack.clear()
+    context._line(
+        "s1",
+        "DELIVERY ACK user=BEEF/9 attempts=1/5 "
+        "elapsed=5ms queue=0",
+    )
+    context._line(
+        "s1",
+        "DELIVERY ACK user=A001/42 attempts=1/5 "
+        "elapsed=10ms queue=0",
+    )
+
     result = adapter.wait_sample_settled(
         _coordinate(),
         1,
