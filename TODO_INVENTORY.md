@@ -159,7 +159,7 @@ Corrected SerialTerminal checkpoint: `dev@1ecfd4aa0ce83e2e30b060e42dab24b4c8ebde
 
 Corrected Chatter firmware checkpoint: `dev_chat_ack@020ebe39288681cc58b8a5109717f6b55fbf675c`; Chatter CI `36315420318` SUCCESS; PlatformIO build, native protocol/reliability tests, clang-tidy, cppcheck and complexity PASS.
 
-Hardware executor alignment: `node_observations@612dfb824401b4c22b7737097e83836804aca577`.
+Hardware executor alignment: `node_observations@5129fbcff4d593edbe3d473cdc7d4114494a49b7`.
 
 Key corrected semantics: pre-lease external TX is fenced before adapter prepare; ambiguous pre-sweep TX fails explicitly; firmware `/sweep on` provides exclusive **local** diagnostic ownership, suppresses ordinary local/background RF and clears normal reliable backlog; USER/ACK wire frames remain unchanged; `sweep_cancel` uses separately bounded controller cancellation; primary and cleanup failures are both preserved; shared async observe worker retention is bounded (TODO_018 CLOSED).
 

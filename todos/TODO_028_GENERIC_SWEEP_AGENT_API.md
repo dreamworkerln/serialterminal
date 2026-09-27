@@ -1665,7 +1665,7 @@ the current wire protocol classifies.
 The physical executor reference was updated at:
 
 ```text
-node_observations@612dfb824401b4c22b7737097e83836804aca577
+node_observations@5129fbcff4d593edbe3d473cdc7d4114494a49b7
 .agents/skills/lora-chatter-hardware/references/serialterminal-sweep-agent.md
 ```
 
@@ -1723,7 +1723,7 @@ corrected Chatter firmware implementation:
   Chatter CI 36315420318 SUCCESS
 
 hardware executor alignment:
-  node_observations@612dfb824401b4c22b7737097e83836804aca577
+  node_observations@5129fbcff4d593edbe3d473cdc7d4114494a49b7
 
 physical validation of corrected sweep mode:
   NOT RUN
