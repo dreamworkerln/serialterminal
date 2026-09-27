@@ -340,15 +340,13 @@ def test_sweep_api_events_correlate_with_durable_forensic_records(
 
             terminal = None
             assert _wait_until(
-                lambda: (
-                    (snapshot := manager.sweep_observe(
-                        sweep_id,
-                        cursor=0,
-                        window=100,
-                        timeout_ms=0,
-                    ))["state"]
-                    == "completed"
-                )
+                lambda: manager.sweep_observe(
+                    sweep_id,
+                    cursor=0,
+                    window=100,
+                    timeout_ms=0,
+                )["state"]
+                == "completed"
             )
             terminal = manager.sweep_observe(
                 sweep_id,
