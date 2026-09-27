@@ -1,38 +1,35 @@
 # SerialTerminal handoff index
 
-Latest verified snapshot: `HANDOFF_002.md`
-Snapshot publication commit: `4adc721be89fb62d7941dda829d8e06c6d5d0a1c`
-Recorded interrupted implementation checkpoint: dreamworkerln/serialterminal/dev@`a131ac14ea5956d4511c0695aeff10f1760482db`
-Recorded documentation/recovery baseline before snapshot: dreamworkerln/serialterminal/dev@`c263a7f90c17012141e52bca673d64e76edd2be3`
+Latest verified snapshot: `HANDOFF_003.md`
+Snapshot publication commit: `786f7b7daee160d409042418d5b3fcfb557cfa6b`
+Recorded accepted TODO_028 implementation checkpoint: dreamworkerln/serialterminal/dev@`d868d026c05dac9373a47c0935673836432f9073`
+Recorded documented closure checkpoint: dreamworkerln/serialterminal/dev@`a9b7499798a287937e07907913a30cd6c7e9190c`
 Recorded hardware evidence/executor checkpoint: dreamworkerln/serialterminal/node_observations@`7fdfc328fa70e200d40ee6636dc5de2523bc816c`
 
 ## Current recovery state
 
-TODO_028 is **PARTIAL / IMPLEMENTATION STOPPED**.
+TODO_028 is **CLOSED**.
 
-The operator explicitly stopped implementation at:
-
-```text
-dev@a131ac14ea5956d4511c0695aeff10f1760482db
-```
-
-Do not continue from memory. `HANDOFF_002.md` records the exact partial implementation, commit sequence, architecture boundary, known risks and resume procedure.
-
-Latest implementation validation checked before handoff:
+Accepted source checkpoint:
 
 ```text
-GitHub Actions 36284195278
-compile PASS
-ruff PASS
-complexity PASS
-pytest 1 failed / 182 passed
+dev@d868d026c05dac9373a47c0935673836432f9073
+GitHub Actions 36286979122 SUCCESS
+209 tests PASS
 ```
 
-The remaining failure is the Chatter adapter apply test after aligning the fake transcript with firmware canonical `formatMilli()` output. No further code debugging was performed after the stop request.
+Documented closure checkpoint:
 
-No hardware sweep or physical validation was performed.
+```text
+dev@a9b7499798a287937e07907913a30cd6c7e9190c
+GitHub Actions 36287085802 SUCCESS
+```
 
-`HANDOFF_001.md` remains immutable historical state and contains the earlier pre-implementation/superseded TODO wording.
+`HANDOFF_003.md` records the final generic sweep architecture, API, Chatter adapter settlement rules, source-review gate and validation provenance.
+
+No physical sweep or hardware validation was performed as part of TODO_028 closure.
+
+`HANDOFF_002.md` remains immutable historical state for the interrupted implementation checkpoint.
 
 ## Repository roles
 
@@ -55,7 +52,7 @@ Read as needed from the exact source checkpoint recorded by the snapshot:
 
 ## Standing reminders
 
-- Resume `TODO_028` only from `HANDOFF_002.md`; first reproduce/fix the single known failing Chatter adapter test, then complete repository validation before any hardware use.
+- TODO_028 source work is closed; use `HANDOFF_003.md` for the accepted sweep API/architecture state. Any real sweep is a separate physical-node task.
 - The sweeper executes exactly the requested repetitions; it does not perform anomaly analytics or autonomously extend a plan.
 - Reuse the established cursor + timeout long-poll pattern for `sweep_observe`; no unsolicited JSON push.
 - Do not bypass SerialTerminal transports with direct Bleak/pyserial.
@@ -68,9 +65,9 @@ Read as needed from the exact source checkpoint recorded by the snapshot:
 
 1. read root `AGENTS.md`;
 2. read this `HANDOFF_INDEX.md`;
-3. read `HANDOFF_002.md`;
+3. read `HANDOFF_003.md`;
 4. read `TODO_INVENTORY.md`;
-5. read the specific selected TODO, currently `todos/TODO_028_GENERIC_SWEEP_AGENT_API.md`;
+5. read `TODO_INVENTORY.md` for the currently selected next task; TODO_028 is closed;
 6. refetch actual `dev` before source work;
 7. inspect current source/tests at that ref before editing;
 8. use the independent hardware executor workspace only for an explicitly separate physical-node task.
