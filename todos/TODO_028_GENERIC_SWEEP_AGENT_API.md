@@ -1402,8 +1402,8 @@ pytest 225 passed
 Documentation/alignment validation:
 
 ```text
-serialterminal/dev@720dde003a949ec25ba02d598b181f017049405c
-GitHub Actions 36327324933 SUCCESS
+serialterminal/dev@f85866ab1d979f958f47f9a889ac3b93bbd9ad66
+GitHub Actions 36327531014 SUCCESS
 
 node_observations@8e9dd00a11b2e832e161722eff4f98ae2dd6e312
 host-only sweep executor reference aligned
