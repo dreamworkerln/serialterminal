@@ -11,7 +11,11 @@ from serialterminal.agent import AgentError, AgentProtocol, SessionManager, run_
 from serialterminal.profiles.generic import GenericProfile
 from serialterminal.runlog import RunLog
 from serialterminal.session import ReceivedChunk
-from serialterminal.transports.base import Transport, TransportError
+from serialterminal.transports.base import (
+    Transport,
+    TransportError,
+    TransportWriteOutcomeUnknown,
+)
 
 
 @dataclass
@@ -297,6 +301,144 @@ def test_session_mutation_ownership_is_exclusive_but_unrelated_session_is_free(
             manager.cancel_sweeps()
             manager.close_all()
             manager.join_sweeps(1.0)
+
+
+def test_sweep_waits_for_prelease_external_tx_before_adapter_prepare(
+    monkeypatch,
+    tmp_path,
+):
+    adapters = []
+
+    def factory(context, sessions, plan):
+        adapter = _BlockingAdapter()
+        adapters.append(adapter)
+        return adapter
+
+    monkeypatch.setattr(
+        GenericProfile,
+        "sweep_adapters",
+        lambda self: {"test.blocking": factory},
+    )
+    selector = _SelectorFactory()
+    with RunLog(tmp_path / "agent.log") as run_log:
+        manager = SessionManager(
+            selector_factory=selector,
+            reconnect_delay=0.01,
+            run_log=run_log,
+        )
+        try:
+            manager.discover()
+            opened = manager.open("serial:a", wait_connected_ms=500)
+            transport = selector.transports["serial:a"]
+            write_started = threading.Event()
+            write_release = threading.Event()
+            original_write = transport.write
+
+            def blocked_write(data):
+                write_started.set()
+                assert write_release.wait(timeout=1.0)
+                original_write(data)
+
+            transport.write = blocked_write
+            queued = manager.send_line(opened["session"], "before-sweep")
+            assert queued["state"] == "queued"
+            assert write_started.wait(timeout=1.0)
+
+            sweep_id = manager.sweep_start(
+                "test.blocking",
+                [opened["session"]],
+                {"axes": [], "repetitions": 1},
+            )["sweep_id"]
+            assert adapters
+            assert not adapters[0].started.wait(timeout=0.05)
+
+            write_release.set()
+            assert adapters[0].started.wait(timeout=1.0)
+            assert transport.writes == [b"before-sweep\n"]
+
+            adapters[0].release.set()
+            assert _wait_until(
+                lambda: manager.sweep_observe(
+                    sweep_id,
+                    cursor=0,
+                    window=100,
+                    timeout_ms=0,
+                )["state"]
+                == "completed"
+            )
+        finally:
+            write_release.set()
+            manager.cancel_sweeps()
+            manager.close_all()
+            manager.join_sweeps(1.0)
+
+
+def test_sweep_fails_before_prepare_on_ambiguous_prelease_tx(
+    monkeypatch,
+    tmp_path,
+):
+    adapters = []
+
+    def factory(context, sessions, plan):
+        adapter = _BlockingAdapter()
+        adapters.append(adapter)
+        return adapter
+
+    monkeypatch.setattr(
+        GenericProfile,
+        "sweep_adapters",
+        lambda self: {"test.blocking": factory},
+    )
+    selector = _SelectorFactory()
+    with RunLog(tmp_path / "agent.log") as run_log:
+        manager = SessionManager(
+            selector_factory=selector,
+            reconnect_delay=0.01,
+            run_log=run_log,
+        )
+        try:
+            manager.discover()
+            opened = manager.open("serial:a", wait_connected_ms=500)
+            transport = selector.transports["serial:a"]
+            original_write = transport.write
+            ambiguous = threading.Event()
+
+            def unknown_write(data):
+                if not ambiguous.is_set():
+                    ambiguous.set()
+                    raise TransportWriteOutcomeUnknown("ambiguous pre-sweep write")
+                original_write(data)
+
+            transport.write = unknown_write
+            queued = manager.send_line(opened["session"], "before-sweep")
+            assert queued["state"] == "queued"
+            assert ambiguous.wait(timeout=1.0)
+
+            sweep_id = manager.sweep_start(
+                "test.blocking",
+                [opened["session"]],
+                {"axes": [], "repetitions": 1},
+            )["sweep_id"]
+            assert _wait_until(
+                lambda: manager.sweep_observe(
+                    sweep_id,
+                    cursor=0,
+                    window=100,
+                    timeout_ms=0,
+                )["state"]
+                == "failed"
+            )
+            result = manager.sweep_observe(
+                sweep_id,
+                cursor=0,
+                window=100,
+                timeout_ms=0,
+            )
+            assert result["failure"]["code"] == "session_tx_unknown"
+            assert adapters
+            assert not adapters[0].started.is_set()
+        finally:
+            manager.close_all()
 
 
 def test_sweep_api_events_correlate_with_durable_forensic_records(
