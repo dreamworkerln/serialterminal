@@ -915,13 +915,12 @@ class SweepJobManager:
         if active is not None:
             active.cancel()
 
-    def join_active(self, timeout: float) -> None:
+    def join_all(self, timeout: float) -> None:
+        deadline = time.monotonic() + max(0.0, timeout)
         with self._lock:
-            active_id = self._active_id
-            active = (
-                self._jobs.get(active_id)
-                if active_id is not None
-                else None
-            )
-        if active is not None:
-            active.join(timeout=timeout)
+            jobs = list(self._jobs.values())
+        for job in jobs:
+            remaining = deadline - time.monotonic()
+            if remaining <= 0:
+                return
+            job.join(timeout=remaining)
