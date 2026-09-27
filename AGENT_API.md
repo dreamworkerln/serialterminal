@@ -588,7 +588,7 @@ bandwidth_hz   7800, 10400, 15600, 20800, 31250, 41700,
                62500, 125000, 250000, 500000
 sf             7..12
 payload_bytes  1..200
-direction      "<session-a>><session-b>" or reverse
+direction      "<session-a>session-b>" or reverse
 ```
 
 `plan.options` is currently empty for this adapter.
