@@ -1,7 +1,7 @@
 # Generic long-running sweep API TODO
 
 TODO-ID: TODO_028
-Status: REOPENED
+Status: CLOSED
 
 ## Purpose
 
@@ -1379,26 +1379,73 @@ again.
 - [x] primary and cleanup failure causality preserved;
 - [x] async observe-worker bookkeeping bounded;
 - [x] cooperative deadline coverage retained;
-- [ ] host-only adapter tests PASS on the corrected checkpoint;
-- [ ] full SerialTerminal CI SUCCESS;
-- [ ] AGENT_API / ARCHITECTURE / SerialTerminal skill aligned;
-- [ ] node_observations hardware reference aligned with host-only semantics;
-- [ ] final BASE..HEAD deletion/function-definition review PASS;
-- [ ] record final corrected SerialTerminal checkpoint and close TODO_028.
+- [x] host-only adapter tests PASS on the corrected checkpoint;
+- [x] full SerialTerminal CI SUCCESS;
+- [x] AGENT_API / ARCHITECTURE / SerialTerminal skill aligned;
+- [x] node_observations hardware reference aligned with host-only semantics;
+- [x] final BASE..HEAD deletion/function-definition review PASS;
+- [x] record final corrected SerialTerminal checkpoint and close TODO_028.
+
+## Host-only corrected implementation completion
+
+Accepted source checkpoint:
+
+```text
+serialterminal/dev@ed685dc15b4ee2232c9e01d2379ce094bd796c26
+GitHub Actions 36327209517 SUCCESS
+compile PASS
+ruff PASS
+complexity step PASS
+pytest 225 passed
+```
+
+Documentation/alignment validation:
+
+```text
+serialterminal/dev@720dde003a949ec25ba02d598b181f017049405c
+GitHub Actions 36327324933 SUCCESS
+
+node_observations@8e9dd00a11b2e832e161722eff4f98ae2dd6e312
+host-only sweep executor reference aligned
+```
+
+Final host-only review base:
+
+```text
+base: 317045e2ca6f9c61ece7b73787761b8ab9c2df19
+head: ed685dc15b4ee2232c9e01d2379ce094bd796c26
+```
+
+Review result:
+
+- only the Chatter profile adapter and its tests changed in the host-only correction;
+- no pre-existing Python function/class definition disappeared;
+- removed source lines were the invalid firmware `/sweep on|off` dependency and were
+  replaced by existing Chatter control commands;
+- generic `agent.py` / `sweep.py` remain controller-agnostic;
+- TX fence, bounded cancellation, failure causality and worker-retention fixes remain
+  intact;
+- no firmware repository change is required or accepted as part of TODO_028;
+- physical two-node sweep validation was not run.
 
 ## Current result
 
 ```text
 TODO_028:
-  REOPENED
+  CLOSED
 
 historical first accepted implementation:
   dev@d868d026c05dac9373a47c0935673836432f9073
   GitHub Actions 36286979122 SUCCESS
   209 tests PASS
 
-host-only correction:
-  implementation in progress on serialterminal/dev
+final host-only corrected implementation:
+  dev@ed685dc15b4ee2232c9e01d2379ce094bd796c26
+  GitHub Actions 36327209517 SUCCESS
+  225 tests PASS
+
+hardware executor alignment:
+  node_observations@8e9dd00a11b2e832e161722eff4f98ae2dd6e312
 
 firmware dependency:
   NONE / out of scope

@@ -151,13 +151,17 @@ Physical interactive smoke: PASS on 2026-09-22 with `Profile: chatter`; companio
 
 ### TODO_028 — `todos/TODO_028_GENERIC_SWEEP_AGENT_API.md`
 
-Status: REOPENED
+Status: CLOSED
 
 Goal: generic long-running sweep jobs implemented entirely in SerialTerminal, with exact repetitions, safe session ownership/TX fencing, profile-owned quiet-state preparation, bounded lifecycle/cancellation and no firmware sweep-mode dependency.
 
-Current host-only correction keeps the accepted TX fence, separate cancel budget, primary/cleanup failure causality and bounded async-worker bookkeeping, while replacing the invalid firmware `/sweep on|off` dependency with existing Chatter controls: `/cancel all`, `/diag off`, `/heartbeat off`, `/echo-loop stop`, conditional `/echo` and `/both`.
+Final host-only implementation: `dev@ed685dc15b4ee2232c9e01d2379ce094bd796c26`; GitHub Actions `36327209517` SUCCESS; compile/ruff/complexity PASS; **225 tests PASS**.
 
-External RF isolation remains operator/coordinator responsibility. Final host-only checkpoint/CI is pending.
+The Chatter adapter uses existing commands only: `/cancel all`, `/diag off`, `/heartbeat off`, `/echo-loop stop`, conditional `/echo`, and `/both`. SerialTerminal sweep ownership plus the pre-sweep TX fence provides local host orchestration; no firmware `/sweep` command, scheduler mode, wire flag or firmware-repository change is part of the accepted TODO.
+
+Hardware executor alignment: `node_observations@8e9dd00a11b2e832e161722eff4f98ae2dd6e312`.
+
+External RF isolation remains operator/coordinator responsibility. Physical two-node sweep validation is **NOT RUN**.
 
 ### TODO_018 — `todos/TODO_018_OBSERVE_THREAD_RETENTION.md`
 
