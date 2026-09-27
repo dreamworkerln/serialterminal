@@ -165,8 +165,8 @@ For the bundled `chatter` profile, controller-specific ownership currently inclu
 - Chatter human command/hotkey/presentation behavior;
 - BLE `0003 -> chat` plus optional `0004 -> telemetry` mapping;
 - command classification helpers and Chatter presentation state;
-- the `chatter.reliable_user` sweep adapter, including Chatter command/config application, firmware local-sweep transition and reliable-USER operational settlement;
-- the external Chatter firmware contract that `/sweep on` enters an exclusive **local** diagnostic mode and `/sweep off`/cancellation exits it; measured USER/ACK frames themselves remain unchanged on the wire.
+- the `chatter.reliable_user` sweep adapter, including Chatter quiet-state preparation through existing commands, command/config application and reliable-USER operational settlement;
+- host-side Chatter sweep isolation semantics: profile preparation plus generic SerialTerminal session ownership; no firmware `/sweep` command or wire-level sweep identity is part of this contract.
 
 The following remain generic and must not depend on Chatter naming:
 
