@@ -155,24 +155,21 @@ Selected contract: both frontends create the same timestamped `.console.log` log
 Physical interactive smoke: PASS on 2026-09-22 with `Profile: chatter`; companion timestamps/session/direction/logical-line behavior confirmed. Remaining gate: physical agent smoke and timing-format comparison.
 
 
-## Closed
-
 ### TODO_028 — `todos/TODO_028_GENERIC_SWEEP_AGENT_API.md`
 
-Status: CLOSED
+Status: REOPENED
 
-Goal: generic long-running sweep-job facility inside the existing `serialterminal agent` JSONL API, with exact caller-specified repetitions, cursor/window long-poll progress, session mutation ownership, bounded cancellation/lifetime, profile-owned measurement adapters and no RF/protocol analytics in the generic engine.
+Goal: retain the generic long-running sweep-job API while correcting post-closure ownership/isolation/lifecycle defects found by independent review.
 
-Implemented source checkpoint: `dev@d868d026c05dac9373a47c0935673836432f9073`.
+Historical accepted implementation remains `dev@d868d026c05dac9373a47c0935673836432f9073`, GitHub Actions `36286979122` SUCCESS, 209 tests PASS. That checkpoint is provenance, not the current closure state.
 
-Validated: GitHub Actions `36286979122` SUCCESS — compile/ruff/complexity PASS, **209 tests PASS**.
+Reopen scope is authoritative in the TODO itself. It includes: a safe pre-sweep TX fence for already accepted host mutations; an exclusive **local** Chatter sweep diagnostic mode with ordinary local USER/background RF suppressed but no new wire-protocol sweep flag; separately bounded cancellation/cleanup; cooperative adapter-deadline semantics; preservation of primary plus cleanup failures; and bounded shared async observe/sweep_observe worker bookkeeping (shared root cause with TODO_018).
 
-Architecture: generic `SweepJob/SweepJobManager` + profile adapter registry; first adapter is `chatter.reliable_user`. Generic `agent.py`/`sweep.py` contain no concrete Chatter branch. Participating sessions are mutation-owned while active; ordinary read-only observation remains available. `sweep_observe` reuses the existing request/response long-poll model and emits no unsolicited JSON.
+External RF isolation remains operator/coordinator responsibility: use a quiet sweep frequency/environment; unrelated third-node traffic is contamination, not protocol-level sweep classification.
 
-Evidence: mechanical sweep lifecycle is persisted as `[SWEEP]` records in the existing forensic log with the same job-local event sequence exposed by `sweep_observe`. RF/protocol interpretation remains caller/reviewer responsibility.
+Corrected implementation checkpoint: NOT YET IMPLEMENTED.
 
-Hardware validation: NOT RUN and not required for this TODO's source/automated closure. Any real sweep is a separate physical-node task.
-
+## Closed
 
 ### TODO_027 — `todos/TODO_027_REDUCE_AGENT_CONTEXT_AMPLIFICATION.md`
 
