@@ -11,7 +11,6 @@ from serialterminal.agent import AgentError, SessionManager, run_agent
 from serialterminal.profiles.generic import GenericProfile
 from serialterminal.runlog import RunLog
 from serialterminal.session import ReceivedChunk
-from serialterminal.sweep import SweepCancelled
 from serialterminal.transports.base import Transport, TransportError
 
 
