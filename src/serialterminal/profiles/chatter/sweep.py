@@ -420,6 +420,15 @@ class ChatterReliableUserSweepAdapter:
                     },
                 phase,
             )
+            # Reliable settlement is reported as TELEMETRY. BLE 0004 is an
+            # optional profile stream and Serial/SPP have only the main
+            # stream, so force BOTH rather than assuming telemetry is visible.
+            self._send_wait(
+                session,
+                "/both",
+                lambda line: line == "[SYS] OUTPUT BOTH",
+                phase,
+            )
             help_line = self._send_wait(
                 session,
                 "/help",

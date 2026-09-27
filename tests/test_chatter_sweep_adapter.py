@@ -150,6 +150,8 @@ class _ScriptContext:
                 session,
                 "[SYS] ECHO LOOP already stopped",
             )
+        elif text == "/both":
+            self._line(session, "[SYS] OUTPUT BOTH")
         elif text == "/help":
             self._line(
                 session,
@@ -316,6 +318,13 @@ def test_prepare_settles_reliable_flow_before_other_mutations():
         "s1": "LoRa-Chatter-A001",
         "s2": "LoRa-Chatter-A002",
     }
+    for session in ("s1", "s2"):
+        commands = [
+            command
+            for actual_session, command in context.commands
+            if actual_session == session
+        ]
+        assert commands.index("/both") < commands.index("/help")
 
 
 def test_apply_then_verify_issues_config_only_after_saved_transitions():
