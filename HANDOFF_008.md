@@ -1,483 +1,288 @@
-# Handoff snapshot 008
+# SerialTerminal engineering handoff
 
-```text
+> Recovery-history repair: originally published incorrectly on source branch `dev` as `HANDOFF_001.md` in commit `06b2c56c9c7e7f51125e38e8e7a2c5a14901f054` (original blob `73548fd665c60ab58b42b4e1b6c33b8ab71eafdb`). It is canonicalized here as `HANDOFF_008.md`; the original commit remains provenance.
+
 Snapshot: HANDOFF_008.md
 Previous: HANDOFF_007.md
-Created: 2026-09-27T02:02:00Z
-Handoff authority before snapshot creation:
-  dreamworkerln/serialterminal/dev_handoff@2332e27190d779b7912d9bcadb00db86e2d1ad79
+Created: 2026-09-26T22:29:35Z
+Handoff authority: dreamworkerln/serialterminal/dev root, pre-snapshot checkpoint `1f90928c79b894b3bd6fae425d6336644db55e10`
 Source checkpoints:
-  SerialTerminal current source/docs:
-    dreamworkerln/serialterminal/dev@ef22b2dd3a4073794abce21eaf2aeb91c33be73c
-  TODO_028 accepted implementation:
-    dreamworkerln/serialterminal/dev@d868d026c05dac9373a47c0935673836432f9073
-  Node observation evidence:
-    dreamworkerln/serialterminal/node_observations@7fdfc328fa70e200d40ee6636dc5de2523bc816c
-  Chatter firmware/controller reference inspected during TODO_028:
-    dreamworkerln/lora-sack-protocol/dev_chat_ack@f04950672b895bd463b367cb02c155ed715bb111
+  Active SerialTerminal source: dreamworkerln/serialterminal/dev@`1f90928c79b894b3bd6fae425d6336644db55e10`
+  Hardware evidence/executor workspace: dreamworkerln/serialterminal/node_observations@`7fdfc328fa70e200d40ee6636dc5de2523bc816c`
 Knowledge base:
-  dreamworkerln/serialterminal/dev@ef22b2dd3a4073794abce21eaf2aeb91c33be73c
-  AGENTS.md
-  ARCHITECTURE.md
-  AGENT_API.md
-  LOGGING.md
-  TODO_INVENTORY.md
-  todos/TODO_028_GENERIC_SWEEP_AGENT_API.md
-  .agents/skills/serialterminal-agent/SKILL.md
+  dreamworkerln/serialterminal/dev@`1f90928c79b894b3bd6fae425d6336644db55e10`: `AGENTS.md`, `ARCHITECTURE.md`, `AGENT_API.md`, `LOGGING.md`, `TODO_INVENTORY.md`, `TODO_MANAGEMENT_POLICY.md`, `HANDOFF_MANAGEMENT_POLICY.md`, `NODE_SKILL_LEARNING_POLICY.md`
 Transfer / promotion boundary:
-  none; TODO_028 source/API work is closed by automated validation,
-  physical sweep/hardware validation remains a separate task
-```
+  Source-development work stays on `dev`; physical-node execution/evidence stays on `node_observations`. The branches are not merged as one workflow.
 
-This snapshot becomes immutable after publication through `HANDOFF_INDEX.md`.
+## Recovery order
 
-## 1. Recovery / authority
+1. Read root `AGENTS.md`.
+2. Read `HANDOFF_INDEX.md`.
+3. Read this snapshot.
+4. Read `TODO_INVENTORY.md` and the specific active TODO before implementation.
+5. Refetch the actual `dev` head before making current-state claims or edits.
+6. Read `ARCHITECTURE.md` when work touches discovery, profiles, transports, session lifecycle, human presentation or agent open/session behavior.
+7. Read `AGENT_API.md` when work changes machine-facing JSONL semantics.
+8. For physical-node execution, switch context to the independent `serialterminal-observations` workspace and follow its own `AGENTS.md` / hardware skill; do not use this source snapshot as executor instructions.
 
-Authoritative recovery state lives on:
+Source code is authoritative for current implementation. This snapshot is authority only for the engineering state recorded at the checkpoint above.
 
-```text
-dreamworkerln/serialterminal/tree/dev_handoff
-```
+## Repository / branch roles
 
-Repository roles:
+### `dev`
 
-```text
-dev
-    source/tests/docs authority
+Owns:
 
-dev_handoff
-    handoff/recovery authority
+- SerialTerminal source and tests;
+- generic transport/session/agent API;
+- controller profiles and human frontend;
+- maintained scenario/sweep runner source;
+- architecture and API documentation;
+- engineering TODO and reviewer policies.
 
-node_observations
-    physical hardware executor/evidence authority
-```
+### `node_observations`
 
-The source-side `HANDOFF_*.md` / `HANDOFF_INDEX.md` files that exist on `dev` are not the authoritative recovery series for this workstream. The operator explicitly selected `dev_handoff` for handoff publication.
+Owns:
 
-Before any new engineering work, refetch moving refs. Historical exact SHAs in this snapshot are immutable checkpoint facts, not claims that branch heads will remain there.
+- physical LoRa-Chatter executor instructions;
+- immutable RUN/OBS hardware evidence;
+- executor evidence policies;
+- reviewer state for hardware observations.
 
-## 2. Material changes since HANDOFF_007
+The physical executor treats `../serialterminal` as read-only runtime/source. It must not repair SerialTerminal source, tests, docs, TODOs or CI during a hardware run.
 
-Snapshot 007 recorded the earlier profile-refactor state around:
+## Accepted architecture / invariants
 
-```text
-dev@ab8dfde761e06649bdbb89173401e4054f9e8c18
-```
-
-Since then the source workstream advanced substantially. The material item for this handoff is closure of:
-
-```text
-TODO_028_GENERIC_SWEEP_AGENT_API
-```
-
-TODO_028 was redesigned before implementation from a Chatter-specific QA runner into a generic long-running sweep primitive inside the existing `serialterminal agent` JSONL API.
-
-The implementation was initially interrupted at:
+The durable dependency direction is:
 
 ```text
-dev@a131ac14ea5956d4511c0695aeff10f1760482db
+human CLI -------------------+
+                             |
+JSONL agent -----------------+----> TerminalProfile configuration
+                             |              |
+                             |              v
+                             +-------> SessionManager / TerminalSession
+                                            |
+                                            v
+                                      ManagedSession
+                                            |
+                                            v
+                                       Transport API
 ```
 
-with one failing Chatter adapter test. Work later resumed in small CI-gated checkpoints and the TODO was completed and closed.
+Controller-specific behavior belongs behind `TerminalProfile` or in higher-level consuming/scenario code. Generic discovery, transport, session and JSONL mechanics must remain controller-agnostic.
 
-Important resumed checkpoints:
+Important current contracts:
+
+- `generic` remains the default profile;
+- Chatter is selected explicitly with `profile:"chatter"`;
+- discovery remains capability-based rather than controller-name based;
+- `ManagedSession` owns reconnect, ordered TX, raw `SessionEvent` history and canonical logical-line assembly;
+- `observe` is the receive/cursor API;
+- default `observe` returns `lines`, `cursors`, `timed_out`;
+- raw `events/data_b64` require `include_events:true`;
+- `queued` / `written` are transport facts, not peer-delivery proof;
+- `tx_state:"unknown"` is terminal for that TX and must not be blindly resent;
+- forensic sequence loss is explicit through `forensic_gap`;
+- human and agent frontends both create a timestamped companion `.console.log`, while their primary `.log` roles remain different.
+
+## Material changes represented by the current checkpoint
+
+### Hardware executor separation
+
+Physical-node execution has moved out of the source-development workspace.
+
+On `dev`:
+
+- `.agents/skills/node-agent/SKILL.md` is only a redirect;
+- dev-side hardware evidence policy files are migration pointers where applicable;
+- source-development `AGENTS.md` is not an operating guide for the hardware executor.
+
+The active hardware executor lives in the independent `serialterminal-observations` clone on `node_observations`, using `.agents/skills/lora-chatter-hardware/SKILL.md`.
+
+### Agent response context reduction
+
+Implemented at:
 
 ```text
-0a4851fe6ec9546ae6c26bc6816b46e906e2effc  fix: stabilize Chatter radio value parsing
-47c498d8be63f6d5593f5afeb786e02e9a1d194e  sweep: harden generic job publication
-d23ccf4d8bc669c4879fed5472546cb79b58d5c3  test: lock sweep session ownership contract
-32ea573ef4abdd8fab5bfa8d04bf1884e3f1abe7  test: share sweep adapter factory identity
-bb4786c5c97a66ebd780abbb379e0cec3c20796b  test: lock sweep JSONL error semantics
-a90efdffdca9b35ba97922937dfa00734ccc4876  chatter: harden sweep settlement correlation
-05d55148ae86bb7c327ed2ea1248500c9f5fcb07  test: correlate sweep events with forensic log
-69bc5206e0b3526a1a319280db3d7109a1df32ec  test: fix forensic correlation lint
-c4f0ae1eec8b097a37ea51c1ae0041a194940db1  chatter: guarantee sweep telemetry visibility
-c0849a1e0cc481c8648072fb1a7dd143d98a1ca5  docs: document sweep agent API
-907e6ee724efa3726838ef88f280eae7fd7ca6e9  docs: fix sweep direction example
-a82f0c2b189c38c8a5baf0b6d87ab88c612963a7  docs: record sweep architecture and logging
-999076af690fec2b8a134ba08e154704ccb918c3  docs: teach agent skill sweep workflow
-73b4488e690994001008f790ba5f5cba279dc577  chatter: correlate sweep delivery by WAIT_ACK
-d868d026c05dac9373a47c0935673836432f9073  test: lock sweep lifecycle deadlines
+dev@b7686b809ff4f7121d59b74903a8fa2251c1b4b5
 ```
 
-Closure/documentation commits after the accepted implementation checkpoint:
+Raw observe events became opt-in. `TODO_027` is CLOSED.
+
+### Unified console logging
+
+Implemented at:
 
 ```text
-a9b7499798a287937e07907913a30cd6c7e9190c  todo: close generic sweep agent API
-786f7b7daee160d409042418d5b3fcfb557cfa6b  handoff: record accepted sweep implementation
-ef22b2dd3a4073794abce21eaf2aeb91c33be73c  handoff: advance recovery index to snapshot 003
+dev@5965d576c3bb124d85adf7842282684e755894c7
 ```
 
-Those source-side handoff files are historical/source-branch records only; recovery authority is now this `dev_handoff` series.
+Both frontends now produce a shared timestamp/session/direction companion `.console.log`. Human primary `.log` remains the compatibility transcript; agent primary `.log` remains forensic/API/transport truth.
 
-## 3. Current TODO_028 implementation state
+`TODO_026` remains `IMPLEMENTED / AGENT PHYSICAL VALIDATION OPEN`.
 
-TODO_028 is CLOSED.
+### BLE burst isolation
 
-Accepted implementation checkpoint:
+`TODO_024` is PARTIAL.
+
+Host-side deterministic isolation proves that bytes delivered to the SerialTerminal notification callback are preserved through the tested callback -> queue -> `read_chunk` -> `ManagedSession` path.
+
+Relevant checkpoints:
 
 ```text
-dreamworkerln/serialterminal/dev@d868d026c05dac9373a47c0935673836432f9073
+host isolation test: dev@a8b6c1974242df0bb267fa7156c704f8aeb0f6c0
+validated tree:      dev@bb48db1709ab66df3f4492f25a51b997fe23c357
+hardware evidence:   node_observations@ccab9e37747c564c5f238cf6e5eef83fd8760ea1
 ```
 
-Current source/docs head:
+The first physical loss boundary is still not isolated. The planned next diagnostic for that TODO is a bounded HCI/BlueZ capture such as `btmon` alongside SerialTerminal evidence.
+
+## Newly selected work: TODO_028
+
+At the current checkpoint, the new source-development task is recorded as:
 
 ```text
-dreamworkerln/serialterminal/dev@ef22b2dd3a4073794abce21eaf2aeb91c33be73c
+todos/TODO_028_CHATTER_SWEEP_RUNNER.md
+Status: OPEN
+creation checkpoint: dev@1f90928c79b894b3bd6fae425d6336644db55e10
 ```
 
-### Generic sweep engine
+Purpose: implement a maintained deterministic local LoRa-Chatter reliable-USER PHY/payload sweep runner so the tight measurement loop runs in Python above the public SerialTerminal JSONL API rather than through one LLM/tool turn per USER.
 
-The source now has a generic sweep layer, centered on:
+Required architecture:
 
 ```text
-src/serialterminal/sweep.py
+SerialTerminal core
+        ↓
+generic JSONL agent API
+        ↓
+reusable Chatter orchestration primitives
+        ↓
+scripts/run-chatter-scenario
+scripts/run-chatter-sweep
 ```
 
-Core properties:
+Critical invariants for TODO_028:
 
-- ordered caller-supplied axes/coordinates;
-- exact fixed `repetitions=N`;
-- deterministic traversal;
-- no adaptive 3->10 extension;
-- bounded plan/schema validation before job creation;
-- bounded event history;
-- cursor/window event reads;
-- explicit job state/progress snapshot;
-- cancellation;
-- terminal-job retention bound;
-- explicit `sweep_close`;
-- adapter phase deadlines;
-- one active sweep per agent process in the first version.
+- keep `src/serialterminal/agent.py` generic;
+- use exactly one child `serialterminal.py agent` process for one sweep;
+- no direct Bleak/pyserial bypass;
+- at most one measured reliable USER transaction in flight across both nodes;
+- do not infer causal order from cross-session list position;
+- correlate by actual sender/session/USER identity plus deterministic payload context;
+- do not pre-submit future measured USERs;
+- `SESSION ... hdr=N` is summary telemetry, not a new HDR event;
+- `DELIVERY WAIT_ACK ... timeout=...` is not an ACK-timeout event;
+- only actual `DELIVERY ACK TIMEOUT ...` counts as ACK timeout;
+- CRC/HDR remain unsequenced RF evidence unless a trustworthy protocol identifier exists;
+- normal point count extends from configured normal repetitions (initial target 3+3) to configured anomaly repetitions (initial target 10+10) without discarding first samples;
+- SF transition must explicitly send `/config` before waiting for `CFG RADIO / CFG LINK`;
+- structured result is derived output and does not replace exact SerialTerminal logs;
+- no real hardware sweep is part of this source-development task unless separately requested;
+- do not modify `node_observations` while implementing TODO_028.
 
-Schema hygiene rejects at least:
+## Current implementation state
 
-- duplicate axis names;
-- collisions between constants and axis names;
-- empty axis values;
-- non-positive/invalid repetitions;
-- excessive serialized plan size;
-- excessive axis count;
-- excessive Cartesian/sample count.
+TODO_028 is documentation/task definition only at this snapshot.
 
-### Existing agent JSONL API extension
+Not implemented yet:
 
-The machine-facing entry point remains:
+- `scripts/run-chatter-sweep`;
+- reusable common sweep/scenario orchestration module, if one is selected;
+- deterministic sweep correlation/state machine;
+- sweep structured JSON result;
+- TODO_028 fake/mock transcript/state-machine test matrix.
+
+Existing `scripts/run-chatter-scenario` is the starting point and must remain behavior-compatible if common code is extracted.
+
+## Validation actually completed
+
+For the docs-only TODO creation checkpoint:
 
 ```text
-python3 serialterminal.py agent
+dev@1f90928c79b894b3bd6fae425d6336644db55e10
+commit: todo: track maintained Chatter sweep runner
+GitHub Actions: 36276268588 SUCCESS
 ```
 
-No second sweep process/protocol was introduced.
-
-Sweep operations are:
-
-```text
-sweep_start
-sweep_observe
-sweep_cancel
-sweep_close
-```
-
-The API preserves:
-
-```text
-one request id
--> exactly one correlated response
-```
-
-There is no unsolicited JSON push.
-
-`sweep_observe` reuses the established long-poll model:
-
-- reader cursor;
-- caller-requested window;
-- server-advertised maximum window;
-- `head_cursor`;
-- timeout;
-- current state/progress;
-- terminal wakeup.
-
-Job failure remains distinct from API request failure.
-
-### Session ownership / concurrency
-
-A running sweep owns mutation rights for its declared participating sessions.
-
-While ownership is active, external mutation paths such as:
-
-```text
-send_line
-send_bytes
-close
-```
-
-are rejected before side effects on owned sessions.
-
-Read-only observation remains available where documented.
-
-Ownership is all-or-nothing across declared sessions and is released on terminal/failure/shutdown paths.
-
-The first version intentionally allows only one active sweep per agent process. This avoids claiming that disjoint session sets are independent physical measurement domains.
-
-Non-participating sessions/devices are not globally blocked. Physical RF/environment isolation beyond declared ownership remains caller/coordinator responsibility.
-
-### Adapter boundary
-
-Generic agent/sweep code does not branch on concrete Chatter adapter names.
-
-Concrete adapters are profile-owned through the generic adapter registry/interface.
-
-The first maintained adapter is:
-
-```text
-chatter.reliable_user
-```
-
-It operates only on already-open compatible sessions.
-
-The generic engine does not contain:
-
-- Chatter command strings;
-- ACK/CRC/HDR/retry quality analytics;
-- CLEAN/DEGRADED classification;
-- anomaly policy;
-- adaptive repetition policy.
-
-Protocol-specific synchronization required to know when a sample is operationally settled belongs to the adapter.
-
-### Chatter reliable-USER adapter
-
-The adapter establishes a controlled measurement state and performs the first real use case without turning the generic sweeper into a Chatter QA framework.
-
-Important behavior now covered by source/tests:
-
-- settle old reliable work before radio mutation;
-- disable/quiet background modes required by the measurement setup;
-- guarantee delivery telemetry visibility needed for operational synchronization;
-- apply requested power/frequency/BW/SF;
-- verify actual radio configuration;
-- start one reliable USER sample at a time;
-- do not treat `queued` or transport `written` as device/radio settlement;
-- bind a sample to the first new local `DELIVERY WAIT_ACK` after sample start;
-- correlate subsequent terminal `ACK` / `FAILED` by that exact reliable delivery ID;
-- do not compare reliable delivery IDs against `/id` application identity;
-- block the next sample/config transition until the prior sample reaches its adapter-defined operational settlement;
-- use bounded cancellation/deadline behavior.
-
-Important firmware/source finding resolved during implementation:
-
-```text
-/id identity
-    !=
-reliable DELIVERY user=session/seq session identity
-```
-
-The adapter therefore must not infer delivery correlation from `/id`.
-
-Another resolved firmware formatting issue:
-
-- Chatter `formatMilli()` canonicalizes trailing decimal zeroes;
-- adapter parsing compares numeric values rather than requiring padded strings such as `470.000` or `500.000`.
-
-### Forensic logging
-
-Sweep execution events are persisted through the existing SerialTerminal forensic logger.
-
-Mechanical records use:
-
-```text
-[SWEEP]
-```
-
-and carry the same job-local event sequence used by the in-memory/API event stream.
-
-This permits exact correlation of API progress with surrounding TX/RX evidence after in-memory sweep history is released.
-
-The sweep logger records execution mechanics, not RF/protocol interpretation.
-
-## 4. Architecture / invariants
-
-Preserve the dependency direction documented in `ARCHITECTURE.md`:
-
-```text
-generic agent/session/transport
-        |
-        v
-generic sweep job/engine
-        |
-        v
-SweepAdapter interface / registry
-        |
-        v
-profile-owned concrete adapter
-```
-
-Do not introduce:
-
-```python
-if adapter == "chatter.reliable_user":
-    ...
-```
-
-into generic sweep/session code.
-
-Also preserve:
-
-- `ManagedSession` owns generic ordered TX/event/session mechanics;
-- transport `written` is not application/radio completion;
-- concrete controller protocol semantics belong to profiles/adapters or consuming project-specific logic;
-- experiment analytics remain outside the generic sweeper;
-- exact repetitions are caller policy, not runtime analytics policy;
-- detailed forensic truth remains in the existing main `.log`;
-- `.console.log` remains presentation/audit convenience.
-
-## 5. Validation evidence
-
-### Accepted implementation checkpoint
-
-```text
-dev@d868d026c05dac9373a47c0935673836432f9073
-GitHub Actions 36286979122: SUCCESS
-compile: PASS
-ruff: PASS
-complexity: PASS
-pytest: 209 passed
-```
-
-The final BASE..HEAD source review for TODO_028 used:
-
-```text
-base: 5996a7eaa0275784cccc860199c1a69c0b8ef666
-head: d868d026c05dac9373a47c0935673836432f9073
-```
-
-Recorded review result:
-
-- all pre-existing source deletions inspected;
-- no pre-existing function definition disappeared;
-- `agent.py` deletions were replacements by ownership-aware equivalents;
-- generic `agent.py` / `sweep.py` contain no concrete Chatter/reliable-user branch;
-- controller-specific behavior remains in the Chatter profile adapter.
-
-### Current source/docs head
-
-```text
-dev@ef22b2dd3a4073794abce21eaf2aeb91c33be73c
-GitHub Actions 36287455559: SUCCESS
-compile: PASS
-ruff: PASS
-complexity: PASS
-pytest: 209 passed
-```
-
-Thus the current source/docs head is also green in the clean GitHub Actions environment.
-
-### Hardware validation
-
-```text
-NOT RUN
-```
-
-No physical sweep, BLE/serial node execution, or firmware flashing was performed as part of TODO_028 source closure.
-
-Do not infer physical validation from automated tests.
-
-## 6. Current TODO / workstream state
-
-`TODO_INVENTORY.md` on current `dev` records:
-
-```text
-TODO_028: CLOSED
-```
-
-The inventory's suggested next implementation order begins with:
-
-```text
-TODO_024 — BLE burst RX completeness / HCI boundary isolation
-```
-
-Other active/partial work remains listed in the authoritative inventory.
-
-TODO_026 remains:
-
-```text
-IMPLEMENTED / AGENT PHYSICAL VALIDATION OPEN
-```
-
-and should not be silently treated as physically closed.
-
-## 7. Known limitations / non-goals
-
-Current sweep design intentionally does not provide:
-
-- cross-process persistence/resume of active sweep jobs;
-- parallel active sweep jobs/resource-domain scheduling;
-- automatic RF/environment isolation from unrelated devices;
-- adaptive repetition based on observed results;
-- RF/protocol quality classification;
-- built-in experiment analysis.
-
-These are not missing implementation bugs in TODO_028; they are outside its accepted scope.
-
-## 8. Knowledge references
-
-Current source/docs authority:
-
-```text
-dreamworkerln/serialterminal/dev@ef22b2dd3a4073794abce21eaf2aeb91c33be73c
-```
-
-Read as needed:
-
-```text
-AGENTS.md
-ARCHITECTURE.md
-AGENT_API.md
-LOGGING.md
-TODO_INVENTORY.md
-todos/TODO_028_GENERIC_SWEEP_AGENT_API.md
-.agents/skills/serialterminal-agent/SKILL.md
-src/serialterminal/sweep.py
-src/serialterminal/agent.py
-src/serialterminal/profiles/chatter/sweep.py
-tests/test_sweep.py
-tests/test_agent_sweep.py
-tests/test_chatter_sweep_adapter.py
-```
-
-Physical evidence authority:
-
-```text
-dreamworkerln/serialterminal/node_observations@7fdfc328fa70e200d40ee6636dc5de2523bc816c
-```
-
-Firmware/controller reference inspected during TODO_028:
-
-```text
-dreamworkerln/lora-sack-protocol/dev_chat_ack@f04950672b895bd463b367cb02c155ed715bb111
-```
-
-Before using firmware facts for new work, refetch the relevant firmware ref.
-
-## 9. Immediate continuation
-
-1. Read `AGENTS.md` from the current source branch.
-2. Read `HANDOFF_INDEX.md` on `dev_handoff`.
-3. Read this `HANDOFF_008.md`.
-4. Read current `TODO_INVENTORY.md` on `dev`.
-5. Refetch `dev`, `node_observations`, and any required firmware ref before changing anything.
-6. Treat TODO_028 as source/API CLOSED unless a new bug is demonstrated.
-7. If the operator wants a real sweep, start it as a separate physical-node task in the observation workspace; do not convert that into hidden source work.
-8. Otherwise follow the current inventory ordering, whose next suggested engineering item is TODO_024 HCI/BlueZ burst-loss boundary isolation.
-
-## 10. Standing reminders
-
-- Authoritative recovery branch is `dev_handoff`, not `dev`.
-- Keep source development, handoff recovery and physical evidence on their separate refs.
-- Published handoff snapshots remain immutable.
-- GitHub Actions proves clean-environment source/test behavior, not physical radio behavior.
-- Generic sweeper stays dumb: execute exact plan, report mechanics, no analytics.
-- Chatter-specific synchronization stays behind the profile-owned adapter boundary.
-- A sweep owns only declared sessions; unrelated physical RF interference remains an external-environment responsibility.
-- Do not modify `node_observations` during ordinary source-development work.
+This CI result validates the repository at the docs-only checkpoint. It does **not** validate a sweep implementation because no sweep implementation exists yet.
+
+No real hardware sweep was performed for TODO_028.
+
+## Validation still required for TODO_028
+
+Before closing TODO_028:
+
+- fake/mock agent state-machine tests for clean 3+3;
+- exact 10+10 anomaly extension behavior;
+- HDR summary exclusion and real HEADER ERROR detection;
+- WAIT_ACK timeout-field exclusion and actual ACK TIMEOUT detection;
+- reverse/unexpected cross-session line ordering;
+- exact current transaction ACK correlation;
+- proof that next measured USER is not sent before settlement;
+- proof that no future measured USER queue is pre-submitted;
+- explicit `/sf -> SAVED -> send /config -> wait CFG` ordering regression;
+- correlation-loss stop/recovery/failure behavior;
+- CRC/HDR unsequenced handling;
+- existing `run-chatter-scenario` regressions;
+- deterministic child-process cleanup;
+- targeted repository tests;
+- compile/static/full repository validation required by `AGENTS.md`;
+- final BASE..HEAD diff/deletion review;
+- GitHub Actions SUCCESS for the resulting implementation checkpoint.
+
+A physical sweep is not a source-task closure gate unless later explicitly added.
+
+## Other open engineering state
+
+The authoritative full list and statuses are in `TODO_INVENTORY.md`.
+
+Important still-open/partial work includes:
+
+- TODO_011 Chatter presentation correlation — OPEN;
+- TODO_012 SPP capability UNKNOWN preservation — OPEN;
+- TODO_013 Serial/SPP ambiguous writes — OPEN;
+- TODO_014 human canonical line assembly alignment — OPEN;
+- TODO_015 profile preamble scope — OPEN;
+- TODO_016 BLE RX lifecycle boundary — OPEN;
+- TODO_017 configured vs active streams — OPEN;
+- TODO_018 observe thread retention — OPEN;
+- TODO_019 strict agent request validation — OPEN;
+- TODO_020 executable scanner workflow docs — OPEN;
+- TODO_021 executor provenance boundary — PARTIAL;
+- TODO_022 BLE connect timeout ownership — OPEN;
+- TODO_023 capability cache concurrent writers — OPEN;
+- TODO_024 BLE burst RX completeness — PARTIAL;
+- TODO_025 material follow-up evidence — PARTIAL;
+- TODO_026 unified logging — IMPLEMENTED / AGENT PHYSICAL VALIDATION OPEN;
+- TODO_027 context amplification — CLOSED;
+- TODO_028 maintained Chatter sweep runner — OPEN.
+
+The current inventory-selected next implementation is TODO_028 before resuming TODO_024 HCI-boundary isolation.
+
+## Immediate continuation steps
+
+For TODO_028:
+
+1. refetch `dev` and verify the branch/working tree before editing;
+2. read `todos/TODO_028_CHATTER_SWEEP_RUNNER.md`;
+3. inspect `scripts/run-chatter-scenario` and `tests/test_chatter_scenario_runner.py`;
+4. identify the minimum reusable child-agent/orchestration primitives worth extracting;
+5. design the sweep state machine around one globally serialized measured USER;
+6. implement `scripts/run-chatter-sweep` above the public JSONL API;
+7. add deterministic fake/mock tests for every mandatory regression in TODO_028;
+8. run targeted tests, full repository validation, deletion/diff review and GitHub CI;
+9. update TODO_028 and TODO_INVENTORY with exact implementation/validation checkpoints.
+
+Do not perform a physical sweep during those source-development steps unless the operator explicitly starts a separate hardware-validation task.
+
+## Standing reminders / risks
+
+- Never treat a successful CI as physical-node validation.
+- Never infer current-head hardware validity from historical RUNs.
+- Hardware executor and source-development agent are separate roles/workspaces.
+- Do not send source-development instructions to the hardware executor.
+- Do not let higher-level Chatter scenario semantics leak into generic SerialTerminal transport/session code.
+- When source and historical snapshot differ, refetched source wins for current implementation truth.
+- Published hardware RUN/OBS evidence is immutable history; corrections are new evidence, not rewrites.

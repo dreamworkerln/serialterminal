@@ -23,17 +23,17 @@ This file is the mutable stable recovery entry point for the `serialterminal` wo
 ## Current latest snapshot
 
 ```text
-Snapshot: 008
-File: HANDOFF_008.md
+Snapshot: 011
+File: HANDOFF_011.md
 Snapshot verified file checkpoint:
-  dreamworkerln/serialterminal/dev_handoff@ce63d8a92e137f5ee4114b5c8c45f9f6089f8c14
+  dreamworkerln/serialterminal/dev_handoff@6034e0a2223264bd988c917bfc913a482743c987
 Snapshot blob:
-  ef37b94cdec4fa7b1a9ad8a23d7576e1f978363a
+  b285faf3a5a27c8c02eca8038a9426781feb2990
 ```
 
-`HANDOFF_008.md` was created and read back before this index was advanced. `HANDOFF_001.md` through `HANDOFF_007.md` remain immutable historical snapshots.
+`HANDOFF_011.md` was created and read back before this index was advanced. `HANDOFF_001.md` through `HANDOFF_010.md` are the canonical historical snapshots; 008-010 are recovered canonical copies of the three snapshots that were originally published on `dev`.
 
-## Current source roles recorded by snapshot 008
+## Current source roles recorded by snapshot 011
 
 ```text
 SerialTerminal current source/docs:
@@ -112,7 +112,7 @@ tests/test_chatter_sweep_adapter.py
 ## Standing reminders
 
 - Authoritative recovery branch is `dev_handoff`.
-- Source branch `dev` may contain historical/source-side handoff files, but they are not this workstream's authoritative recovery series.
+- The three source-side snapshots formerly present on `dev` were removed from the source branch and canonicalized here as `HANDOFF_008.md` through `HANDOFF_010.md`; their original source commits remain provenance.
 - Keep source, recovery and hardware evidence on their separate refs.
 - GitHub Actions is source/clean-environment validation, not physical-node validation.
 - Do not infer hardware validity from TODO_028's 209 automated tests.
