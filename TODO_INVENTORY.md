@@ -140,7 +140,7 @@ Remaining work: align the primary `NODE_OBSERVATION_RECORDING_POLICY.md` and nod
 
 TODO_026 logging-contract investigation is also OPEN and may be scheduled independently when log-format work is selected.
 
-Suggested implementation order for the next pass: resume and finish/validate the interrupted `TODO_028` generic long-running sweep agent API implementation, then finish the HCI boundary isolation in `TODO_024`; after that continue correctness/evidence boundaries (`TODO_011`, `TODO_013`, `TODO_016`, `TODO_017`, `TODO_021`, remaining `TODO_025` docs), lifecycle/API robustness (`TODO_018`, `TODO_019`, `TODO_022`, `TODO_023`), and consistency/docs follow-ups (`TODO_012`, `TODO_014`, `TODO_015`, `TODO_020`). Re-evaluate ordering if implementation exposes dependencies.
+Suggested implementation order for the next pass: finish the HCI boundary isolation in `TODO_024`; after that continue correctness/evidence boundaries (`TODO_011`, `TODO_013`, `TODO_016`, `TODO_017`, `TODO_021`, remaining `TODO_025` docs), lifecycle/API robustness (`TODO_018`, `TODO_019`, `TODO_022`, `TODO_023`), and consistency/docs follow-ups (`TODO_012`, `TODO_014`, `TODO_015`, `TODO_020`). Re-evaluate ordering if implementation exposes dependencies.
 
 ### TODO_026 — `todos/TODO_026_UNIFIED_LOGGING_CONTRACT.md`
 
@@ -154,28 +154,25 @@ Selected contract: both frontends create the same timestamped `.console.log` log
 
 Physical interactive smoke: PASS on 2026-09-22 with `Profile: chatter`; companion timestamps/session/direction/logical-line behavior confirmed. Remaining gate: physical agent smoke and timing-format comparison.
 
-### TODO_028 — `todos/TODO_028_GENERIC_SWEEP_AGENT_API.md`
-
-Status: PARTIAL / IMPLEMENTATION STOPPED
-
-Goal: add a generic long-running sweep-job facility to the existing `serialterminal agent` JSONL API. The sweeper executes exactly the caller-supplied axes/traversal/repetition count, reports bounded cursor-based execution progress, and performs no RF/protocol analytics or autonomous repetition changes.
-
-API direction: reuse the existing no-unsolicited-JSON request/response model. A quick `sweep_start` creates a job and advertises event `max_window`/retention; `sweep_observe` is a cursor + requested-window + timeout long-poll returning bounded events, `head_cursor`, current state/progress and terminal transitions; `sweep_cancel` requests cancellation; terminal jobs are explicitly released with `sweep_close`.
-
-Architecture boundary: generic engine owns traversal/repetitions/job lifecycle; a measurement adapter applies/verifies coordinates and defines one-sample operational settlement; caller/reviewer analyzes the existing SerialTerminal logs and decides any later sweep. First adapter/use case is Chatter reliable USER, but Chatter commands, ACK/CRC/HDR/retry interpretation and policies such as adaptive 3->10 repeats are not generic sweep semantics. First version allows one active sweep per agent process, requires already-open sessions, atomically mutation-locks all participating sessions, and blocks external send/close mutations until the sweep becomes terminal. All blocking adapter phases are cancellation-aware and deadline-bounded; ownership covers only declared sessions, while isolation of unrelated sessions/devices and the physical RF environment remains caller responsibility.
-
-Design correction supersedes the initial TODO_028 wording recorded at `dev@1f90928c79b894b3bd6fae425d6336644db55e10`. Historical `HANDOFF_001.md` remains immutable; current TODO/inventory are authoritative for the revised task.
-
-Validation: fixed repetition semantics, deterministic traversal, session-ownership/concurrency races, bounded cancellation-aware adapter phases and settlement barriers, long-poll reactivity, exact cursor algebra/coherent snapshots, bounded event and terminal-job retention, forensic [SWEEP] correlation, request-vs-job failure separation, cancellation/close lifecycle, documented external-environment isolation boundary, no unsolicited JSON, adapter-registry boundary tests, existing scenario regressions, full repository validation and GitHub Actions. No physical sweep is part of this source-development TODO unless separately requested.
-
-
-Interrupted implementation checkpoint: `dev@a131ac14ea5956d4511c0695aeff10f1760482db`. Generic sweep engine/job lifecycle, adapter registry, agent API operations, session mutation ownership, initial Chatter reliable-USER adapter and regression tests exist as a partial implementation. This checkpoint is **not accepted**.
-
-Latest implementation CI checked before handoff: GitHub Actions `36284195278`; compile/ruff/complexity PASS, pytest **1 failed / 182 passed**. Remaining failure is `tests/test_chatter_sweep_adapter.py::test_apply_then_verify_issues_config_only_after_saved_transitions`, timing out in Chatter adapter `apply` after the fake transcript was changed to mirror firmware canonical `formatMilli()` output. Operator requested implementation stop at that point; resume from the exact TODO handoff rather than continuing from memory.
-
-No hardware validation or real sweep was performed.
 
 ## Closed
+
+### TODO_028 — `todos/TODO_028_GENERIC_SWEEP_AGENT_API.md`
+
+Status: CLOSED
+
+Goal: generic long-running sweep-job facility inside the existing `serialterminal agent` JSONL API, with exact caller-specified repetitions, cursor/window long-poll progress, session mutation ownership, bounded cancellation/lifetime, profile-owned measurement adapters and no RF/protocol analytics in the generic engine.
+
+Implemented source checkpoint: `dev@d868d026c05dac9373a47c0935673836432f9073`.
+
+Validated: GitHub Actions `36286979122` SUCCESS — compile/ruff/complexity PASS, **209 tests PASS**.
+
+Architecture: generic `SweepJob/SweepJobManager` + profile adapter registry; first adapter is `chatter.reliable_user`. Generic `agent.py`/`sweep.py` contain no concrete Chatter branch. Participating sessions are mutation-owned while active; ordinary read-only observation remains available. `sweep_observe` reuses the existing request/response long-poll model and emits no unsolicited JSON.
+
+Evidence: mechanical sweep lifecycle is persisted as `[SWEEP]` records in the existing forensic log with the same job-local event sequence exposed by `sweep_observe`. RF/protocol interpretation remains caller/reviewer responsibility.
+
+Hardware validation: NOT RUN and not required for this TODO's source/automated closure. Any real sweep is a separate physical-node task.
+
 
 ### TODO_027 — `todos/TODO_027_REDUCE_AGENT_CONTEXT_AMPLIFICATION.md`
 

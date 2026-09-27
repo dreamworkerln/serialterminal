@@ -997,105 +997,105 @@ Where the adapter must observe protocol output to know that a control change or 
 
 ## Implementation
 
-- [ ] inspect current agent async request/observe architecture and reuse its request/response conventions;
-- [ ] inspect `scripts/run-chatter-scenario` only for reusable orchestration mechanics, not as the sweep abstraction;
-- [ ] define generic sweep plan/job/event data model;
-- [ ] define measurement-adapter interface;
-- [ ] define generic adapter registry/factory with no concrete-adapter branching in the engine/dispatch;
-- [ ] implement generic sweep engine independent of Chatter semantics;
-- [ ] require already-open participating sessions;
-- [ ] implement one-active-sweep-per-agent-process admission;
-- [ ] implement atomic all-or-nothing mutation ownership for participating sessions;
-- [ ] centralize ownership checks for all session mutation paths;
-- [ ] release ownership on every terminal/error/shutdown path;
-- [ ] define cancellation signal/deadline plumbing shared by engine and adapters;
-- [ ] require finite deadlines for every blocking adapter phase, including settlement and cleanup;
-- [ ] document that physical-environment isolation beyond declared owned sessions is caller responsibility;
-- [ ] add agent API dispatch/validation for `sweep_start`;
-- [ ] implement bounded per-job event history with monotonic gap-free cursor;
-- [ ] implement exact `oldest_valid_cursor` / future-cursor validation and coherent event/progress snapshots;
-- [ ] implement `sweep_observe` long-poll with requested `window`, advertised `max_window`, `head_cursor`, timeout and progress snapshot;
-- [ ] implement explicit expired-cursor error without silent event loss;
-- [ ] preserve one-request/one-response and no-unsolicited-JSON rules;
-- [ ] keep unrelated agent requests serviceable while `sweep_observe` waits;
-- [ ] implement `sweep_cancel` request/terminal-state separation;
-- [ ] implement explicit terminal-job `sweep_close` resource release;
-- [ ] enforce a finite global retained-terminal-job bound even when callers never close jobs;
-- [ ] implement exact fixed repetition semantics;
-- [ ] implement first Chatter reliable-USER measurement adapter without leaking its semantics into the generic engine;
-- [ ] verify adapter applies and verifies requested coordinates before sampling;
-- [ ] ensure sequential sample boundary for the first adapter;
-- [ ] ensure existing forensic and console logs remain owned by normal SerialTerminal logging;
-- [ ] persist mechanical sweep events through existing RunLog `[SWEEP]` records using the same job-local event sequence as the API ring;
-- [ ] update `AGENT_API.md` with final exact schema and semantics;
-- [ ] update architecture docs if the new sweep/adapter dependency boundary requires it.
+- [x] inspect current agent async request/observe architecture and reuse its request/response conventions;
+- [x] inspect `scripts/run-chatter-scenario` only for reusable orchestration mechanics, not as the sweep abstraction;
+- [x] define generic sweep plan/job/event data model;
+- [x] define measurement-adapter interface;
+- [x] define generic adapter registry/factory with no concrete-adapter branching in the engine/dispatch;
+- [x] implement generic sweep engine independent of Chatter semantics;
+- [x] require already-open participating sessions;
+- [x] implement one-active-sweep-per-agent-process admission;
+- [x] implement atomic all-or-nothing mutation ownership for participating sessions;
+- [x] centralize ownership checks for all session mutation paths;
+- [x] release ownership on every terminal/error/shutdown path;
+- [x] define cancellation signal/deadline plumbing shared by engine and adapters;
+- [x] require finite deadlines for every blocking adapter phase, including settlement and cleanup;
+- [x] document that physical-environment isolation beyond declared owned sessions is caller responsibility;
+- [x] add agent API dispatch/validation for `sweep_start`;
+- [x] implement bounded per-job event history with monotonic gap-free cursor;
+- [x] implement exact `oldest_valid_cursor` / future-cursor validation and coherent event/progress snapshots;
+- [x] implement `sweep_observe` long-poll with requested `window`, advertised `max_window`, `head_cursor`, timeout and progress snapshot;
+- [x] implement explicit expired-cursor error without silent event loss;
+- [x] preserve one-request/one-response and no-unsolicited-JSON rules;
+- [x] keep unrelated agent requests serviceable while `sweep_observe` waits;
+- [x] implement `sweep_cancel` request/terminal-state separation;
+- [x] implement explicit terminal-job `sweep_close` resource release;
+- [x] enforce a finite global retained-terminal-job bound even when callers never close jobs;
+- [x] implement exact fixed repetition semantics;
+- [x] implement first Chatter reliable-USER measurement adapter without leaking its semantics into the generic engine;
+- [x] verify adapter applies and verifies requested coordinates before sampling;
+- [x] ensure sequential sample boundary for the first adapter;
+- [x] ensure existing forensic and console logs remain owned by normal SerialTerminal logging;
+- [x] persist mechanical sweep events through existing RunLog `[SWEEP]` records using the same job-local event sequence as the API ring;
+- [x] update `AGENT_API.md` with final exact schema and semantics;
+- [x] update architecture docs if the new sweep/adapter dependency boundary requires it.
 
 ## Validation
 
 Generic API/engine tests:
 
-- [ ] `sweep_start` returns promptly with unique sweep id;
-- [ ] only one active sweep is allowed per agent process;
-- [ ] second concurrent `sweep_start` fails without disturbing the active job;
-- [ ] ownership acquisition for participating sessions is atomic all-or-nothing;
-- [ ] external `send_line`, `send_bytes` and `close` on owned sessions fail before side effects;
-- [ ] read-only `status` / ordinary `observe` remain usable for owned sessions where documented;
-- [ ] ownership is released on completed/failed/cancelled/shutdown/error paths;
-- [ ] cancellation wakes or otherwise bounds an adapter blocked in apply/verify/sample-settlement wait;
-- [ ] missing firmware/protocol events cannot leave a sweep permanently running/cancelling;
-- [ ] cleanup is deadline-bounded and cleanup timeout produces terminal mechanical failure;
-- [ ] non-participating session mutation is not implicitly blocked by sweep ownership;
-- [ ] documented tests make clear that RF/environment isolation outside declared ownership remains caller responsibility;
-- [ ] advertised `max_window` and retention are stable and enforced;
-- [ ] `repetitions=3` executes exactly 3 samples per requested coordinate;
-- [ ] `repetitions=10` executes exactly 10 samples per requested coordinate;
-- [ ] no runtime condition changes the requested repetition count;
-- [ ] traversal follows the declared ordered axes deterministically;
-- [ ] progress totals and current coordinate/repetition are mechanically correct;
-- [ ] requested window larger than `max_window` returns only `max_window` events;
-- [ ] `response.cursor` is the last returned event sequence;
-- [ ] `head_cursor` reports producer head independently of reader position;
-- [ ] caller can drain backlog over multiple windows without a `more` flag;
-- [ ] long-poll wakes on new event;
-- [ ] long-poll wakes on terminal transition;
-- [ ] long-poll returns `timed_out:true` when no wake condition occurs;
-- [ ] unrelated agent request can complete while `sweep_observe` is pending;
-- [ ] `oldest_valid_cursor` boundary is exact and off-by-one safe;
-- [ ] cursor greater than `head_cursor` returns explicit invalid-cursor error;
-- [ ] negative/bool/float/string sweep cursors are rejected;
-- [ ] duplicate valid cursor reads are deterministic;
-- [ ] events/cursor/head/state/progress come from one coherent snapshot;
-- [ ] expired cursor returns explicit structured error;
-- [ ] job execution failure is returned as terminal job state with `ok:true` observe response;
-- [ ] malformed/unknown sweep request is returned as API `ok:false`;
-- [ ] cancellation first returns/enters cancelling and later reaches terminal cancelled;
-- [ ] `sweep_close` rejects non-terminal jobs and releases terminal jobs;
-- [ ] closed sweep ids become unknown and retained memory is released;
-- [ ] forgotten terminal jobs cannot grow memory without bound; oldest terminal retention is evicted at the configured cap;
-- [ ] no unsolicited JSON is emitted;
-- [ ] generic agent/sweep engine contains no concrete `chatter.reliable_user` branch or Chatter command knowledge;
-- [ ] mechanical sweep events are present in the existing forensic log and correlate 1:1 by sweep event sequence.
+- [x] `sweep_start` returns promptly with unique sweep id;
+- [x] only one active sweep is allowed per agent process;
+- [x] second concurrent `sweep_start` fails without disturbing the active job;
+- [x] ownership acquisition for participating sessions is atomic all-or-nothing;
+- [x] external `send_line`, `send_bytes` and `close` on owned sessions fail before side effects;
+- [x] read-only `status` / ordinary `observe` remain usable for owned sessions where documented;
+- [x] ownership is released on completed/failed/cancelled/shutdown/error paths;
+- [x] cancellation wakes or otherwise bounds an adapter blocked in apply/verify/sample-settlement wait;
+- [x] missing firmware/protocol events cannot leave a sweep permanently running/cancelling;
+- [x] cleanup is deadline-bounded and cleanup timeout produces terminal mechanical failure;
+- [x] non-participating session mutation is not implicitly blocked by sweep ownership;
+- [x] documented tests make clear that RF/environment isolation outside declared ownership remains caller responsibility;
+- [x] advertised `max_window` and retention are stable and enforced;
+- [x] `repetitions=3` executes exactly 3 samples per requested coordinate;
+- [x] `repetitions=10` executes exactly 10 samples per requested coordinate;
+- [x] no runtime condition changes the requested repetition count;
+- [x] traversal follows the declared ordered axes deterministically;
+- [x] progress totals and current coordinate/repetition are mechanically correct;
+- [x] requested window larger than `max_window` returns only `max_window` events;
+- [x] `response.cursor` is the last returned event sequence;
+- [x] `head_cursor` reports producer head independently of reader position;
+- [x] caller can drain backlog over multiple windows without a `more` flag;
+- [x] long-poll wakes on new event;
+- [x] long-poll wakes on terminal transition;
+- [x] long-poll returns `timed_out:true` when no wake condition occurs;
+- [x] unrelated agent request can complete while `sweep_observe` is pending;
+- [x] `oldest_valid_cursor` boundary is exact and off-by-one safe;
+- [x] cursor greater than `head_cursor` returns explicit invalid-cursor error;
+- [x] negative/bool/float/string sweep cursors are rejected;
+- [x] duplicate valid cursor reads are deterministic;
+- [x] events/cursor/head/state/progress come from one coherent snapshot;
+- [x] expired cursor returns explicit structured error;
+- [x] job execution failure is returned as terminal job state with `ok:true` observe response;
+- [x] malformed/unknown sweep request is returned as API `ok:false`;
+- [x] cancellation first returns/enters cancelling and later reaches terminal cancelled;
+- [x] `sweep_close` rejects non-terminal jobs and releases terminal jobs;
+- [x] closed sweep ids become unknown and retained memory is released;
+- [x] forgotten terminal jobs cannot grow memory without bound; oldest terminal retention is evicted at the configured cap;
+- [x] no unsolicited JSON is emitted;
+- [x] generic agent/sweep engine contains no concrete `chatter.reliable_user` branch or Chatter command knowledge;
+- [x] mechanical sweep events are present in the existing forensic log and correlate 1:1 by sweep event sequence.
 
 Adapter boundary tests:
 
-- [ ] generic engine tests contain no Chatter command/parser knowledge;
-- [ ] Chatter adapter accepts already-open compatible sessions and does not perform discover/open;
-- [ ] Chatter adapter applies/verifies requested sweep coordinates;
-- [ ] adapter never waits for a response to a command it has not actually issued;
-- [ ] `queued`/`written` alone never satisfy the sample settlement barrier;
-- [ ] every blocking Chatter adapter phase has an explicit finite deadline;
-- [ ] Chatter adapter waits observe cancellation and converge to terminal state within documented bounds;
-- [ ] first adapter does not pre-submit the next sample before the previous sample reaches its operational settle boundary;
-- [ ] no SF/BW/frequency/power mutation begins while the preceding reliable USER sample is still operationally active;
-- [ ] protocol content used only for operational synchronization does not become generic point analytics;
-- [ ] existing `scripts/run-chatter-scenario` behavior remains passing if any reusable mechanics are extracted.
+- [x] generic engine tests contain no Chatter command/parser knowledge;
+- [x] Chatter adapter accepts already-open compatible sessions and does not perform discover/open;
+- [x] Chatter adapter applies/verifies requested sweep coordinates;
+- [x] adapter never waits for a response to a command it has not actually issued;
+- [x] `queued`/`written` alone never satisfy the sample settlement barrier;
+- [x] every blocking Chatter adapter phase has an explicit finite deadline;
+- [x] Chatter adapter waits observe cancellation and converge to terminal state within documented bounds;
+- [x] first adapter does not pre-submit the next sample before the previous sample reaches its operational settle boundary;
+- [x] no SF/BW/frequency/power mutation begins while the preceding reliable USER sample is still operationally active;
+- [x] protocol content used only for operational synchronization does not become generic point analytics;
+- [x] existing `scripts/run-chatter-scenario` behavior remains passing if any reusable mechanics are extracted.
 
 Repository gates:
 
-- [ ] relevant targeted tests PASS;
-- [ ] full repository validation required by `AGENTS.md` PASS;
-- [ ] final BASE..HEAD diff reviewed, especially deletions/refactors;
-- [ ] GitHub Actions for the resulting implementation checkpoint PASS.
+- [x] relevant targeted tests PASS;
+- [x] full repository validation required by `AGENTS.md` PASS;
+- [x] final BASE..HEAD diff reviewed, especially deletions/refactors;
+- [x] GitHub Actions for the resulting implementation checkpoint PASS.
 
 No real hardware sweep is required to close the source implementation/automated-validation portion unless a later task explicitly adds that gate.
 
@@ -1141,12 +1141,12 @@ Sweep progress/completion should reuse that pattern through `sweep_observe`.
 - The first adapter/use case is Chatter reliable USER because that is the immediate hardware need.
 - The first API version deliberately supports only one active sweep job per agent process; parallel measurement domains require a separate future resource-ownership design.
 - Exclusive mutation ownership covers only declared participating sessions. Isolation of unrelated sessions/devices and the surrounding physical RF environment remains caller/coordinator responsibility.
-- Final plan/adapter JSON schema is not yet implemented and may be refined while preserving the abstraction and API semantics in this TODO.
+- Plan/adapter schema is now implemented and documented in `AGENT_API.md`; future schema evolution must preserve the generic-vs-adapter boundary.
 - Job event history is operational progress, not a replacement for forensic logs.
 - This TODO does not define cross-process persistence/resume of a sweep job after the agent process exits.
 - This TODO does not define adaptive experiment orchestration above the sweeper.
 
-## Interrupted implementation checkpoint
+## Historical interrupted implementation checkpoint
 
 Source implementation stopped on operator request at:
 
@@ -1213,12 +1213,65 @@ Before any further implementation:
 6. after targeted tests pass, run the full repository gates and only then update API/architecture/logging/skill docs to the final exact contract;
 7. perform the mandatory BASE..HEAD deletion/comment/function-definition review before declaring the source checkpoint accepted.
 
+## Resumed implementation completion
+
+Implementation resumed after the recorded interruption and was completed in small CI-gated checkpoints. Material post-handoff checkpoints include:
+
+```text
+0a4851fe6ec9546ae6c26bc6816b46e906e2effc  fix: stabilize Chatter radio value parsing
+47c498d8be63f6d5593f5afeb786e02e9a1d194e  sweep: harden generic job publication
+32ea573ef4abdd8fab5bfa8d04bf1884e3f1abe7  test: share sweep adapter factory identity
+bb4786c5c97a66ebd780abbb379e0cec3c20796b  test: lock sweep JSONL error semantics
+a90efdffdca9b35ba97922937dfa00734ccc4876  chatter: harden sweep settlement correlation
+69bc5206e0b3526a1a319280db3d7109a1df32ec  test: fix forensic correlation lint
+c4f0ae1eec8b097a37ea51c1ae0041a194940db1  chatter: guarantee sweep telemetry visibility
+c0849a1e0cc481c8648072fb1a7dd143d98a1ca5  docs: document sweep agent API
+907e6ee724efa3726838ef88f280eae7fd7ca6e9  docs: fix sweep direction example
+a82f0c2b189c38c8a5baf0b6d87ab88c612963a7  docs: record sweep architecture and logging
+999076af690fec2b8a134ba08e154704ccb918c3  docs: teach agent skill sweep workflow
+73b4488e690994001008f790ba5f5cba279dc577  chatter: correlate sweep delivery by WAIT_ACK
+d868d026c05dac9373a47c0935673836432f9073  test: lock sweep lifecycle deadlines
+```
+
+Important source-review findings resolved before closure:
+
+- Chatter firmware `formatMilli()` canonicalizes trailing decimal zeroes; adapter parsing now compares numeric values rather than padded strings.
+- Delivery telemetry is not guaranteed on the main human stream while output mode is CHAT and BLE telemetry 0004 is optional; the adapter now forces `BOTH` before measurement.
+- Chatter `/id` identity is derived from eFuse MAC while reliable delivery `user=session/seq` uses a random boot protocol session ID. The adapter therefore binds a sample to the first new local `WAIT_ACK` after sample start and correlates later ACK/FAILED by that exact delivery ID; it does not compare delivery IDs to `/id`.
+
+Final automated source checkpoint before this status update:
+
+```text
+dev@d868d026c05dac9373a47c0935673836432f9073
+GitHub Actions: 36286979122 SUCCESS
+compile: PASS
+ruff: PASS
+complexity: PASS
+pytest: 209 passed
+```
+
+Final BASE..HEAD source review used design checkpoint:
+
+```text
+base: 5996a7eaa0275784cccc860199c1a69c0b8ef666
+head: d868d026c05dac9373a47c0935673836432f9073
+```
+
+Review result:
+
+- all pre-existing source deletions were inspected;
+- no pre-existing function definition disappeared;
+- `agent.py` deletions are replacements of old mutation/shutdown/async bodies by ownership-aware equivalents;
+- generic `agent.py` and `sweep.py` contain no concrete Chatter/reliable-user semantics or adapter-name branch;
+- controller-specific behavior remains under the Chatter profile adapter;
+- no hardware execution was performed.
+
 ## Result
 
-Implemented: PARTIAL / interrupted at `dev@a131ac14ea5956d4511c0695aeff10f1760482db`
+Implemented: YES — source + documented machine API
 
-Validated: NO — latest GitHub Actions `36284195278` failed one Chatter adapter test; 182 tests passed
+Automated validation: PASS — GitHub Actions `36286979122`, 209 tests
 
-Hardware validation: NOT RUN
+Hardware validation: NOT RUN / not required by this TODO's source closure gate
 
-Status: PARTIAL / IMPLEMENTATION STOPPED
+Status: CLOSED
