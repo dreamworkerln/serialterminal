@@ -19,10 +19,10 @@ _IDENTITY_RE = re.compile(
 )
 _ECHO_STATE_RE = re.compile(r"current=[A-Z]+ echo=(?P<state>ON|OFF)")
 _FREQ_SAVED_RE = re.compile(
-    r"^\\[SYS\\] FREQ (?P<freq>\\d+(?:\\.\\d+)?) MHz SAVED$"
+    r"^\[SYS\] FREQ (?P<freq>\d+(?:\.\d+)?) MHz SAVED$"
 )
 _BW_SAVED_RE = re.compile(
-    r"^\\[SYS\\] BW (?P<bw>\\d+(?:\\.\\d+)?) kHz SAVED$"
+    r"^\[SYS\] BW (?P<bw>\d+(?:\.\d+)?) kHz SAVED$"
 )
 _CFG_RADIO_RE = re.compile(
     r"^\[SYS\] CFG RADIO power=(?P<power>-?\d+) dBm "

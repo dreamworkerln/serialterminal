@@ -13,6 +13,30 @@ from serialterminal.sweep import (
 )
 
 
+def _canonical_milli(text):
+    whole, dot, fraction = text.partition(".")
+    if not dot:
+        return whole
+    fraction = fraction.rstrip("0")
+    if not fraction:
+        return whole
+    return f"{whole}.{fraction}"
+
+
+@pytest.mark.parametrize(
+    ("text", "expected"),
+    [
+        ("470.000", "470"),
+        ("470.125", "470.125"),
+        ("500.000", "500"),
+        ("62.500", "62.5"),
+        ("7.800", "7.8"),
+    ],
+)
+def test_canonical_milli_matches_firmware_format(text, expected):
+    assert _canonical_milli(text) == expected
+
+
 class _ScriptContext:
     def __init__(self):
         self.commands = []
@@ -100,13 +124,13 @@ class _ScriptContext:
                 f"[SYS] POWER {state['power']} dBm SAVED",
             )
         elif text.startswith("/freq "):
-            state["freq"] = text.split()[1].rstrip("0").rstrip(".")
+            state["freq"] = _canonical_milli(text.split()[1])
             self._line(
                 session,
                 f"[SYS] FREQ {state['freq']} MHz SAVED",
             )
         elif text.startswith("/bw "):
-            state["bw"] = text.split()[1].rstrip("0").rstrip(".")
+            state["bw"] = _canonical_milli(text.split()[1])
             self._line(
                 session,
                 f"[SYS] BW {state['bw']} kHz SAVED",
