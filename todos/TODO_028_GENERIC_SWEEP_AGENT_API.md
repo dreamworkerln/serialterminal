@@ -1,7 +1,7 @@
 # Generic long-running sweep API TODO
 
 TODO-ID: TODO_028
-Status: OPEN
+Status: REOPENED
 
 ## Purpose
 
@@ -1266,12 +1266,347 @@ Review result:
 - controller-specific behavior remains under the Chatter profile adapter;
 - no hardware execution was performed.
 
-## Result
+## Historical closure result
 
-Implemented: YES — source + documented machine API
+The first implementation pass was legitimately accepted at the checkpoint recorded
+above. Preserve that closure as historical provenance; do not rewrite it as though the
+post-closure findings were known at the time.
 
-Automated validation: PASS — GitHub Actions `36286979122`, 209 tests
+```text
+historical implementation:
+  dev@d868d026c05dac9373a47c0935673836432f9073
 
-Hardware validation: NOT RUN / not required by this TODO's source closure gate
+historical automated validation:
+  GitHub Actions 36286979122 SUCCESS
+  209 tests PASS
 
-Status: CLOSED
+historical hardware validation:
+  NOT RUN / not required by the original source-closure gate
+
+historical status:
+  CLOSED
+```
+
+That historical closure is superseded for current engineering status by the independent
+post-closure review below.
+
+## Post-closure independent review — REOPENED 2026-09-27
+
+An independent review of the accepted implementation against the TODO's own ownership,
+lifecycle and diagnostic-isolation contracts found correctness gaps that were not
+covered by the 209-test suite.
+
+This TODO is therefore reopened rather than creating a new "fix TODO_028" task.
+
+The old accepted implementation SHA remains an immutable historical checkpoint. The
+reopened correction must produce a new accepted implementation/validation checkpoint
+before this TODO can be closed again.
+
+### Reopen finding 1 — pre-existing external TX can cross the sweep ownership boundary
+
+Current session mutation ownership blocks **new** external mutations after the sweep
+lease is acquired, but it does not fence ordinary TX work that was accepted immediately
+before `sweep_start`.
+
+Current problematic sequence:
+
+```text
+external send_line/send_bytes
+-> ManagedSession accepts item into outgoing queue
+-> external mutation admission flag is released
+-> sweep_start acquires session ownership successfully
+-> old TX item is written by the TX worker only after the sweep lease is active
+```
+
+Therefore a successful sweep lease currently does not prove that the participating
+session is free of pre-lease host mutations.
+
+This violates the intended exclusive mutation boundary.
+
+Required correction:
+
+- define an explicit pre-sweep TX fence for every participating session;
+- do not silently assume `outgoing.qsize() == 0` proves safety;
+- preserve `tx_state="unknown"` ambiguity rather than pretending it is drained;
+- a sweep must not begin measured work while a previously accepted external mutation can
+  still produce a later side effect;
+- add a deterministic regression test using a deliberately blocked/delayed transport
+  write so a pre-lease queued TX would execute after `sweep_start` on the old code;
+- the corrected behavior may reject/delay sweep admission until the session reaches the
+  defined safe boundary, but it must not silently drop an ambiguous already-accepted
+  external operation without explicit semantics/evidence.
+
+### Reopened sweep model — exclusive local diagnostic radio mode
+
+For the Chatter use case, sweep is a dedicated **local diagnostic radio mode**, not an
+ordinary background client competing with normal node traffic.
+
+Target local-node behavior while sweep is active:
+
+```text
+enter sweep
+-> settle/cancel and clear normal reliable USER backlog as defined by the transition
+-> block ordinary local USER submission
+-> heartbeat OFF
+-> diagnostic heartbeat mode OFF
+-> echo / echo-loop OFF
+-> suppress other self-generated ordinary RF work
+-> execute only the RF work required by the sweep
+-> finish or cancel sweep
+-> leave sweep mode
+-> return to normal node operation
+```
+
+The transition must be explicit and testable. Sweep cleanup/cancellation must not leave
+the node stuck in diagnostic ownership or with stale normal USER work queued behind it.
+
+No new wire-protocol sweep flag/session/token is part of this reopened scope.
+
+Current operational isolation policy is deliberately simpler:
+
+- the participating nodes continue to use the existing ordinary USER/ACK wire protocol;
+- the operator/coordinator places the sweep pair on a frequency/environment chosen to
+  avoid unrelated Chatter traffic;
+- firmware is not required to distinguish a "sweep USER" from an otherwise identical
+  USER frame received over RF;
+- an unrelated third-node transmission on the sweep frequency is measurement
+  contamination/environment interference, not something the current wire protocol must
+  classify or reject;
+- protocol-level multi-node/mesh measurement-domain identity is deferred until such a
+  need is designed explicitly.
+
+Thus the corrected contract is:
+
+```text
+exclusive local sweep mode on each participating node
+    +
+operator-controlled RF-frequency/environment isolation
+    !=
+protocol-level global RF isolation
+```
+
+The local sweep mode must prevent the participating node itself from spontaneously
+injecting unrelated normal traffic into the measurement.
+
+### Queue and ordinary USER behavior
+
+At sweep entry, normal USER work must not remain able to run in parallel with the
+measurement.
+
+Required semantics must explicitly define:
+
+- what happens to an already pending reliable USER;
+- what happens to queued-but-not-yet-transmitted USER messages;
+- how the transition confirms that ordinary reliable work is settled/cleared;
+- that new ordinary local USER submission is rejected while sweep mode is active;
+- that the sweep adapter itself remains able to submit its serialized measured USER
+  transactions;
+- that leaving sweep returns normal USER submission to the normal path.
+
+It is acceptable for the firmware sweep transition to clear the node's ordinary
+reliable USER queue as an explicit diagnostic-mode operation.
+
+Do **not** implement the host-side pre-sweep race fix by silently deleting arbitrary
+`ManagedSession.outgoing` items. Host TX that was already accepted may be a control
+operation and may have an ambiguous transport outcome; it needs an explicit fence/error
+contract rather than invisible loss.
+
+### Incoming RF / ACK behavior during the current no-wire-change sweep
+
+Because this reopened scope intentionally adds no sweep marker to the wire protocol,
+the node cannot cryptographically/protocol-semantically distinguish an expected sweep
+USER from an identical ordinary USER sent by another node.
+
+Therefore:
+
+- do not add ad-hoc heuristics that guess whether an RF USER/ACK is "really sweep";
+- the operator is responsible for choosing a quiet/isolated sweep frequency/environment;
+- unexpected third-party RF during a sweep is contamination and must be preserved as
+  evidence;
+- do not claim protocol-level rejection of unrelated RF as part of this correction.
+
+The important local invariant is that participating nodes do not originate unrelated
+normal traffic themselves while sweep mode is active.
+
+### Cancellation / exit semantics
+
+There are two control layers and they must remain explicit:
+
+```text
+host job control:
+  sweep_cancel
+
+firmware reliable/sweep cleanup:
+  /cancel
+  /cancel all
+  or the adapter-owned equivalent transition
+```
+
+The generic agent must not special-case Chatter command text merely to bypass session
+ownership.
+
+For a sweep driven by SerialTerminal, the normal host cancellation entry point remains
+`sweep_cancel`. The Chatter adapter/firmware transition must then perform the bounded
+controller-side cancellation/cleanup needed to leave sweep mode.
+
+At the firmware/controller semantic level, `/cancel` and `/cancel all` must be
+defined consistently with leaving/cancelling the active sweep diagnostic routine when
+they are the commands used by that routine. After terminal sweep cleanup the node must
+be back in normal mode.
+
+A cancel request is still not proof that an already physically transmitted USER was not
+received.
+
+### Reopen finding 2 — generic phase deadlines are cooperative-only
+
+Current generic phase execution calls the adapter callback synchronously and checks its
+deadline before/after the callback.
+
+If an adapter callback blocks forever without consulting its
+`SweepPhaseContext` cancellation/deadline methods, the generic engine cannot forcibly
+preempt it.
+
+The original wording that a stalled/buggy adapter itself cannot leave a sweep active
+forever is therefore stronger than the current engine guarantee.
+
+Required correction:
+
+- make the contract explicit that maintained adapters are **cooperatively bounded**;
+- every maintained blocking adapter phase must use the supplied phase context/deadline
+  and cancellation signal;
+- tests must prove the maintained Chatter adapter obeys this rule for every blocking
+  phase;
+- do not add unsafe Python thread-kill behavior merely to claim hard preemption;
+- if hard isolation of untrusted/non-cooperative adapters is ever required, design a
+  stronger execution boundary separately.
+
+### Reopen finding 3 — cancellation deadline is technically finite but operationally too long
+
+The Chatter sample-settlement timeout is derived from legal PHY airtime/retry bounds.
+At the slowest supported combinations it can be very large.
+
+Current cancellation can request controller cancellation but still remain bounded by
+the original sample-settlement deadline if the expected cancel/terminal response is
+lost.
+
+Required correction:
+
+- cancellation must switch to its own explicit bounded cancel/cleanup deadline;
+- after cancellation has been requested, do not keep the job in `cancelling` for the
+  entire original measurement settlement budget merely because the node stopped
+  responding;
+- preserve safe physical settlement semantics, but converge to terminal
+  `cancelled` or `failed` on a practical, separately defined cancellation bound;
+- add tests for lost/missing cancellation response, not only responsive fake firmware.
+
+### Reopen finding 4 — cleanup failure currently overwrites the primary failure
+
+If the main sweep operation already fails and cleanup later also fails/times out, the
+terminal job currently replaces the original failure with the cleanup failure.
+
+That loses causal forensic information.
+
+Required correction:
+
+- preserve the primary execution failure;
+- record cleanup failure separately, or preserve an explicit causal chain containing
+  both;
+- API/job state must still make cleanup failure visible;
+- tests must cover primary failure + cleanup failure together.
+
+### Reopen finding 5 — async sweep_observe worker bookkeeping inherits TODO_018 retention
+
+The JSONL runner retains completed asynchronous observe worker `Thread` objects.
+`sweep_observe` uses the same worker bookkeeping and therefore inherits that
+long-lived-process growth.
+
+This root cause was already tracked independently as TODO_018 before TODO_028 existed,
+but it is directly relevant to the intended long-running sweep workflow.
+
+For TODO_028 re-close:
+
+- the maintained repeated `sweep_observe` workflow must not accumulate unbounded
+  completed worker bookkeeping;
+- fix the shared runner path rather than inventing a sweep-only second implementation;
+- retain request-ID busy semantics until the corresponding async request actually
+  completes;
+- preserve shutdown cancellation/join behavior for genuinely active workers;
+- add a stress/regression test with hundreds/thousands of sequential short async
+  observations showing bounded bookkeeping;
+- reconcile TODO_018 status/documentation after the shared fix is accepted rather than
+  leaving contradictory task state.
+
+### Reopened architecture constraints
+
+The correction must preserve the good boundaries from the first implementation:
+
+- generic `agent.py` / `sweep.py` remain free of Chatter command strings and
+  adapter-name branches;
+- profile-owned Chatter behavior remains behind the adapter/profile boundary;
+- exact caller-specified repetitions remain generic engine policy;
+- no CLEAN/DEGRADED/RF analytics move into the generic sweeper;
+- existing USER/ACK wire format remains unchanged for this correction;
+- physical-environment isolation outside the participating nodes remains an
+  operator/coordinator responsibility;
+- forensic `[SWEEP]` records remain mechanical execution evidence;
+- source changes must pass the repository deletion/function-definition review gate in
+  addition to tests/CI.
+
+### Re-close implementation checklist
+
+- [ ] define and implement a safe pre-sweep TX fence that prevents pre-lease host
+  mutation from executing inside the sweep ownership interval;
+- [ ] add deterministic regression coverage for the pre-existing queued/in-flight TX
+  race;
+- [ ] define the Chatter local sweep-mode transition and normal-mode exit;
+- [ ] settle/clear ordinary reliable USER work on sweep entry with explicit semantics;
+- [ ] reject ordinary local USER submission while sweep mode is active;
+- [ ] suppress participating-node heartbeat/diagnostic/echo-loop and other unrelated
+  self-generated RF while sweep mode is active;
+- [ ] keep current USER/ACK wire format unchanged;
+- [ ] document operator-controlled quiet-frequency/environment isolation and third-node
+  contamination semantics;
+- [ ] make `sweep_cancel` drive a separately bounded Chatter cancel/cleanup path;
+- [ ] define/test firmware/controller `/cancel` and `/cancel all` interaction with
+  the active sweep diagnostic routine without adding Chatter special cases to the
+  generic agent layer;
+- [ ] explicitly document cooperative adapter deadline enforcement and test all
+  maintained Chatter blocking phases;
+- [ ] preserve primary failure plus separate cleanup failure/causal detail;
+- [ ] bound shared async observe/sweep_observe completed-thread bookkeeping and
+  reconcile the existing TODO_018 tracking;
+- [ ] update AGENT_API.md, ARCHITECTURE.md, logging/skill docs and hardware executor
+  references to the final corrected semantics;
+- [ ] targeted tests PASS;
+- [ ] full repository validation PASS;
+- [ ] mandatory BASE..HEAD deletion/function-definition/source diff review PASS;
+- [ ] GitHub Actions SUCCESS on the new accepted implementation checkpoint;
+- [ ] update TODO_028 with exact new implementation/validation checkpoints;
+- [ ] only then mark TODO_028 CLOSED again.
+
+Hardware execution is not automatically required merely to implement the host/source
+corrections, but any claim that the new **firmware local sweep mode** works on physical
+nodes requires explicit hardware validation. Automated source tests must not be
+presented as proof of that physical behavior.
+
+## Current result
+
+```text
+TODO_028:
+  REOPENED
+
+reason:
+  independent post-closure review found ownership/isolation/lifecycle defects not
+  covered by the original 209-test acceptance suite
+
+historical accepted implementation:
+  dev@d868d026c05dac9373a47c0935673836432f9073
+  GitHub Actions 36286979122 SUCCESS
+  209 tests PASS
+
+new corrected implementation:
+  NOT YET IMPLEMENTED
+
+current hardware validation for corrected local sweep mode:
+  NOT RUN
+```
