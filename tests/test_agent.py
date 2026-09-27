@@ -155,6 +155,12 @@ class _BlockingObserveManager:
         self.cancelled.set()
         self.observe_release.set()
 
+    def cancel_sweeps(self):
+        pass
+
+    def join_sweeps(self, timeout):
+        pass
+
     def close_all(self):
         pass
 
