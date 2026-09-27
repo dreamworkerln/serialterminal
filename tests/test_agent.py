@@ -7,7 +7,13 @@ import time
 
 import pytest
 
-from serialterminal.agent import AgentError, AgentProtocol, SessionManager, run_agent
+from serialterminal.agent import (
+    AgentError,
+    AgentProtocol,
+    SessionManager,
+    _AgentJsonlRunner,
+    run_agent,
+)
 from serialterminal.runlog import RunLog, default_log_path
 from serialterminal.transports.base import ReceivedChunk, Transport, TransportError
 
@@ -863,3 +869,42 @@ def test_default_log_paths_are_unique_and_live_under_requested_log_dir(tmp_path)
     assert second.parent == log_dir
     assert first != second
     assert first.name.startswith("serialterminal-")
+
+
+
+def test_async_observe_worker_bookkeeping_drops_completed_threads(tmp_path):
+    class ImmediateProtocol:
+        def handle(self, request):
+            return {
+                "id": request["id"],
+                "ok": True,
+                "result": {"timed_out": True},
+            }
+
+    class NoopManager:
+        pass
+
+    log_path = tmp_path / "agent-worker-retention.log"
+    with RunLog(log_path) as run_log:
+        runner = _AgentJsonlRunner(
+            NoopManager(),
+            ImmediateProtocol(),
+            run_log,
+            io.StringIO(),
+            io.StringIO(),
+        )
+        for request_id in range(1000):
+            runner._handle_request(
+                {
+                    "id": request_id,
+                    "op": "observe",
+                    "cursors": {"s1": 0},
+                    "timeout_ms": 0,
+                }
+            )
+
+        assert _wait_until(
+            lambda: len(runner._observe_threads) == 0,
+            timeout=3.0,
+        )
+        assert runner._pending_ids == set()
