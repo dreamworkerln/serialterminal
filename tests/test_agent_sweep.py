@@ -7,7 +7,7 @@ import time
 
 import pytest
 
-from serialterminal.agent import AgentError, SessionManager, run_agent
+from serialterminal.agent import AgentError, AgentProtocol, SessionManager, run_agent
 from serialterminal.profiles.generic import GenericProfile
 from serialterminal.runlog import RunLog
 from serialterminal.session import ReceivedChunk
@@ -434,6 +434,147 @@ def test_cancelled_sweep_releases_session_mutation_ownership(
                 "after-cancel",
             )
             assert sent["state"] == "queued"
+        finally:
+            manager.close_all()
+
+
+@pytest.mark.parametrize(
+    ("field", "value", "code"),
+    [
+        ("cursor", True, "invalid_sweep_cursor"),
+        ("cursor", -1, "invalid_sweep_cursor"),
+        ("window", 0, "invalid_sweep_window"),
+        ("window", 1.5, "invalid_sweep_window"),
+        ("timeout_ms", -1, "invalid_timeout"),
+        ("timeout_ms", "100", "invalid_timeout"),
+    ],
+)
+def test_agent_protocol_sweep_observe_rejects_invalid_window_fields(
+    monkeypatch,
+    tmp_path,
+    field,
+    value,
+    code,
+):
+    adapters = []
+
+    def factory(context, sessions, plan):
+        adapter = _BlockingAdapter()
+        adapters.append(adapter)
+        return adapter
+
+    monkeypatch.setattr(
+        GenericProfile,
+        "sweep_adapters",
+        lambda self: {"test.blocking": factory},
+    )
+    selector = _SelectorFactory()
+    with RunLog(tmp_path / "agent.log") as run_log:
+        manager = SessionManager(
+            selector_factory=selector,
+            reconnect_delay=0.01,
+            run_log=run_log,
+        )
+        protocol = AgentProtocol(manager, run_log=run_log)
+        try:
+            manager.discover()
+            opened = manager.open(
+                "serial:a",
+                wait_connected_ms=500,
+            )
+            sweep_id = manager.sweep_start(
+                "test.blocking",
+                [opened["session"]],
+                {"axes": [], "repetitions": 1},
+            )["sweep_id"]
+            assert adapters[0].started.wait(timeout=1.0)
+
+            request = {
+                "id": 10,
+                "op": "sweep_observe",
+                "sweep_id": sweep_id,
+                "cursor": 0,
+                "window": 10,
+                "timeout_ms": 0,
+            }
+            request[field] = value
+            response = protocol.handle(request)
+            assert response["id"] == 10
+            assert response["ok"] is False
+            assert response["error"]["code"] == code
+        finally:
+            manager.cancel_sweeps()
+            manager.close_all()
+            manager.join_sweeps(1.0)
+
+
+def test_agent_protocol_reports_failed_job_as_successful_observe_request(
+    monkeypatch,
+    tmp_path,
+):
+    def factory(context, sessions, plan):
+        return _FailingAdapter()
+
+    monkeypatch.setattr(
+        GenericProfile,
+        "sweep_adapters",
+        lambda self: {"test.failing": factory},
+    )
+    selector = _SelectorFactory()
+    with RunLog(tmp_path / "agent.log") as run_log:
+        manager = SessionManager(
+            selector_factory=selector,
+            reconnect_delay=0.01,
+            run_log=run_log,
+        )
+        protocol = AgentProtocol(manager, run_log=run_log)
+        try:
+            manager.discover()
+            opened = manager.open(
+                "serial:a",
+                wait_connected_ms=500,
+            )
+            start = protocol.handle(
+                {
+                    "id": 1,
+                    "op": "sweep_start",
+                    "adapter": "test.failing",
+                    "sessions": [opened["session"]],
+                    "plan": {"axes": [], "repetitions": 1},
+                }
+            )
+            assert start["ok"] is True
+            sweep_id = start["result"]["sweep_id"]
+
+            response = None
+            assert _wait_until(
+                lambda: (
+                    (candidate := protocol.handle(
+                        {
+                            "id": 2,
+                            "op": "sweep_observe",
+                            "sweep_id": sweep_id,
+                            "cursor": 0,
+                            "window": 100,
+                            "timeout_ms": 0,
+                        }
+                    ))["ok"]
+                    and candidate["result"]["state"] == "failed"
+                )
+            )
+            response = protocol.handle(
+                {
+                    "id": 3,
+                    "op": "sweep_observe",
+                    "sweep_id": sweep_id,
+                    "cursor": 0,
+                    "window": 100,
+                    "timeout_ms": 0,
+                }
+            )
+            assert response["ok"] is True
+            assert response["result"]["state"] == "failed"
+            assert response["result"]["failure"]["code"] == "adapter_failed"
         finally:
             manager.close_all()
 
