@@ -397,6 +397,10 @@ def test_prepare_settles_reliable_flow_before_other_mutations():
             for actual_session, command in context.commands
             if actual_session == session
         ]
+        assert commands.index("/cancel all") < commands.index("/diag off")
+        assert commands.index("/diag off") < commands.index("/heartbeat off")
+        assert commands.index("/heartbeat off") < commands.index("/echo-loop stop")
+        assert commands.index("/echo-loop stop") < commands.index("/both")
         assert commands.index("/both") < commands.index("/help")
 
 
