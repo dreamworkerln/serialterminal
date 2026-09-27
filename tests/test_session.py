@@ -1,10 +1,20 @@
 import queue
+import threading
 import time
 
 import pytest
 
-from serialterminal.session import ManagedSession, SessionCursorExpired
-from serialterminal.transports.base import ReceivedChunk, Transport, TransportError
+from serialterminal.session import (
+    ManagedSession,
+    SessionCursorExpired,
+    SessionTxOutcomeUnknown,
+)
+from serialterminal.transports.base import (
+    ReceivedChunk,
+    Transport,
+    TransportError,
+    TransportWriteOutcomeUnknown,
+)
 
 
 class FakeTransport(Transport):
@@ -310,5 +320,85 @@ def test_raw_bytes_share_same_reconnect_safe_tx_queue():
         ]
         assert len(written) == 1
         assert written[0].data == b"\x14\x31"
+    finally:
+        session.stop()
+
+
+class BlockingWriteTransport(FakeTransport):
+    def __init__(self):
+        super().__init__()
+        self.write_started = threading.Event()
+        self.write_release = threading.Event()
+
+    def write(self, data):
+        if not self.connected:
+            raise TransportError("not connected")
+        self.write_started.set()
+        assert self.write_release.wait(timeout=1.0)
+        self.writes.append(bytes(data))
+
+
+class UnknownWriteTransport(FakeTransport):
+    def write(self, data):
+        if not self.connected:
+            raise TransportError("not connected")
+        raise TransportWriteOutcomeUnknown("injected ambiguous write")
+
+
+def test_tx_fence_waits_until_preexisting_write_has_terminal_outcome():
+    transport = BlockingWriteTransport()
+    session = ManagedSession(transport, reconnect_delay=0.01)
+    session.start()
+    try:
+        assert session.wait_connected(1.0)
+        tx_id = session.queue_line("before-sweep")
+        assert transport.write_started.wait(timeout=1.0)
+        fence = session.capture_tx_fence()
+        assert fence == tx_id
+
+        finished = threading.Event()
+        failure = []
+
+        def wait_fence():
+            try:
+                session.wait_tx_fence(fence, 1.0)
+            except Exception as exc:
+                failure.append(exc)
+            finally:
+                finished.set()
+
+        waiter = threading.Thread(target=wait_fence)
+        waiter.start()
+        assert not finished.wait(timeout=0.05)
+
+        transport.write_release.set()
+        assert finished.wait(timeout=1.0)
+        waiter.join(timeout=1.0)
+        assert failure == []
+        assert transport.writes == [b"before-sweep\n"]
+    finally:
+        transport.write_release.set()
+        session.stop()
+
+
+def test_tx_fence_rejects_ambiguous_preexisting_write_outcome():
+    transport = UnknownWriteTransport()
+    session = ManagedSession(transport, reconnect_delay=0.01)
+    session.start()
+    try:
+        assert session.wait_connected(1.0)
+        tx_id = session.queue_line("ambiguous")
+        fence = session.capture_tx_fence()
+        assert fence == tx_id
+        assert _wait_until(
+            lambda: any(
+                event.tx_id == tx_id and event.tx_state == "unknown"
+                for event in session.events_after(0, kinds=["tx"])
+            )
+        )
+
+        with pytest.raises(SessionTxOutcomeUnknown) as caught:
+            session.wait_tx_fence(fence, 1.0)
+        assert caught.value.tx_id == tx_id
     finally:
         session.stop()
