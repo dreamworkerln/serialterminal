@@ -37,6 +37,54 @@ def test_canonical_milli_matches_firmware_format(text, expected):
     assert _canonical_milli(text) == expected
 
 
+class _RejectingConfigContext:
+    def __init__(self, base):
+        self.base = base
+
+    def __getattr__(self, name):
+        return getattr(self.base, name)
+
+    def send_line(self, session, text):
+        if text.startswith("/sf "):
+            self.base.commands.append((session, text))
+            self.base._line(
+                session,
+                "[SYS] CFG BUSY: radio/protocol transaction active; "
+                "setting not changed",
+            )
+            return {
+                "tx_id": len(self.base.commands),
+                "state": "queued",
+            }
+        return self.base.send_line(session, text)
+
+
+class _QueueFullContext:
+    def __init__(self, base):
+        self.base = base
+
+    def __getattr__(self, name):
+        return getattr(self.base, name)
+
+    def send_line(self, session, text):
+        if not text.startswith("/"):
+            self.base.commands.append((session, text))
+            self.base._line(
+                session,
+                "DELIVERY QUEUE FULL source=1 bytes=32 "
+                "waiting=0/4 in_flight=1",
+            )
+            self.base._line(
+                session,
+                "[SYS] SEND QUEUE FULL: message not accepted",
+            )
+            return {
+                "tx_id": len(self.base.commands),
+                "state": "queued",
+            }
+        return self.base.send_line(session, text)
+
+
 class _ScriptContext:
     def __init__(self):
         self.commands = []
@@ -333,6 +381,79 @@ def test_wait_ack_is_not_sample_settlement_but_matching_ack_is():
         if session == "s1" and not command.startswith("/")
     )
     assert len(payload.encode("ascii")) == 32
+
+
+def test_control_rejection_fails_apply_without_waiting_for_deadline():
+    base = _ScriptContext()
+    context = _RejectingConfigContext(base)
+    adapter = ChatterReliableUserSweepAdapter(
+        context,
+        ("s1", "s2"),
+        _plan(),
+    )
+
+    with pytest.raises(RuntimeError, match="CFG BUSY"):
+        adapter.apply_coordinate(
+            _coordinate(),
+            _phase("apply", seconds=0.2),
+        )
+
+    assert (("s1", "/config") not in base.commands)
+    assert (("s2", "/power 2") not in base.commands)
+
+
+def test_sample_queue_rejection_is_execution_failure_not_settlement_timeout():
+    base = _ScriptContext()
+    context = _QueueFullContext(base)
+    adapter = ChatterReliableUserSweepAdapter(
+        context,
+        ("s1", "s2"),
+        _plan(),
+    )
+    token = adapter.start_sample(
+        _coordinate(),
+        1,
+        _phase("sample_start"),
+    )
+
+    with pytest.raises(RuntimeError, match="SEND QUEUE FULL"):
+        adapter.wait_sample_settled(
+            _coordinate(),
+            1,
+            token,
+            _phase("sample_settlement", seconds=0.2),
+        )
+
+
+def test_settlement_ignores_other_node_delivery_identity():
+    context = _ScriptContext()
+    adapter = ChatterReliableUserSweepAdapter(
+        context,
+        ("s1", "s2"),
+        _plan(),
+    )
+    adapter.identities = {
+        "s1": "LoRa-Chatter-A001",
+        "s2": "LoRa-Chatter-A002",
+    }
+    context._line(
+        "s1",
+        "DELIVERY WAIT_ACK user=BEEF/9 "
+        "attempt=1/5 timeout=100ms queue=0",
+    )
+    token = adapter.start_sample(
+        _coordinate(),
+        1,
+        _phase("sample_start"),
+    )
+    result = adapter.wait_sample_settled(
+        _coordinate(),
+        1,
+        token,
+        _phase("sample_settlement"),
+    )
+
+    assert result["user_id"] == "A001/42"
 
 
 def test_cancel_during_settlement_sends_bounded_cancel_and_terminates():

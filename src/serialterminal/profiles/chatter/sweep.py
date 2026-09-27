@@ -70,6 +70,14 @@ _REQUIRED_FIELDS = frozenset(
 _MAX_ATTEMPTS = 5
 _FRAME_HEADER_BYTES = 12
 _ACK_FRAME_BYTES = 14
+_CONTROL_FAILURE_MARKERS = (" REJECTED", " NOT SAVED", " BUSY")
+
+
+def _is_control_failure(line: str) -> bool:
+    return line.startswith("[SYS]") and any(
+        marker in line
+        for marker in _CONTROL_FAILURE_MARKERS
+    )
 
 
 def _scaled_decimal(text: str, scale: int) -> int:
@@ -348,10 +356,13 @@ class ChatterReliableUserSweepAdapter:
                 if line.get("session") != session:
                     continue
                 text = line.get("text")
-                if (
-                    isinstance(text, str)
-                    and predicate(text)
-                ):
+                if not isinstance(text, str):
+                    continue
+                if _is_control_failure(text):
+                    raise RuntimeError(
+                        f"{session}: Chatter control failed: {text}"
+                    )
+                if predicate(text):
                     return text
 
     def _send_wait(
@@ -645,6 +656,12 @@ class ChatterReliableUserSweepAdapter:
 
         source = str(token["source"])
         user_id: str | None = None
+        identity = self.identities.get(source)
+        expected_user_prefix = (
+            identity.rsplit("-", 1)[-1].upper() + "/"
+            if identity is not None
+            else None
+        )
         cancel_sent = False
 
         while True:
@@ -668,16 +685,31 @@ class ChatterReliableUserSweepAdapter:
                 if not isinstance(value, str):
                     continue
 
+                if (
+                    value.startswith("[SYS] SEND QUEUE FULL")
+                    or value.startswith("[SYS] INPUT TOO LONG")
+                    or "TX FATAL " in value
+                ):
+                    raise RuntimeError(
+                        f"{source}: Chatter sample rejected: {value}"
+                    )
+
                 for regex in (
                     _WAIT_ACK_RE,
                     _ACK_RE,
                     _FAILED_RE,
-                    _CANCEL_RE,
                 ):
                     match = regex.search(value)
                     if match is None:
                         continue
                     candidate = match.group("user")
+                    if (
+                        expected_user_prefix is not None
+                        and not candidate.upper().startswith(
+                            expected_user_prefix
+                        )
+                    ):
+                        continue
                     if user_id is None:
                         user_id = candidate
                     if candidate != user_id:
@@ -690,25 +722,27 @@ class ChatterReliableUserSweepAdapter:
                             "tx_id": int(token["tx_id"]),
                             "user_id": user_id,
                         }
+
+                if cancel_sent:
+                    cancelled = _CANCEL_RE.search(value)
                     if (
-                        regex is _CANCEL_RE
-                        and cancel_sent
+                        cancelled is not None
+                        and (
+                            user_id is None
+                            or cancelled.group("user") == user_id
+                        )
                     ):
                         raise SweepCancelled(
                             "active Chatter reliable USER "
                             "was cancelled"
                         )
-
-                if (
-                    cancel_sent
-                    and value.startswith(
+                    if value.startswith(
                         "[SYS] DELIVERY CANCEL"
-                    )
-                ):
-                    raise SweepCancelled(
-                        "Chatter reliable USER "
-                        "cancellation settled"
-                    )
+                    ):
+                        raise SweepCancelled(
+                            "Chatter reliable USER "
+                            "cancellation settled"
+                        )
 
     def cleanup(
         self,
