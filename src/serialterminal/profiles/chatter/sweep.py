@@ -751,21 +751,42 @@ class ChatterReliableUserSweepAdapter:
         self,
         phase: SweepPhaseContext,
     ) -> None:
+        pending: set[str] = set()
+        send_failure: Exception | None = None
         for session in self.sessions:
-            self.context.send_line(
-                session,
-                "/sweep off",
-            )
-            self._wait_line(
-                session,
-                lambda line:
-                    line in {
-                        "[SYS] SWEEP OFF",
-                        "[SYS] SWEEP already OFF",
-                    },
+            try:
+                self.context.send_line(
+                    session,
+                    "/sweep off",
+                )
+                pending.add(session)
+            except Exception as exc:
+                if send_failure is None:
+                    send_failure = exc
+
+        while pending:
+            for line in self._observe_lines(
                 phase,
                 respect_cancel=False,
-            )
+            ):
+                session = line.get("session")
+                if session not in pending:
+                    continue
+                text = line.get("text")
+                if not isinstance(text, str):
+                    continue
+                if _is_control_failure(text):
+                    raise RuntimeError(
+                        f"{session}: Chatter cleanup failed: {text}"
+                    )
+                if text in {
+                    "[SYS] SWEEP OFF",
+                    "[SYS] SWEEP already OFF",
+                }:
+                    pending.remove(session)
+
+        if send_failure is not None:
+            raise send_failure
 
 
 def create_reliable_user_sweep_adapter(
