@@ -325,9 +325,9 @@ class SweepJob:
         sessions: tuple[str, ...],
         plan: SweepPlan,
         adapter: SweepAdapter,
-        preflight: Callable[[SweepPhaseContext], None] | None,
         release_sessions: Callable[[str, tuple[str, ...]], None],
         run_log: Any | None,
+        preflight: Callable[[SweepPhaseContext], None] | None = None,
         event_retention: int = SWEEP_EVENT_RETENTION,
         max_window: int = SWEEP_MAX_WINDOW,
     ):
