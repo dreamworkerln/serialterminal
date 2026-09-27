@@ -29,6 +29,18 @@ class SessionClosedError(RuntimeError):
     """Raised when new work is submitted to a stopped managed session."""
 
 
+class SessionTxFenceTimeout(RuntimeError):
+    """Raised when accepted TX cannot reach a terminal transport outcome in time."""
+
+
+class SessionTxOutcomeUnknown(RuntimeError):
+    """Raised when pre-fence TX may already have produced an ambiguous side effect."""
+
+    def __init__(self, tx_id: int):
+        super().__init__(f"tx outcome is unknown for pre-sweep tx_id={tx_id}")
+        self.tx_id = tx_id
+
+
 class SessionCursorExpired(RuntimeError):
     """Raised when an event cursor points before the retained event window."""
 
@@ -140,7 +152,9 @@ class ManagedSession:
         self._event_condition = threading.Condition()
         self._next_event_seq = 1
         self._next_tx_id = 1
-        self._tx_id_lock = threading.Lock()
+        self._tx_condition = threading.Condition()
+        self._pending_tx_ids: set[int] = set()
+        self._last_unknown_tx_id: int | None = None
         self._event_decode_lock = threading.Lock()
         self._event_decoders: dict[str, codecs.IncrementalDecoder] = {}
 
@@ -153,10 +167,44 @@ class ManagedSession:
             return self.transport
 
     def _next_tx(self) -> int:
-        with self._tx_id_lock:
+        with self._tx_condition:
             tx_id = self._next_tx_id
             self._next_tx_id += 1
+            self._pending_tx_ids.add(tx_id)
             return tx_id
+
+    def capture_tx_fence(self) -> int:
+        """Return the last TX accepted before a caller-established ownership boundary."""
+        with self._tx_condition:
+            return self._next_tx_id - 1
+
+    def _settle_tx(self, tx_id: int, state: str) -> None:
+        with self._tx_condition:
+            self._pending_tx_ids.discard(tx_id)
+            if state == "unknown":
+                self._last_unknown_tx_id = tx_id
+            self._tx_condition.notify_all()
+
+    def wait_tx_fence(self, fence_tx_id: int, timeout: float) -> None:
+        """Wait until every accepted TX through fence_tx_id has a known terminal outcome."""
+        if fence_tx_id < 0:
+            raise ValueError("fence_tx_id must be non-negative")
+        if timeout < 0:
+            raise ValueError("timeout must be non-negative")
+        deadline = time.monotonic() + timeout
+        with self._tx_condition:
+            while any(tx_id <= fence_tx_id for tx_id in self._pending_tx_ids):
+                remaining = deadline - time.monotonic()
+                if remaining <= 0:
+                    raise SessionTxFenceTimeout(
+                        f"pre-sweep TX fence timed out at tx_id={fence_tx_id}"
+                    )
+                self._tx_condition.wait(timeout=remaining)
+            if (
+                self._last_unknown_tx_id is not None
+                and self._last_unknown_tx_id <= fence_tx_id
+            ):
+                raise SessionTxOutcomeUnknown(self._last_unknown_tx_id)
 
     def _validate_cursor_locked(self, after_seq: int) -> None:
         if after_seq < 0:
@@ -518,6 +566,7 @@ class ManagedSession:
                             device_key=transport.device_key,
                             description=transport.description,
                         )
+                        self._settle_tx(item.tx_id, "written")
                         self.on_tx_written(item)
                         break
                     except TransportWriteOutcomeUnknown as exc:
@@ -530,6 +579,7 @@ class ManagedSession:
                             device_key=transport.device_key,
                             description=transport.description,
                         )
+                        self._settle_tx(item.tx_id, "unknown")
                         self._record_event(
                             "error",
                             error=str(exc),
