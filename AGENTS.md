@@ -24,9 +24,26 @@ Keep untouched source sections unchanged whenever practical.
 
 The related firmware repository is `dreamworkerln/lora-sack-protocol`.
 
-Its local checkout path is not fixed. When a task explicitly requires local firmware source access, resolve the checkout from immediate sibling Git repositories by matching `remote.origin.url` to that repository identity. Never infer a host username, use a hard-coded `/home/...` path, assume a specific sibling directory name, or broaden the search outside the workspace parent merely to locate it.
+**SerialTerminal source agents must never modify the firmware repository.** From a
+`serialterminal/dev` task, `dreamworkerln/lora-sack-protocol` is read-only even
+when firmware behavior is relevant to analysis, compatibility checks or test design.
 
-Inspect or modify that repository only when the task explicitly involves it. When working there, follow its own `AGENTS.md` if present.
+Do not create, update, delete, commit, push, merge, rebase, reset or otherwise mutate
+files, branches, refs, issues, workflows or repository state in
+`dreamworkerln/lora-sack-protocol` from this workstream.
+
+A firmware change requires a separate firmware task explicitly started by the operator
+outside the SerialTerminal source-agent task. Do not infer permission to change
+firmware merely because a SerialTerminal TODO would be easier to implement by adding a
+firmware command, mode, protocol flag or scheduler behavior.
+
+When a task explicitly requires firmware source **inspection**, its local checkout path
+is not fixed. Resolve the checkout from immediate sibling Git repositories by matching
+`remote.origin.url` to that repository identity. Never infer a host username, use a
+hard-coded `/home/...` path, assume a specific sibling directory name, or broaden the
+search outside the workspace parent merely to locate it. Follow the firmware
+repository's own `AGENTS.md` for interpretation constraints, but keep all access
+read-only.
 
 ## Existing code and comments
 
@@ -211,7 +228,13 @@ Do not assume physical hardware is available unless the task explicitly says it 
 
 Do not claim USB or BLE hardware behavior was tested if only mocks or unit tests were run.
 
-Source-development work around a hardware smoke may involve the related firmware repository `dreamworkerln/lora-sack-protocol`, but the separate hardware executor must not inspect that firmware checkout. Resolve/read firmware source only in the source-development workspace when the operator's task actually requires it, then pass the necessary test contract/facts to the hardware executor.
+Source-development work around a hardware smoke may require **reading** the related
+firmware repository `dreamworkerln/lora-sack-protocol`, but this SerialTerminal
+source-agent workstream must never modify it. The separate hardware executor must not
+inspect that firmware checkout. Resolve/read firmware source only in the source-
+development workspace when the operator's task actually requires it, then pass the
+necessary test contract/facts to the hardware executor. Any firmware edit belongs to a
+separate operator-authorized firmware task.
 
 Only perform hardware-facing actions when explicitly requested.
 
