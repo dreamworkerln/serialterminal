@@ -155,7 +155,7 @@ Status: CLOSED
 
 Goal: generic long-running sweep jobs with exact repetitions, safe session ownership/TX fencing, profile-owned measurement adapters, bounded lifecycle/cancellation, and a Chatter local diagnostic sweep mode without adding a wire-protocol sweep flag.
 
-Corrected SerialTerminal checkpoint: `dev@bce891f74a435307303333911cff2107a7317899`; GitHub Actions `36315186620` SUCCESS; compile/ruff/complexity PASS; **224 tests PASS**.
+Corrected SerialTerminal checkpoint: `dev@1ecfd4aa0ce83e2e30b060e42dab24b4c8ebdec8`; GitHub Actions `36326214664` SUCCESS; compile/ruff/complexity PASS; **225 tests PASS**. The final fence hardening reserves TX ids only after local line encoding succeeds, preventing malformed text from creating phantom pending TX state.
 
 Corrected Chatter firmware checkpoint: `dev_chat_ack@020ebe39288681cc58b8a5109717f6b55fbf675c`; Chatter CI `36315420318` SUCCESS; PlatformIO build, native protocol/reliability tests, clang-tidy, cppcheck and complexity PASS.
 

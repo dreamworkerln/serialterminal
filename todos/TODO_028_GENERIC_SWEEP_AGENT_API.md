@@ -1596,12 +1596,12 @@ The post-closure correction was implemented and reviewed in the requested order.
 ### SerialTerminal corrected source checkpoint
 
 ```text
-dev@bce891f74a435307303333911cff2107a7317899
-GitHub Actions 36315186620 SUCCESS
+dev@1ecfd4aa0ce83e2e30b060e42dab24b4c8ebdec8
+GitHub Actions 36326214664 SUCCESS
 compile PASS
 ruff PASS
 complexity step PASS
-pytest 224 passed
+pytest 225 passed
 ```
 
 Implemented/validated corrections include:
@@ -1612,6 +1612,8 @@ Implemented/validated corrections include:
 - explicit `session_tx_unknown` failure before adapter lifecycle when a pre-lease
   write outcome is ambiguous;
 - no adapter cleanup call when the session fence itself fails;
+- TX ids are reserved only after local line encoding succeeds, so malformed local text
+  cannot leave a phantom pending TX that wedges a later sweep fence;
 - Chatter adapter transition to firmware `/sweep on` and idempotent `/sweep off`;
 - separate short cancellation-settlement budget for active Chatter samples;
 - best-effort `/sweep off` submission to all participating sessions before cleanup
@@ -1678,7 +1680,7 @@ Correction review bases:
 ```text
 SerialTerminal:
   base  bae0a590fb9260c024857d9e7820acba9e91ee49
-  head  bce891f74a435307303333911cff2107a7317899
+  head  1ecfd4aa0ce83e2e30b060e42dab24b4c8ebdec8
 
 Chatter firmware:
   base  4c952dd13c87999dda6529db06c91aa224383e8a
@@ -1712,9 +1714,9 @@ historical first implementation:
   209 tests PASS
 
 corrected SerialTerminal implementation:
-  dev@bce891f74a435307303333911cff2107a7317899
-  GitHub Actions 36315186620 SUCCESS
-  224 tests PASS
+  dev@1ecfd4aa0ce83e2e30b060e42dab24b4c8ebdec8
+  GitHub Actions 36326214664 SUCCESS
+  225 tests PASS
 
 corrected Chatter firmware implementation:
   dev_chat_ack@020ebe39288681cc58b8a5109717f6b55fbf675c
