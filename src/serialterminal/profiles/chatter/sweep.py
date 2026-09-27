@@ -18,6 +18,12 @@ _IDENTITY_RE = re.compile(
     r"\[SYS\] CHATTER NODE (?P<identity>LoRa-Chatter-[0-9A-Fa-f]+)"
 )
 _ECHO_STATE_RE = re.compile(r"current=[A-Z]+ echo=(?P<state>ON|OFF)")
+_FREQ_SAVED_RE = re.compile(
+    r"^\\[SYS\\] FREQ (?P<freq>\\d+(?:\\.\\d+)?) MHz SAVED$"
+)
+_BW_SAVED_RE = re.compile(
+    r"^\\[SYS\\] BW (?P<bw>\\d+(?:\\.\\d+)?) kHz SAVED$"
+)
 _CFG_RADIO_RE = re.compile(
     r"^\[SYS\] CFG RADIO power=(?P<power>-?\d+) dBm "
     r"freq=(?P<freq>\d+(?:\.\d+)?) MHz sf=(?P<sf>\d+) "
@@ -491,10 +497,15 @@ class ChatterReliableUserSweepAdapter:
                 session,
                 f"/freq {frequency_text}",
                 lambda line,
-                frequency_text=frequency_text:
-                    line
-                    == (
-                        f"[SYS] FREQ {frequency_text} MHz SAVED"
+                frequency_hz=frequency_hz:
+                    (
+                        (match := _FREQ_SAVED_RE.match(line))
+                        is not None
+                        and _scaled_decimal(
+                            match.group("freq"),
+                            1_000_000,
+                        )
+                        == frequency_hz
                     ),
                 phase,
             )
@@ -502,9 +513,16 @@ class ChatterReliableUserSweepAdapter:
                 session,
                 f"/bw {bandwidth_text}",
                 lambda line,
-                bandwidth_text=bandwidth_text:
-                    line
-                    == f"[SYS] BW {bandwidth_text} kHz SAVED",
+                bandwidth_hz=bandwidth_hz:
+                    (
+                        (match := _BW_SAVED_RE.match(line))
+                        is not None
+                        and _scaled_decimal(
+                            match.group("bw"),
+                            1_000,
+                        )
+                        == bandwidth_hz
+                    ),
                 phase,
             )
             self._send_wait(
