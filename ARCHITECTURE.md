@@ -113,7 +113,7 @@ Application/protocol acceptance rules belong above SerialTerminal core:
 
 SerialTerminal core must not promote protocol-specific delivery criteria, node roles, retry policy, RSSI/SNR/Q expectations, or lab topology into generic transport/session behavior.
 
-The Chatter local sweep mode is deliberately **not** a global RF ownership mechanism. No new sweep bit/token is introduced into Chatter frames. The participating node suppresses its own unrelated local/background RF while active; quiet-frequency/environment isolation from third-party nodes remains a coordinator responsibility.
+For the bundled Chatter sweep, diagnostic isolation is host-orchestrated rather than a firmware mode. The profile adapter uses existing Chatter commands to settle reliable USER work and disable heartbeat/diagnostic/echo-loop/manual-echo activity, while generic sweep ownership blocks competing SerialTerminal mutations. No firmware `/sweep` command or wire bit/token is part of the SerialTerminal contract. Quiet-frequency/environment isolation from third-party RF remains a coordinator responsibility.
 
 ## Dependency direction
 

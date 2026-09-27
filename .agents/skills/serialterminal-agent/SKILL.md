@@ -116,7 +116,7 @@ send_line
 
 Generic ownership не изолирует физический эфир. Неучаствующие sessions/processes/devices generic API не блокирует; project-specific executor обязан держать другие влияющие на эксперимент передатчики quiet.
 
-Для `chatter.reliable_user` текущий adapter после host TX fence входит на обеих нодах в firmware `/sweep on`: это exclusive **local** diagnostic mode, который гасит normal USER backlog/background RF и оставляет measured USER от sweep-owner input source. Wire USER/ACK при этом обычный, без sweep flag/token. Поэтому третья нода на той же частоте всё ещё может загрязнить эксперимент — frequency/environment isolation остаётся задачей executor/coordinator. Normal cleanup делает `/sweep off`; cancel path использует controller cancellation и отдельный bounded cancel budget.
+Для `chatter.reliable_user` sweep mode живёт в SerialTerminal: после host TX fence adapter через существующие команды делает `/cancel all`, выключает diag/heartbeat/echo-loop/manual echo и включает `BOTH`, а generic ownership блокирует конкурирующие external mutations на participating sessions. Никакого firmware `/sweep on|off` prerequisite нет. Третья нода на той же частоте всё ещё может загрязнить эксперимент — frequency/environment isolation остаётся задачей executor/coordinator. Cancel path использует `/cancel all` и отдельный bounded cancel budget.
 
 ### Execution vs analysis
 
@@ -141,7 +141,7 @@ Controller adapter может читать protocol lines, чтобы опред
 
 После sweep consuming project skill/reviewer может читать обычный forensic log и анализировать protocol/RF evidence по своим правилам. `[SWEEP] event_seq` в forensic `.log` коррелирует с `sweep_observe.events[].seq` и остаётся после `sweep_close`.
 
-Для bundled `chatter.reliable_user` adapter не делай вручную конкурирующие radio/config commands. Adapter требует firmware с `/sweep on|off`, сам переводит participating Chatter sessions в local sweep mode, применяет/проверяет coordinate и сериализует reliable USER samples. Его конкретные plan fields/limits смотри в `AGENT_API.md`; interpretation ACK/retry/CRC/RSSI/SNR остаётся в LoRa-Chatter consuming skill.
+Для bundled `chatter.reliable_user` adapter не делай вручную конкурирующие radio/config commands. Adapter сам приводит participating sessions в quiet diagnostic baseline существующими Chatter-командами, применяет/проверяет coordinate и сериализует reliable USER samples. Его конкретные plan fields/limits смотри в `AGENT_API.md`; interpretation ACK/retry/CRC/RSSI/SNR остаётся в LoRa-Chatter consuming skill.
 
 ## Два уровня receive evidence
 

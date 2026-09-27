@@ -600,15 +600,26 @@ direction      "<session-a>session-b>" or reverse
 
 `plan.options` is currently empty for this adapter.
 
-The current adapter requires Chatter firmware that supports the local diagnostic commands `/sweep on` and `/sweep off`. After the generic pre-sweep TX fence has settled, preparation enters `/sweep on` on both nodes. That firmware transition clears/settles ordinary reliable USER backlog, blocks ordinary local USER submission from non-owner input sources, disables heartbeat/diagnostic/echo-loop/manual-echo background activity and suppresses unrelated self-generated RF. The adapter then forces human output mode `BOTH` so delivery TELEMETRY is available even without optional BLE 0004 and verifies distinct node identities.
+The Chatter adapter does **not** require a firmware sweep mode. After the generic pre-sweep TX fence has settled, the host-side adapter uses only existing Chatter control commands to establish a quiet diagnostic baseline on both participating sessions:
 
-The local sweep mode does **not** change the wire protocol: measured traffic remains ordinary Chatter USER/ACK frames. There is no sweep frame flag/token in this version. Consequently protocol-level isolation from a third node is not provided; the operator/coordinator must use a quiet measurement frequency/environment, and unrelated RF observed there is contamination rather than a frame that firmware can identify as "non-sweep".
+```text
+/cancel all
+/diag off
+/heartbeat off
+/echo-loop stop
+/echo        only when /help reports echo=ON
+/both
+```
+
+The active `SweepJob` plus SerialTerminal session ownership is the sweep mode: external `send_line`, `send_bytes` and `close` are blocked on participating sessions, while the profile-owned adapter alone may submit control commands and measured USER traffic through its capability-limited context. No firmware command, scheduler state, wire flag or protocol token named "sweep" is required.
+
+This host-side isolation cannot prevent RF generated independently by firmware in response to unrelated over-the-air traffic. The operator/coordinator must therefore use a quiet measurement frequency/environment and keep unrelated nodes quiescent. Third-party RF is measurement contamination, not something SerialTerminal can classify as sweep/non-sweep traffic.
 
 For each coordinate the adapter applies and verifies requested radio configuration before sampling. For each repetition it submits exactly one reliable USER and waits for that operation to settle before any next sample or radio-configuration mutation. Host `queued`/`written` state alone is never treated as device/RF settlement.
 
 The adapter may parse delivery telemetry to synchronize execution, but generic sweep events do not classify ACK/retry/CRC/HDR/RSSI/SNR quality. Detailed interpretation remains a caller/reviewer task using the forensic log.
 
-On normal completion/cleanup the adapter leaves local diagnostic mode with `/sweep off`. During cancellation it uses `/cancel all` as the controller-side emergency settlement command; current Chatter firmware defines `/cancel` and `/cancel all` while sweep is active as also leaving local sweep mode. Cleanup remains idempotent if cancellation already exited the mode.
+On normal completion or cancellation cleanup, the adapter sends `/cancel all` to every participating session and waits within the bounded cleanup phase for delivery cancellation/settlement evidence. Background modes that preparation forced OFF are not silently re-enabled; after the job releases session ownership, ordinary SerialTerminal control is available again.
 
 ## Concurrent JSONL behavior
 

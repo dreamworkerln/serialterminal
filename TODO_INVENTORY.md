@@ -151,21 +151,13 @@ Physical interactive smoke: PASS on 2026-09-22 with `Profile: chatter`; companio
 
 ### TODO_028 — `todos/TODO_028_GENERIC_SWEEP_AGENT_API.md`
 
-Status: CLOSED
+Status: REOPENED
 
-Goal: generic long-running sweep jobs with exact repetitions, safe session ownership/TX fencing, profile-owned measurement adapters, bounded lifecycle/cancellation, and a Chatter local diagnostic sweep mode without adding a wire-protocol sweep flag.
+Goal: generic long-running sweep jobs implemented entirely in SerialTerminal, with exact repetitions, safe session ownership/TX fencing, profile-owned quiet-state preparation, bounded lifecycle/cancellation and no firmware sweep-mode dependency.
 
-Corrected SerialTerminal checkpoint: `dev@1ecfd4aa0ce83e2e30b060e42dab24b4c8ebdec8`; GitHub Actions `36326214664` SUCCESS; compile/ruff/complexity PASS; **225 tests PASS**. The final fence hardening reserves TX ids only after local line encoding succeeds, preventing malformed text from creating phantom pending TX state.
+Current host-only correction keeps the accepted TX fence, separate cancel budget, primary/cleanup failure causality and bounded async-worker bookkeeping, while replacing the invalid firmware `/sweep on|off` dependency with existing Chatter controls: `/cancel all`, `/diag off`, `/heartbeat off`, `/echo-loop stop`, conditional `/echo` and `/both`.
 
-Corrected Chatter firmware checkpoint: `dev_chat_ack@020ebe39288681cc58b8a5109717f6b55fbf675c`; Chatter CI `36315420318` SUCCESS; PlatformIO build, native protocol/reliability tests, clang-tidy, cppcheck and complexity PASS.
-
-Hardware executor alignment: `node_observations@5129fbcff4d593edbe3d473cdc7d4114494a49b7`.
-
-Key corrected semantics: pre-lease external TX is fenced before adapter prepare; ambiguous pre-sweep TX fails explicitly; firmware `/sweep on` provides exclusive **local** diagnostic ownership, suppresses ordinary local/background RF and clears normal reliable backlog; USER/ACK wire frames remain unchanged; `sweep_cancel` uses separately bounded controller cancellation; primary and cleanup failures are both preserved; shared async observe worker retention is bounded (TODO_018 CLOSED).
-
-External RF isolation remains operator/coordinator responsibility. Physical validation of the corrected two-node sweep mode is **NOT RUN** and is not implied by software CI.
-
-
+External RF isolation remains operator/coordinator responsibility. Final host-only checkpoint/CI is pending.
 
 ### TODO_018 — `todos/TODO_018_OBSERVE_THREAD_RETENTION.md`
 
