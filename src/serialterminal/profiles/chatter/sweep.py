@@ -11,6 +11,7 @@ from ...sweep import (
     SweepCancelled,
     SweepError,
     SweepPhaseContext,
+    SweepPhaseTimeout,
     SweepPlan,
 )
 
