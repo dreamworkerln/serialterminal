@@ -178,6 +178,16 @@ def _wait_until(predicate, timeout=1.0):
     return predicate()
 
 
+def _sweep_log_payloads(path):
+    payloads = []
+    for line in path.read_text(encoding="utf-8").splitlines():
+        marker = " [SWEEP] "
+        if marker not in line:
+            continue
+        payloads.append(json.loads(line.split(marker, 1)[1]))
+    return payloads
+
+
 def test_session_mutation_ownership_is_exclusive_but_unrelated_session_is_free(
     monkeypatch,
     tmp_path,
@@ -287,6 +297,86 @@ def test_session_mutation_ownership_is_exclusive_but_unrelated_session_is_free(
             manager.cancel_sweeps()
             manager.close_all()
             manager.join_sweeps(1.0)
+
+
+def test_sweep_api_events_correlate_with_durable_forensic_records(
+    monkeypatch,
+    tmp_path,
+):
+    def factory(context, sessions, plan):
+        return _BlockingAdapter()
+
+    monkeypatch.setattr(
+        GenericProfile,
+        "sweep_adapters",
+        lambda self: {"test.blocking": factory},
+    )
+    selector = _SelectorFactory()
+    log_path = tmp_path / "agent.log"
+    with RunLog(log_path) as run_log:
+        manager = SessionManager(
+            selector_factory=selector,
+            reconnect_delay=0.01,
+            run_log=run_log,
+        )
+        try:
+            manager.discover()
+            opened = manager.open(
+                "serial:a",
+                wait_connected_ms=500,
+            )
+            started = manager.sweep_start(
+                "test.blocking",
+                [opened["session"]],
+                {"axes": [], "repetitions": 2},
+            )
+            sweep_id = started["sweep_id"]
+
+            # This adapter blocks in prepare until explicitly released.
+            job_adapter = manager._sweep_manager._get(sweep_id).adapter
+            assert isinstance(job_adapter, _BlockingAdapter)
+            assert job_adapter.started.wait(timeout=1.0)
+            job_adapter.release.set()
+
+            terminal = None
+            assert _wait_until(
+                lambda: (
+                    (snapshot := manager.sweep_observe(
+                        sweep_id,
+                        cursor=0,
+                        window=100,
+                        timeout_ms=0,
+                    ))["state"]
+                    == "completed"
+                )
+            )
+            terminal = manager.sweep_observe(
+                sweep_id,
+                cursor=0,
+                window=100,
+                timeout_ms=0,
+            )
+            api_events = terminal["events"]
+            assert terminal["cursor"] == terminal["head_cursor"]
+            assert api_events[-1]["kind"] == "sweep_completed"
+
+            before_close = _sweep_log_payloads(log_path)
+            assert [
+                payload["event_seq"]
+                for payload in before_close
+                if payload["sweep_id"] == sweep_id
+            ] == [event["seq"] for event in api_events]
+            assert [
+                payload["kind"]
+                for payload in before_close
+                if payload["sweep_id"] == sweep_id
+            ] == [event["kind"] for event in api_events]
+
+            assert manager.sweep_close(sweep_id)["state"] == "closed"
+            after_close = _sweep_log_payloads(log_path)
+            assert after_close == before_close
+        finally:
+            manager.close_all()
 
 
 def test_sweep_session_acquisition_is_all_or_none(
