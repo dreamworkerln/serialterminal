@@ -455,26 +455,3 @@ contamination/evidence to preserve. Do not invent protocol classification or att
 repair it inside the hardware run.
 
 
-
-The desired stronger architecture for a future source/firmware task may be:
-
-```text
-enter firmware sweep mode
--> only explicitly designated sweep RF traffic is serviced
--> ordinary USER / heartbeat / unrelated ACK obligations cannot interfere
--> /cancel or /cancel all exits sweep mode
--> return to normal radio operation
-```
-
-That is **not** the current maintained implementation described by this executor
-reference.
-
-The existing Chatter sweep uses ordinary reliable USER/ACK protocol traffic. A future
-exclusive firmware sweep mode therefore needs an explicit way to distinguish sweep
-traffic from unrelated ordinary traffic (for example a dedicated protocol marker,
-session/token, or other source-defined mechanism). The hardware executor must not
-invent that distinction.
-
-Until such a source change is explicitly supplied and validated, enforce isolation at
-the experiment/coordinator level and report any unrelated RF activity as contamination
-or an evidence boundary.
