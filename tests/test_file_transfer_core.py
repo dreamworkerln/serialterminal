@@ -12,6 +12,7 @@ from serialterminal.file_transfer import (
     FileTransferManager,
     MetaMessage,
     MissingMessage,
+    ResultMessage,
     encode_message,
     decode_message,
 )
