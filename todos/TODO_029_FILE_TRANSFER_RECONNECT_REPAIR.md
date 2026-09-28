@@ -30,30 +30,29 @@ File transfer должен обнаружить такую дыру по applica
 повтор только отсутствующих chunks.
 
 Если описание всех текущих дыр не помещается в один application message текущего
-transport MTU, FT1 v1 не пакетирует MISSING: файл передаётся заново с chunk 0 как
-новый transfer.
+transport MTU, FT1 v1 не пакетирует MISSING: текущий transfer завершается стабильным
+`repair_too_large`, а полный resend запускается явно как новый transfer.
 
 ## Current implementation checkpoint
 
-Current branch checkpoint:
+Automated source checkpoint:
 
 ~~~text
-dev_tui@cfa42f67dc248dfcefc783884cd93efd1e2e9195
-GitHub Actions 36372713417 SUCCESS
+dev_tui@e296fdeff84416b52d139cce0917904f15a084ce
+GitHub Actions 36375238603 SUCCESS
 compile PASS
 static analysis PASS
-complexity PASS
-tests PASS
+tests: 277 PASS
 ~~~
 
-На этом checkpoint уже реализованы:
+На этом checkpoint реализованы:
 
 - generic BinaryUserTransport abstraction;
 - Chatter profile binary USER adapter;
 - local /bin BASE64 -> raw bytes mapping;
 - [BINARY] BASE64 -> raw bytes receive mapping;
 - link settlement through existing Chatter reliable USER telemetry;
-- FT1 META/DATA/END/RESULT;
+- FT1 META/DATA/END/MISSING/RESULT;
 - uint64 transfer_id;
 - uint32 DATA chunk_index;
 - transport-advertised payload capacity;
@@ -66,12 +65,9 @@ tests PASS
 - TUI file-send/cancel/progress integration;
 - structured agent file-transfer start/observe/cancel/close operations.
 
-Current durable documentation explicitly says reconnect resume is not implemented.
-Current protocol has no MISSING message. END with missing chunks currently terminates
-the receive as a missing_chunks failure.
-
-This TODO changes that v1 boundary for temporary local transport reconnect while the
-same SerialTerminal process remains alive.
+Temporary local transport reconnect repair is implemented while the same SerialTerminal
+process remains alive. Persistent resume after process death/restart remains outside
+the v1 contract.
 
 ## Deployment topology invariant
 
