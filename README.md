@@ -4,11 +4,34 @@
 
 `serialterminal` редактирует строку локально и отправляет её устройству только после `Enter`. Исходящие строки переживают временный disconnect/reboot и отправляются после reconnect к тому же выбранному физическому устройству.
 
-## Запуск
+## Установка и запуск
 
-Обычный human terminal теперь по умолчанию использует **generic** controller profile:
+Рекомендуемая установка на новом host использует локальный `.venv` и зависимости из
+`pyproject.toml`:
 
 ```bash
+python3 -m venv .venv
+source .venv/bin/activate
+python -m pip install --upgrade pip
+python -m pip install -e '.[ble]'
+```
+
+После этого доступна установленная команда:
+
+```bash
+serialterminal
+```
+
+Полная установка, generic-only вариант, системные Bluetooth prerequisites и
+development environment описаны в [INSTALL.md](INSTALL.md). Отдельный
+`requirements.txt` намеренно не поддерживается: authoritative dependency metadata
+находится в `pyproject.toml`.
+
+Обычный human terminal по умолчанию использует **generic** controller profile:
+
+```bash
+serialterminal
+# или без package entry point:
 python3 serialterminal.py
 ```
 
@@ -507,33 +530,18 @@ pytest -q
 
 ## Зависимости
 
-Python:
+Authoritative Python dependencies и optional extras находятся в `pyproject.toml`:
 
 ```text
-pyserial
-prompt-toolkit
-bleak        # BLE
+base:  pyserial, prompt-toolkit
+ble:   bleak
+dev:   pytest, ruff, lizard
 ```
 
-Установка:
+Для установки не требуется отдельный `requirements.txt`. Рекомендуемый
+`.venv` workflow и setup на чистом Linux host описаны в [INSTALL.md](INSTALL.md).
 
-```bash
-pip install pyserial prompt-toolkit bleak
-python3 serialterminal.py
-```
-
-Для Classic Bluetooth scanner/SPP:
-
-```bash
-sudo apt install bluez
-```
-
-Проверка:
-
-```bash
-which bluetoothctl
-which sdptool
-```
+Для Classic Bluetooth scanner/SPP системно нужен BlueZ.
 
 ## Диагностика Bluetooth disconnect на Linux
 

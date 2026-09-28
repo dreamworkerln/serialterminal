@@ -99,7 +99,24 @@ Transport code may accept generic configuration such as BLE write UUID and recei
 
 ### Frontends
 
-Human CLI and JSONL agent frontends select a profile and connect it to the shared discovery/session/transport core.
+Human CLI/TUI and JSONL agent frontends select a profile and connect it to the shared discovery/session/transport core.
+
+The human TUI is a generic SerialTerminal frontend, not a LoRa-Chatter application.
+Its base experience must remain useful with arbitrary serial/BLE/SPP controllers and
+devices: connection state, terminal output, editable input, generic transport/session
+status and ordinary device selection belong to the frontend itself.
+
+Controller-specific UI is additive and profile-owned. The selected profile may supply
+extra presentation, actions and panels through frontend-facing profile interfaces. For
+example, the bundled `chatter` profile may expose radio configuration/status,
+Chatter telemetry, sweep controls or file-transfer presentation, while the `generic`
+profile keeps a simpler general-purpose terminal workflow comparable in scope to a
+traditional serial terminal such as CuteCom.
+
+The frontend must not branch on a concrete profile name to construct controller
+semantics. If a richer profile needs a radio-specific panel or action, the capability
+and data/action contract belongs to the profile boundary; generic TUI layout and focus
+mechanics may render it without learning Chatter commands or protocol rules.
 
 Frontends may expose explicit profile selection, but they must not recreate controller semantics outside the selected profile. A compatibility option that overrides only one piece of profile behavior is not a substitute for a profile and should not be added to the generic API.
 
