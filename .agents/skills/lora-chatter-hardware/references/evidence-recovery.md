@@ -102,6 +102,53 @@ Re-check `git status --short` and the branch counts before staging.
 
 If remote changes collide with the pending RUN/OBS path, stop and report the boundary.
 
+## Behind-only workspace after intended evidence was already staged
+
+A failed publication attempt may leave the intended current RUN/OBS already staged when
+`origin/node_observations` advances independently.
+
+This state is recoverable only when all of the following are true:
+
+- local `ahead=0` and remote `behind>0`;
+- every staged entry is status `A`;
+- every staged path belongs only to the one intended current RUN bundle and optional
+  matching OBS;
+- there are no unrelated staged, tracked-modified or unexpected untracked paths;
+- `HEAD..origin/node_observations` does not add the same pending RUN/OBS paths and
+  does not rewrite/delete historical evidence.
+
+First preserve the staged-path diagnostic:
+
+```bash
+git diff --cached --name-status
+```
+
+Then remove **only those exact intended evidence paths from the index**, preserving
+their worktree bytes:
+
+```bash
+git restore --staged -- runs/RUN_<stamp>_<topic>/ observations/OBS_<stamp>_<topic>.md
+```
+
+Omit the OBS path when none exists. Re-check that the evidence is now merely untracked
+and no unrelated state changed:
+
+```bash
+git status --short
+```
+
+Advance only by fast-forward:
+
+```bash
+git merge --ff-only origin/node_observations
+```
+
+Then re-run the canonical bundle/manifest identity checks, stage the same exact paths
+again, and use the scoped whitespace gate below.
+
+Do not use this recovery for staged modifications/deletions, unrelated staged content,
+local commits, divergence, or a remote collision with the pending evidence path.
+
 ## Staging recovery
 
 Normal staging is exact-path only:
