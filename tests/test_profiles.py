@@ -104,3 +104,16 @@ def test_explicit_chatter_terminal_preserves_serial_preamble(tmp_path):
         ) == b"/id\n"
     finally:
         session.log_file.close()
+
+
+
+def test_binary_user_capability_is_profile_owned():
+    from serialterminal.profiles import GENERIC_PROFILE
+    from serialterminal.profiles.chatter.binary_user import ChatterBinaryUserAdapter
+
+    generic = GENERIC_PROFILE.make_binary_user_transport(lambda text: None)
+    chatter = CHATTER_PROFILE.make_binary_user_transport(lambda text: None)
+
+    assert generic is None
+    assert isinstance(chatter, ChatterBinaryUserAdapter)
+    assert CHATTER_PROFILE.recognized_command("/bin AA==") == "/bin AA=="

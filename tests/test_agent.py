@@ -161,6 +161,12 @@ class _BlockingObserveManager:
         self.cancelled.set()
         self.observe_release.set()
 
+    def cancel_file_transfers(self):
+        pass
+
+    def join_file_transfers(self, timeout):
+        pass
+
     def cancel_sweeps(self):
         pass
 

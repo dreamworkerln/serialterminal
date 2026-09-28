@@ -97,6 +97,42 @@ That settlement may require controller-specific protocol evidence, but interpret
 
 Transport code may accept generic configuration such as BLE write UUID and receive characteristic/stream mappings. It must not import controller profiles, normalize controller aliases, recognize controller commands, infer application identity, or re-export controller constants.
 
+### File transfer layering
+
+File transfer is an application layer above an opaque reliable binary-message
+abstraction:
+
+```text
+FileTransfer / FT1
+        |
+        v
+BinaryUserTransport
+        |
+        v
+profile-owned binary adapter
+        |
+        v
+ManagedSession / Transport
+```
+
+`BinaryUserTransport` exposes raw binary payload capacity, binary receive delivery
+and link-settled `send_binary()`. It does not expose filenames, compression,
+filesystem state or file progress.
+
+The bundled `chatter` profile owns the local `/bin <BASE64>` command/presentation
+adapter and maps existing reliable USER `DELIVERY WAIT_ACK/ACK/FAILED` evidence to
+binary-message settlement. Base64 is local textual encapsulation only; the LoRa
+BINARY USER payload remains raw bytes.
+
+FT1 owns metadata, chunk identity, compression, hashes, receiver storage, progress and
+final RESULT semantics. Neither `ManagedSession` nor generic Serial/BLE/SPP
+transports may learn these concepts.
+
+Frontend and agent code may consume the generic profile capability
+`make_binary_user_transport()`; they must not branch on a concrete profile name.
+A future profile/transport can therefore provide the same opaque binary capability
+without rewriting FT1.
+
 ### Frontends
 
 Human CLI/TUI and JSONL agent frontends select a profile and connect it to the shared discovery/session/transport core.
@@ -183,7 +219,8 @@ For the bundled `chatter` profile, controller-specific ownership currently inclu
 - BLE `0003 -> chat` plus optional `0004 -> telemetry` mapping;
 - command classification helpers and Chatter presentation state;
 - the `chatter.reliable_user` sweep adapter, including Chatter quiet-state preparation through existing commands, command/config application and reliable-USER operational settlement;
-- host-side Chatter sweep isolation semantics: profile preparation plus generic SerialTerminal session ownership; no firmware `/sweep` command or wire-level sweep identity is part of this contract.
+- host-side Chatter sweep isolation semantics: profile preparation plus generic SerialTerminal session ownership; no firmware `/sweep` command or wire-level sweep identity is part of this contract;
+- Chatter BINARY USER local base64 framing and reliable-USER delivery settlement used to implement the generic `BinaryUserTransport` capability.
 
 The following remain generic and must not depend on Chatter naming:
 
@@ -196,7 +233,8 @@ The following remain generic and must not depend on Chatter naming:
 - run logging mechanics;
 - generic sweep plan/job/cursor/retention semantics;
 - participating-session mutation ownership;
-- pre-sweep accepted-TX fencing and ambiguous-TX rejection.
+- pre-sweep accepted-TX fencing and ambiguous-TX rejection;
+- FT1 file metadata/chunks/compression/SHA/filesystem/progress semantics.
 
 ## Extension rule for a new controller
 

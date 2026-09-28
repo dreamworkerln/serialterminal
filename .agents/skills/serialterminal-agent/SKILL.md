@@ -1,6 +1,6 @@
 ---
 name: serialterminal-agent
-description: Работа с machine-facing SerialTerminal JSONL agent API для capability-based discovery, long-lived sessions, send, canonical observe и generic long-running sweep jobs.
+description: Работа с machine-facing SerialTerminal JSONL agent API для discovery, sessions, send/observe, high-level file transfers и long-running sweep jobs.
 ---
 
 # SerialTerminal agent
@@ -31,8 +31,10 @@ python3 serialterminal.py agent
 6. после каждого `observe` продолжать именно с возвращёнными cursors;
 7. для protocol reasoning использовать default `result.lines`; raw `result.events`/`data_b64` запрашивать только через `include_events:true` для конкретной forensic необходимости;
 8. для длинной детерминированной матрицы измерений используй generic `sweep_start` / `sweep_observe` вместо LLM/tool turn на каждый sample;
-9. после terminal sweep освободи retained job через `sweep_close`;
-10. закрыть sessions через `close`; EOF agent process закроет оставшиеся.
+9. для передачи файла на profile с binary capability используй `file_send_start` + `file_transfer_observe`, а не ручные `/bin`/base64/chunks;
+10. после terminal file transfer освободи retained state через `file_transfer_close`, когда он больше не нужен;
+11. после terminal sweep освободи retained job через `sweep_close`;
+12. закрыть sessions через `close`; EOF agent process закроет оставшиеся.
 
 Переиспользуй один agent process и уже открытые sessions. Для большой автономной проверки предпочитай один длинный сценарный проход с явными phases/checkpoints вместо десятков одинаковых `discover/open/close` циклов.
 
@@ -142,6 +144,37 @@ Controller adapter может читать protocol lines, чтобы опред
 После sweep consuming project skill/reviewer может читать обычный forensic log и анализировать protocol/RF evidence по своим правилам. `[SWEEP] event_seq` в forensic `.log` коррелирует с `sweep_observe.events[].seq` и остаётся после `sweep_close`.
 
 Для bundled `chatter.reliable_user` adapter не делай вручную конкурирующие radio/config commands. Adapter сам приводит participating sessions в quiet diagnostic baseline существующими Chatter-командами, применяет/проверяет coordinate и сериализует reliable USER samples. Его конкретные plan fields/limits смотри в `AGENT_API.md`; interpretation ACK/retry/CRC/RSSI/SNR остаётся в LoRa-Chatter consuming skill.
+
+## File transfer
+
+Для bundled `chatter` file transfer является profile capability поверх BINARY USER.
+Не реализуй file transfer вручную через `send_line("/bin ...")`.
+
+Используй:
+
+```text
+file_send_start
+file_transfer_observe
+file_transfer_cancel
+file_transfer_close
+```
+
+`file_send_start` принимает уже открытую session и локальный path, быстро возвращает
+`transfer_id`, затем работа идёт в background. `file_transfer_observe` — pending
+long-poll с собственным cursor и structured progress; он не блокирует обычный
+`status`/session `observe`.
+
+Не считай `percentage=100` или `completed` по последнему отправленному DATA.
+Sender completed только после remote verified `RESULT OK`. Receiver completed только
+после проверки stream/original SHA и atomic final save.
+
+Во время active transfer session mutation-owned: не делай на ней параллельный
+`send_line`, `send_bytes`, `close` или sweep start. Read-only status/observe
+допустимы.
+
+FT1 v1 не имеет reconnect/reboot resume. При ambiguous/disconnected outcome не делай
+blind restart файла с нуля. Дождись terminal state/ошибки и следуй отдельному
+recovery/resume contract, когда он будет определён.
 
 ## Два уровня receive evidence
 

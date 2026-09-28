@@ -196,9 +196,11 @@ class _TransferRecord:
         if self.state == "completed":
             return 100.0
         if self.wire_bytes > 0:
-            return min(100.0, 100.0 * self.bytes_completed / self.wire_bytes)
+            # 100% is reserved for remote verified completion. Sending or
+            # receiving every DATA byte still leaves END/RESULT verification.
+            return min(99.9, 100.0 * self.bytes_completed / self.wire_bytes)
         if self.original_bytes > 0 and self.state == "compressing":
-            return min(100.0, 100.0 * self.bytes_completed / self.original_bytes)
+            return min(99.9, 100.0 * self.bytes_completed / self.original_bytes)
         return 0.0
 
     def _snapshot_locked(self) -> dict[str, Any]:
@@ -790,26 +792,32 @@ class FileTransferManager:
                 # state inside the handlers. Never kill the shared RX worker.
                 continue
 
+    def _send_result(
+        self,
+        record: _TransferRecord | None,
+        result: ResultMessage,
+    ) -> bool:
+        try:
+            self._send_message(result, cancel_event=None)
+        except Exception as exc:
+            if record is not None:
+                record.event(
+                    "result_delivery_failed",
+                    error=str(exc),
+                )
+            return False
+        if record is not None:
+            record.event("result_delivered", ok=result.ok)
+        return True
+
     def _send_result_async(
         self,
         record: _TransferRecord | None,
         result: ResultMessage,
     ) -> None:
-        def worker() -> None:
-            try:
-                self._send_message(result, cancel_event=None)
-            except Exception as exc:
-                if record is not None:
-                    record.event(
-                        "result_delivery_failed",
-                        error=str(exc),
-                    )
-            else:
-                if record is not None:
-                    record.event("result_delivered", ok=result.ok)
-
         threading.Thread(
-            target=worker,
+            target=self._send_result,
+            args=(record, result),
             name=f"serialterminal-file-result-{transfer_id_text(result.transfer_id)}",
             daemon=True,
         ).start()
@@ -869,6 +877,7 @@ class FileTransferManager:
             )
             return
 
+        wire_path: Path | None = None
         try:
             filename = safe_received_filename(meta.filename)
             maximum = data_payload_capacity(self.transport.payload_capacity)
@@ -893,15 +902,21 @@ class FileTransferManager:
                 filename=filename,
             )
         except FileTransferError as exc:
+            if wire_path is not None:
+                wire_path.unlink(missing_ok=True)
             self._reject_incoming(meta.transfer_id, exc.code, exc.message)
             return
         except Exception as exc:
+            if wire_path is not None:
+                wire_path.unlink(missing_ok=True)
             self._reject_incoming(
                 meta.transfer_id,
                 "storage_failed",
                 str(exc),
             )
             return
+
+        assert wire_path is not None
 
         record.set_sizes(
             original_bytes=meta.original_size,
@@ -1085,7 +1100,10 @@ class FileTransferManager:
             if final_temp != incoming.wire_path:
                 incoming.wire_path.unlink(missing_ok=True)
 
-            self._send_result_async(
+            # Hold the session transfer lease until RESULT itself reaches
+            # link-level settlement, so manual USER traffic cannot interleave
+            # with the receiver's final application acknowledgement.
+            self._send_result(
                 record,
                 ResultMessage(
                     transfer_id=record.transfer_id,
@@ -1187,7 +1205,9 @@ class FileTransferManager:
         with self._lock:
             if self._incoming is incoming:
                 self._incoming = None
-        self._send_result_async(
+        # A claimed incoming transfer keeps session ownership through
+        # failure RESULT settlement for the same ordering reason as success.
+        self._send_result(
             incoming.record,
             ResultMessage(
                 transfer_id=incoming.record.transfer_id,

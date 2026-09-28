@@ -51,3 +51,13 @@ def test_chatter_tui_panel_refresh_is_profile_owned():
         "/id",
         "/config",
     ]
+
+
+
+def test_tui_progress_bar_is_determinate_and_bounded():
+    from serialterminal.tui import TerminalTui
+
+    assert TerminalTui.render_progress_bar(0, 10) == "░" * 10
+    assert TerminalTui.render_progress_bar(50, 10) == "█" * 5 + "░" * 5
+    assert TerminalTui.render_progress_bar(100, 10) == "█" * 10
+    assert TerminalTui.render_progress_bar(150, 10) == "█" * 10

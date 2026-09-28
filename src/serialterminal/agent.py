@@ -3,11 +3,14 @@ from __future__ import annotations
 import base64
 from dataclasses import asdict
 import json
+from pathlib import Path
 import sys
 import threading
 import time
 from typing import Any, Callable, TextIO
 
+from .file_transfer import FileTransferError, FileTransferManager, transfer_id_text
+from .file_transfer.core import FILE_MAX_WINDOW
 from .profiles import SendBytes, SendLine, resolve_profile
 from .runlog import RunLog
 from .session import (
@@ -164,12 +167,14 @@ class SessionManager:
         default_baud: int = 115200,
         default_scan_seconds: float = 3.0,
         reconnect_delay: float = 0.5,
+        receive_dir: str | Path | None = None,
     ):
         self.run_log = run_log
         self.selector_factory = selector_factory or _default_selector_factory
         self.default_baud = default_baud
         self.default_scan_seconds = default_scan_seconds
         self.reconnect_delay = reconnect_delay
+        self.receive_dir = receive_dir
 
         self._lock = threading.Lock()
         self._selector_profile_lock = threading.Lock()
@@ -183,6 +188,8 @@ class SessionManager:
         self._event_loggers: dict[str, tuple[threading.Event, threading.Thread]] = {}
         self._session_mutations: dict[str, int] = {}
         self._session_sweep_owners: dict[str, str] = {}
+        self._session_file_owners: dict[str, str] = {}
+        self._file_managers: dict[str, FileTransferManager] = {}
         self._next_session_id = 1
         self._sweep_manager = SweepJobManager(
             acquire_sessions=self._acquire_sweep_sessions,
@@ -218,6 +225,19 @@ class SessionManager:
                         "owner": {"kind": "sweep", "sweep_id": owner},
                     },
                 )
+            file_owner = self._session_file_owners.get(session_id)
+            if file_owner is not None:
+                raise AgentError(
+                    "session_busy",
+                    f"session is owned by file transfer {file_owner}: {session_id}",
+                    {
+                        "session": session_id,
+                        "owner": {
+                            "kind": "file_transfer",
+                            "transfer_id": file_owner,
+                        },
+                    },
+                )
             self._session_mutations[session_id] = (
                 self._session_mutations.get(session_id, 0) + 1
             )
@@ -230,6 +250,70 @@ class SessionManager:
                 self._session_mutations.pop(session_id, None)
             else:
                 self._session_mutations[session_id] = count - 1
+
+    def _claim_file_transfer(
+        self,
+        session_id: str,
+        transfer_id: int,
+        direction: str,
+    ) -> None:
+        transfer_text = transfer_id_text(transfer_id)
+        with self._lock:
+            session = self._sessions.get(session_id)
+            if session is None:
+                raise FileTransferError(
+                    "unknown_session",
+                    f"unknown session: {session_id}",
+                )
+            sweep_owner = self._session_sweep_owners.get(session_id)
+            if sweep_owner is not None:
+                raise FileTransferError(
+                    "session_busy",
+                    f"session is owned by sweep {sweep_owner}",
+                )
+            file_owner = self._session_file_owners.get(session_id)
+            if file_owner is not None:
+                raise FileTransferError(
+                    "session_busy",
+                    f"session is owned by file transfer {file_owner}",
+                )
+            if self._session_mutations.get(session_id, 0) != 0:
+                raise FileTransferError(
+                    "session_busy",
+                    "session has a concurrent external mutation",
+                )
+            fence_tx_id = session.capture_tx_fence()
+            self._session_file_owners[session_id] = transfer_text
+
+        try:
+            session.wait_tx_fence(fence_tx_id, 10.0)
+        except SessionTxFenceTimeout as exc:
+            self._release_file_transfer(session_id, transfer_id, direction)
+            raise FileTransferError(
+                "session_fence_timeout",
+                "pre-transfer TX fence timed out",
+                phase="preparing",
+            ) from exc
+        except SessionTxOutcomeUnknown as exc:
+            self._release_file_transfer(session_id, transfer_id, direction)
+            raise FileTransferError(
+                "session_tx_unknown",
+                "pre-transfer TX outcome is ambiguous; reopen session first",
+                phase="preparing",
+                details={"tx_id": exc.tx_id},
+            ) from exc
+
+    def _release_file_transfer(
+        self,
+        session_id: str,
+        transfer_id: int,
+        direction: str,
+    ) -> None:
+        del direction
+        transfer_text = transfer_id_text(transfer_id)
+        with self._lock:
+            if self._session_file_owners.get(session_id) == transfer_text:
+                self._session_file_owners.pop(session_id, None)
 
     def _acquire_sweep_sessions(
         self,
@@ -254,6 +338,19 @@ class SessionManager:
                         {
                             "session": session_id,
                             "owner": {"kind": "sweep", "sweep_id": owner},
+                        },
+                    )
+                file_owner = self._session_file_owners.get(session_id)
+                if file_owner is not None:
+                    raise SweepError(
+                        "session_busy",
+                        f"session is owned by file transfer {file_owner}: {session_id}",
+                        {
+                            "session": session_id,
+                            "owner": {
+                                "kind": "file_transfer",
+                                "transfer_id": file_owner,
+                            },
                         },
                     )
                 if self._session_mutations.get(session_id, 0) != 0:
@@ -536,18 +633,53 @@ class SessionManager:
             else None
         )
         session_id = self._next_session()
+        application_holder: dict[str, Any] = {}
+
+        def line_notifier(line: SessionLine) -> None:
+            self._log_console_line(
+                session_id,
+                line,
+                console_streams,
+            )
+            binary_adapter = application_holder.get("binary")
+            if binary_adapter is not None:
+                binary_adapter.feed_line(line.stream, line.text)
+
         session = ManagedSession(
             transport,
             line_ending=line_ending,
             reconnect_delay=self.reconnect_delay,
             connect_preamble=preamble,
             event_notifier=self._notify_event_activity,
-            line_notifier=lambda line: self._log_console_line(
-                session_id,
-                line,
-                console_streams,
-            ),
+            line_notifier=line_notifier,
         )
+        binary_adapter = terminal_profile.make_binary_user_transport(
+            lambda text: {
+                "tx_id": session.queue_line(text),
+                "state": "queued",
+            }
+        )
+        file_manager = (
+            FileTransferManager(
+                binary_adapter,
+                receive_dir=self.receive_dir,
+                claim_transfer=lambda transfer_id, direction: self._claim_file_transfer(
+                    session_id,
+                    transfer_id,
+                    direction,
+                ),
+                release_transfer=lambda transfer_id, direction:
+                    self._release_file_transfer(
+                        session_id,
+                        transfer_id,
+                        direction,
+                    ),
+            )
+            if binary_adapter is not None
+            else None
+        )
+        if binary_adapter is not None:
+            application_holder["binary"] = binary_adapter
 
         with self._lock:
             # Повторная проверка закрывает race между двумя одновременными open.
@@ -563,16 +695,21 @@ class SessionManager:
             self._session_device_keys[session_id] = device_key
             self._session_profiles[session_id] = terminal_profile.name
             self._device_sessions[device_key] = session_id
+            if file_manager is not None:
+                self._file_managers[session_id] = file_manager
 
         self._start_event_logger(session_id, session)
         try:
             session.start()
         except Exception:
             self._stop_event_logger(session_id)
+            if file_manager is not None:
+                file_manager.close()
             with self._lock:
                 self._sessions.pop(session_id, None)
                 self._session_device_keys.pop(session_id, None)
                 self._session_profiles.pop(session_id, None)
+                self._file_managers.pop(session_id, None)
                 self._device_sessions.pop(device_key, None)
             transport.close()
             raise
@@ -593,6 +730,7 @@ class SessionManager:
         transport = session._current_transport()
         with self._lock:
             profile = self._session_profiles.get(session_id, "generic")
+            file_manager = self._file_managers.get(session_id)
         return {
             "session": session_id,
             "device_key": transport.device_key,
@@ -609,6 +747,12 @@ class SessionManager:
             "streams": list(transport.stream_capabilities),
             "latest_seq": session.latest_event_seq(),
             "queued_tx": session.outgoing.qsize(),
+            "file_transfer_supported": file_manager is not None,
+            "file_transfer": (
+                file_manager.display_snapshot()
+                if file_manager is not None
+                else None
+            ),
         }
 
     def list_sessions(self) -> dict[str, Any]:
@@ -818,6 +962,11 @@ class SessionManager:
         with self._lock:
             device_key = self._session_device_keys.get(session_id)
 
+        with self._lock:
+            file_manager = self._file_managers.get(session_id)
+        if file_manager is not None:
+            file_manager.close()
+
         session.stop()
         self._stop_event_logger(session_id)
 
@@ -827,6 +976,8 @@ class SessionManager:
             self._session_profiles.pop(session_id, None)
             self._session_mutations.pop(session_id, None)
             self._session_sweep_owners.pop(session_id, None)
+            self._session_file_owners.pop(session_id, None)
+            self._file_managers.pop(session_id, None)
             if device_key is not None:
                 self._device_sessions.pop(device_key, None)
         return {"session": session_id, "state": "closed"}
@@ -837,6 +988,93 @@ class SessionManager:
             return self._force_close_session(session_id, session)
         finally:
             self._finish_external_mutation(session_id)
+
+    @staticmethod
+    def _file_error(exc: FileTransferError) -> AgentError:
+        return AgentError(exc.code, exc.message, exc.details)
+
+    def _file_manager(self, session_id: str) -> FileTransferManager:
+        self._get_session(session_id)
+        with self._lock:
+            manager = self._file_managers.get(session_id)
+        if manager is None:
+            raise AgentError(
+                "file_transfer_unsupported",
+                f"session profile does not support file transfer: {session_id}",
+                {"session": session_id},
+            )
+        return manager
+
+    def file_send_start(
+        self,
+        session_id: str,
+        local_path: str,
+    ) -> dict[str, Any]:
+        manager = self._file_manager(session_id)
+        try:
+            return manager.start_send(local_path)
+        except FileTransferError as exc:
+            raise self._file_error(exc) from exc
+
+    def file_transfer_observe(
+        self,
+        session_id: str,
+        transfer_id: str,
+        *,
+        cursor: int,
+        window: int,
+        timeout_ms: int,
+    ) -> dict[str, Any]:
+        manager = self._file_manager(session_id)
+        try:
+            return manager.observe(
+                transfer_id,
+                cursor=cursor,
+                window=window,
+                timeout_ms=timeout_ms,
+            )
+        except FileTransferError as exc:
+            raise self._file_error(exc) from exc
+
+    def file_transfer_cancel(
+        self,
+        session_id: str,
+        transfer_id: str,
+    ) -> dict[str, Any]:
+        manager = self._file_manager(session_id)
+        try:
+            return manager.cancel(transfer_id)
+        except FileTransferError as exc:
+            raise self._file_error(exc) from exc
+
+    def file_transfer_close(
+        self,
+        session_id: str,
+        transfer_id: str,
+    ) -> dict[str, Any]:
+        manager = self._file_manager(session_id)
+        try:
+            return manager.close_transfer(transfer_id)
+        except (FileTransferError, ValueError) as exc:
+            if isinstance(exc, FileTransferError):
+                raise self._file_error(exc) from exc
+            raise AgentError("invalid_transfer_id", str(exc)) from exc
+
+    def cancel_file_transfers(self) -> None:
+        with self._lock:
+            managers = list(self._file_managers.values())
+        for manager in managers:
+            manager.cancel_active()
+
+    def join_file_transfers(self, timeout: float) -> None:
+        deadline = time.monotonic() + max(0.0, timeout)
+        with self._lock:
+            managers = list(self._file_managers.values())
+        for manager in managers:
+            remaining = deadline - time.monotonic()
+            if remaining <= 0:
+                break
+            manager.join_all(remaining)
 
     @staticmethod
     def _sweep_error(exc: SweepError) -> AgentError:
@@ -1085,6 +1323,90 @@ class AgentProtocol:
         return self.manager.close(str(request.get("session", "")))
 
     @staticmethod
+    def _file_transfer_id(request: dict[str, Any]) -> str:
+        transfer_id = request.get("transfer_id")
+        if not isinstance(transfer_id, str) or not transfer_id:
+            raise AgentError(
+                "invalid_request",
+                "file transfer operation requires non-empty string field 'transfer_id'",
+            )
+        return transfer_id
+
+    def _handle_file_send_start(
+        self,
+        request: dict[str, Any],
+    ) -> dict[str, Any]:
+        session_id = request.get("session")
+        local_path = request.get("path")
+        if not isinstance(session_id, str) or not session_id:
+            raise AgentError(
+                "invalid_request",
+                "file_send_start requires non-empty string field 'session'",
+            )
+        if not isinstance(local_path, str) or not local_path:
+            raise AgentError(
+                "invalid_request",
+                "file_send_start requires non-empty string field 'path'",
+            )
+        return self.manager.file_send_start(session_id, local_path)
+
+    def _handle_file_transfer_observe(
+        self,
+        request: dict[str, Any],
+    ) -> dict[str, Any]:
+        if request.get("id") is None:
+            raise AgentError(
+                "invalid_request",
+                "file_transfer_observe requires a non-null request id",
+            )
+        session_id = request.get("session")
+        if not isinstance(session_id, str) or not session_id:
+            raise AgentError(
+                "invalid_request",
+                "file_transfer_observe requires non-empty string field 'session'",
+            )
+        cursor = request.get("cursor", 0)
+        window = request.get("window", FILE_MAX_WINDOW)
+        timeout_ms = request.get("timeout_ms", 0)
+        return self.manager.file_transfer_observe(
+            session_id,
+            self._file_transfer_id(request),
+            cursor=cursor,
+            window=window,
+            timeout_ms=timeout_ms,
+        )
+
+    def _handle_file_transfer_cancel(
+        self,
+        request: dict[str, Any],
+    ) -> dict[str, Any]:
+        session_id = request.get("session")
+        if not isinstance(session_id, str) or not session_id:
+            raise AgentError(
+                "invalid_request",
+                "file_transfer_cancel requires non-empty string field 'session'",
+            )
+        return self.manager.file_transfer_cancel(
+            session_id,
+            self._file_transfer_id(request),
+        )
+
+    def _handle_file_transfer_close(
+        self,
+        request: dict[str, Any],
+    ) -> dict[str, Any]:
+        session_id = request.get("session")
+        if not isinstance(session_id, str) or not session_id:
+            raise AgentError(
+                "invalid_request",
+                "file_transfer_close requires non-empty string field 'session'",
+            )
+        return self.manager.file_transfer_close(
+            session_id,
+            self._file_transfer_id(request),
+        )
+
+    @staticmethod
     def _sweep_id(request: dict[str, Any]) -> str:
         sweep_id = request.get("sweep_id")
         if not isinstance(sweep_id, str) or not sweep_id:
@@ -1137,6 +1459,10 @@ class AgentProtocol:
             "send_bytes": self._handle_send_bytes,
             "observe": self._handle_observe,
             "close": self._handle_close,
+            "file_send_start": self._handle_file_send_start,
+            "file_transfer_observe": self._handle_file_transfer_observe,
+            "file_transfer_cancel": self._handle_file_transfer_cancel,
+            "file_transfer_close": self._handle_file_transfer_close,
             "sweep_start": self._handle_sweep_start,
             "sweep_observe": self._handle_sweep_observe,
             "sweep_cancel": self._handle_sweep_cancel,
@@ -1258,7 +1584,8 @@ class _AgentJsonlRunner:
     def _is_async_observe(request: Any, request_id: Any) -> bool:
         return (
             isinstance(request, dict)
-            and request.get("op") in {"observe", "sweep_observe"}
+            and request.get("op")
+            in {"observe", "sweep_observe", "file_transfer_observe"}
             and request_id is not None
         )
 
@@ -1305,9 +1632,12 @@ class _AgentJsonlRunner:
         # Сначала просим waits/jobs завершиться кооперативно, затем force-close
         # sessions разрывает оставшиеся adapter waits до закрытия RunLog.
         self.manager.cancel_observes()
+        self.manager.cancel_file_transfers()
         self.manager.cancel_sweeps()
+        self.manager.join_file_transfers(1.0)
         self.manager.join_sweeps(1.0)
         self.manager.close_all()
+        self.manager.join_file_transfers(5.0)
         self.manager.join_sweeps(5.0)
         with self._pending_lock:
             observe_threads = list(self._observe_threads)
@@ -1326,6 +1656,7 @@ class _AgentJsonlRunner:
 def run_agent(
     *,
     log_path: str | None = None,
+    receive_dir: str | Path | None = None,
     stdin: TextIO | None = None,
     stdout: TextIO | None = None,
 ) -> int:
@@ -1333,7 +1664,10 @@ def run_agent(
     output_stream = sys.stdout if stdout is None else stdout
 
     with RunLog(log_path) as run_log:
-        manager = SessionManager(run_log=run_log)
+        manager = SessionManager(
+            run_log=run_log,
+            receive_dir=receive_dir,
+        )
         protocol = AgentProtocol(manager, run_log=run_log)
         run_log.record(
             "AGENT",

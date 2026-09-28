@@ -12,7 +12,7 @@ python3 serialterminal.py agent
 
 Use the privileges required by the host serial/Bluetooth environment.
 
-The process reads one JSON object per stdin line and writes one correlated JSON response per request. It emits no unsolicited JSON events. `observe` and `sweep_observe` may remain pending while later ordinary requests are accepted, so stdout response order is not globally request order; correlate by `id`.
+The process reads one JSON object per stdin line and writes one correlated JSON response per request. It emits no unsolicited JSON events. `observe`, `sweep_observe` and `file_transfer_observe` may remain pending while later ordinary requests are accepted, so stdout response order is not globally request order; correlate by `id`.
 
 Success envelope:
 
@@ -26,7 +26,7 @@ Error envelope:
 {"id":1,"ok":false,"error":{"code":"unknown_session","message":"unknown session: s1"}}
 ```
 
-`observe` and `sweep_observe` are asynchronous at the JSONL frontend and require a non-null `id`. Do not reuse an ID while either long-poll with that ID is pending. Duplicate use returns `request_id_busy` without cancelling the original request.
+`observe`, `sweep_observe` and `file_transfer_observe` are asynchronous at the JSONL frontend and require a non-null `id`. Do not reuse an ID while any such long-poll with that ID is pending. Duplicate use returns `request_id_busy` without cancelling the original request.
 
 ## Operations
 
@@ -39,6 +39,10 @@ send_line
 send_bytes
 observe
 close
+file_send_start
+file_transfer_observe
+file_transfer_cancel
+file_transfer_close
 sweep_start
 sweep_observe
 sweep_cancel
@@ -191,7 +195,14 @@ state
 streams
 latest_seq
 queued_tx
+file_transfer_supported
+file_transfer
 ```
+
+`file_transfer_supported` is profile-capability based. The bundled `generic`
+profile returns `false`; the bundled `chatter` profile supplies an opaque binary
+USER capability. `file_transfer` is the current or most recently retained transfer
+snapshot for that session, or `null`.
 
 ```json
 {"id":5,"op":"list_sessions"}
@@ -341,6 +352,135 @@ A positive timeout long-polls until the first new raw event on any watched sessi
 If raw activity arrives without completing a logical line, the request still returns immediately and advances the affected event cursor. In the default projection `lines` may therefore be empty while `cursors` changed. With `include_events:true`, the same response also exposes the triggering raw event(s). Continue with the returned cursors; do not manually reconstruct a line from chunks unless transport forensics is the actual task.
 
 There are no receive-stream filters in `observe`; `include_events` controls only response projection, not collection, wakeup or forensic logging.
+
+## File transfers
+
+File transfer is a high-level application operation. Callers do not manually read the
+file, base64 chunks, send firmware `/bin` commands or parse a human progress bar.
+
+The selected session profile must provide an opaque binary USER capability. Otherwise
+file operations fail with `file_transfer_unsupported`.
+
+Agent receive directory defaults to:
+
+```text
+~/Downloads/SerialTerminal
+```
+
+Override for the whole agent process with:
+
+```bash
+python3 serialterminal.py agent --receive-dir /path/to/incoming
+```
+
+### Start
+
+```json
+{"id":60,"op":"file_send_start","session":"s1","path":"/tmp/demo.bin"}
+```
+
+The request returns promptly after creating the background transfer. Typical initial
+result:
+
+```json
+{
+  "transfer_id":"2c0c98db8bfdd7d1",
+  "direction":"TX",
+  "filename":"demo.bin",
+  "state":"preparing",
+  "original_bytes":0,
+  "wire_bytes":0,
+  "chunks_total":0,
+  "chunks_completed":0,
+  "bytes_completed":0,
+  "percentage":0.0,
+  "events":{"cursor":0,"max_window":100,"retention":1024}
+}
+```
+
+Only one active file transfer is allowed on a session. The transfer acquires mutation
+ownership after settling a pre-transfer accepted-TX fence. While owned, ordinary
+`send_line`, `send_bytes`, `close` and sweep acquisition on that session are
+rejected with `session_busy`. Read-only `status` and ordinary `observe` remain
+available.
+
+The Chatter adapter treats existing reliable USER `DELIVERY ACK` as link-level
+binary-message settlement. Local `queued` or `tx_state=written` is never enough to
+advance file DATA progress.
+
+### Observe
+
+```json
+{
+  "id":61,
+  "op":"file_transfer_observe",
+  "session":"s1",
+  "transfer_id":"2c0c98db8bfdd7d1",
+  "cursor":0,
+  "window":100,
+  "timeout_ms":30000
+}
+```
+
+This is an asynchronous JSONL long-poll and requires a non-null request `id`.
+It has a transfer-local bounded cursor/event model analogous to sweep jobs. Result
+contains `events`, `cursor`, `head_cursor`, `state`, `progress` and
+`timed_out`.
+
+Progress fields include:
+
+```text
+transfer_id
+direction
+filename
+state
+original_bytes
+wire_bytes
+chunks_total
+chunks_completed
+bytes_completed
+percentage
+```
+
+Terminal snapshots may additionally include `final_path`, `elapsed` or structured
+`failure` with stable `code`, human `message`, optional `phase` and details.
+
+Exactly `100.0` means `state=completed`. A sender that has delivered every DATA
+chunk but is still waiting for the receiver's final verified RESULT remains below
+100%.
+
+Receiver `completed` means the wire stream and original file were verified and the
+final file was atomically published. Sender `completed` means it received remote
+`RESULT OK`; it does not mean merely that the last local BLE/USB write succeeded.
+
+### Cancel and close retained state
+
+```json
+{"id":62,"op":"file_transfer_cancel","session":"s1","transfer_id":"2c0c98db8bfdd7d1"}
+{"id":63,"op":"file_transfer_close","session":"s1","transfer_id":"2c0c98db8bfdd7d1"}
+```
+
+Cancel is cooperative. A terminal transfer can be closed to release retained
+progress/event history. An active transfer cannot be closed.
+
+### FT1 / Chatter boundary
+
+The maintained file protocol is documented in `FILE_TRANSFER.md`. Chatter local
+encapsulation is:
+
+```text
+/bin <BASE64>
+< [RSSI/SNR Q] [BINARY] <BASE64>
+```
+
+Base64 exists only on the local controller boundary. The LoRa BINARY USER and FT1
+transport payload are raw bytes up to the profile-advertised capacity (currently 200
+bytes for Chatter).
+
+FT1 v1 does not implement reconnect/reboot resume, directory transfer or file-level
+per-DATA ACK/retransmission. It never silently restarts a failed transfer from zero.
+Transfer IDs and indexed DATA chunks are intentionally compatible with a future,
+separately specified resume/SACK mechanism.
 
 ## Sweep jobs
 

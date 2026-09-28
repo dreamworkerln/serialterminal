@@ -449,6 +449,11 @@ def _add_profile_argument(parser: argparse.ArgumentParser) -> None:
         action="store_true",
         help="use the legacy line-oriented human frontend instead of the TUI",
     )
+    parser.add_argument(
+        "--receive-dir",
+        default=None,
+        help="directory for verified incoming files in the TUI",
+    )
 
 
 def _serial_parser(prog: str) -> argparse.ArgumentParser:
@@ -566,6 +571,11 @@ def _agent_parser(prog: str) -> argparse.ArgumentParser:
         default=None,
         help="explicit log path; default creates a unique logs/serialterminal-*.log",
     )
+    parser.add_argument(
+        "--receive-dir",
+        default=None,
+        help="directory for verified incoming files",
+    )
     return parser
 
 
@@ -620,6 +630,7 @@ def _run_session(
     reconnect_delay: float = 0.5,
     profile: TerminalProfile = GENERIC_PROFILE,
     classic: bool = False,
+    receive_dir: str | None = None,
 ) -> int:
     actual_log_path = str(default_log_path()) if log_path is None else log_path
     print(f"Locked target: {transport.description}")
@@ -638,6 +649,7 @@ def _run_session(
             reconnect_delay=reconnect_delay,
             selector=selector,
             profile=profile,
+            receive_dir=receive_dir,
         )
 
     TerminalSession(
@@ -680,6 +692,7 @@ def _run_serial(argv: list[str], prog: str) -> int:
         selector=selector,
         profile=profile,
         classic=args.classic,
+        receive_dir=args.receive_dir,
     )
 
 
@@ -707,6 +720,7 @@ def _run_ble(argv: list[str], prog: str) -> int:
         reconnect_delay=1.0,
         profile=profile,
         classic=args.classic,
+        receive_dir=args.receive_dir,
     )
 
 
@@ -734,6 +748,7 @@ def _run_spp(argv: list[str], prog: str) -> int:
         reconnect_delay=1.0,
         profile=profile,
         classic=args.classic,
+        receive_dir=args.receive_dir,
     )
 
 
@@ -787,7 +802,10 @@ def _run_agent(argv: list[str], prog: str) -> int:
     args = _agent_parser(prog).parse_args(argv)
     from .agent import run_agent
 
-    return run_agent(log_path=args.log)
+    return run_agent(
+        log_path=args.log,
+        receive_dir=args.receive_dir,
+    )
 
 
 def _run_auto(argv: list[str], prog: str) -> int:
@@ -835,6 +853,7 @@ def _run_auto(argv: list[str], prog: str) -> int:
         selector=selector,
         profile=profile,
         classic=args.classic,
+        receive_dir=args.receive_dir,
     )
 
 

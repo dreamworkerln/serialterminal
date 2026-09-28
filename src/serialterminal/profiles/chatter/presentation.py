@@ -73,6 +73,8 @@ def recognized_chatter_command(line: str) -> str | None:
         return candidate
     if candidate.startswith("/config "):
         return candidate
+    if candidate.startswith("/bin "):
+        return candidate
     return None
 
 

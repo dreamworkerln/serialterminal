@@ -47,6 +47,8 @@ profile, потому что BLE stream layout и controller preamble являю
 F2       device chooser
 F3       switch generic/chatter profile
 F4       clear screen only (logs are preserved)
+F5       send file (profiles with file capability, e.g. chatter)
+F6       cancel active file transfer
 F9       help
 PgUp/Dn  scroll output
 Ctrl+Q   exit
@@ -107,7 +109,16 @@ chatter
     Chatter help/hotkeys/presentation
     BLE 0003 -> chat
     optional BLE 0004 -> telemetry
+    BINARY USER + FT1 file-transfer capability
 ```
+
+File transfer controls appear only for profiles that advertise the binary-message
+capability; generic remains a normal controller-agnostic terminal. Chatter TUI uses
+`F5` to select/send a file and `F6` to cancel, and shows a determinate progress
+bar for both TX and incoming RX transfers. Verified incoming files default to
+`~/Downloads/SerialTerminal`; use `--receive-dir <path>` to override it. Protocol,
+hash/compression, atomic-save and completion semantics are documented in
+[FILE_TRANSFER.md](FILE_TRANSFER.md).
 
 Normal CLI передаёт выбранный profile явно в terminal/session factory. Прямые `TerminalSession` и `DeviceSelector` constructors тоже используют `generic` по умолчанию; Chatter behavior включается только явным `profile=CHATTER_PROFILE` или `--profile chatter`.
 
@@ -173,6 +184,10 @@ send_line
 send_bytes
 observe
 close
+file_send_start
+file_transfer_observe
+file_transfer_cancel
+file_transfer_close
 ```
 
 `events` и `wait_events` больше не являются machine API operations; receive/cursor workflow унифицирован через `observe`.
@@ -208,6 +223,10 @@ Chatter profile отправляет `/id` после каждого успеш�
 Profile выбирается отдельно для каждой session, поэтому один agent process может одновременно держать generic и controller-specific sessions. Connect preamble полностью принадлежит выбранному profile; отдельного identity/preamble toggle в machine API нет.
 
 Полный контракт profiles/open/error semantics находится в `AGENT_API.md`.
+
+Для Chatter file transfer агент использует high-level operations
+`file_send_start` / `file_transfer_observe` / `file_transfer_cancel` /
+`file_transfer_close`; вручную base64/chunk loop делать не требуется.
 
 ### Observe
 

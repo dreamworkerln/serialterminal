@@ -4,6 +4,7 @@ from collections import deque
 import curses
 import threading
 
+from .file_transfer import FileTransferError, FileTransferManager
 from .profiles import PROFILE_NAMES, TerminalProfile, resolve_profile
 from .session import SessionLine, SessionTxFenceTimeout, SessionTxOutcomeUnknown
 from .terminal import TerminalSession
@@ -51,6 +52,7 @@ class TerminalTui:
         reconnect_delay: float,
         selector,
         profile: TerminalProfile,
+        receive_dir: str | None = None,
     ) -> None:
         self.transport = transport
         self.log_path = log_path
@@ -58,6 +60,7 @@ class TerminalTui:
         self.reconnect_delay = reconnect_delay
         self.selector = selector
         self.profile = profile
+        self.receive_dir = receive_dir
         self.output = TuiOutputBuffer()
         self.input_text = ""
         self.input_cursor = 0
@@ -66,7 +69,10 @@ class TerminalTui:
         self.running = True
         self.panel = profile.make_tui_panel()
         self._was_connected = False
+        self._binary_adapter = None
+        self._file_transfer: FileTransferManager | None = None
         self.session = self._make_session(transport, profile)
+        self._configure_file_transfer(profile)
 
     def _make_session(
         self,
@@ -84,9 +90,102 @@ class TerminalTui:
             line_observer=self._observe_line,
         )
 
+    def _configure_file_transfer(self, profile: TerminalProfile) -> None:
+        adapter = profile.make_binary_user_transport(
+            lambda text: {
+                "tx_id": self.session.queue_line(text),
+                "state": "queued",
+            }
+        )
+        self._binary_adapter = adapter
+        self._file_transfer = (
+            FileTransferManager(
+                adapter,
+                receive_dir=self.receive_dir,
+                claim_transfer=self._claim_file_transfer,
+            )
+            if adapter is not None
+            else None
+        )
+
+    def _claim_file_transfer(
+        self,
+        transfer_id: int,
+        direction: str,
+    ) -> None:
+        del transfer_id, direction
+        fence = self.session.capture_tx_fence()
+        try:
+            self.session.wait_tx_fence(fence, timeout=10.0)
+        except SessionTxFenceTimeout as exc:
+            raise FileTransferError(
+                "session_fence_timeout",
+                "pre-transfer TX fence timed out",
+                phase="preparing",
+            ) from exc
+        except SessionTxOutcomeUnknown as exc:
+            raise FileTransferError(
+                "session_tx_unknown",
+                "pre-transfer TX outcome is ambiguous; reconnect before file transfer",
+                phase="preparing",
+                details={"tx_id": exc.tx_id},
+            ) from exc
+
     def _observe_line(self, line: SessionLine) -> None:
         if self.panel is not None:
             self.panel.consume_line(line.stream, line.text)
+        adapter = self._binary_adapter
+        if adapter is not None:
+            adapter.feed_line(line.stream, line.text)
+
+    def _file_snapshot(self) -> dict | None:
+        manager = self._file_transfer
+        return None if manager is None else manager.display_snapshot()
+
+    def _file_transfer_active(self) -> bool:
+        snapshot = self._file_snapshot()
+        return (
+            snapshot is not None
+            and snapshot.get("state") not in {"completed", "failed", "cancelled"}
+        )
+
+    @staticmethod
+    def render_progress_bar(percentage: float, width: int = 24) -> str:
+        width = max(4, width)
+        bounded = max(0.0, min(100.0, float(percentage)))
+        filled = min(width, int(round(width * bounded / 100.0)))
+        return "█" * filled + "░" * (width - filled)
+
+    def _file_status_lines(self, width: int) -> tuple[str, ...]:
+        snapshot = self._file_snapshot()
+        if snapshot is None:
+            return ()
+        bar_width = max(10, min(30, width // 4))
+        bar = self.render_progress_bar(
+            float(snapshot.get("percentage", 0.0)),
+            bar_width,
+        )
+        first = (
+            f" File {snapshot.get('direction', '?')} "
+            f"{snapshot.get('filename', '?')} [{bar}] "
+            f"{float(snapshot.get('percentage', 0.0)):.1f}% "
+            f"{snapshot.get('state', '?')}"
+        )
+        second = (
+            f"      {snapshot.get('chunks_completed', 0)}/"
+            f"{snapshot.get('chunks_total', 0)} chunks  "
+            f"{snapshot.get('bytes_completed', 0)}/"
+            f"{snapshot.get('wire_bytes', 0)} wire bytes"
+        )
+        failure = snapshot.get("failure")
+        if isinstance(failure, dict):
+            second += (
+                f"  ERROR {failure.get('code', '?')}: "
+                f"{failure.get('message', '')}"
+            )
+        elif snapshot.get("final_path"):
+            second += f"  -> {snapshot['final_path']}"
+        return (first, second)
 
     @staticmethod
     def _safe_addstr(stdscr, y: int, x: int, text: str, attr: int = 0) -> None:
@@ -164,6 +263,15 @@ class TerminalTui:
                     colors["panel"],
                 )
                 y += 1
+        for line in self._file_status_lines(width):
+            self._safe_addstr(
+                stdscr,
+                y,
+                0,
+                self._fit(line.ljust(width), width),
+                colors["status"],
+            )
+            y += 1
 
         separator = "─" * max(1, width - 1)
         self._safe_addstr(stdscr, y, 0, separator, colors["dim"])
@@ -193,10 +301,16 @@ class TerminalTui:
             stdscr, input_sep_y + 1, 0, prompt + visible_input, colors["input"]
         )
 
-        status = self.status or (
+        default_status = (
             "PgUp/PgDn scroll | Enter send | F2 Device | F3 Profile | "
             "F4 Clear | F9 Help | Ctrl+Q Quit"
         )
+        if self._file_transfer is not None:
+            default_status = (
+                "Enter send | F2 Device | F3 Profile | F4 Clear | "
+                "F5 Send file | F6 Cancel file | F9 Help | Ctrl+Q Quit"
+            )
+        status = self.status or default_status
         self._safe_addstr(
             stdscr, input_sep_y + 2, 0, self._fit(status, width - 1),
             colors["status"],
@@ -227,6 +341,9 @@ class TerminalTui:
         self._was_connected = connected
 
     def _submit_input(self) -> None:
+        if self._file_transfer_active():
+            self.status = "Manual USER input is locked during active file transfer"
+            return
         line = self.input_text
         self.input_text = ""
         self.input_cursor = 0
@@ -235,6 +352,9 @@ class TerminalTui:
         self.session._submit_interactive_line(line)
 
     def _choose_device(self, stdscr) -> None:
+        if self._file_transfer_active():
+            self.status = "Cancel or finish file transfer before changing device"
+            return
         curses.endwin()
         try:
             self.session._change_device()
@@ -243,6 +363,9 @@ class TerminalTui:
         self.status = "Device chooser closed"
 
     def _switch_profile(self) -> None:
+        if self._file_transfer_active():
+            self.status = "Cancel or finish file transfer before changing profile"
+            return
         current = PROFILE_NAMES.index(self.profile.name)
         next_name = PROFILE_NAMES[(current + 1) % len(PROFILE_NAMES)]
         next_profile = resolve_profile(next_name)
@@ -265,6 +388,8 @@ class TerminalTui:
             return
 
         self.session._reveal_sent_presentations()
+        if self._file_transfer is not None:
+            self._file_transfer.close()
         self.session.stop()
         self.session.close_logs()
         self.selector.profile = next_profile
@@ -272,9 +397,53 @@ class TerminalTui:
         self.panel = next_profile.make_tui_panel()
         self.transport = new_transport
         self.session = self._make_session(new_transport, next_profile)
+        self._configure_file_transfer(next_profile)
         self._was_connected = False
         self.session.start()
         self.status = f"Profile switched to {next_name}; reconnecting same target"
+
+    def _choose_file(self, stdscr) -> None:
+        manager = self._file_transfer
+        if manager is None:
+            self.status = "Selected profile does not support file transfer"
+            return
+        if self._file_transfer_active():
+            self.status = "A file transfer is already active"
+            return
+
+        curses.endwin()
+        try:
+            local_path = input("File to send (Enter cancels): ").strip()
+        finally:
+            stdscr.refresh()
+        if not local_path:
+            self.status = "File selection cancelled"
+            return
+        try:
+            result = manager.start_send(local_path)
+        except FileTransferError as exc:
+            self.status = f"File send failed to start: {exc.code}: {exc.message}"
+            return
+        self.status = (
+            f"File transfer {result['transfer_id']} started: "
+            f"{result['filename']}"
+        )
+
+    def _cancel_file(self) -> None:
+        manager = self._file_transfer
+        snapshot = self._file_snapshot()
+        if manager is None or snapshot is None:
+            self.status = "No file transfer to cancel"
+            return
+        if snapshot.get("state") in {"completed", "failed", "cancelled"}:
+            self.status = "File transfer is already terminal"
+            return
+        try:
+            result = manager.cancel(str(snapshot["transfer_id"]))
+        except FileTransferError as exc:
+            self.status = f"Cancel failed: {exc.code}: {exc.message}"
+            return
+        self.status = f"Cancellation requested for {result['transfer_id']}"
 
     def _handle_key(self, stdscr, key, body_rows: int) -> None:
         if key in ("\x11", "\x03"):
@@ -289,6 +458,10 @@ class TerminalTui:
             self.output.clear()
             self.scroll_offset = 0
             self.status = "Screen cleared; log files were not changed"
+        elif key == curses.KEY_F5:
+            self._choose_file(stdscr)
+        elif key == curses.KEY_F6:
+            self._cancel_file()
         elif key == curses.KEY_F9:
             self.session._show_full_help()
             self.scroll_offset = 0
@@ -355,9 +528,10 @@ class TerminalTui:
         try:
             while self.running and not self.session.stop_event.is_set():
                 self._run_connected_actions()
-                height, _width = stdscr.getmaxyx()
+                height, width = stdscr.getmaxyx()
                 panel_rows = len(self.panel.status_lines()) if self.panel else 0
-                body_rows = max(1, height - panel_rows - 8)
+                file_rows = len(self._file_status_lines(width))
+                body_rows = max(1, height - panel_rows - file_rows - 8)
                 self._render(stdscr)
                 try:
                     key = stdscr.get_wch()
@@ -366,6 +540,8 @@ class TerminalTui:
                 self._handle_key(stdscr, key, body_rows)
         finally:
             self.session._reveal_sent_presentations()
+            if self._file_transfer is not None:
+                self._file_transfer.close()
             self.session.stop()
             self.session.close_logs()
 
@@ -378,6 +554,7 @@ def run_terminal_tui(
     reconnect_delay: float,
     selector,
     profile: TerminalProfile,
+    receive_dir: str | None = None,
 ) -> int:
     tui = TerminalTui(
         transport=transport,
@@ -386,6 +563,7 @@ def run_terminal_tui(
         reconnect_delay=reconnect_delay,
         selector=selector,
         profile=profile,
+        receive_dir=receive_dir,
     )
     curses.wrapper(tui.run)
     return 0

@@ -1,7 +1,9 @@
 from .base import (
+    BinarySendLine,
     BleProfileConfig,
     PresentationAdapter,
     ProfileAction,
+    ProfileBinaryUserAdapter,
     ReceiveCharacteristic,
     SendBytes,
     SendLine,
@@ -25,12 +27,14 @@ def resolve_profile(name: str) -> TerminalProfile:
 
 
 __all__ = [
+    "BinarySendLine",
     "BleProfileConfig",
     "GENERIC_PROFILE",
     "GenericProfile",
     "PROFILE_NAMES",
     "PresentationAdapter",
     "ProfileAction",
+    "ProfileBinaryUserAdapter",
     "ReceiveCharacteristic",
     "SendBytes",
     "SendLine",

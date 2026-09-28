@@ -326,3 +326,112 @@ def test_sender_cancellation_becomes_terminal_cancelled(tmp_path):
         assert cancelled["failure"]["code"] == "cancelled"
     finally:
         manager.close()
+
+
+
+def test_receiver_sha_mismatch_fails_without_final_file(tmp_path):
+    transport = _PairBinaryTransport()
+    receive_dir = tmp_path / "rx"
+    manager = FileTransferManager(transport, receive_dir=receive_dir)
+    try:
+        payload = b"payload with bad declared sha"
+        chunk_size = data_payload_capacity(200)
+        manager.feed_binary(
+            encode_message(
+                MetaMessage(
+                    202,
+                    "badsha.bin",
+                    len(payload),
+                    len(payload),
+                    Compression.NONE,
+                    chunk_size,
+                    hashlib.sha256(b"different").digest(),
+                ),
+                200,
+            )
+        )
+        assert _wait_until(lambda: manager.display_snapshot() is not None)
+        manager.feed_binary(
+            encode_message(DataMessage(202, 0, payload), 200)
+        )
+        manager.feed_binary(
+            encode_message(
+                EndMessage(202, 1, hashlib.sha256(payload).digest()),
+                200,
+            )
+        )
+        failed = _wait_until(
+            lambda: (
+                snapshot
+                if (snapshot := manager.display_snapshot())
+                and snapshot["state"] == "failed"
+                else None
+            )
+        )
+        assert failed["failure"]["code"] == "original_hash_mismatch"
+        assert not (receive_dir / "badsha.bin").exists()
+        assert not list(receive_dir.glob("*.part"))
+    finally:
+        manager.close()
+
+
+class _RemoteFailureTransport:
+    payload_capacity = 200
+
+    def __init__(self):
+        self.receiver = None
+        self.manager = None
+
+    def set_receiver(self, receiver):
+        self.receiver = receiver
+
+    def send_binary(self, data, *, cancel_event=None):
+        from serialterminal.file_transfer.protocol import (
+            EndMessage,
+            MetaMessage,
+            ResultMessage,
+            decode_message,
+            encode_message,
+        )
+
+        message = decode_message(data)
+        if isinstance(message, EndMessage) and self.receiver is not None:
+            self.receiver(
+                encode_message(
+                    ResultMessage(
+                        transfer_id=message.transfer_id,
+                        ok=False,
+                        code="storage_failed",
+                        reason="receiver disk full",
+                    ),
+                    200,
+                )
+            )
+        return BinaryDelivery(tx_id=1, user_id="TEST/1")
+
+
+def test_sender_remote_result_failure_is_not_completed(tmp_path):
+    source = tmp_path / "source.bin"
+    source.write_bytes(b"x" * 100)
+    transport = _RemoteFailureTransport()
+    manager = FileTransferManager(
+        transport,
+        receive_dir=tmp_path / "rx",
+        id_factory=lambda: 0x404,
+        result_timeout_s=1.0,
+    )
+    try:
+        manager.start_send(source)
+        failed = _wait_until(
+            lambda: (
+                snapshot
+                if (snapshot := manager.display_snapshot())
+                and snapshot["state"] == "failed"
+                else None
+            )
+        )
+        assert failed["failure"]["code"] == "remote_failed"
+        assert failed["failure"]["details"]["remote_code"] == "storage_failed"
+        assert failed["percentage"] < 100.0
+    finally:
+        manager.close()

@@ -66,6 +66,8 @@ _HUMAN_HELP_LINES = (
     "/sf and /sf N query/set persisted spreading factor",
     "/bw and /bw kHz query/set persisted bandwidth",
     "/config and /config reset show/reset persisted settings",
+    "/bin BASE64 is the local BINARY USER command used by profile applications",
+    "TUI F5 sends a file; F6 cancels the active file transfer",
     "/help requests Chatter help",
     "Ctrl+T 1/c   Chatter human console: CHAT",
     "Ctrl+T 2/t   Chatter human console: TELEMETRY",
