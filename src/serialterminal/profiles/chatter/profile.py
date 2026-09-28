@@ -7,14 +7,17 @@ from types import MappingProxyType
 from ...sweep import SweepAdapterFactory
 from ...transports.ble_nus import NUS_RX_UUID, NUS_TX_UUID
 from ..base import (
+    BinarySendLine,
     BleProfileConfig,
     PresentationAdapter,
     ProfileAction,
     ReceiveCharacteristic,
     SendBytes,
     SendLine,
+    ProfileBinaryUserAdapter,
     TuiProfilePanel,
 )
+from .binary_user import ChatterBinaryUserAdapter
 from .presentation import ChatterPresentation, recognized_chatter_command
 from .sweep import create_reliable_user_sweep_adapter
 from .tui import ChatterTuiPanel
@@ -119,6 +122,12 @@ class ChatterProfile:
 
     def make_tui_panel(self) -> TuiProfilePanel | None:
         return ChatterTuiPanel()
+
+    def make_binary_user_transport(
+        self,
+        send_line: BinarySendLine,
+    ) -> ProfileBinaryUserAdapter | None:
+        return ChatterBinaryUserAdapter(send_line)
 
     def recognized_command(self, line: str) -> str | None:
         return recognized_chatter_command(line)

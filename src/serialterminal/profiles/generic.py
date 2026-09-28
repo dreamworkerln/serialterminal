@@ -7,9 +7,11 @@ from types import MappingProxyType
 from ..sweep import SweepAdapterFactory
 from ..transports.ble_nus import NUS_RX_UUID, NUS_TX_UUID
 from .base import (
+    BinarySendLine,
     BleProfileConfig,
     PresentationAdapter,
     ProfileAction,
+    ProfileBinaryUserAdapter,
     TuiProfilePanel,
     ReceiveCharacteristic,
 )
@@ -53,6 +55,13 @@ class GenericProfile:
         return None
 
     def make_tui_panel(self) -> TuiProfilePanel | None:
+        return None
+
+    def make_binary_user_transport(
+        self,
+        send_line: BinarySendLine,
+    ) -> ProfileBinaryUserAdapter | None:
+        del send_line
         return None
 
     def recognized_command(self, line: str) -> str | None:

@@ -2,8 +2,9 @@ from __future__ import annotations
 
 from collections.abc import Mapping
 from dataclasses import dataclass
-from typing import Protocol, TypeAlias
+from typing import Any, Callable, Protocol, TypeAlias
 
+from ..file_transfer.transport import BinaryUserTransport
 from ..sweep import SweepAdapterFactory
 
 
@@ -31,6 +32,14 @@ class ReceiveCharacteristic:
 class BleProfileConfig:
     write_characteristic: str
     receive_streams: tuple[ReceiveCharacteristic, ...]
+
+
+class ProfileBinaryUserAdapter(BinaryUserTransport, Protocol):
+    def feed_line(self, stream: str, line: str) -> None:
+        ...
+
+
+BinarySendLine: TypeAlias = Callable[[str], Any]
 
 
 class TuiProfilePanel(Protocol):
@@ -90,6 +99,12 @@ class TerminalProfile(Protocol):
         ...
 
     def make_tui_panel(self) -> TuiProfilePanel | None:
+        ...
+
+    def make_binary_user_transport(
+        self,
+        send_line: BinarySendLine,
+    ) -> ProfileBinaryUserAdapter | None:
         ...
 
     def recognized_command(self, line: str) -> str | None:
