@@ -20,7 +20,7 @@ from .profiles import (
     SendLine,
     TerminalProfile,
 )
-from .session import ManagedSession, SessionClosedError, encode_line
+from .session import ManagedSession, SessionClosedError, SessionLine, encode_line
 from .transports.base import ReceivedChunk, Transport
 from .transports.serial import SerialTransport
 
@@ -42,6 +42,8 @@ class TerminalSession(ManagedSession):
         reconnect_delay: float = 0.5,
         device_chooser: Callable[[], Transport | None] | None = None,
         profile: TerminalProfile = GENERIC_PROFILE,
+        screen_writer: Callable[[str], None] | None = None,
+        line_observer: Callable[[SessionLine], None] | None = None,
     ):
         self.profile = profile
         super().__init__(
@@ -55,6 +57,8 @@ class TerminalSession(ManagedSession):
         self.console_path = console_log_path(self.log_path)
         self.console_session = "s1"
         self.device_chooser = device_chooser
+        self.screen_writer = screen_writer
+        self.line_observer = line_observer
 
         self.output_lock = threading.Lock()
         self.decode_lock = threading.Lock()
@@ -88,19 +92,25 @@ class TerminalSession(ManagedSession):
         )
         return payload or None
 
+    def _screen_write(self, text: str) -> None:
+        writer = self.screen_writer
+        if writer is not None:
+            writer(text)
+            return
+        sys.stdout.write(text)
+        sys.stdout.flush()
+
     def write_output(self, text: str) -> None:
         """Write local terminal/status output to both screen and transcript."""
         with self.output_lock:
-            sys.stdout.write(text)
-            sys.stdout.flush()
+            self._screen_write(text)
             self.log_file.write(text)
             self.log_file.flush()
 
     def _write_console_only(self, text: str) -> None:
         """Write local presentation text without duplicating the transcript."""
         with self.output_lock:
-            sys.stdout.write(text)
-            sys.stdout.flush()
+            self._screen_write(text)
 
     def _record_console(
         self,
@@ -120,7 +130,10 @@ class TerminalSession(ManagedSession):
                     )
                 )
 
-    def _record_console_output_line(self, line) -> None:
+    def _record_console_output_line(self, line: SessionLine) -> None:
+        observer = self.line_observer
+        if observer is not None:
+            observer(line)
         if line.stream not in self.profile.human_console_streams():
             return
         self._record_console("<", line.text, timestamp=line.timestamp)
@@ -182,10 +195,10 @@ class TerminalSession(ManagedSession):
                 ):
                     reveal = self._presentation.consume_firmware_line(line)
                     if reveal is not None:
-                        sys.stdout.write(reveal + "\n")
+                        self._screen_write(reveal + "\n")
 
                 if self._received_line_visible(chunk.stream, line):
-                    sys.stdout.write(line)
+                    self._screen_write(line)
 
     def log_input(self, line: str) -> None:
         with self.output_lock:
@@ -200,8 +213,7 @@ class TerminalSession(ManagedSession):
             return
         with self.output_lock:
             for line in reveal:
-                sys.stdout.write(line + "\n")
-            sys.stdout.flush()
+                self._screen_write(line + "\n")
 
     # ManagedSession hooks keep reconnect/TX/RX mechanics out of the human UI.
     def on_waiting(self) -> None:
@@ -464,6 +476,12 @@ class TerminalSession(ManagedSession):
         finally:
             self._reveal_sent_presentations()
             self.stop()
-            with self.output_lock:
-                self.log_file.flush()
-                self.log_file.close()
+            self.close_logs()
+
+    def close_logs(self) -> None:
+        """Flush and close human transcript output exactly once."""
+        with self.output_lock:
+            if self.log_file.closed:
+                return
+            self.log_file.flush()
+            self.log_file.close()

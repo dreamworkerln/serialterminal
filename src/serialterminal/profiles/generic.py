@@ -10,6 +10,7 @@ from .base import (
     BleProfileConfig,
     PresentationAdapter,
     ProfileAction,
+    TuiProfilePanel,
     ReceiveCharacteristic,
 )
 
@@ -49,6 +50,9 @@ class GenericProfile:
         return _BLE_CONFIG
 
     def make_presentation(self) -> PresentationAdapter | None:
+        return None
+
+    def make_tui_panel(self) -> TuiProfilePanel | None:
         return None
 
     def recognized_command(self, line: str) -> str | None:

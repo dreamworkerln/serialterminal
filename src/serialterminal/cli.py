@@ -190,6 +190,69 @@ class DeviceSelector:
 
         raise ValueError(f"unsupported candidate kind: {candidate.kind}")
 
+    def recreate_transport(
+        self,
+        transport: Transport,
+        profile: TerminalProfile,
+    ) -> Transport:
+        """Build the same physical target with another controller profile."""
+        builder = DeviceSelector(
+            self.scope,
+            baud=self.baud,
+            scan_seconds=self.scan_seconds,
+            profile=profile,
+        )
+
+        if isinstance(transport, SerialTransport):
+            if transport.identity is not None:
+                return SerialTransport(
+                    identity=transport.identity,
+                    baud=transport.baud,
+                )
+            return SerialTransport(
+                device=transport.requested_device,
+                baud=transport.baud,
+            )
+
+        from .transports.ble_nus import BleDeviceIdentity, BleNusTransport
+        if isinstance(transport, BleNusTransport):
+            if transport.target_address is None:
+                raise TransportError(
+                    "cannot switch profile before BLE physical identity is known"
+                )
+            identity = BleDeviceIdentity(
+                transport.target_name,
+                transport.target_address,
+            )
+            return builder.make_transport(
+                DeviceCandidate(
+                    kind="ble",
+                    key=identity.key,
+                    label=f"BLE  {identity.name}",
+                    detail=identity.address,
+                    identity=identity,
+                )
+            )
+
+        from .transports.bluetooth_spp import BluetoothSppTransport
+        if isinstance(transport, BluetoothSppTransport):
+            identity = transport.identity
+            return builder.make_transport(
+                DeviceCandidate(
+                    kind="spp",
+                    key=identity.key,
+                    label=f"SPP  {identity.name}",
+                    detail=(
+                        f"{identity.address}  RFCOMM channel={identity.channel}"
+                    ),
+                    identity=identity,
+                )
+            )
+
+        raise TransportError(
+            f"profile switching is unsupported for {type(transport).__name__}"
+        )
+
     @staticmethod
     def _print_menu(candidates: list[DeviceCandidate]) -> None:
         print("Detected devices:")
@@ -381,6 +444,11 @@ def _add_profile_argument(parser: argparse.ArgumentParser) -> None:
         default="generic",
         help="controller convenience profile; default: generic",
     )
+    parser.add_argument(
+        "--classic",
+        action="store_true",
+        help="use the legacy line-oriented human frontend instead of the TUI",
+    )
 
 
 def _serial_parser(prog: str) -> argparse.ArgumentParser:
@@ -551,6 +619,7 @@ def _run_session(
     selector: DeviceSelector,
     reconnect_delay: float = 0.5,
     profile: TerminalProfile = GENERIC_PROFILE,
+    classic: bool = False,
 ) -> int:
     actual_log_path = str(default_log_path()) if log_path is None else log_path
     print(f"Locked target: {transport.description}")
@@ -558,6 +627,18 @@ def _run_session(
         "After disconnect/reboot only this selected device "
         "will be retried.\n"
     )
+
+    if not classic and sys.stdin.isatty() and sys.stdout.isatty():
+        from .tui import run_terminal_tui
+
+        return run_terminal_tui(
+            transport=transport,
+            log_path=actual_log_path,
+            line_ending=_line_ending(eol),
+            reconnect_delay=reconnect_delay,
+            selector=selector,
+            profile=profile,
+        )
 
     TerminalSession(
         transport=transport,
@@ -598,6 +679,7 @@ def _run_serial(argv: list[str], prog: str) -> int:
         eol=args.eol,
         selector=selector,
         profile=profile,
+        classic=args.classic,
     )
 
 
@@ -624,6 +706,7 @@ def _run_ble(argv: list[str], prog: str) -> int:
         selector=selector,
         reconnect_delay=1.0,
         profile=profile,
+        classic=args.classic,
     )
 
 
@@ -650,6 +733,7 @@ def _run_spp(argv: list[str], prog: str) -> int:
         selector=selector,
         reconnect_delay=1.0,
         profile=profile,
+        classic=args.classic,
     )
 
 
@@ -725,6 +809,7 @@ def _run_auto(argv: list[str], prog: str) -> int:
             eol=args.eol,
             selector=selector,
             profile=profile,
+            classic=args.classic,
         )
 
     selector = DeviceSelector(
@@ -749,6 +834,7 @@ def _run_auto(argv: list[str], prog: str) -> int:
         eol=args.eol,
         selector=selector,
         profile=profile,
+        classic=args.classic,
     )
 
 

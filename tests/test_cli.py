@@ -215,3 +215,18 @@ def test_human_session_uses_unique_default_log_path(monkeypatch, tmp_path):
     assert result == 0
     assert captured["log_path"] == str(generated)
     assert captured["ran"] is True
+
+
+
+def test_selector_recreates_explicit_serial_transport_for_new_profile():
+    from serialterminal.cli import DeviceSelector
+    from serialterminal.profiles.chatter import CHATTER_PROFILE
+    from serialterminal.transports.serial import SerialTransport
+
+    selector = DeviceSelector("serial")
+    original = SerialTransport(device="/dev/ttyTEST", baud=57600)
+    recreated = selector.recreate_transport(original, CHATTER_PROFILE)
+    assert isinstance(recreated, SerialTransport)
+    assert recreated.device_key == original.device_key
+    assert recreated.baud == 57600
+    assert selector.profile.name == "generic"

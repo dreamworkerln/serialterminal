@@ -33,6 +33,17 @@ class BleProfileConfig:
     receive_streams: tuple[ReceiveCharacteristic, ...]
 
 
+class TuiProfilePanel(Protocol):
+    def connected_actions(self) -> tuple[ProfileAction, ...]:
+        ...
+
+    def consume_line(self, stream: str, line: str) -> None:
+        ...
+
+    def status_lines(self) -> tuple[str, ...]:
+        ...
+
+
 class PresentationAdapter(Protocol):
     def submit_payload(self, text: str) -> bool:
         ...
@@ -76,6 +87,9 @@ class TerminalProfile(Protocol):
         ...
 
     def make_presentation(self) -> PresentationAdapter | None:
+        ...
+
+    def make_tui_panel(self) -> TuiProfilePanel | None:
         ...
 
     def recognized_command(self, line: str) -> str | None:

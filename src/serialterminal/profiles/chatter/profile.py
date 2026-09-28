@@ -13,9 +13,11 @@ from ..base import (
     ReceiveCharacteristic,
     SendBytes,
     SendLine,
+    TuiProfilePanel,
 )
 from .presentation import ChatterPresentation, recognized_chatter_command
 from .sweep import create_reliable_user_sweep_adapter
+from .tui import ChatterTuiPanel
 
 
 CHATTER_ECHO_TOGGLE = "\x14e"
@@ -114,6 +116,9 @@ class ChatterProfile:
 
     def make_presentation(self) -> PresentationAdapter | None:
         return ChatterPresentation()
+
+    def make_tui_panel(self) -> TuiProfilePanel | None:
+        return ChatterTuiPanel()
 
     def recognized_command(self, line: str) -> str | None:
         return recognized_chatter_command(line)

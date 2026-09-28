@@ -35,6 +35,30 @@ serialterminal
 python3 serialterminal.py
 ```
 
+На интерактивном TTY human frontend по умолчанию запускается как curses TUI. Базовый
+`generic` режим остаётся обычным универсальным Serial/BLE/SPP terminal, а
+`chatter` добавляет profile-owned radio status panel. Профиль можно переключить
+прямо в TUI через `F3`; тот же physical target безопасно переоткрывается с новым
+profile, потому что BLE stream layout и controller preamble являются частью profile.
+
+Минимальные TUI keys:
+
+```text
+F2       device chooser
+F3       switch generic/chatter profile
+F4       clear screen only (logs are preserved)
+F9       help
+PgUp/Dn  scroll output
+Ctrl+Q   exit
+```
+
+Старый line-oriented human frontend пока сохранён как fallback:
+
+```bash
+serialterminal --classic
+serialterminal --profile chatter --classic
+```
+
 Generic profile не отправляет устройству controller-specific команды при connect/reconnect, не интерпретирует firmware output как Chatter и для BLE использует стандартный NUS layout `0002` write + `0003` receive (`main`).
 
 Для bundled LoRa-Chatter conveniences выбери профиль явно:
