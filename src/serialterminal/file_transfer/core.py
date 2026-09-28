@@ -21,10 +21,13 @@ from .protocol import (
     FileMessage,
     FileProtocolError,
     MetaMessage,
+    MissingMessage,
     ResultMessage,
+    canonical_missing_ranges,
     data_payload_capacity,
     decode_message,
     encode_message,
+    validate_missing_ranges,
     parse_transfer_id,
     transfer_id_text,
 )
@@ -39,6 +42,9 @@ FILE_EVENT_RETENTION = 1024
 FILE_MAX_WINDOW = 100
 FILE_MAX_RETAINED_TERMINAL = 16
 FILE_RESULT_TIMEOUT_S = 3600.0
+FILE_CONTROL_REPLAY_INTERVAL_S = 30.0
+FILE_MAX_CONTROL_REPLAYS = 3
+FILE_MAX_REPAIR_ROUNDS = 8
 _IO_CHUNK = 256 * 1024
 
 _TERMINAL_STATES = frozenset({"completed", "failed", "cancelled"})
@@ -185,6 +191,9 @@ class _TransferRecord:
         self.final_path: str | None = None
         self.cancel_event = threading.Event()
         self.remote_result: ResultMessage | None = None
+        self.remote_missing: deque[MissingMessage] = deque()
+        self.rx_meta: MetaMessage | None = None
+        self.rx_end: EndMessage | None = None
         self.started_monotonic = time.monotonic()
         self.ended_monotonic: float | None = None
         self._condition = threading.Condition()
@@ -317,6 +326,16 @@ class _TransferRecord:
             reason=result.reason,
         )
 
+    def set_remote_missing(self, message: MissingMessage) -> None:
+        with self._condition:
+            self.remote_missing.append(message)
+            self._condition.notify_all()
+        self.event(
+            "missing_detected",
+            ranges=len(message.ranges),
+            chunks=sum(item.count for item in message.ranges),
+        )
+
     def observe(
         self,
         *,
@@ -412,6 +431,9 @@ class FileTransferManager:
         event_retention: int = FILE_EVENT_RETENTION,
         max_retained_terminal: int = FILE_MAX_RETAINED_TERMINAL,
         result_timeout_s: float = FILE_RESULT_TIMEOUT_S,
+        control_replay_interval_s: float = FILE_CONTROL_REPLAY_INTERVAL_S,
+        max_control_replays: int = FILE_MAX_CONTROL_REPLAYS,
+        max_repair_rounds: int = FILE_MAX_REPAIR_ROUNDS,
     ) -> None:
         self.transport = transport
         self.receive_dir = (
@@ -424,7 +446,18 @@ class FileTransferManager:
         self.id_factory = id_factory or (lambda: secrets.randbits(64))
         self.event_retention = event_retention
         self.max_retained_terminal = max_retained_terminal
-        self.result_timeout_s = result_timeout_s
+        if result_timeout_s <= 0:
+            raise ValueError("result_timeout_s must be positive")
+        if control_replay_interval_s <= 0:
+            raise ValueError("control_replay_interval_s must be positive")
+        if max_control_replays < 0:
+            raise ValueError("max_control_replays must be non-negative")
+        if max_repair_rounds <= 0:
+            raise ValueError("max_repair_rounds must be positive")
+        self.result_timeout_s = float(result_timeout_s)
+        self.control_replay_interval_s = float(control_replay_interval_s)
+        self.max_control_replays = int(max_control_replays)
+        self.max_repair_rounds = int(max_repair_rounds)
 
         self._lock = threading.Lock()
         self._records: dict[int, _TransferRecord] = {}
@@ -669,60 +702,41 @@ class FileTransferManager:
                 wire_bytes=prepared.wire_size,
                 chunks_total=chunks_total,
             )
-
-            self._send_message(
-                MetaMessage(
-                    transfer_id=record.transfer_id,
-                    filename=prepared.filename,
-                    original_size=prepared.original_size,
-                    wire_size=prepared.wire_size,
-                    compression=prepared.compression,
-                    chunk_size=chunk_size,
-                    original_sha256=prepared.original_sha256,
-                ),
-                cancel_event=record.cancel_event,
+            meta = MetaMessage(
+                transfer_id=record.transfer_id,
+                filename=prepared.filename,
+                original_size=prepared.original_size,
+                wire_size=prepared.wire_size,
+                compression=prepared.compression,
+                chunk_size=chunk_size,
+                original_sha256=prepared.original_sha256,
+            )
+            end = EndMessage(
+                transfer_id=record.transfer_id,
+                chunk_count=chunks_total,
+                wire_sha256=prepared.wire_sha256,
             )
 
+            self._send_message(meta, cancel_event=record.cancel_event)
             record.set_state("sending")
-            sent_bytes = 0
-            chunk_index = 0
-            with prepared.wire_path.open("rb") as source:
-                while True:
-                    if record.cancel_event.is_set():
-                        raise FileTransferCancelled()
-                    block = source.read(chunk_size)
-                    if not block:
-                        break
-                    self._send_message(
-                        DataMessage(
-                            transfer_id=record.transfer_id,
-                            chunk_index=chunk_index,
-                            payload=block,
-                        ),
-                        cancel_event=record.cancel_event,
-                    )
-                    sent_bytes += len(block)
-                    chunk_index += 1
-                    record.set_progress(
-                        bytes_completed=sent_bytes,
-                        chunks_completed=chunk_index,
-                    )
-
-            self._send_message(
-                EndMessage(
-                    transfer_id=record.transfer_id,
-                    chunk_count=chunk_index,
-                    wire_sha256=prepared.wire_sha256,
-                ),
-                cancel_event=record.cancel_event,
+            self._send_all_chunks(
+                record,
+                prepared,
+                chunk_size=chunk_size,
             )
-            record.set_state("verifying")
-            result = self._wait_remote_result(record)
+            self._send_message(end, cancel_event=record.cancel_event)
+            result = self._await_remote_completion(
+                record,
+                prepared,
+                meta=meta,
+                end=end,
+                chunk_size=chunk_size,
+            )
             if not result.ok:
                 raise FileTransferError(
                     "remote_failed",
                     result.reason or result.code,
-                    phase="verifying",
+                    phase="waiting_result",
                     details={"remote_code": result.code},
                 )
             self._terminal_record(record, "completed")
@@ -741,22 +755,181 @@ class FileTransferManager:
             if prepared is not None and prepared.remove_wire_path:
                 prepared.wire_path.unlink(missing_ok=True)
 
-    def _wait_remote_result(self, record: _TransferRecord) -> ResultMessage:
-        deadline = time.monotonic() + self.result_timeout_s
+    def _send_all_chunks(
+        self,
+        record: _TransferRecord,
+        prepared: _PreparedSource,
+        *,
+        chunk_size: int,
+    ) -> None:
+        sent_bytes = 0
+        chunk_index = 0
+        with prepared.wire_path.open("rb") as source:
+            while True:
+                if record.cancel_event.is_set():
+                    raise FileTransferCancelled()
+                block = source.read(chunk_size)
+                if not block:
+                    break
+                self._send_message(
+                    DataMessage(
+                        transfer_id=record.transfer_id,
+                        chunk_index=chunk_index,
+                        payload=block,
+                    ),
+                    cancel_event=record.cancel_event,
+                )
+                sent_bytes += len(block)
+                chunk_index += 1
+                record.set_progress(
+                    bytes_completed=sent_bytes,
+                    chunks_completed=chunk_index,
+                )
+
+    def _send_requested_chunks(
+        self,
+        record: _TransferRecord,
+        prepared: _PreparedSource,
+        message: MissingMessage,
+        *,
+        chunk_size: int,
+    ) -> None:
+        try:
+            validate_missing_ranges(
+                message.ranges,
+                chunk_count=record.chunks_total,
+            )
+        except FileProtocolError as exc:
+            raise FileTransferError(
+                "invalid_repair_request",
+                str(exc),
+                phase="repairing",
+            ) from exc
+
+        chunks_requested = sum(item.count for item in message.ranges)
+        record.set_state("repairing")
+        record.event(
+            "repair_requested",
+            ranges=len(message.ranges),
+            chunks=chunks_requested,
+        )
+        with prepared.wire_path.open("rb") as source:
+            for item in message.ranges:
+                for chunk_index in range(
+                    item.start_chunk,
+                    item.start_chunk + item.count,
+                ):
+                    if record.cancel_event.is_set():
+                        raise FileTransferCancelled()
+                    source.seek(chunk_index * chunk_size)
+                    block = source.read(chunk_size)
+                    if not block:
+                        raise FileTransferError(
+                            "invalid_repair_request",
+                            f"requested chunk {chunk_index} is outside prepared stream",
+                            phase="repairing",
+                        )
+                    self._send_message(
+                        DataMessage(
+                            transfer_id=record.transfer_id,
+                            chunk_index=chunk_index,
+                            payload=block,
+                        ),
+                        cancel_event=record.cancel_event,
+                    )
+        record.event(
+            "repair_round_sent",
+            ranges=len(message.ranges),
+            chunks=chunks_requested,
+        )
+
+    def _wait_remote_outcome(
+        self,
+        record: _TransferRecord,
+        *,
+        timeout_s: float,
+    ) -> ResultMessage | MissingMessage | None:
+        deadline = time.monotonic() + timeout_s
         with record._condition:
             while True:
                 if record.cancel_event.is_set():
                     raise FileTransferCancelled()
                 if record.remote_result is not None:
                     return record.remote_result
+                if record.remote_missing:
+                    return record.remote_missing.popleft()
                 remaining = deadline - time.monotonic()
                 if remaining <= 0:
-                    raise FileTransferError(
-                        "remote_result_timeout",
-                        "remote verified RESULT did not arrive before timeout",
-                        phase="verifying",
-                    )
+                    return None
                 record._condition.wait(timeout=min(0.25, remaining))
+
+    def _await_remote_completion(
+        self,
+        record: _TransferRecord,
+        prepared: _PreparedSource,
+        *,
+        meta: MetaMessage,
+        end: EndMessage,
+        chunk_size: int,
+    ) -> ResultMessage:
+        overall_deadline = time.monotonic() + self.result_timeout_s
+        control_replays = 0
+        repair_rounds = 0
+
+        while True:
+            record.set_state("waiting_result")
+            remaining_total = overall_deadline - time.monotonic()
+            if remaining_total <= 0:
+                raise FileTransferError(
+                    "remote_result_timeout",
+                    "remote verified RESULT did not arrive before timeout",
+                    phase="waiting_result",
+                )
+            outcome = self._wait_remote_outcome(
+                record,
+                timeout_s=min(
+                    self.control_replay_interval_s,
+                    remaining_total,
+                ),
+            )
+            if isinstance(outcome, ResultMessage):
+                return outcome
+            if isinstance(outcome, MissingMessage):
+                repair_rounds += 1
+                if repair_rounds > self.max_repair_rounds:
+                    raise FileTransferError(
+                        "repair_round_limit",
+                        "file repair exceeded bounded repair round limit",
+                        phase="repairing",
+                        details={"max_repair_rounds": self.max_repair_rounds},
+                    )
+                self._send_requested_chunks(
+                    record,
+                    prepared,
+                    outcome,
+                    chunk_size=chunk_size,
+                )
+                self._send_message(end, cancel_event=record.cancel_event)
+                continue
+
+            if control_replays >= self.max_control_replays:
+                raise FileTransferError(
+                    "remote_result_timeout",
+                    "remote verified RESULT did not arrive after bounded control replay",
+                    phase="waiting_result",
+                    details={"control_replays": control_replays},
+                )
+            control_replays += 1
+            record.event(
+                "control_replay",
+                attempt=control_replays,
+                maximum=self.max_control_replays,
+            )
+            # META and END are deliberately idempotent. Replaying both lets a
+            # receiver that missed either local notification reconstruct state
+            # and answer with MISSING or the final RESULT.
+            self._send_message(meta, cancel_event=record.cancel_event)
+            self._send_message(end, cancel_event=record.cancel_event)
 
     def feed_binary(self, payload: bytes) -> None:
         try:
@@ -765,11 +938,14 @@ class FileTransferManager:
             return
         if message is None:
             return
-        if isinstance(message, ResultMessage):
+        if isinstance(message, (ResultMessage, MissingMessage)):
             with self._lock:
                 record = self._records.get(message.transfer_id)
             if record is not None and record.direction == "TX":
-                record.set_remote_result(message)
+                if isinstance(message, ResultMessage):
+                    record.set_remote_result(message)
+                else:
+                    record.set_remote_missing(message)
             return
         self._rx_queue.put(message)
 
@@ -845,27 +1021,27 @@ class FileTransferManager:
             incoming = self._incoming
 
         if existing is not None:
-            if existing.state == "completed" and existing.direction == "RX":
-                self._send_result_async(
-                    existing,
-                    ResultMessage(
-                        transfer_id=meta.transfer_id,
-                        ok=True,
-                        code="ok",
-                        reason="",
-                    ),
-                )
-                return
-            if (
-                incoming is not None
-                and incoming.meta == meta
-                and incoming.record.transfer_id == meta.transfer_id
-            ):
+            if existing.direction == "RX" and existing.rx_meta == meta:
+                if existing.state == "completed":
+                    self._send_result_async(
+                        existing,
+                        ResultMessage(
+                            transfer_id=meta.transfer_id,
+                            ok=True,
+                            code="ok",
+                            reason="",
+                        ),
+                    )
+                elif (
+                    incoming is not None
+                    and incoming.record.transfer_id == meta.transfer_id
+                ):
+                    existing.event("meta_replayed")
                 return
             self._reject_incoming(
                 meta.transfer_id,
-                "busy",
-                "transfer id already exists",
+                "protocol_error",
+                "conflicting META for existing transfer_id",
             )
             return
 
@@ -918,6 +1094,7 @@ class FileTransferManager:
 
         assert wire_path is not None
 
+        record.rx_meta = meta
         record.set_sizes(
             original_bytes=meta.original_size,
             wire_bytes=meta.wire_size,
@@ -1017,6 +1194,34 @@ class FileTransferManager:
     def _handle_end(self, message: EndMessage) -> None:
         incoming = self._incoming_for(message.transfer_id)
         if incoming is None:
+            with self._lock:
+                existing = self._records.get(message.transfer_id)
+            if (
+                existing is not None
+                and existing.direction == "RX"
+                and existing.state == "completed"
+                and existing.rx_end == message
+            ):
+                existing.event("end_replayed")
+                self._send_result_async(
+                    existing,
+                    ResultMessage(
+                        transfer_id=message.transfer_id,
+                        ok=True,
+                        code="ok",
+                        reason="",
+                    ),
+                )
+            elif (
+                existing is not None
+                and existing.direction == "RX"
+                and existing.state == "completed"
+            ):
+                self._reject_incoming(
+                    message.transfer_id,
+                    "protocol_error",
+                    "conflicting END for completed transfer_id",
+                )
             return
         if incoming.record.cancel_event.is_set():
             self._fail_incoming(
@@ -1042,12 +1247,50 @@ class FileTransferManager:
                 if index not in incoming.received
             ]
             if missing:
-                raise FileTransferError(
-                    "missing_chunks",
-                    f"missing {len(missing)} DATA chunk(s)",
-                    phase="verifying",
-                    details={"first_missing": missing[0]},
+                ranges = canonical_missing_ranges(
+                    missing,
+                    chunk_count=record.chunks_total,
                 )
+                repair = MissingMessage(
+                    transfer_id=record.transfer_id,
+                    ranges=ranges,
+                )
+                try:
+                    encode_message(
+                        repair,
+                        self.transport.payload_capacity,
+                    )
+                except FileProtocolError as exc:
+                    raise FileTransferError(
+                        "repair_too_large",
+                        (
+                            f"missing set needs {len(ranges)} ranges and does not "
+                            "fit one FT1 MISSING message; resend file explicitly"
+                        ),
+                        phase="repairing",
+                        details={
+                            "missing_chunks": len(missing),
+                            "missing_ranges": len(ranges),
+                        },
+                    ) from exc
+                record.event(
+                    "missing_detected",
+                    chunks=len(missing),
+                    ranges=len(ranges),
+                    first_missing=missing[0],
+                )
+                record.set_state("repair_requested")
+                self._send_message(
+                    repair,
+                    cancel_event=record.cancel_event,
+                )
+                record.event(
+                    "repair_requested",
+                    chunks=len(missing),
+                    ranges=len(ranges),
+                )
+                record.set_state("repairing")
+                return
             actual_size = incoming.wire_path.stat().st_size
             if actual_size != incoming.meta.wire_size:
                 raise FileTransferError(
@@ -1097,6 +1340,7 @@ class FileTransferManager:
                 incoming.record.filename,
             )
             os.replace(final_temp, destination)
+            record.rx_end = message
             if final_temp != incoming.wire_path:
                 incoming.wire_path.unlink(missing_ok=True)
 
@@ -1223,6 +1467,7 @@ class FileTransferManager:
                         "decompression_failed",
                         "original_hash_mismatch",
                         "storage_failed",
+                        "repair_too_large",
                         "cancelled",
                         "protocol_error",
                     }

@@ -11,7 +11,9 @@ from serialterminal.file_transfer import (
     EndMessage,
     FileTransferManager,
     MetaMessage,
+    MissingMessage,
     encode_message,
+    decode_message,
 )
 from serialterminal.file_transfer.protocol import data_payload_capacity
 
@@ -46,6 +48,41 @@ class _PairBinaryTransport:
         if self.peer is not None and self.peer.receiver is not None:
             self.peer.receiver(bytes(data))
         return BinaryDelivery(tx_id=len(self.sent), user_id=f"TEST/{len(self.sent)}")
+
+
+class _LossyPairBinaryTransport(_PairBinaryTransport):
+    def __init__(self, drop_counts=None):
+        super().__init__()
+        self.drop_counts = dict(drop_counts or {})
+
+    def send_binary(self, data, *, cancel_event=None):
+        if cancel_event is not None and cancel_event.is_set():
+            from serialterminal.file_transfer import BinaryUserCancelled
+
+            raise BinaryUserCancelled()
+        payload = bytes(data)
+        self.sent.append(payload)
+        message = decode_message(payload)
+        key = None
+        if isinstance(message, MetaMessage):
+            key = ("meta", None)
+        elif isinstance(message, DataMessage):
+            key = ("data", message.chunk_index)
+        elif isinstance(message, EndMessage):
+            key = ("end", None)
+        remaining = self.drop_counts.get(key, 0)
+        if remaining > 0:
+            self.drop_counts[key] = remaining - 1
+            return BinaryDelivery(
+                tx_id=len(self.sent),
+                user_id=f"TEST/{len(self.sent)}",
+            )
+        if self.peer is not None and self.peer.receiver is not None:
+            self.peer.receiver(payload)
+        return BinaryDelivery(
+            tx_id=len(self.sent),
+            user_id=f"TEST/{len(self.sent)}",
+        )
 
 
 def _pair(tmp_path):
@@ -205,7 +242,7 @@ def test_receiver_accepts_out_of_order_and_duplicate_chunks(tmp_path):
         manager.close()
 
 
-def test_truncated_transfer_fails_and_leaves_no_final_or_part_file(tmp_path):
+def test_truncated_transfer_requests_repair_and_keeps_temp_state(tmp_path):
     transport = _PairBinaryTransport()
     receive_dir = tmp_path / "rx"
     manager = FileTransferManager(transport, receive_dir=receive_dir)
@@ -241,17 +278,21 @@ def test_truncated_transfer_fails_and_leaves_no_final_or_part_file(tmp_path):
             )
         )
 
-        failed = _wait_until(
+        repairing = _wait_until(
             lambda: (
                 snapshot
                 if (snapshot := manager.display_snapshot())
-                and snapshot["state"] == "failed"
+                and snapshot["state"] == "repairing"
                 else None
             )
         )
-        assert failed["failure"]["code"] == "missing_chunks"
+        assert repairing["state"] == "repairing"
+        sent = [decode_message(item) for item in transport.sent]
+        missing = [item for item in sent if isinstance(item, MissingMessage)]
+        assert len(missing) == 1
+        assert sum(r.count for r in missing[0].ranges) == 2
         assert not (receive_dir / "truncated.bin").exists()
-        assert not list(receive_dir.glob("*.part"))
+        assert list(receive_dir.glob("*.part"))
     finally:
         manager.close()
 
@@ -434,3 +475,257 @@ def test_sender_remote_result_failure_is_not_completed(tmp_path):
         assert failed["percentage"] < 100.0
     finally:
         manager.close()
+
+
+
+def _lossy_pair(tmp_path, drop_counts, *, replay_interval=0.05):
+    left = _LossyPairBinaryTransport(drop_counts)
+    right = _LossyPairBinaryTransport()
+    left.peer = right
+    right.peer = left
+    tx = FileTransferManager(
+        left,
+        receive_dir=tmp_path / "left-lossy",
+        id_factory=lambda: 0xABCD,
+        result_timeout_s=2.0,
+        control_replay_interval_s=replay_interval,
+        max_control_replays=4,
+        max_repair_rounds=6,
+    )
+    rx = FileTransferManager(
+        right,
+        receive_dir=tmp_path / "right-lossy",
+        id_factory=lambda: 0xDCBA,
+        result_timeout_s=2.0,
+        control_replay_interval_s=replay_interval,
+        max_control_replays=4,
+        max_repair_rounds=6,
+    )
+    return tx, rx, left, right
+
+
+def test_missing_chunks_are_selectively_repaired_without_resending_whole_file(tmp_path):
+    source = tmp_path / "lossy.bin"
+    source.write_bytes(random.Random(2026).randbytes(184 * 10))
+    tx, rx, left, right = _lossy_pair(
+        tmp_path,
+        {
+            ("data", 2): 1,
+            ("data", 3): 1,
+            ("data", 7): 1,
+        },
+    )
+    try:
+        started = tx.start_send(source)
+        done = _wait_until(
+            lambda: (
+                snapshot
+                if (snapshot := tx.display_snapshot())
+                and snapshot["state"] in {"completed", "failed"}
+                else None
+            )
+        )
+        assert done["state"] == "completed"
+        received = _wait_until(
+            lambda: (
+                snapshot
+                if (snapshot := rx.display_snapshot())
+                and snapshot["state"] == "completed"
+                else None
+            )
+        )
+        assert Path(received["final_path"]).read_bytes() == source.read_bytes()
+
+        sent_data = [
+            message
+            for raw in left.sent
+            if isinstance((message := decode_message(raw)), DataMessage)
+        ]
+        counts = {
+            index: sum(item.chunk_index == index for item in sent_data)
+            for index in range(10)
+        }
+        assert counts[2] == 2
+        assert counts[3] == 2
+        assert counts[7] == 2
+        assert all(
+            count == 1
+            for index, count in counts.items()
+            if index not in {2, 3, 7}
+        )
+        missing_messages = [
+            message
+            for raw in right.sent
+            if isinstance((message := decode_message(raw)), MissingMessage)
+        ]
+        assert len(missing_messages) == 1
+        assert [(r.start_chunk, r.count) for r in missing_messages[0].ranges] == [
+            (2, 2),
+            (7, 1),
+        ]
+
+        observed = tx.observe(
+            started["transfer_id"],
+            cursor=0,
+            window=100,
+            timeout_ms=0,
+        )
+        assert any(event["kind"] == "repair_requested" for event in observed["events"])
+    finally:
+        tx.close()
+        rx.close()
+
+
+def test_second_repair_round_recovers_chunk_lost_during_first_repair(tmp_path):
+    source = tmp_path / "two-rounds.bin"
+    source.write_bytes(random.Random(77).randbytes(184 * 4))
+    tx, rx, left, _right = _lossy_pair(
+        tmp_path,
+        {("data", 1): 2},
+    )
+    try:
+        tx.start_send(source)
+        done = _wait_until(
+            lambda: (
+                snapshot
+                if (snapshot := tx.display_snapshot())
+                and snapshot["state"] in {"completed", "failed"}
+                else None
+            )
+        )
+        assert done["state"] == "completed"
+        sent_data = [
+            message
+            for raw in left.sent
+            if isinstance((message := decode_message(raw)), DataMessage)
+        ]
+        assert sum(item.chunk_index == 1 for item in sent_data) == 3
+    finally:
+        tx.close()
+        rx.close()
+
+
+def test_control_replay_recovers_when_receiver_missed_initial_meta(tmp_path):
+    source = tmp_path / "miss-meta.bin"
+    source.write_bytes(random.Random(99).randbytes(184 * 5))
+    tx, rx, left, _right = _lossy_pair(
+        tmp_path,
+        {("meta", None): 1},
+    )
+    try:
+        tx.start_send(source)
+        done = _wait_until(
+            lambda: (
+                snapshot
+                if (snapshot := tx.display_snapshot())
+                and snapshot["state"] in {"completed", "failed"}
+                else None
+            ),
+            timeout=4.0,
+        )
+        assert done["state"] == "completed"
+        meta_count = sum(
+            isinstance(decode_message(raw), MetaMessage)
+            for raw in left.sent
+        )
+        assert meta_count >= 2
+    finally:
+        tx.close()
+        rx.close()
+
+
+def test_control_replay_recovers_when_receiver_missed_initial_end(tmp_path):
+    source = tmp_path / "miss-end.bin"
+    source.write_bytes(random.Random(100).randbytes(184 * 3))
+    tx, rx, left, _right = _lossy_pair(
+        tmp_path,
+        {("end", None): 1},
+    )
+    try:
+        tx.start_send(source)
+        done = _wait_until(
+            lambda: (
+                snapshot
+                if (snapshot := tx.display_snapshot())
+                and snapshot["state"] in {"completed", "failed"}
+                else None
+            ),
+            timeout=4.0,
+        )
+        assert done["state"] == "completed"
+        end_count = sum(
+            isinstance(decode_message(raw), EndMessage)
+            for raw in left.sent
+        )
+        assert end_count >= 2
+    finally:
+        tx.close()
+        rx.close()
+
+
+def test_repeated_identical_meta_and_end_are_idempotent_after_completion(tmp_path):
+    source = tmp_path / "replay.bin"
+    source.write_bytes(b"repeat me" * 50)
+    tx, rx, left, right = _pair(tmp_path)
+    try:
+        tx.start_send(source)
+        assert _wait_until(
+            lambda: (
+                snapshot
+                if (snapshot := tx.display_snapshot())
+                and snapshot["state"] == "completed"
+                else None
+            )
+        )
+        meta = next(
+            message
+            for raw in left.sent
+            if isinstance((message := decode_message(raw)), MetaMessage)
+        )
+        end = next(
+            message
+            for raw in left.sent
+            if isinstance((message := decode_message(raw)), EndMessage)
+        )
+        before = sum(
+            isinstance(decode_message(raw), ResultMessage)
+            for raw in right.sent
+        )
+        rx.feed_binary(encode_message(meta, 200))
+        rx.feed_binary(encode_message(end, 200))
+        assert _wait_until(
+            lambda: sum(
+                isinstance(decode_message(raw), ResultMessage)
+                for raw in right.sent
+            ) >= before + 2
+        )
+    finally:
+        tx.close()
+        rx.close()
+
+
+def test_oversized_missing_set_fails_with_repair_too_large_and_no_pagination(tmp_path):
+    source = tmp_path / "fragmented.bin"
+    source.write_bytes(random.Random(303).randbytes(184 * 48))
+    drops = {("data", index): 1 for index in range(0, 48, 2)}
+    tx, rx, _left, right = _lossy_pair(tmp_path, drops)
+    try:
+        tx.start_send(source)
+        failed = _wait_until(
+            lambda: (
+                snapshot
+                if (snapshot := tx.display_snapshot())
+                and snapshot["state"] in {"completed", "failed"}
+                else None
+            )
+        )
+        assert failed["state"] == "failed"
+        assert failed["failure"]["code"] == "remote_failed"
+        assert failed["failure"]["details"]["remote_code"] == "repair_too_large"
+        assert not any(
+            isinstance(decode_message(raw), MissingMessage)
+            for raw in right.sent
+        )
+    finally:
+        tx.close()
+        rx.close()
