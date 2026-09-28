@@ -388,7 +388,6 @@ class _RemoteFailureTransport:
     def send_binary(self, data, *, cancel_event=None):
         from serialterminal.file_transfer.protocol import (
             EndMessage,
-            MetaMessage,
             ResultMessage,
             decode_message,
             encode_message,
