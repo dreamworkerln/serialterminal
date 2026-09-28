@@ -151,11 +151,11 @@ Physical interactive smoke: PASS on 2026-09-22 with `Profile: chatter`; companio
 
 Status: PARTIAL
 
-Goal: extend the already implemented FT1/BINARY USER file transfer with in-process local reconnect recovery: stable chunk IDs, one compact binary MISSING ranges message, selective resend when it fits the transport application MTU, and whole-file restart from chunk 0 when it does not.
+Goal: extend the already implemented FT1/BINARY USER file transfer over current Chatter USER+ACK with in-process local reconnect recovery: stable chunk IDs, one compact binary MISSING ranges message, idempotent META/END replay, selective resend when it fits the transport application MTU, and whole-file restart from chunk 0 when it does not.
 
 Current implementation base: `dev_tui@cfa42f67dc248dfcefc783884cd93efd1e2e9195`; GitHub Actions `36372713417` SUCCESS. FT1 META/DATA/END/RESULT, binary transport/profile adapter, safe receiver, TUI progress and agent file-transfer operations already exist. MISSING/reconnect repair and its physical validation remain OPEN.
 
-Key v1 boundary: no per-chunk file ACK, no MISSING pagination, no persistent resume after SerialTerminal process death. Future LoRa SACK repairs RF loss internally; FT1 MISSING remains an application-level repair for missing host-visible chunks.
+Key v1 boundary: current radio transport is ordinary Chatter USER + ACK only; no per-chunk file ACK, no MISSING pagination, and no persistent resume after SerialTerminal process death. LoRa SACK is explicitly out of scope and belongs to a separate future project.
 
 ## Closed
 

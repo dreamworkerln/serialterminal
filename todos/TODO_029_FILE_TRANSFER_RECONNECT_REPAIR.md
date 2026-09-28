@@ -9,6 +9,10 @@ Status: PARTIAL
 восстановления после временного reconnect локальной ноды без повторной передачи всего
 файла в обычном случае.
 
+Текущий radio transport в этой задаче — только Chatter reliable USER + обычный ACK.
+LoRa SACK не входит в TODO_029: это отдельный будущий проект, отдельная ветка и
+отдельный design/validation workstream.
+
 Главный failure mode:
 
 ~~~text
@@ -132,16 +136,9 @@ receiver SerialTerminal process consumed that BINARY USER
 A receiver-local BLE/USB disconnect can therefore create file holes even though every
 corresponding radio USER was ACKed successfully.
 
-Future LoRa SACK has the same boundary:
-
-~~~text
-firmware-to-firmware delivery can succeed
-while
-firmware-to-host delivery can be temporarily absent
-~~~
-
 Therefore application chunk identity and end-to-end file verification remain required
-above both transports.
+above the current USER+ACK transport. No SACK behavior is assumed or implemented by
+TODO_029.
 
 ## Target FT1 message set
 
@@ -401,19 +398,7 @@ DATA 18
 FILE_ACK 18
 ~~~
 
-Current transport:
-
-~~~text
-Chatter reliable USER ACK/retry
-~~~
-
-Future transport:
-
-~~~text
-LoRa SACK selective radio retransmission
-~~~
-
-Those own lower-layer radio delivery.
+Current Chatter reliable USER ACK/retry owns lower-layer radio delivery.
 
 FT1 owns only:
 
@@ -423,40 +408,45 @@ FT1 owns only:
 
 This avoids running a second full stop-and-wait protocol above Chatter reliability.
 
-## Future LoRa SACK compatibility
+## Current radio transport scope
 
-Future LoRa SACK is expected to provide one larger opaque application message over a
-batch of up to 32 radio packets instead of the current one-USER/200-byte message.
+TODO_029 is defined only for the current Chatter reliable USER + ACK transport.
 
-Do not encode a permanent 6400-byte assumption into FT1.
+Current BinaryUserTransport payload capacity is 200 raw bytes. FT1 consumes the
+capacity advertised by the transport abstraction, but this TODO does not design,
+simulate, implement or validate any internal radio SACK/batching protocol.
 
-Required abstraction:
+Any future LoRa SACK project must integrate later through a separately defined
+transport capability and must not be pulled into the current file-transfer work.
 
-~~~text
-BinaryUserTransport.payload_capacity
-        or successor generic application-message capacity
-~~~
+## META / END replay after reconnect
 
-Current transport advertises 200.
+A receiver-side BLE/USB disconnect may hide control messages as well as DATA. In
+particular, receiver SerialTerminal may miss the original META or END even though
+receiver firmware ACKed those BINARY USER transactions over radio.
 
-Future LoRa SACK advertises its actual usable application MTU after its own
-headers/overhead are defined.
-
-The same one-message MISSING encoder then naturally fits more ranges.
-
-Layering remains:
+Therefore META and END must be idempotent.
 
 ~~~text
-FT1 external repair:
-    host application <-> host application
-    fixes missing file chunks / local host-link gaps
+repeat same META + same transfer_id
+    -> preserve existing received DATA state
+    -> create receive state if the original META was missed
 
-LoRa SACK internal repair:
-    firmware <-> firmware
-    fixes RF packet loss efficiently
+repeat same END + same transfer_id
+    -> if complete: RESULT OK
+    -> if incomplete: compute current missing ranges and send one MISSING
 ~~~
 
-Do not remove file chunk identity merely because SACK exists.
+Conflicting repeated META for the same transfer_id is a protocol error.
+
+The sender must not wait indefinitely for RESULT after a radio-ACKed END. After a
+bounded application timeout and once its local session is usable, it may replay the
+same META and END as a control probe, then wait again for MISSING or RESULT. This
+control replay must be bounded and must not become an infinite loop.
+
+Sender-local ambiguous USB/BLE outcome is handled at the FT1 layer by retrying the
+same idempotent application message after reconnect. Generic ManagedSession still
+must not blindly replay tx_state=unknown.
 
 ## TUI requirements
 
@@ -569,6 +559,9 @@ TODO_029 implementation work:
 - [ ] implement selective resend of requested DATA chunks.
 - [ ] repeat END after repair.
 - [ ] handle repeated END idempotently for a live transfer.
+- [ ] handle repeated identical META idempotently without clearing received DATA.
+- [ ] recover when receiver missed original META by replaying same META before END.
+- [ ] add bounded sender META+END control replay while RESULT is absent after reconnect/timeout.
 - [ ] define stable repair_too_large result/error semantics.
 - [ ] implement whole-file restart/new transfer_id fallback when MISSING does not fit.
 - [ ] bound automatic restart behavior; no infinite loop.
@@ -599,6 +592,10 @@ Core tests:
 - [ ] repaired transfer reaches RESULT OK and identical SHA-256.
 - [ ] duplicate repaired DATA remains idempotent.
 - [ ] repeat END is idempotent.
+- [ ] repeated identical META is idempotent; conflicting META is rejected.
+- [ ] receiver that missed original META recovers from repeated META+END.
+- [ ] receiver that missed original END recovers from repeated END.
+- [ ] absent RESULT triggers bounded control replay rather than an unbounded wait.
 - [ ] second repair round works when still needed.
 - [ ] oversized MISSING abandons selective repair and starts/fails into bounded full restart policy.
 - [ ] process restart has no resume claim.
@@ -667,7 +664,7 @@ an end-to-end application concern even when lower-layer radio reliability is per
 - No MISSING pagination.
 - No persistent transfer resume after SerialTerminal process death/restart.
 - No requirement for simultaneous multiple transfers on one session.
-- Future LoRa SACK MTU is not yet frozen and must be consumed through transport capacity.
+- LoRa SACK is explicitly out of scope for TODO_029 and is not a dependency of FT1 v1.
 - Repeated severe local disconnects may still force whole-file restart when the missing
   set cannot be represented in one MISSING.
 
@@ -677,4 +674,6 @@ Current implementation base: cfa42f67dc248dfcefc783884cd93efd1e2e9195
 Current validation: GitHub Actions 36372713417 SUCCESS
 Reconnect/MISSING repair: OPEN
 Physical reconnect validation: NOT RUN
+Additional firmware source work required: NONE
+LoRa SACK: OUT OF SCOPE / separate future project
 Status: PARTIAL
