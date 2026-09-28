@@ -153,15 +153,25 @@ def test_agent_subcommand_dispatches_to_jsonl_frontend(monkeypatch, tmp_path):
 
     observed = {}
 
-    def fake_run_agent(*, log_path=None, stdin=None, stdout=None):
+    def fake_run_agent(
+        *,
+        log_path=None,
+        receive_dir=None,
+        stdin=None,
+        stdout=None,
+    ):
         observed["log_path"] = log_path
+        observed["receive_dir"] = receive_dir
         return 23
 
     monkeypatch.setattr(agent_module, "run_agent", fake_run_agent)
     log_path = tmp_path / "agent.log"
 
     assert cli_module.main(["agent", "--log", str(log_path)]) == 23
-    assert observed == {"log_path": str(log_path)}
+    assert observed == {
+        "log_path": str(log_path),
+        "receive_dir": None,
+    }
 
 
 class _DummyTransport(Transport):

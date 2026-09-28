@@ -867,6 +867,12 @@ class _BlockingSweepObserveManager:
     def cancel_observes(self):
         return None
 
+    def cancel_file_transfers(self):
+        return None
+
+    def join_file_transfers(self, timeout):
+        return None
+
     def cancel_sweeps(self):
         self.release.set()
 
