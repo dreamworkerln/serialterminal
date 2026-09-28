@@ -657,7 +657,9 @@ class SessionManager:
             lambda text: {
                 "tx_id": session.queue_line(text),
                 "state": "queued",
-            }
+            },
+            wait_tx_outcome=session.wait_tx_outcome,
+            connection_generation=session.connection_generation,
         )
         file_manager = (
             FileTransferManager(

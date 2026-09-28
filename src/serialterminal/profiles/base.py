@@ -40,6 +40,8 @@ class ProfileBinaryUserAdapter(BinaryUserTransport, Protocol):
 
 
 BinarySendLine: TypeAlias = Callable[[str], Any]
+BinaryWaitTxOutcome: TypeAlias = Callable[[int, float], str | None]
+BinaryConnectionGeneration: TypeAlias = Callable[[], int]
 
 
 class TuiProfilePanel(Protocol):
@@ -104,6 +106,9 @@ class TerminalProfile(Protocol):
     def make_binary_user_transport(
         self,
         send_line: BinarySendLine,
+        *,
+        wait_tx_outcome: BinaryWaitTxOutcome | None = None,
+        connection_generation: BinaryConnectionGeneration | None = None,
     ) -> ProfileBinaryUserAdapter | None:
         ...
 

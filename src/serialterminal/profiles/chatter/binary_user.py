@@ -111,11 +111,15 @@ class ChatterBinaryUserAdapter:
         *,
         delivery_timeout_s: float = 3600.0,
         line_retention: int = 4096,
+        wait_tx_outcome: Callable[[int, float], str | None] | None = None,
+        connection_generation: Callable[[], int] | None = None,
     ) -> None:
         if delivery_timeout_s <= 0:
             raise ValueError("delivery_timeout_s must be positive")
         self._send_line = send_line
         self._delivery_timeout_s = float(delivery_timeout_s)
+        self._wait_tx_outcome = wait_tx_outcome
+        self._connection_generation = connection_generation
         self._receiver: BinaryReceiver | None = None
         self._receiver_lock = threading.Lock()
         self._send_lock = threading.Lock()
@@ -174,6 +178,33 @@ class ChatterBinaryUserAdapter:
             result = self._send_line(command)
             tx_id = _tx_id_from_result(result)
             deadline = time.monotonic() + self._delivery_timeout_s
+
+            waiter = self._wait_tx_outcome
+            if waiter is not None and tx_id is not None:
+                remaining = max(0.0, deadline - time.monotonic())
+                local_outcome = waiter(tx_id, remaining)
+                if local_outcome is None:
+                    raise BinaryUserError(
+                        "local_tx_timeout",
+                        "local BINARY USER write did not settle before timeout",
+                    )
+                if local_outcome in {"unknown", "expired"}:
+                    raise BinaryUserError(
+                        "local_tx_unknown",
+                        "local BINARY USER write outcome is ambiguous",
+                    )
+                if local_outcome != "written":
+                    raise BinaryUserError(
+                        "local_tx_failed",
+                        f"unexpected local TX outcome: {local_outcome}",
+                    )
+
+            generation_reader = self._connection_generation
+            delivery_generation = (
+                generation_reader()
+                if generation_reader is not None
+                else None
+            )
             user_id: str | None = None
             cancel_sent = False
 
@@ -189,15 +220,6 @@ class ChatterBinaryUserAdapter:
 
                 with self._condition:
                     available = self._lines_after(cursor)
-                    if not available:
-                        remaining = deadline - time.monotonic()
-                        if remaining <= 0:
-                            raise BinaryUserError(
-                                "delivery_timeout",
-                                "BINARY USER delivery settlement timed out",
-                            )
-                        self._condition.wait(timeout=min(0.25, remaining))
-                        continue
 
                 for seq, line in available:
                     cursor = max(cursor, seq)
@@ -232,3 +254,26 @@ class ChatterBinaryUserAdapter:
                         raise BinaryUserCancelled(
                             f"BINARY USER delivery cancelled: {user_id}"
                         )
+
+                if (
+                    generation_reader is not None
+                    and delivery_generation is not None
+                    and generation_reader() != delivery_generation
+                ):
+                    raise BinaryUserError(
+                        "local_disconnect",
+                        (
+                            "local connection changed before BINARY USER "
+                            "delivery settlement became observable"
+                        ),
+                    )
+
+                remaining = deadline - time.monotonic()
+                if remaining <= 0:
+                    raise BinaryUserError(
+                        "delivery_timeout",
+                        "BINARY USER delivery settlement timed out",
+                    )
+                if not available:
+                    with self._condition:
+                        self._condition.wait(timeout=min(0.25, remaining))

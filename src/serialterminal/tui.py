@@ -95,7 +95,9 @@ class TerminalTui:
             lambda text: {
                 "tx_id": self.session.queue_line(text),
                 "state": "queued",
-            }
+            },
+            wait_tx_outcome=self.session.wait_tx_outcome,
+            connection_generation=self.session.connection_generation,
         )
         self._binary_adapter = adapter
         self._file_transfer = (

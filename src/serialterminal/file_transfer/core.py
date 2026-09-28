@@ -45,6 +45,7 @@ FILE_RESULT_TIMEOUT_S = 3600.0
 FILE_CONTROL_REPLAY_INTERVAL_S = 30.0
 FILE_MAX_CONTROL_REPLAYS = 3
 FILE_MAX_REPAIR_ROUNDS = 8
+FILE_MAX_LOCAL_MESSAGE_REPLAYS = 4
 _IO_CHUNK = 256 * 1024
 
 _TERMINAL_STATES = frozenset({"completed", "failed", "cancelled"})
@@ -434,6 +435,7 @@ class FileTransferManager:
         control_replay_interval_s: float = FILE_CONTROL_REPLAY_INTERVAL_S,
         max_control_replays: int = FILE_MAX_CONTROL_REPLAYS,
         max_repair_rounds: int = FILE_MAX_REPAIR_ROUNDS,
+        max_local_message_replays: int = FILE_MAX_LOCAL_MESSAGE_REPLAYS,
     ) -> None:
         self.transport = transport
         self.receive_dir = (
@@ -454,10 +456,13 @@ class FileTransferManager:
             raise ValueError("max_control_replays must be non-negative")
         if max_repair_rounds <= 0:
             raise ValueError("max_repair_rounds must be positive")
+        if max_local_message_replays < 0:
+            raise ValueError("max_local_message_replays must be non-negative")
         self.result_timeout_s = float(result_timeout_s)
         self.control_replay_interval_s = float(control_replay_interval_s)
         self.max_control_replays = int(max_control_replays)
         self.max_repair_rounds = int(max_repair_rounds)
+        self.max_local_message_replays = int(max_local_message_replays)
 
         self._lock = threading.Lock()
         self._records: dict[int, _TransferRecord] = {}
@@ -638,17 +643,32 @@ class FileTransferManager:
         cancel_event: threading.Event | None,
     ) -> None:
         payload = encode_message(message, self.transport.payload_capacity)
-        try:
-            self.transport.send_binary(payload, cancel_event=cancel_event)
-        except BinaryUserCancelled as exc:
-            raise FileTransferCancelled(str(exc)) from exc
-        except BinaryUserError as exc:
-            raise FileTransferError(
-                "link_delivery_failed",
-                exc.message,
-                phase="sending",
-                details={"binary_error": exc.code},
-            ) from exc
+        replay = 0
+        while True:
+            try:
+                self.transport.send_binary(
+                    payload,
+                    cancel_event=cancel_event,
+                )
+                return
+            except BinaryUserCancelled as exc:
+                raise FileTransferCancelled(str(exc)) from exc
+            except BinaryUserError as exc:
+                if (
+                    exc.code in {"local_tx_unknown", "local_disconnect"}
+                    and replay < self.max_local_message_replays
+                ):
+                    replay += 1
+                    continue
+                raise FileTransferError(
+                    "link_delivery_failed",
+                    exc.message,
+                    phase="sending",
+                    details={
+                        "binary_error": exc.code,
+                        "local_replays": replay,
+                    },
+                ) from exc
 
     def start_send(self, local_path: str | Path) -> dict[str, Any]:
         path = Path(local_path).expanduser()

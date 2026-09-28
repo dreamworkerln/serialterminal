@@ -111,3 +111,71 @@ def test_binary_adapter_cancel_requests_firmware_cancel():
     assert getattr(caught.value, "code", None) == "cancelled"
     assert sent[0].startswith("/bin ")
     assert sent[-1] == "/cancel all"
+
+
+
+def test_binary_adapter_checks_local_tx_outcome_before_link_delivery():
+    holder = {}
+    waited = []
+
+    def send_line(text):
+        adapter = holder["adapter"]
+        adapter.feed_line(
+            "telemetry",
+            "DELIVERY WAIT_ACK user=A001/7 attempt=1/5 timeout=10ms queue=0",
+        )
+        adapter.feed_line(
+            "telemetry",
+            "DELIVERY ACK user=A001/7 attempts=1/5 elapsed=2ms queue=0",
+        )
+        return {"tx_id": 42}
+
+    adapter = ChatterBinaryUserAdapter(
+        send_line,
+        wait_tx_outcome=lambda tx_id, timeout: waited.append((tx_id, timeout))
+        or "written",
+        connection_generation=lambda: 5,
+    )
+    holder["adapter"] = adapter
+
+    result = adapter.send_binary(b"abc")
+
+    assert result.tx_id == 42
+    assert waited and waited[0][0] == 42
+
+
+def test_binary_adapter_reports_ambiguous_local_write():
+    adapter = ChatterBinaryUserAdapter(
+        lambda _text: {"tx_id": 9},
+        wait_tx_outcome=lambda _tx_id, _timeout: "unknown",
+        connection_generation=lambda: 1,
+    )
+
+    with pytest.raises(Exception) as caught:
+        adapter.send_binary(b"abc")
+
+    assert getattr(caught.value, "code", None) == "local_tx_unknown"
+
+
+def test_binary_adapter_reports_disconnect_before_delivery_observation():
+    generations = iter([10, 11])
+    holder = {}
+
+    def send_line(_text):
+        holder["adapter"].feed_line(
+            "telemetry",
+            "DELIVERY WAIT_ACK user=A001/7 attempt=1/5 timeout=10ms queue=0",
+        )
+        return {"tx_id": 3}
+
+    adapter = ChatterBinaryUserAdapter(
+        send_line,
+        wait_tx_outcome=lambda _tx_id, _timeout: "written",
+        connection_generation=lambda: next(generations),
+    )
+    holder["adapter"] = adapter
+
+    with pytest.raises(Exception) as caught:
+        adapter.send_binary(b"abc")
+
+    assert getattr(caught.value, "code", None) == "local_disconnect"

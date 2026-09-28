@@ -1,5 +1,7 @@
 from .base import (
+    BinaryConnectionGeneration,
     BinarySendLine,
+    BinaryWaitTxOutcome,
     BleProfileConfig,
     PresentationAdapter,
     ProfileAction,
@@ -27,7 +29,9 @@ def resolve_profile(name: str) -> TerminalProfile:
 
 
 __all__ = [
+    "BinaryConnectionGeneration",
     "BinarySendLine",
+    "BinaryWaitTxOutcome",
     "BleProfileConfig",
     "GENERIC_PROFILE",
     "GenericProfile",

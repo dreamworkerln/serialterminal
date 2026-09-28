@@ -7,7 +7,9 @@ from types import MappingProxyType
 from ..sweep import SweepAdapterFactory
 from ..transports.ble_nus import NUS_RX_UUID, NUS_TX_UUID
 from .base import (
+    BinaryConnectionGeneration,
     BinarySendLine,
+    BinaryWaitTxOutcome,
     BleProfileConfig,
     PresentationAdapter,
     ProfileAction,
@@ -60,8 +62,11 @@ class GenericProfile:
     def make_binary_user_transport(
         self,
         send_line: BinarySendLine,
+        *,
+        wait_tx_outcome: BinaryWaitTxOutcome | None = None,
+        connection_generation: BinaryConnectionGeneration | None = None,
     ) -> ProfileBinaryUserAdapter | None:
-        del send_line
+        del send_line, wait_tx_outcome, connection_generation
         return None
 
     def recognized_command(self, line: str) -> str | None:

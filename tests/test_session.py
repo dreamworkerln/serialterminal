@@ -414,3 +414,29 @@ def test_tx_fence_rejects_ambiguous_preexisting_write_outcome():
         assert caught.value.tx_id == tx_id
     finally:
         session.stop()
+
+
+
+def test_wait_tx_outcome_tracks_each_tx_without_fence_poisoning():
+    session = ManagedSession(FakeTransport(), event_limit=4)
+    first = session.queue_line("one")
+    second = session.queue_line("two")
+
+    assert session.wait_tx_outcome(first, 0.0) is None
+    session._settle_tx(first, "unknown")
+    session._settle_tx(second, "written")
+
+    assert session.wait_tx_outcome(first, 0.0) == "unknown"
+    assert session.wait_tx_outcome(second, 0.0) == "written"
+
+
+def test_connection_generation_changes_only_on_lifecycle_boundaries():
+    session = ManagedSession(FakeTransport())
+    initial = session.connection_generation()
+    session._record_event("rx", stream="main", data=b"x", text="x")
+    assert session.connection_generation() == initial
+
+    session._record_event("state", state="connected")
+    assert session.connection_generation() == initial + 1
+    session._record_event("state", state="disconnected")
+    assert session.connection_generation() == initial + 2

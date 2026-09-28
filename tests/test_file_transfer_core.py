@@ -730,3 +730,84 @@ def test_oversized_missing_set_fails_with_repair_too_large_and_no_pagination(tmp
     finally:
         tx.close()
         rx.close()
+
+
+
+class _AmbiguousOncePairTransport(_PairBinaryTransport):
+    def __init__(self, ambiguous_chunk):
+        super().__init__()
+        self.ambiguous_chunk = ambiguous_chunk
+        self.injected = False
+
+    def send_binary(self, data, *, cancel_event=None):
+        from serialterminal.file_transfer import BinaryUserError
+
+        payload = bytes(data)
+        message = decode_message(payload)
+        self.sent.append(payload)
+        if self.peer is not None and self.peer.receiver is not None:
+            self.peer.receiver(payload)
+        if (
+            isinstance(message, DataMessage)
+            and message.chunk_index == self.ambiguous_chunk
+            and not self.injected
+        ):
+            self.injected = True
+            raise BinaryUserError(
+                "local_tx_unknown",
+                "simulated local transport ambiguity",
+            )
+        return BinaryDelivery(
+            tx_id=len(self.sent),
+            user_id=f"TEST/{len(self.sent)}",
+        )
+
+
+def test_file_layer_replays_same_idempotent_chunk_after_local_tx_unknown(tmp_path):
+    source = tmp_path / "ambiguous.bin"
+    source.write_bytes(random.Random(404).randbytes(184 * 3))
+    left = _AmbiguousOncePairTransport(ambiguous_chunk=1)
+    right = _PairBinaryTransport()
+    left.peer = right
+    right.peer = left
+    tx = FileTransferManager(
+        left,
+        receive_dir=tmp_path / "left-ambiguous",
+        id_factory=lambda: 0x1111,
+        result_timeout_s=2.0,
+    )
+    rx = FileTransferManager(
+        right,
+        receive_dir=tmp_path / "right-ambiguous",
+        id_factory=lambda: 0x2222,
+        result_timeout_s=2.0,
+    )
+    try:
+        tx.start_send(source)
+        done = _wait_until(
+            lambda: (
+                snapshot
+                if (snapshot := tx.display_snapshot())
+                and snapshot["state"] in {"completed", "failed"}
+                else None
+            )
+        )
+        assert done["state"] == "completed"
+        sent_data = [
+            message
+            for raw in left.sent
+            if isinstance((message := decode_message(raw)), DataMessage)
+        ]
+        assert sum(item.chunk_index == 1 for item in sent_data) == 2
+        received = _wait_until(
+            lambda: (
+                snapshot
+                if (snapshot := rx.display_snapshot())
+                and snapshot["state"] == "completed"
+                else None
+            )
+        )
+        assert Path(received["final_path"]).read_bytes() == source.read_bytes()
+    finally:
+        tx.close()
+        rx.close()

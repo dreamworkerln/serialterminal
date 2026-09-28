@@ -155,6 +155,9 @@ class ManagedSession:
         self._tx_condition = threading.Condition()
         self._pending_tx_ids: set[int] = set()
         self._last_unknown_tx_id: int | None = None
+        self._tx_outcomes: dict[int, str] = {}
+        self._tx_outcome_order: deque[int] = deque()
+        self._connection_generation = 0
         self._event_decode_lock = threading.Lock()
         self._event_decoders: dict[str, codecs.IncrementalDecoder] = {}
 
@@ -181,9 +184,32 @@ class ManagedSession:
     def _settle_tx(self, tx_id: int, state: str) -> None:
         with self._tx_condition:
             self._pending_tx_ids.discard(tx_id)
+            if tx_id not in self._tx_outcomes:
+                self._tx_outcome_order.append(tx_id)
+            self._tx_outcomes[tx_id] = state
+            while len(self._tx_outcome_order) > self._event_limit:
+                expired = self._tx_outcome_order.popleft()
+                self._tx_outcomes.pop(expired, None)
             if state == "unknown":
                 self._last_unknown_tx_id = tx_id
             self._tx_condition.notify_all()
+
+    def wait_tx_outcome(self, tx_id: int, timeout: float) -> str | None:
+        """Wait for one accepted TX to reach written/unknown transport outcome."""
+        if isinstance(tx_id, bool) or not isinstance(tx_id, int) or tx_id <= 0:
+            raise ValueError("tx_id must be a positive integer")
+        if timeout < 0:
+            raise ValueError("timeout must be non-negative")
+        deadline = time.monotonic() + timeout
+        with self._tx_condition:
+            if tx_id >= self._next_tx_id:
+                raise ValueError(f"unknown tx_id: {tx_id}")
+            while tx_id in self._pending_tx_ids:
+                remaining = deadline - time.monotonic()
+                if remaining <= 0:
+                    return None
+                self._tx_condition.wait(timeout=remaining)
+            return self._tx_outcomes.get(tx_id, "expired")
 
     def wait_tx_fence(self, fence_tx_id: int, timeout: float) -> None:
         """Wait until every accepted TX through fence_tx_id has a known terminal outcome."""
@@ -277,6 +303,7 @@ class ManagedSession:
                 and fields.get("state") in self._LINE_BOUNDARY_STATES
             ):
                 self._reset_line_states_locked()
+                self._connection_generation += 1
 
             event = SessionEvent(
                 seq=self._next_event_seq,
@@ -323,6 +350,11 @@ class ManagedSession:
     def latest_event_seq(self) -> int:
         with self._event_condition:
             return self._next_event_seq - 1
+
+    def connection_generation(self) -> int:
+        """Return a generation changed by transport lifecycle boundaries."""
+        with self._event_condition:
+            return self._connection_generation
 
     def events_after(
         self,
