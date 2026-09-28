@@ -1,0 +1,24 @@
+{
+  "schema": 1,
+  "observed_at": "2026-09-27T23:55:18Z",
+  "topic": "serialterminal-sweep-api-smoke",
+  "result": "PASS",
+  "serialterminal": {
+    "repo": "dreamworkerln/serialterminal",
+    "sha": "7cf0459c4e00a81592d447e0592e83a1142e18d9"
+  },
+  "firmware": {
+    "repo": "dreamworkerln/lora-sack-protocol",
+    "sha": "unknown"
+  },
+  "observation": {
+    "state": "not-required",
+    "path": null,
+    "reason": "API smoke check only; no reusable hardware-behavior finding."
+  },
+  "files": {
+    "report": "REPORT.md",
+    "console": "serialterminal.console.log",
+    "serialterminal_log": "serialterminal.log"
+  }
+}

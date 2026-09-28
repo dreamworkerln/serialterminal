@@ -1,0 +1,258 @@
+2026-09-28T02:53:38.235+03:00 [s1] [O] [SYS] CHATTER NODE LoRa-Chatter-1B44
+2026-09-28T02:54:04.520+03:00 [s2] [O] [SYS] CHATTER NODE LoRa-Chatter-72E0
+2026-09-28T02:55:18.810+03:00 [s1] [I] /cancel all
+2026-09-28T02:55:18.908+03:00 [s1] [O] [SYS] DELIVERY CANCEL: nothing pending
+2026-09-28T02:55:18.910+03:00 [s1] [I] /diag off
+2026-09-28T02:55:18.997+03:00 [s1] [O] [SYS] DIAG already OFF
+2026-09-28T02:55:18.998+03:00 [s1] [I] /heartbeat off
+2026-09-28T02:55:19.130+03:00 [s1] [O] [SYS] HEARTBEAT OFF
+2026-09-28T02:55:19.131+03:00 [s1] [I] /echo-loop stop
+2026-09-28T02:55:19.220+03:00 [s1] [O] [SYS] ECHO LOOP already stopped
+2026-09-28T02:55:19.221+03:00 [s1] [I] /both
+2026-09-28T02:55:19.310+03:00 [s1] [O] 
+2026-09-28T02:55:19.312+03:00 [s1] [O] OUTPUT MODE source=2 state=BOTH
+2026-09-28T02:55:19.313+03:00 [s1] [O] [SYS] OUTPUT BOTH
+2026-09-28T02:55:19.314+03:00 [s1] [I] /help
+2026-09-28T02:55:19.399+03:00 [s1] [O] [SYS] CHATTER HELP
+2026-09-28T02:55:19.448+03:00 [s1] [O] [SYS] CHATTER NODE LoRa-Chatter-1B44
+2026-09-28T02:55:19.449+03:00 [s1] [O] [SYS] CHAT OUTPUT:
+2026-09-28T02:55:19.451+03:00 [s1] [O] [SYS]   > text                       local USER TX confirmed
+2026-09-28T02:55:19.452+03:00 [s1] [O] [SYS]   < [RSSI/SNR Q] text          USER received from peer
+2026-09-28T02:55:19.455+03:00 [s1] [O] [SYS]   > [ECHO TX] text             local echo TX confirmed
+2026-09-28T02:55:19.459+03:00 [s1] [O] [SYS]   < [ECHO RSSI/SNR Q] text     matching echo reply received
+2026-09-28T02:55:19.460+03:00 [s1] [O] [SYS]   [ECHO] NO RESPONSE           matching echo reply timed out
+2026-09-28T02:55:19.462+03:00 [s1] [O] [SYS]   delivery retry details       TELEMETRY only
+2026-09-28T02:55:19.491+03:00 [s1] [O] [SYS]   RSSI/SNR=dBm/dB, Q=0..100 rolling transaction link quality
+2026-09-28T02:55:19.493+03:00 [s1] [O] [SYS] HUMAN CONSOLE MODES:
+2026-09-28T02:55:19.494+03:00 [s1] [O] [SYS]   CHAT       chat + SYSTEM
+2026-09-28T02:55:19.495+03:00 [s1] [O] [SYS]   TELEMETRY  telemetry + SYSTEM
+2026-09-28T02:55:19.496+03:00 [s1] [O] [SYS]   BOTH       chat + telemetry + SYSTEM
+2026-09-28T02:55:19.500+03:00 [s1] [O] [SYS]   BLE 0004 machine telemetry is independent when subscribed
+2026-09-28T02:55:19.501+03:00 [s1] [O] [SYS]   current=BOTH echo=OFF
+2026-09-28T02:55:19.503+03:00 [s1] [I] /id
+2026-09-28T02:55:19.503+03:00 [s1] [O] [SYS] COMMANDS:
+2026-09-28T02:55:19.504+03:00 [s1] [O] [SYS]   /help       show this help
+2026-09-28T02:55:19.505+03:00 [s1] [O] [SYS]   /id         show node identity
+2026-09-28T02:55:19.506+03:00 [s1] [O] [SYS]   /version    show firmware provenance (/firmware alias)
+2026-09-28T02:55:19.508+03:00 [s1] [O] [SYS]   /power      show SX1278 PA_BOOST setting
+2026-09-28T02:55:19.535+03:00 [s1] [O] [SYS]   /power N    set/persist N=2..17 or 20 dBm
+2026-09-28T02:55:19.581+03:00 [s1] [O] [SYS]   /freq       show frequency in MHz
+2026-09-28T02:55:19.627+03:00 [s1] [O] [SYS]   /freq MHz   set/persist frequency; 1 kHz precision, truncates extra decimals
+2026-09-28T02:55:19.629+03:00 [s1] [O] [SYS]   /freq-oob   show experimental out-of-band flag
+2026-09-28T02:55:19.631+03:00 [s1] [O] [SYS]   /freq-oob on|off persist frequency-range policy
+2026-09-28T02:55:19.632+03:00 [s1] [O] [SYS]   /sf /sf N   show/set SF, N=7..12
+2026-09-28T02:55:19.635+03:00 [s1] [O] [SYS]   /bw /bw KHz show/set BW: 7.8 10.4 15.6 20.8 31.25 41.7 62.5 125 250 500
+2026-09-28T02:55:19.637+03:00 [s1] [O] [SYS]   /config     show persisted PHY + runtime link config
+2026-09-28T02:55:19.639+03:00 [s1] [O] [SYS]   /config reset restore persisted PHY defaults
+2026-09-28T02:55:19.640+03:00 [s1] [O] [SYS]   /heartbeat  show runtime heartbeat state
+2026-09-28T02:55:19.672+03:00 [s1] [O] [SYS]   /heartbeat on|off set runtime heartbeat state
+2026-09-28T02:55:19.672+03:00 [s1] [O] [SYS]   /diag       show radio diagnostic state
+2026-09-28T02:55:19.674+03:00 [s1] [O] [SYS]   /diag on|off enter/leave radio diagnostic mode
+2026-09-28T02:55:19.676+03:00 [s1] [O] [SYS]   /diag size N set total heartbeat RF frame N=16..255 bytes
+2026-09-28T02:55:19.678+03:00 [s1] [O] [SYS]   /chat       human console CHAT
+2026-09-28T02:55:19.680+03:00 [s1] [O] [SYS]   /tele       human console TELEMETRY
+2026-09-28T02:55:19.681+03:00 [s1] [O] [SYS]   /both       human console BOTH
+2026-09-28T02:55:19.682+03:00 [s1] [O] [SYS]   /echo       toggle manual echo mode
+2026-09-28T02:55:19.684+03:00 [s1] [O] [SYS]   /echo-loop  show continuous echo status
+2026-09-28T02:55:19.685+03:00 [s1] [O] [SYS]   /echo-loop N start continuous echo with N=1..200 payload bytes
+2026-09-28T02:55:19.713+03:00 [s1] [O] [SYS]   /echo-loop stop stop scheduling continuous echo requests
+2026-09-28T02:55:19.716+03:00 [s1] [O] [SYS]   /cancel     stop current USER delivery/retries
+2026-09-28T02:55:19.804+03:00 [s1] [O] [SYS]   /cancel all stop current USER and discard queued USERs
+2026-09-28T02:55:19.807+03:00 [s1] [O] [SYS]   /reboot     reboot ESP32 controller
+2026-09-28T02:55:19.808+03:00 [s1] [O] [SYS] RAW CONTROLS (HEX):
+2026-09-28T02:55:19.809+03:00 [s1] [O] [SYS]   14 31=CHAT  14 32=TELEMETRY  14 33=BOTH  14 65=ECHO toggle
+2026-09-28T02:55:19.812+03:00 [s1] [O] [SYS] ANDROID BLE TERMINAL MACROS:
+2026-09-28T02:55:19.814+03:00 [s1] [O] [SYS]   HEX macro, no EOL: 14 31 / 14 32 / 14 33 / 14 65
+2026-09-28T02:55:19.821+03:00 [s1] [O] [SYS]   or TEXT macro + LF: /help /id /version /power /freq /freq-oob /sf /bw /config /heartbeat on|off /diag on|off /diag size N /chat /tele /both /echo /echo-loop N /echo-loop stop /cancel /cancel all /reboot
+2026-09-28T02:55:19.851+03:00 [s1] [O] [SYS]   Nordic UART human console=0003; machine telemetry=0004 optional
+2026-09-28T02:55:19.854+03:00 [s1] [O] [SYS] BLE CLIENT: machine telemetry 0004 subscribed in background
+2026-09-28T02:55:19.855+03:00 [s1] [O] [SYS] CHATTER NODE LoRa-Chatter-1B44
+2026-09-28T02:55:19.856+03:00 [s2] [I] /cancel all
+2026-09-28T02:55:19.948+03:00 [s2] [O] [SYS] DELIVERY CANCEL: nothing pending
+2026-09-28T02:55:19.949+03:00 [s2] [I] /diag off
+2026-09-28T02:55:20.035+03:00 [s2] [O] [SYS] DIAG already OFF
+2026-09-28T02:55:20.035+03:00 [s2] [I] /heartbeat off
+2026-09-28T02:55:20.124+03:00 [s2] [O] [SYS] HEARTBEAT OFF
+2026-09-28T02:55:20.125+03:00 [s2] [I] /echo-loop stop
+2026-09-28T02:55:20.214+03:00 [s2] [O] [SYS] ECHO LOOP already stopped
+2026-09-28T02:55:20.216+03:00 [s2] [I] /both
+2026-09-28T02:55:20.304+03:00 [s2] [O] 
+2026-09-28T02:55:20.305+03:00 [s2] [O] OUTPUT MODE source=2 state=BOTH
+2026-09-28T02:55:20.307+03:00 [s2] [O] [SYS] OUTPUT BOTH
+2026-09-28T02:55:20.309+03:00 [s2] [I] /help
+2026-09-28T02:55:20.396+03:00 [s2] [O] [SYS] CHATTER HELP
+2026-09-28T02:55:20.398+03:00 [s2] [O] [SYS] CHATTER NODE LoRa-Chatter-72E0
+2026-09-28T02:55:20.400+03:00 [s2] [O] [SYS] CHAT OUTPUT:
+2026-09-28T02:55:20.402+03:00 [s2] [O] [SYS]   > text                       local USER TX confirmed
+2026-09-28T02:55:20.403+03:00 [s2] [O] [SYS]   < [RSSI/SNR Q] text          USER received from peer
+2026-09-28T02:55:20.404+03:00 [s2] [O] [SYS]   > [ECHO TX] text             local echo TX confirmed
+2026-09-28T02:55:20.405+03:00 [s2] [O] [SYS]   < [ECHO RSSI/SNR Q] text     matching echo reply received
+2026-09-28T02:55:20.409+03:00 [s2] [O] [SYS]   [ECHO] NO RESPONSE           matching echo reply timed out
+2026-09-28T02:55:20.439+03:00 [s2] [O] [SYS]   delivery retry details       TELEMETRY only
+2026-09-28T02:55:20.442+03:00 [s2] [O] [SYS]   RSSI/SNR=dBm/dB, Q=0..100 rolling transaction link quality
+2026-09-28T02:55:20.443+03:00 [s2] [O] [SYS] HUMAN CONSOLE MODES:
+2026-09-28T02:55:20.445+03:00 [s2] [O] [SYS]   CHAT       chat + SYSTEM
+2026-09-28T02:55:20.446+03:00 [s2] [O] [SYS]   TELEMETRY  telemetry + SYSTEM
+2026-09-28T02:55:20.448+03:00 [s2] [O] [SYS]   BOTH       chat + telemetry + SYSTEM
+2026-09-28T02:55:20.450+03:00 [s2] [O] [SYS]   BLE 0004 machine telemetry is independent when subscribed
+2026-09-28T02:55:20.452+03:00 [s2] [O] [SYS]   current=BOTH echo=OFF
+2026-09-28T02:55:20.452+03:00 [s2] [O] [SYS] COMMANDS:
+2026-09-28T02:55:20.453+03:00 [s2] [I] /id
+2026-09-28T02:55:20.453+03:00 [s2] [O] [SYS]   /help       show this help
+2026-09-28T02:55:20.455+03:00 [s2] [O] [SYS]   /id         show node identity
+2026-09-28T02:55:20.457+03:00 [s2] [O] [SYS]   /version    show firmware provenance (/firmware alias)
+2026-09-28T02:55:20.458+03:00 [s2] [O] [SYS]   /power      show SX1278 PA_BOOST setting
+2026-09-28T02:55:20.488+03:00 [s2] [O] [SYS]   /power N    set/persist N=2..17 or 20 dBm
+2026-09-28T02:55:20.488+03:00 [s2] [O] [SYS]   /freq       show frequency in MHz
+2026-09-28T02:55:20.492+03:00 [s2] [O] [SYS]   /freq MHz   set/persist frequency; 1 kHz precision, truncates extra decimals
+2026-09-28T02:55:20.493+03:00 [s2] [O] [SYS]   /freq-oob   show experimental out-of-band flag
+2026-09-28T02:55:20.494+03:00 [s2] [O] [SYS]   /freq-oob on|off persist frequency-range policy
+2026-09-28T02:55:20.496+03:00 [s2] [O] [SYS]   /sf /sf N   show/set SF, N=7..12
+2026-09-28T02:55:20.498+03:00 [s2] [O] [SYS]   /bw /bw KHz show/set BW: 7.8 10.4 15.6 20.8 31.25 41.7 62.5 125 250 500
+2026-09-28T02:55:20.499+03:00 [s2] [O] [SYS]   /config     show persisted PHY + runtime link config
+2026-09-28T02:55:20.501+03:00 [s2] [O] [SYS]   /config reset restore persisted PHY defaults
+2026-09-28T02:55:20.504+03:00 [s2] [O] [SYS]   /heartbeat  show runtime heartbeat state
+2026-09-28T02:55:20.531+03:00 [s2] [O] [SYS]   /heartbeat on|off set runtime heartbeat state
+2026-09-28T02:55:20.533+03:00 [s2] [O] [SYS]   /diag       show radio diagnostic state
+2026-09-28T02:55:20.534+03:00 [s2] [O] [SYS]   /diag on|off enter/leave radio diagnostic mode
+2026-09-28T02:55:20.536+03:00 [s2] [O] [SYS]   /diag size N set total heartbeat RF frame N=16..255 bytes
+2026-09-28T02:55:20.538+03:00 [s2] [O] [SYS]   /chat       human console CHAT
+2026-09-28T02:55:20.540+03:00 [s2] [O] [SYS]   /tele       human console TELEMETRY
+2026-09-28T02:55:20.541+03:00 [s2] [O] [SYS]   /both       human console BOTH
+2026-09-28T02:55:20.542+03:00 [s2] [O] [SYS]   /echo       toggle manual echo mode
+2026-09-28T02:55:20.544+03:00 [s2] [O] [SYS]   /echo-loop  show continuous echo status
+2026-09-28T02:55:20.545+03:00 [s2] [O] [SYS]   /echo-loop N start continuous echo with N=1..200 payload bytes
+2026-09-28T02:55:20.576+03:00 [s2] [O] [SYS]   /echo-loop stop stop scheduling continuous echo requests
+2026-09-28T02:55:20.579+03:00 [s2] [O] [SYS]   /cancel     stop current USER delivery/retries
+2026-09-28T02:55:20.582+03:00 [s2] [O] [SYS]   /cancel all stop current USER and discard queued USERs
+2026-09-28T02:55:20.584+03:00 [s2] [O] [SYS]   /reboot     reboot ESP32 controller
+2026-09-28T02:55:20.584+03:00 [s2] [O] [SYS] RAW CONTROLS (HEX):
+2026-09-28T02:55:20.586+03:00 [s2] [O] [SYS]   14 31=CHAT  14 32=TELEMETRY  14 33=BOTH  14 65=ECHO toggle
+2026-09-28T02:55:20.587+03:00 [s2] [O] [SYS] ANDROID BLE TERMINAL MACROS:
+2026-09-28T02:55:20.590+03:00 [s2] [O] [SYS]   HEX macro, no EOL: 14 31 / 14 32 / 14 33 / 14 65
+2026-09-28T02:55:20.627+03:00 [s2] [O] [SYS]   or TEXT macro + LF: /help /id /version /power /freq /freq-oob /sf /bw /config /heartbeat on|off /diag on|off /diag size N /chat /tele /both /echo /echo-loop N /echo-loop stop /cancel /cancel all /reboot
+2026-09-28T02:55:20.627+03:00 [s2] [O] [SYS]   Nordic UART human console=0003; machine telemetry=0004 optional
+2026-09-28T02:55:20.631+03:00 [s2] [O] [SYS] BLE CLIENT: machine telemetry 0004 subscribed in background
+2026-09-28T02:55:20.632+03:00 [s2] [O] [SYS] CHATTER NODE LoRa-Chatter-72E0
+2026-09-28T02:55:20.633+03:00 [s1] [I] /power 2
+2026-09-28T02:55:20.706+03:00 [s1] [O] [SYS] POWER 2 dBm SAVED
+2026-09-28T02:55:20.707+03:00 [s1] [I] /freq 470.000
+2026-09-28T02:55:20.796+03:00 [s1] [O] [SYS] FREQ 470 MHz SAVED
+2026-09-28T02:55:20.797+03:00 [s1] [I] /bw 500.000
+2026-09-28T02:55:20.885+03:00 [s1] [O] [SYS] BW 500 kHz SAVED
+2026-09-28T02:55:20.885+03:00 [s1] [I] /sf 7
+2026-09-28T02:55:20.977+03:00 [s1] [O] [SYS] SF 7 SAVED
+2026-09-28T02:55:20.979+03:00 [s2] [I] /power 2
+2026-09-28T02:55:21.070+03:00 [s2] [O] [SYS] POWER 2 dBm SAVED
+2026-09-28T02:55:21.072+03:00 [s2] [I] /freq 470.000
+2026-09-28T02:55:21.161+03:00 [s2] [O] [SYS] FREQ 470 MHz SAVED
+2026-09-28T02:55:21.162+03:00 [s2] [I] /bw 500.000
+2026-09-28T02:55:21.251+03:00 [s2] [O] [SYS] BW 500 kHz SAVED
+2026-09-28T02:55:21.252+03:00 [s2] [I] /sf 7
+2026-09-28T02:55:21.339+03:00 [s2] [O] [SYS] SF 7 SAVED
+2026-09-28T02:55:21.341+03:00 [s1] [I] /config
+2026-09-28T02:55:21.427+03:00 [s1] [O] [SYS] CFG schema=2 storage=NVS freq_oob=OFF
+2026-09-28T02:55:21.471+03:00 [s1] [O] [SYS] CFG RADIO power=2 dBm freq=470 MHz sf=7 bw=500 kHz
+2026-09-28T02:55:21.472+03:00 [s2] [I] /config
+2026-09-28T02:55:21.516+03:00 [s1] [O] [SYS] CFG LINK heartbeat=OFF retry=ON attempts=5 diag=OFF
+2026-09-28T02:55:21.567+03:00 [s2] [O] [SYS] CFG schema=2 storage=NVS freq_oob=OFF
+2026-09-28T02:55:21.569+03:00 [s2] [O] [SYS] CFG RADIO power=2 dBm freq=470 MHz sf=7 bw=500 kHz
+2026-09-28T02:55:21.571+03:00 [s1] [I] A
+2026-09-28T02:55:21.571+03:00 [s2] [O] [SYS] CFG LINK heartbeat=OFF retry=ON attempts=5 diag=OFF
+2026-09-28T02:55:21.651+03:00 [s1] [O] DELIVERY QUEUED source=2 bytes=1 waiting=1/8 in_flight=0
+2026-09-28T02:55:21.654+03:00 [s2] [O] 
+2026-09-28T02:55:21.659+03:00 [s2] [O] RX USER session=118C seq=0 frame=13B user=1B RX=-26/5 Q0 disposition=0
+2026-09-28T02:55:21.661+03:00 [s2] [O] < [-26/5 Q0] A
+2026-09-28T02:55:21.740+03:00 [s1] [O] 
+2026-09-28T02:55:21.741+03:00 [s1] [O] TX USER seq=0 frame=13B user=1B attempt=1/5 OK time=13 ms
+2026-09-28T02:55:21.830+03:00 [s1] [O] > A
+2026-09-28T02:55:21.875+03:00 [s1] [O] DELIVERY WAIT_ACK user=118C/0 attempt=1/5 timeout=712ms queue=0
+2026-09-28T02:55:21.879+03:00 [s2] [O] 
+2026-09-28T02:55:21.882+03:00 [s2] [O] TX ACK seq=0 ack_to=118C/0 frame=14B OK time=13 ms guard=500ms
+2026-09-28T02:55:21.921+03:00 [s1] [O] PEER_REPORT our_seq=0 TX=-26/5 Q---
+2026-09-28T02:55:21.967+03:00 [s1] [O] 
+2026-09-28T02:55:22.011+03:00 [s1] [O] RX ACK session=EBE8 seq=0 ack_to=118C/0 frame=14B RX=-30/3 Q0
+2026-09-28T02:55:22.100+03:00 [s1] [O] DELIVERY ACK user=118C/0 attempts=1/5 elapsed=217ms queue=0
+2026-09-28T02:55:22.103+03:00 [s2] [I] B
+2026-09-28T02:55:22.191+03:00 [s1] [O] PEER_REPORT our_seq=0 TX=-26/5 Q---
+2026-09-28T02:55:22.195+03:00 [s2] [O] DELIVERY QUEUED source=2 bytes=1 waiting=1/8 in_flight=0
+2026-09-28T02:55:22.199+03:00 [s2] [O] 
+2026-09-28T02:55:22.200+03:00 [s2] [O] TX USER seq=1 frame=13B user=1B attempt=1/5 OK time=14 ms
+2026-09-28T02:55:22.203+03:00 [s2] [O] > B
+2026-09-28T02:55:22.206+03:00 [s2] [O] DELIVERY WAIT_ACK user=EBE8/1 attempt=1/5 timeout=712ms queue=0
+2026-09-28T02:55:22.235+03:00 [s1] [O] 
+2026-09-28T02:55:22.283+03:00 [s1] [O] RX USER session=EBE8 seq=1 frame=13B user=1B RX=-23/6 Q100 disposition=0
+2026-09-28T02:55:22.369+03:00 [s1] [O] < [-23/6 Q100] B
+2026-09-28T02:55:22.414+03:00 [s1] [O] 
+2026-09-28T02:55:22.420+03:00 [s2] [O] PEER_REPORT our_seq=1 TX=-23/6 Q100
+2026-09-28T02:55:22.422+03:00 [s2] [O] 
+2026-09-28T02:55:22.424+03:00 [s2] [O] RX ACK session=118C seq=1 ack_to=EBE8/1 frame=14B RX=-24/6 Q0
+2026-09-28T02:55:22.429+03:00 [s2] [O] DELIVERY ACK user=EBE8/1 attempts=1/5 elapsed=226ms queue=0
+2026-09-28T02:55:22.431+03:00 [s1] [I] /cancel all
+2026-09-28T02:55:22.432+03:00 [s2] [I] /cancel all
+2026-09-28T02:55:22.505+03:00 [s1] [O] TX ACK seq=1 ack_to=EBE8/1 frame=14B OK time=13 ms guard=500ms
+2026-09-28T02:55:22.511+03:00 [s2] [O] DELIVERY CANCEL ALL pending=none queue_removed=0
+2026-09-28T02:55:22.514+03:00 [s2] [O] [SYS] DELIVERY CANCEL: nothing pending
+2026-09-28T02:55:22.594+03:00 [s1] [O] DELIVERY CANCEL ALL pending=none queue_removed=0
+2026-09-28T02:55:22.641+03:00 [s1] [O] [SYS] DELIVERY CANCEL: nothing pending
+2026-09-28T02:55:29.304+03:00 [s2] [O] 
+2026-09-28T02:55:29.312+03:00 [s2] [O] SESSION t=540s TX ok=2 user=1 echo_req=0 echo_rep=0 hb=0(idle=0) err=0 started=2 RX ok=2 user=1 echo_req=0 echo_rep=0 hb=0 crc=0 hdr=0 bad=1 readerr=0 reports=1 Q=100% drops=0 fatal=0
+2026-09-28T02:55:29.320+03:00 [s2] [O] SESSION COURTESY window=5000ms peer_release=0 expired=0 yielding=0
+2026-09-28T02:55:29.354+03:00 [s2] [O] SESSION DIO0_TX affected=0/2 episodes=0 avg_all=0.00 avg_affected=0.00 high_polls=0
+2026-09-28T02:55:29.362+03:00 [s2] [O] SESSION RX_POLL polls=507167 rxdone=3 interval=1000us DIO0_RX false_high_ep=0 high_polls=0 rxdone_low=0 isr=disabled
+2026-09-28T02:55:34.655+03:00 [s1] [O] 
+2026-09-28T02:55:34.657+03:00 [s1] [O] RX CRC ERROR IRQ=0x70 RX=-111/-12 len=65
+2026-09-28T02:55:50.675+03:00 [s1] [O] 
+2026-09-28T02:55:50.682+03:00 [s1] [O] SESSION t=540s TX ok=2 user=1 echo_req=0 echo_rep=0 hb=0(idle=0) err=0 started=2 RX ok=2 user=1 echo_req=0 echo_rep=0 hb=0 crc=2 hdr=0 bad=0 readerr=0 reports=2 Q=100% drops=0 fatal=0
+2026-09-28T02:55:50.690+03:00 [s1] [O] SESSION COURTESY window=5000ms peer_release=0 expired=0 yielding=0
+2026-09-28T02:55:50.768+03:00 [s1] [O] SESSION DIO0_TX affected=0/2 episodes=0 avg_all=0.00 avg_affected=0.00 high_polls=0
+2026-09-28T02:55:50.819+03:00 [s1] [O] SESSION RX_POLL polls=534006 rxdone=4 interval=1000us DIO0_RX false_high_ep=0 high_polls=0 rxdone_low=0 isr=disabled
+2026-09-28T02:56:29.291+03:00 [s2] [O] 
+2026-09-28T02:56:29.298+03:00 [s2] [O] SESSION t=600s TX ok=2 user=1 echo_req=0 echo_rep=0 hb=0(idle=0) err=0 started=2 RX ok=2 user=1 echo_req=0 echo_rep=0 hb=0 crc=0 hdr=0 bad=1 readerr=0 reports=1 Q=100% drops=0 fatal=0
+2026-09-28T02:56:29.306+03:00 [s2] [O] SESSION COURTESY window=5000ms peer_release=0 expired=0 yielding=0
+2026-09-28T02:56:29.338+03:00 [s2] [O] SESSION DIO0_TX affected=0/2 episodes=0 avg_all=0.00 avg_affected=0.00 high_polls=0
+2026-09-28T02:56:29.343+03:00 [s2] [O] SESSION RX_POLL polls=565350 rxdone=3 interval=1000us DIO0_RX false_high_ep=0 high_polls=0 rxdone_low=0 isr=disabled
+2026-09-28T02:56:47.647+03:00 [s1] [O] 
+2026-09-28T02:56:47.648+03:00 [s1] [O] RX CRC ERROR IRQ=0x70 RX=-111/-12 len=45
+2026-09-28T02:56:50.663+03:00 [s1] [O] 
+2026-09-28T02:56:50.669+03:00 [s1] [O] SESSION t=600s TX ok=2 user=1 echo_req=0 echo_rep=0 hb=0(idle=0) err=0 started=2 RX ok=2 user=1 echo_req=0 echo_rep=0 hb=0 crc=3 hdr=0 bad=0 readerr=0 reports=2 Q=100% drops=0 fatal=0
+2026-09-28T02:56:50.677+03:00 [s1] [O] SESSION COURTESY window=5000ms peer_release=0 expired=0 yielding=0
+2026-09-28T02:56:50.683+03:00 [s1] [O] SESSION DIO0_TX affected=0/2 episodes=0 avg_all=0.00 avg_affected=0.00 high_polls=0
+2026-09-28T02:56:50.714+03:00 [s1] [O] SESSION RX_POLL polls=592596 rxdone=5 interval=1000us DIO0_RX false_high_ep=0 high_polls=0 rxdone_low=0 isr=disabled
+2026-09-28T02:57:09.705+03:00 [s2] [O] 
+2026-09-28T02:57:09.707+03:00 [s2] [O] RX HEADER ERROR IRQ=0x50 RX=-110/-12
+2026-09-28T02:57:29.280+03:00 [s2] [O] 
+2026-09-28T02:57:29.287+03:00 [s2] [O] SESSION t=660s TX ok=2 user=1 echo_req=0 echo_rep=0 hb=0(idle=0) err=0 started=2 RX ok=2 user=1 echo_req=0 echo_rep=0 hb=0 crc=0 hdr=1 bad=1 readerr=0 reports=1 Q=100% drops=0 fatal=0
+2026-09-28T02:57:29.328+03:00 [s2] [O] SESSION COURTESY window=5000ms peer_release=0 expired=0 yielding=0
+2026-09-28T02:57:29.334+03:00 [s2] [O] SESSION DIO0_TX affected=0/2 episodes=0 avg_all=0.00 avg_affected=0.00 high_polls=0
+2026-09-28T02:57:29.339+03:00 [s2] [O] SESSION RX_POLL polls=624876 rxdone=4 interval=1000us DIO0_RX false_high_ep=0 high_polls=0 rxdone_low=0 isr=disabled
+2026-09-28T02:57:50.697+03:00 [s1] [O] 
+2026-09-28T02:57:50.704+03:00 [s1] [O] SESSION t=660s TX ok=2 user=1 echo_req=0 echo_rep=0 hb=0(idle=0) err=0 started=2 RX ok=2 user=1 echo_req=0 echo_rep=0 hb=0 crc=3 hdr=0 bad=0 readerr=0 reports=2 Q=100% drops=0 fatal=0
+2026-09-28T02:57:50.713+03:00 [s1] [O] SESSION COURTESY window=5000ms peer_release=0 expired=0 yielding=0
+2026-09-28T02:57:50.718+03:00 [s1] [O] SESSION DIO0_TX affected=0/2 episodes=0 avg_all=0.00 avg_affected=0.00 high_polls=0
+2026-09-28T02:57:50.834+03:00 [s1] [O] SESSION RX_POLL polls=651580 rxdone=5 interval=1000us DIO0_RX false_high_ep=0 high_polls=0 rxdone_low=0 isr=disabled
+2026-09-28T02:58:29.314+03:00 [s2] [O] 
+2026-09-28T02:58:29.320+03:00 [s2] [O] SESSION t=720s TX ok=2 user=1 echo_req=0 echo_rep=0 hb=0(idle=0) err=0 started=2 RX ok=2 user=1 echo_req=0 echo_rep=0 hb=0 crc=0 hdr=1 bad=1 readerr=0 reports=1 Q=100% drops=0 fatal=0
+2026-09-28T02:58:29.327+03:00 [s2] [O] SESSION COURTESY window=5000ms peer_release=0 expired=0 yielding=0
+2026-09-28T02:58:29.359+03:00 [s2] [O] SESSION DIO0_TX affected=0/2 episodes=0 avg_all=0.00 avg_affected=0.00 high_polls=0
+2026-09-28T02:58:29.367+03:00 [s2] [O] SESSION RX_POLL polls=683318 rxdone=4 interval=1000us DIO0_RX false_high_ep=0 high_polls=0 rxdone_low=0 isr=disabled
+2026-09-28T02:58:50.688+03:00 [s1] [O] 
+2026-09-28T02:58:50.692+03:00 [s1] [O] SESSION t=720s TX ok=2 user=1 echo_req=0 echo_rep=0 hb=0(idle=0) err=0 started=2 RX ok=2 user=1 echo_req=0 echo_rep=0 hb=0 crc=3 hdr=0 bad=0 readerr=0 reports=2 Q=100% drops=0 fatal=0
+2026-09-28T02:58:50.702+03:00 [s1] [O] SESSION COURTESY window=5000ms peer_release=0 expired=0 yielding=0
+2026-09-28T02:58:50.732+03:00 [s1] [O] SESSION DIO0_TX affected=0/2 episodes=0 avg_all=0.00 avg_affected=0.00 high_polls=0
+2026-09-28T02:58:50.738+03:00 [s1] [O] SESSION RX_POLL polls=710717 rxdone=5 interval=1000us DIO0_RX false_high_ep=0 high_polls=0 rxdone_low=0 isr=disabled
+2026-09-28T02:59:29.300+03:00 [s2] [O] 
+2026-09-28T02:59:29.303+03:00 [s2] [O] SESSION t=780s TX ok=2 user=1 echo_req=0 echo_rep=0 hb=0(idle=0) err=0 started=2 RX ok=2 user=1 echo_req=0 echo_rep=0 hb=0 crc=0 hdr=1 bad=1 readerr=0 reports=1 Q=100% drops=0 fatal=0
+2026-09-28T02:59:29.312+03:00 [s2] [O] SESSION COURTESY window=5000ms peer_release=0 expired=0 yielding=0
+2026-09-28T02:59:29.346+03:00 [s2] [O] SESSION DIO0_TX affected=0/2 episodes=0 avg_all=0.00 avg_affected=0.00 high_polls=0
+2026-09-28T02:59:29.351+03:00 [s2] [O] SESSION RX_POLL polls=742158 rxdone=4 interval=1000us DIO0_RX false_high_ep=0 high_polls=0 rxdone_low=0 isr=disabled
+2026-09-28T02:59:50.666+03:00 [s1] [O] 
+2026-09-28T02:59:50.673+03:00 [s1] [O] SESSION t=780s TX ok=2 user=1 echo_req=0 echo_rep=0 hb=0(idle=0) err=0 started=2 RX ok=2 user=1 echo_req=0 echo_rep=0 hb=0 crc=3 hdr=0 bad=0 readerr=0 reports=2 Q=100% drops=0 fatal=0
+2026-09-28T02:59:50.682+03:00 [s1] [O] SESSION COURTESY window=5000ms peer_release=0 expired=0 yielding=0
+2026-09-28T02:59:50.713+03:00 [s1] [O] SESSION DIO0_TX affected=0/2 episodes=0 avg_all=0.00 avg_affected=0.00 high_polls=0
+2026-09-28T02:59:50.721+03:00 [s1] [O] SESSION RX_POLL polls=769961 rxdone=5 interval=1000us DIO0_RX false_high_ep=0 high_polls=0 rxdone_low=0 isr=disabled
+2026-09-28T03:00:29.281+03:00 [s2] [O] 
+2026-09-28T03:00:29.288+03:00 [s2] [O] SESSION t=840s TX ok=2 user=1 echo_req=0 echo_rep=0 hb=0(idle=0) err=0 started=2 RX ok=2 user=1 echo_req=0 echo_rep=0 hb=0 crc=0 hdr=1 bad=1 readerr=0 reports=1 Q=100% drops=0 fatal=0
+2026-09-28T03:00:29.295+03:00 [s2] [O] SESSION COURTESY window=5000ms peer_release=0 expired=0 yielding=0
+2026-09-28T03:00:29.324+03:00 [s2] [O] SESSION DIO0_TX affected=0/2 episodes=0 avg_all=0.00 avg_affected=0.00 high_polls=0
+2026-09-28T03:00:29.331+03:00 [s2] [O] SESSION RX_POLL polls=801476 rxdone=4 interval=1000us DIO0_RX false_high_ep=0 high_polls=0 rxdone_low=0 isr=disabled
