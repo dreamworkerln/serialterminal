@@ -120,9 +120,21 @@ After staging:
 
 ```bash
 git diff --cached --name-status
-git diff --cached --check
+git diff --cached --check -- . \
+  ':(exclude)runs/**/serialterminal.log' \
+  ':(exclude)runs/**/serialterminal.console.log'
 git status --short
 ```
+
+The exact copied `serialterminal.log` and `serialterminal.console.log` are excluded
+from whitespace/style validation because their bytes are evidence. Do not remove
+trailing whitespace, normalize line endings or otherwise change those logs to make an
+unscoped `git diff --cached --check` pass.
+
+If an unscoped whitespace check was run first and reported only those exact log paths,
+preserve the diagnostic, run the scoped command above, and continue publication when
+all other gates pass. If the scoped check reports any editable artifact, fix that
+artifact only when doing so preserves its required semantics; do not waive the error.
 
 Every staged entry must be `A` and must belong only to the intended current evidence.
 

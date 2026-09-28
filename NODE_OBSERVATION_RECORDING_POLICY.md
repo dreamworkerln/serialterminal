@@ -257,9 +257,19 @@ Then verify the index before committing:
 
 ```bash
 git diff --cached --name-status
-git diff --cached --check
+git diff --cached --check -- . \
+  ':(exclude)runs/**/serialterminal.log' \
+  ':(exclude)runs/**/serialterminal.console.log'
 git status --short
 ```
+
+The whitespace/style check intentionally excludes the two exact copied SerialTerminal
+logs. Those files are immutable evidence and may legitimately contain trailing spaces
+or other byte sequences produced by the source process. **Never edit, normalize,
+trim, reconstruct or reserialize either log merely to satisfy a whitespace check.**
+
+The exclusion is narrow: `REPORT.md`, `MANIFEST.json`, optional `OBS_*.md` and
+every other staged editable artifact remain subject to `git diff --cached --check`.
 
 Every staged entry must be an append-only `A` entry and must belong only to the exact intended RUN/OBS paths. Any staged modification/deletion, unrelated path or unexpected residue is a hard boundary.
 
