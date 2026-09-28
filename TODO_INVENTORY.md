@@ -132,7 +132,7 @@ Remaining work: align the primary `NODE_OBSERVATION_RECORDING_POLICY.md` and nod
 
 TODO_026 logging-contract investigation is also OPEN and may be scheduled independently when log-format work is selected.
 
-Suggested implementation order for the next pass: finish the HCI boundary isolation in `TODO_024`; after that continue correctness/evidence boundaries (`TODO_011`, `TODO_013`, `TODO_016`, `TODO_017`, `TODO_021`, remaining `TODO_025` docs), lifecycle/API robustness (`TODO_018`, `TODO_019`, `TODO_022`, `TODO_023`), and consistency/docs follow-ups (`TODO_012`, `TODO_014`, `TODO_015`, `TODO_020`). Re-evaluate ordering if implementation exposes dependencies.
+Suggested implementation order for the next pass: complete the active dev_tui file-transfer work in `TODO_029`, including reconnect/MISSING repair, before calling the new file-transfer feature complete; independently finish the HCI boundary isolation in `TODO_024`; after that continue correctness/evidence boundaries (`TODO_011`, `TODO_013`, `TODO_016`, `TODO_017`, `TODO_021`, remaining `TODO_025` docs), lifecycle/API robustness (`TODO_019`, `TODO_022`, `TODO_023`), and consistency/docs follow-ups (`TODO_012`, `TODO_014`, `TODO_015`, `TODO_020`). Re-evaluate ordering if implementation exposes dependencies.
 
 ### TODO_026 — `todos/TODO_026_UNIFIED_LOGGING_CONTRACT.md`
 
@@ -146,6 +146,16 @@ Selected contract: both frontends create the same timestamped `.console.log` log
 
 Physical interactive smoke: PASS on 2026-09-22 with `Profile: chatter`; companion timestamps/session/direction/logical-line behavior confirmed. Remaining gate: physical agent smoke and timing-format comparison.
 
+
+### TODO_029 — `todos/TODO_029_FILE_TRANSFER_RECONNECT_REPAIR.md`
+
+Status: PARTIAL
+
+Goal: extend the already implemented FT1/BINARY USER file transfer with in-process local reconnect recovery: stable chunk IDs, one compact binary MISSING ranges message, selective resend when it fits the transport application MTU, and whole-file restart from chunk 0 when it does not.
+
+Current implementation base: `dev_tui@cfa42f67dc248dfcefc783884cd93efd1e2e9195`; GitHub Actions `36372713417` SUCCESS. FT1 META/DATA/END/RESULT, binary transport/profile adapter, safe receiver, TUI progress and agent file-transfer operations already exist. MISSING/reconnect repair and its physical validation remain OPEN.
+
+Key v1 boundary: no per-chunk file ACK, no MISSING pagination, no persistent resume after SerialTerminal process death. Future LoRa SACK repairs RF loss internally; FT1 MISSING remains an application-level repair for missing host-visible chunks.
 
 ## Closed
 
