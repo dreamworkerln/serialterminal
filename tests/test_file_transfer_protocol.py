@@ -8,9 +8,13 @@ from serialterminal.file_transfer.protocol import (
     EndMessage,
     FileProtocolError,
     MetaMessage,
+    MissingMessage,
+    MissingRange,
     ResultMessage,
+    canonical_missing_ranges,
     data_payload_capacity,
     decode_message,
+    missing_range_capacity,
     encode_message,
 )
 
@@ -74,3 +78,66 @@ def test_unknown_ft1_version_is_rejected_not_guessed():
 
     with pytest.raises(FileProtocolError, match="version"):
         decode_message(bytes(payload))
+
+
+
+def test_ft1_missing_roundtrip_one_and_multiple_ranges():
+    one = MissingMessage(transfer_id=7, ranges=(MissingRange(101, 6),))
+    many = MissingMessage(
+        transfer_id=8,
+        ranges=(
+            MissingRange(1, 2),
+            MissingRange(10, 1),
+            MissingRange(1000, 7),
+        ),
+    )
+
+    assert decode_message(encode_message(one, 200)) == one
+    assert decode_message(encode_message(many, 200)) == many
+
+
+def test_canonical_missing_ranges_sorts_deduplicates_and_coalesces():
+    assert canonical_missing_ranges(
+        [12, 10, 11, 3, 3, 4],
+        chunk_count=20,
+    ) == (
+        MissingRange(3, 2),
+        MissingRange(10, 3),
+    )
+
+
+@pytest.mark.parametrize(
+    "ranges",
+    [
+        (MissingRange(4, 0),),
+        (MissingRange(4, 2), MissingRange(5, 1)),
+        (MissingRange(4, 2), MissingRange(6, 1)),
+        (MissingRange(9, 1), MissingRange(2, 1)),
+    ],
+)
+def test_missing_rejects_noncanonical_or_invalid_ranges(ranges):
+    with pytest.raises(FileProtocolError):
+        encode_message(MissingMessage(1, ranges), 200)
+
+
+def test_missing_range_set_uses_advertised_transport_capacity_without_pagination():
+    assert missing_range_capacity(200) == 23
+    fits = MissingMessage(
+        1,
+        tuple(MissingRange(index * 2, 1) for index in range(23)),
+    )
+    assert len(encode_message(fits, 200)) <= 200
+
+    too_many = MissingMessage(
+        1,
+        tuple(MissingRange(index * 2, 1) for index in range(24)),
+    )
+    with pytest.raises(FileProtocolError, match="does not fit"):
+        encode_message(too_many, 200)
+
+    assert missing_range_capacity(100) == 10
+
+
+def test_canonical_missing_ranges_rejects_out_of_declared_chunk_count():
+    with pytest.raises(FileProtocolError, match="outside declared"):
+        canonical_missing_ranges([0, 5], chunk_count=5)

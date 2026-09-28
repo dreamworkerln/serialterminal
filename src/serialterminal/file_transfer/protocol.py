@@ -12,6 +12,8 @@ _COMMON = struct.Struct(">2sBBQ")
 _META_FIXED = struct.Struct(">QQBH32sB")
 _DATA_FIXED = struct.Struct(">I")
 _END_FIXED = struct.Struct(">I32s")
+_MISSING_COUNT = struct.Struct(">B")
+_MISSING_RANGE = struct.Struct(">II")
 _RESULT_FIXED = struct.Struct(">BBB")
 
 
@@ -20,6 +22,7 @@ class MessageType(IntEnum):
     DATA = 2
     END = 3
     RESULT = 4
+    MISSING = 5
 
 
 class Compression(IntEnum):
@@ -40,6 +43,7 @@ _RESULT_CODE_TO_INT = {
     "cancelled": 9,
     "protocol_error": 10,
     "remote_failed": 11,
+    "repair_too_large": 12,
 }
 _RESULT_INT_TO_CODE = {value: key for key, value in _RESULT_CODE_TO_INT.items()}
 
@@ -74,6 +78,18 @@ class EndMessage:
 
 
 @dataclass(frozen=True)
+class MissingRange:
+    start_chunk: int
+    count: int
+
+
+@dataclass(frozen=True)
+class MissingMessage:
+    transfer_id: int
+    ranges: tuple[MissingRange, ...]
+
+
+@dataclass(frozen=True)
 class ResultMessage:
     transfer_id: int
     ok: bool
@@ -81,7 +97,13 @@ class ResultMessage:
     reason: str
 
 
-FileMessage = MetaMessage | DataMessage | EndMessage | ResultMessage
+FileMessage = (
+    MetaMessage
+    | DataMessage
+    | EndMessage
+    | MissingMessage
+    | ResultMessage
+)
 
 
 def transfer_id_text(transfer_id: int) -> str:
@@ -116,6 +138,81 @@ def data_payload_capacity(binary_payload_capacity: int) -> int:
     if capacity <= 0:
         raise FileProtocolError("binary payload capacity is too small for FT1 DATA")
     return capacity
+
+
+def missing_range_capacity(binary_payload_capacity: int) -> int:
+    if (
+        isinstance(binary_payload_capacity, bool)
+        or not isinstance(binary_payload_capacity, int)
+    ):
+        raise FileProtocolError("binary payload capacity must be an integer")
+    available = binary_payload_capacity - _COMMON.size - _MISSING_COUNT.size
+    if available < _MISSING_RANGE.size:
+        return 0
+    return min(255, available // _MISSING_RANGE.size)
+
+
+def canonical_missing_ranges(
+    missing_chunks: list[int] | tuple[int, ...] | set[int],
+    *,
+    chunk_count: int,
+) -> tuple[MissingRange, ...]:
+    if isinstance(chunk_count, bool) or not isinstance(chunk_count, int):
+        raise FileProtocolError("chunk_count must be an integer")
+    if not 0 <= chunk_count <= 0xFFFFFFFF:
+        raise FileProtocolError("chunk_count is out of uint32 range")
+
+    ordered = sorted(set(missing_chunks))
+    for index in ordered:
+        if isinstance(index, bool) or not isinstance(index, int):
+            raise FileProtocolError("missing chunk index must be an integer")
+        if not 0 <= index < chunk_count:
+            raise FileProtocolError(
+                f"missing chunk index {index} is outside declared chunk_count"
+            )
+    if not ordered:
+        return ()
+
+    ranges: list[MissingRange] = []
+    start = ordered[0]
+    previous = ordered[0]
+    for index in ordered[1:]:
+        if index == previous + 1:
+            previous = index
+            continue
+        ranges.append(MissingRange(start, previous - start + 1))
+        start = previous = index
+    ranges.append(MissingRange(start, previous - start + 1))
+    return tuple(ranges)
+
+
+def validate_missing_ranges(
+    ranges: tuple[MissingRange, ...],
+    *,
+    chunk_count: int | None = None,
+) -> None:
+    if not ranges:
+        raise FileProtocolError("MISSING must contain at least one range")
+    previous_end = -1
+    for item in ranges:
+        if not isinstance(item, MissingRange):
+            raise FileProtocolError("MISSING range has invalid type")
+        if not 0 <= item.start_chunk <= 0xFFFFFFFF:
+            raise FileProtocolError("MISSING range start is out of uint32 range")
+        if not 1 <= item.count <= 0xFFFFFFFF:
+            raise FileProtocolError("MISSING range count must be positive")
+        end = item.start_chunk + item.count
+        if end > 0x100000000:
+            raise FileProtocolError("MISSING range exceeds uint32 chunk space")
+        if item.start_chunk <= previous_end:
+            raise FileProtocolError(
+                "MISSING ranges must be sorted, non-overlapping and non-adjacent"
+            )
+        if chunk_count is not None and end > chunk_count:
+            raise FileProtocolError(
+                "MISSING range exceeds declared chunk_count"
+            )
+        previous_end = end
 
 
 def _common(message_type: MessageType, transfer_id: int) -> bytes:
@@ -183,6 +280,23 @@ def encode_end(message: EndMessage, capacity: int) -> bytes:
     return payload
 
 
+def encode_missing(message: MissingMessage, capacity: int) -> bytes:
+    ranges = tuple(message.ranges)
+    validate_missing_ranges(ranges)
+    maximum = missing_range_capacity(capacity)
+    if len(ranges) > maximum:
+        raise FileProtocolError(
+            "complete MISSING range set does not fit binary payload capacity"
+        )
+    body = bytearray(_common(MessageType.MISSING, message.transfer_id))
+    body.extend(_MISSING_COUNT.pack(len(ranges)))
+    for item in ranges:
+        body.extend(_MISSING_RANGE.pack(item.start_chunk, item.count))
+    if len(body) > capacity:
+        raise FileProtocolError("MISSING exceeds binary payload capacity")
+    return bytes(body)
+
+
 def encode_result(message: ResultMessage, capacity: int) -> bytes:
     code_value = _RESULT_CODE_TO_INT.get(message.code)
     if code_value is None:
@@ -214,6 +328,8 @@ def encode_message(message: FileMessage, capacity: int) -> bytes:
         return encode_data(message, capacity)
     if isinstance(message, EndMessage):
         return encode_end(message, capacity)
+    if isinstance(message, MissingMessage):
+        return encode_missing(message, capacity)
     if isinstance(message, ResultMessage):
         return encode_result(message, capacity)
     raise TypeError(f"unsupported FT1 message: {type(message)!r}")
@@ -299,6 +415,29 @@ def decode_message(data: bytes) -> FileMessage | None:
             transfer_id=transfer_id,
             chunk_count=chunk_count,
             wire_sha256=wire_sha256,
+        )
+
+    if message_type is MessageType.MISSING:
+        minimum = offset + _MISSING_COUNT.size
+        if len(data) < minimum:
+            raise FileProtocolError("truncated MISSING")
+        (range_count,) = _MISSING_COUNT.unpack_from(data, offset)
+        if range_count == 0:
+            raise FileProtocolError("MISSING must contain at least one range")
+        expected = minimum + range_count * _MISSING_RANGE.size
+        if len(data) != expected:
+            raise FileProtocolError("MISSING range count/length mismatch")
+        ranges = []
+        cursor = minimum
+        for _ in range(range_count):
+            start_chunk, count = _MISSING_RANGE.unpack_from(data, cursor)
+            cursor += _MISSING_RANGE.size
+            ranges.append(MissingRange(start_chunk, count))
+        result = tuple(ranges)
+        validate_missing_ranges(result)
+        return MissingMessage(
+            transfer_id=transfer_id,
+            ranges=result,
         )
 
     expected = offset + _RESULT_FIXED.size
