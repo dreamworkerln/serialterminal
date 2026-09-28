@@ -190,3 +190,66 @@ def test_file_transfer_observe_does_not_block_other_agent_requests(tmp_path):
         manager.observe_release.set()
         assert _wait_until(lambda: '"id":10' in output_stream.getvalue())
         assert '"percentage":50.0' in output_stream.getvalue()
+
+
+
+class _RepairFileAgentManager(_FileAgentManager):
+    def file_transfer_observe(
+        self,
+        session_id,
+        transfer_id,
+        *,
+        cursor,
+        window,
+        timeout_ms,
+    ):
+        return {
+            "events": [
+                {
+                    "seq": 1,
+                    "kind": "repair_requested",
+                    "ranges": 2,
+                    "chunks": 3,
+                }
+            ],
+            "cursor": 1,
+            "head_cursor": 1,
+            "state": "repairing",
+            "progress": {
+                "transfer_id": transfer_id,
+                "direction": "TX",
+                "filename": "demo.bin",
+                "state": "repairing",
+                "percentage": 99.9,
+            },
+            "timed_out": False,
+        }
+
+
+def test_agent_file_transfer_observe_exposes_structured_repair_events(tmp_path):
+    manager = _RepairFileAgentManager()
+    with RunLog(tmp_path / "agent.log") as run_log:
+        protocol = AgentProtocol(manager, run_log=run_log)
+        response = protocol.handle(
+            {
+                "id": 20,
+                "op": "file_transfer_observe",
+                "session": "s1",
+                "transfer_id": "0000000000000042",
+                "cursor": 0,
+                "timeout_ms": 0,
+            }
+        )
+
+    assert response["ok"] is True
+    result = response["result"]
+    assert result["state"] == "repairing"
+    assert result["progress"]["state"] == "repairing"
+    assert result["events"] == [
+        {
+            "seq": 1,
+            "kind": "repair_requested",
+            "ranges": 2,
+            "chunks": 3,
+        }
+    ]

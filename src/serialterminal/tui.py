@@ -42,6 +42,13 @@ class TuiOutputBuffer:
             self._partial = ""
 
 
+_FILE_STATE_LABELS = {
+    "waiting_result": "waiting for remote verification",
+    "repair_requested": "repair requested",
+    "repairing": "repairing",
+}
+
+
 class TerminalTui:
     def __init__(
         self,
@@ -152,6 +159,10 @@ class TerminalTui:
         )
 
     @staticmethod
+    def file_state_label(state: str) -> str:
+        return _FILE_STATE_LABELS.get(state, state)
+
+    @staticmethod
     def render_progress_bar(percentage: float, width: int = 24) -> str:
         width = max(4, width)
         bounded = max(0.0, min(100.0, float(percentage)))
@@ -167,11 +178,12 @@ class TerminalTui:
             float(snapshot.get("percentage", 0.0)),
             bar_width,
         )
+        raw_state = str(snapshot.get("state", "?"))
         first = (
             f" File {snapshot.get('direction', '?')} "
             f"{snapshot.get('filename', '?')} [{bar}] "
             f"{float(snapshot.get('percentage', 0.0)):.1f}% "
-            f"{snapshot.get('state', '?')}"
+            f"{self.file_state_label(raw_state)}"
         )
         second = (
             f"      {snapshot.get('chunks_completed', 0)}/"

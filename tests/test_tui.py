@@ -61,3 +61,16 @@ def test_tui_progress_bar_is_determinate_and_bounded():
     assert TerminalTui.render_progress_bar(50, 10) == "█" * 5 + "░" * 5
     assert TerminalTui.render_progress_bar(100, 10) == "█" * 10
     assert TerminalTui.render_progress_bar(150, 10) == "█" * 10
+
+
+
+def test_tui_file_recovery_states_are_human_readable():
+    from serialterminal.tui import TerminalTui
+
+    assert (
+        TerminalTui.file_state_label("waiting_result")
+        == "waiting for remote verification"
+    )
+    assert TerminalTui.file_state_label("repair_requested") == "repair requested"
+    assert TerminalTui.file_state_label("repairing") == "repairing"
+    assert TerminalTui.file_state_label("completed") == "completed"
