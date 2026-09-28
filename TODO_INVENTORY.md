@@ -132,7 +132,7 @@ Remaining work: align the primary `NODE_OBSERVATION_RECORDING_POLICY.md` and nod
 
 TODO_026 logging-contract investigation is also OPEN and may be scheduled independently when log-format work is selected.
 
-Suggested implementation order for the next pass: complete the active dev_tui file-transfer work in `TODO_029`, including reconnect/MISSING repair, before calling the new file-transfer feature complete; independently finish the HCI boundary isolation in `TODO_024`; after that continue correctness/evidence boundaries (`TODO_011`, `TODO_013`, `TODO_016`, `TODO_017`, `TODO_021`, remaining `TODO_025` docs), lifecycle/API robustness (`TODO_019`, `TODO_022`, `TODO_023`), and consistency/docs follow-ups (`TODO_012`, `TODO_014`, `TODO_015`, `TODO_020`). Re-evaluate ordering if implementation exposes dependencies.
+Suggested next work: physically validate the implemented `TODO_029` reconnect/MISSING repair on the two-node topology when convenient; independently finish the HCI boundary isolation in `TODO_024`; after that continue correctness/evidence boundaries (`TODO_011`, `TODO_013`, `TODO_016`, `TODO_017`, `TODO_021`, remaining `TODO_025` docs), lifecycle/API robustness (`TODO_019`, `TODO_022`, `TODO_023`), and consistency/docs follow-ups (`TODO_012`, `TODO_014`, `TODO_015`, `TODO_020`). Re-evaluate ordering if implementation exposes dependencies.
 
 ### TODO_026 — `todos/TODO_026_UNIFIED_LOGGING_CONTRACT.md`
 
@@ -149,13 +149,13 @@ Physical interactive smoke: PASS on 2026-09-22 with `Profile: chatter`; companio
 
 ### TODO_029 — `todos/TODO_029_FILE_TRANSFER_RECONNECT_REPAIR.md`
 
-Status: PARTIAL
+Status: IMPLEMENTED / PHYSICAL VALIDATION OPEN
 
-Goal: extend the already implemented FT1/BINARY USER file transfer over current Chatter USER+ACK with in-process local reconnect recovery: stable chunk IDs, one compact binary MISSING ranges message, idempotent META/END replay, selective resend when it fits the transport application MTU, and whole-file restart from chunk 0 when it does not.
+Goal: FT1/BINARY USER file transfer over current Chatter USER+ACK now supports same-process local reconnect repair with stable chunk IDs, one compact MISSING ranges message, idempotent META/END replay and selective resend when the missing set fits the transport application MTU.
 
-Current implementation base: `dev_tui@cfa42f67dc248dfcefc783884cd93efd1e2e9195`; GitHub Actions `36372713417` SUCCESS. FT1 META/DATA/END/RESULT, binary transport/profile adapter, safe receiver, TUI progress and agent file-transfer operations already exist. MISSING/reconnect repair and its physical validation remain OPEN.
+Automated implementation checkpoint: `dev_tui@e296fdeff84416b52d139cce0917904f15a084ce`; GitHub Actions `36375238603` SUCCESS; 277 tests PASS. Oversized missing-range sets terminate with stable `repair_too_large`; a full resend is an explicit new `file_send_start`, so v1 never enters an automatic restart loop.
 
-Key v1 boundary: current radio transport is ordinary Chatter USER + ACK only; no per-chunk file ACK, no MISSING pagination, and no persistent resume after SerialTerminal process death. LoRa SACK is explicitly out of scope and belongs to a separate future project.
+Key boundary: current radio transport is ordinary Chatter USER + ACK only; no per-chunk file ACK, no MISSING pagination, and no persistent resume after SerialTerminal process death. LoRa SACK is explicitly out of scope. Only physical two-node reconnect validation remains open.
 
 ## Closed
 

@@ -59,6 +59,7 @@ Types:
 META
 DATA
 END
+MISSING
 RESULT
 ```
 
@@ -71,6 +72,11 @@ current Chatter limit. With a 200-byte BINARY USER payload, FT1 DATA carries 184
 of file data.
 
 `END` contains the expected chunk count and SHA-256 of the wire stream.
+
+`MISSING` is an on-demand repair request. Its body contains one uint8 range count
+followed by canonical `(start_chunk:uint32, count:uint32)` ranges. The complete
+current missing set must fit one binary application payload; FT1 v1 does not paginate
+or fragment MISSING.
 
 `RESULT` is sent by the receiver only after application-level completion or failure.
 Sender `completed` therefore means remote verified completion, not local write of the
@@ -109,7 +115,7 @@ truncated transfer must not appear under the final filename. Verified completion
 an atomic `os.replace()`. Existing final names are not overwritten; a unique
 `name (N).ext` destination is chosen.
 
-## Ordering, duplicates and future SACK
+## Ordering, duplicates and reconnect repair
 
 Receiver storage is indexed by:
 
@@ -121,8 +127,18 @@ DATA may arrive out of order. Repeating the same chunk with identical bytes is
 idempotent; the duplicate is not counted twice. A duplicate index carrying different
 bytes fails the transfer.
 
-This makes the file layer suitable for a future SACK or resume implementation without
-changing its fundamental identity model.
+After an `END`, an incomplete receiver keeps its in-process transfer state and
+computes the exact missing chunk set. If its canonical ranges fit one MISSING message,
+the sender retransmits only those DATA chunk indexes and repeats the same idempotent
+END. Another repair round is allowed if a repaired DATA message is itself missed.
+
+Repeated identical META and END are idempotent. A bounded sender control timeout may
+replay the same META+END so a receiver that missed either control message can recreate
+or re-evaluate its state and answer with MISSING or RESULT.
+
+This is in-process reconnect repair, not persistent resume. If SerialTerminal exits or
+restarts, FT1 v1 starts a new transfer from chunk zero. LoRa SACK remains a separate
+future transport project.
 
 ## Progress and completion
 
@@ -150,6 +166,9 @@ compressing
 sending
 receiving
 verifying
+waiting_result
+repair_requested
+repairing
 decompressing
 completed
 failed
@@ -190,15 +209,27 @@ file_transfer_close
 
 The agent does not manually base64-encode chunks or parse human progress output.
 
-## Version 1 scope
+## Version 1 reconnect boundary
 
-FT1 v1 deliberately does not implement reconnect/reboot resume, directory transfer,
-multi-file archives, or multiple simultaneous transfers on one session.
+FT1 v1 supports temporary local Serial/BLE/SPP reconnect repair while the same
+SerialTerminal process and transfer state remain alive. It does not provide persistent
+resume after process death/restart, directory transfer, multi-file archives, or
+multiple simultaneous transfers on one session.
 
-A v1 transfer is never silently restarted from byte zero after an ambiguous
-disconnect. Its `transfer_id` and indexed DATA model are intended to support a
-separately specified resume handshake later, once controller reconnect/session
-semantics are defined.
+The generic session still does not blindly retry a `tx_state=unknown` side effect.
+It only exposes reusable per-TX outcome and connection-generation primitives. The
+profile/file layers may replay the same idempotent FT1 message when local delivery
+became ambiguous, preserving the existing transfer_id/chunk_index identity.
+
+If all missing ranges do not fit one MISSING payload, the receiver returns stable
+`repair_too_large`. The current bounded policy does not enter an automatic whole-file
+restart loop: the current transfer fails and the caller explicitly starts a new
+`file_send_start`, producing a new transfer_id and retransmitting from chunk zero.
+There is no MISSING pagination.
+
+The fast path adds no per-chunk file ACK:
+
+`META -> DATA... -> END -> RESULT`.
 
 The firmware remains unaware of filenames, compression, chunks, filesystem paths,
-SHA-256, progress, or FT1 message types.
+SHA-256, progress, MISSING, or other FT1 message types.

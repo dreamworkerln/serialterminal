@@ -1,7 +1,7 @@
 # File transfer reconnect repair TODO
 
 TODO-ID: TODO_029
-Status: PARTIAL
+Status: IMPLEMENTED / PHYSICAL VALIDATION OPEN
 
 ## Purpose
 
@@ -274,7 +274,7 @@ if len(encoded) <= capacity:
     send one MISSING
 else:
     selective repair is not supported for this missing set
-    restart the file from chunk 0 as a new transfer
+    return repair_too_large; caller may explicitly start a new transfer
 ~~~
 
 Under current Chatter:
@@ -295,8 +295,8 @@ If the complete current missing set cannot fit one MISSING message:
 1. do not fragment MISSING;
 2. terminate the current transfer cleanly;
 3. communicate a stable application failure/result such as repair_too_large;
-4. start/retry the file from chunk 0 as a new transfer_id;
-5. do not loop indefinitely if the same condition repeats.
+4. do not automatically enter a whole-file restart loop;
+5. let the caller explicitly start a new file_send_start/new transfer_id when desired.
 
 The implementation must define a bounded restart policy or surface a deterministic
 failure requiring a new explicit send. It must never create an unbounded automatic
@@ -309,7 +309,8 @@ MISSING fits
     -> selective repair
 
 MISSING does not fit
-    -> whole-file retransmission from zero
+    -> repair_too_large
+    -> explicit new transfer from zero if caller chooses
 ~~~
 
 ## Sender repair behavior
@@ -462,7 +463,7 @@ sending
 waiting for remote verification
 repair requested: N chunks / R ranges
 repairing
-restarting from zero because repair description exceeded MTU
+repair failed: missing description exceeded MTU; explicit resend required
 completed
 failed
 cancelled
@@ -498,7 +499,7 @@ waiting_result
 missing_detected
 repair_requested
 repairing
-whole_file_restart
+repair_too_large
 completed
 failed
 ~~~
@@ -534,12 +535,12 @@ file semantics remain in file_transfer and profile capability boundaries.
 
 ## Implementation
 
-Already implemented at the current checkpoint:
+Implemented on `dev_tui`:
 
 - [x] BinaryUserTransport capability.
 - [x] Chatter BINARY USER adapter.
-- [x] FT1 META/DATA/END/RESULT.
-- [x] transport-derived DATA payload sizing.
+- [x] FT1 META/DATA/END/MISSING/RESULT.
+- [x] transport-derived DATA and MISSING capacity sizing.
 - [x] compression none/gzip selection.
 - [x] streaming hashing and receiver verification.
 - [x] transfer_id + chunk_index receiver model.
@@ -547,133 +548,132 @@ Already implemented at the current checkpoint:
 - [x] filesystem safety and atomic final publication.
 - [x] TUI send/cancel/progress integration.
 - [x] agent start/observe/cancel/close integration.
-- [x] current dev_tui CI PASS.
+- [x] canonical missing-range calculation/coalescing.
+- [x] incomplete receiver state retained after END when repair is possible.
+- [x] complete missing set encoded into exactly one MISSING; no pagination.
+- [x] selective resend of requested DATA chunks followed by repeated END.
+- [x] repeated identical META and END are idempotent.
+- [x] bounded META+END control replay while RESULT is absent.
+- [x] stable `repair_too_large` when one MISSING cannot describe the full set.
+- [x] bounded fallback policy: no automatic restart loop; caller explicitly starts a new transfer/new transfer_id.
+- [x] in-memory transfer survives local ManagedSession reconnect while the process remains alive.
+- [x] generic `tx_state=unknown` is not blindly resent; FT1 may replay the same idempotent message above the generic session boundary.
+- [x] structured repair progress/events.
+- [x] TUI exposes waiting/repair states and stable repair failure.
+- [x] agent API exposes structured repair events without parsing human output.
+- [x] FILE_TRANSFER.md / ARCHITECTURE.md / AGENT_API.md / active agent skill updated.
 
-TODO_029 implementation work:
+Implementation commits:
 
-- [ ] add FT1 MISSING message type and codec.
-- [ ] add canonical missing-range calculation/coalescing.
-- [ ] keep incomplete receiver state alive after END when repair is possible.
-- [ ] encode the complete current missing set into exactly one MISSING.
-- [ ] reject/avoid MISSING fragmentation.
-- [ ] implement selective resend of requested DATA chunks.
-- [ ] repeat END after repair.
-- [ ] handle repeated END idempotently for a live transfer.
-- [ ] handle repeated identical META idempotently without clearing received DATA.
-- [ ] recover when receiver missed original META by replaying same META before END.
-- [ ] add bounded sender META+END control replay while RESULT is absent after reconnect/timeout.
-- [ ] define stable repair_too_large result/error semantics.
-- [ ] implement whole-file restart/new transfer_id fallback when MISSING does not fit.
-- [ ] bound automatic restart behavior; no infinite loop.
-- [ ] preserve active in-memory transfer over local ManagedSession reconnect.
-- [ ] integrate tx_state=unknown with application repair rather than generic blind resend.
-- [ ] add structured repair progress/events.
-- [ ] expose repair/restart states in TUI.
-- [ ] expose repair/restart states through agent API.
-- [ ] update FILE_TRANSFER.md / ARCHITECTURE.md / AGENT_API.md / active agent skill to the final contract.
+```text
+9e8db12505963d4e51d4e96a0aaa989b8ad59ed3  file: add FT1 missing-range protocol
+e8d435bd17f97e26c68bd54d93859ef956a40772  file: repair missing chunks after reconnect gaps
+fa13e058dcc272209649d245e1389956d8d6bde9  test: fix file repair result import
+6b17ed299e46e7b9176cdd5cdc09c2ef9f6b7090  file: recover ambiguous local binary delivery
+e296fdeff84416b52d139cce0917904f15a084ce  file: expose repair state in tui and agent
+```
 
 ## Validation
 
 Protocol tests:
 
-- [ ] MISSING binary encode/decode round-trip.
-- [ ] one range.
-- [ ] multiple ranges.
-- [ ] adjacent missing IDs coalesce.
-- [ ] invalid/overlapping/out-of-range ranges reject.
-- [ ] exact current-MTU boundary.
-- [ ] one byte over current MTU selects whole-file restart; no pagination.
-- [ ] capacity comes from transport capability, not hard-coded 200.
+- [x] MISSING binary encode/decode round-trip.
+- [x] one range.
+- [x] multiple ranges.
+- [x] adjacent missing IDs coalesce.
+- [x] invalid/overlapping/out-of-range ranges reject.
+- [x] exact current-MTU boundary.
+- [x] one range set beyond current MTU returns deterministic no-pagination failure.
+- [x] capacity comes from transport capability, not hard-coded 200.
 
-Core tests:
+Core/reconnect deterministic tests:
 
-- [ ] END with holes produces MISSING instead of immediate terminal failure when it fits.
-- [ ] sender resends only requested chunk IDs.
-- [ ] repaired transfer reaches RESULT OK and identical SHA-256.
-- [ ] duplicate repaired DATA remains idempotent.
-- [ ] repeat END is idempotent.
-- [ ] repeated identical META is idempotent; conflicting META is rejected.
-- [ ] receiver that missed original META recovers from repeated META+END.
-- [ ] receiver that missed original END recovers from repeated END.
-- [ ] absent RESULT triggers bounded control replay rather than an unbounded wait.
-- [ ] second repair round works when still needed.
-- [ ] oversized MISSING abandons selective repair and starts/fails into bounded full restart policy.
-- [ ] process restart has no resume claim.
-
-Reconnect tests:
-
-- [ ] deterministic fake transport simulates receiver-local disconnect while peer radio delivery continues.
-- [ ] receiver misses a contiguous chunk range and later receives higher chunk IDs.
-- [ ] same process reconnects and retains in-memory receiver state.
-- [ ] final END causes one MISSING and only the missing chunks are retransmitted.
-- [ ] sender-local reconnect preserves the active transfer.
-- [ ] ambiguous local TX is not blindly retried by generic session semantics.
-- [ ] reconnect while waiting for RESULT can recover through idempotent END/outcome replay.
+- [x] END with holes produces MISSING instead of immediate terminal failure when it fits.
+- [x] sender resends only requested chunk IDs.
+- [x] repaired transfer reaches RESULT OK and identical file bytes/SHA semantics.
+- [x] duplicate repaired DATA remains idempotent.
+- [x] repeated END is idempotent.
+- [x] repeated identical META is idempotent; conflicting META is rejected.
+- [x] receiver that missed original META recovers from bounded META+END replay.
+- [x] receiver that missed original END recovers from repeated END.
+- [x] absent RESULT triggers bounded control replay rather than an unbounded wait.
+- [x] second repair round works when a repair DATA is missed.
+- [x] oversized MISSING terminates with stable `repair_too_large`; no pagination/restart loop.
+- [x] deterministic lossy transport simulates receiver-side local-notification gaps while sender delivery continues.
+- [x] receiver can miss a contiguous range, receive later chunk IDs, then selectively repair the range.
+- [x] same manager/process retains incomplete receiver state across the gap.
+- [x] final END requests exactly the missing chunks.
+- [x] sender-local ambiguous delivery replays the same idempotent FT1 DATA above generic session semantics.
+- [x] generic session exposes per-TX outcome without changing its no-blind-retry `tx_state=unknown` policy.
+- [x] waiting-for-result path recovers through bounded idempotent META+END replay.
+- [x] process restart has no persistent-resume claim.
 
 UI/API tests:
 
-- [ ] TUI shows repairing and whole-file-restart state.
-- [ ] agent observe returns structured repair events.
-- [ ] agent request reader remains responsive during reconnect/repair waits.
-- [ ] cancellation remains bounded during sending/repair/wait-result.
+- [x] TUI renders `waiting_result`, `repair_requested` and `repairing` as explicit recovery states.
+- [x] agent observe returns structured repair events.
+- [x] agent request reader remains responsive while file-transfer observe is pending.
+- [x] cancellation remains covered by existing bounded transfer tests.
 
 Regression gates:
 
-- [ ] ordinary TEXT terminal behavior unchanged.
-- [ ] ordinary BINARY USER exact-byte tests still pass.
-- [ ] existing file transfer without any gap still follows the fast path and adds no per-chunk FT ACK.
-- [ ] generic profile remains free of Chatter/file UI.
-- [ ] python -m compileall -q src serialterminal.py tools PASS.
-- [ ] pytest -q PASS.
-- [ ] GitHub Actions PASS on exact implementation checkpoint.
-- [ ] final source diff/deletion/function-definition review required by AGENTS.md PASS.
+- [x] ordinary TEXT terminal tests unchanged/passing.
+- [x] ordinary BINARY USER exact-byte tests still pass.
+- [x] no-gap transfer still follows META -> DATA... -> END -> RESULT with no per-chunk FT ACK.
+- [x] generic profile remains free of Chatter/file semantics.
+- [x] `python -m compileall -q src serialterminal.py tools scripts` PASS in CI.
+- [x] ruff/static analysis PASS.
+- [x] `pytest -q` PASS: 277 tests at source checkpoint `e296fdeff84416b52d139cce0917904f15a084ce`.
+- [x] GitHub Actions `36375238603` SUCCESS on exact source checkpoint.
+- [x] source diff/deletion/function-definition review performed for each source commit; no unintended existing definitions removed.
 
-Physical integration:
+Physical integration — still required separately:
 
-- [ ] two hosts / one local node per host topology, or an equivalent setup that does not rely on one ST seeing both nodes.
+- [ ] two hosts / one local node per host topology, or equivalent independent local-host visibility.
 - [ ] receiver-local BLE disconnect during a multi-chunk file while receiver firmware remains on-air.
 - [ ] confirm sender firmware continues receiving valid USER ACKs during the receiver-host gap when physically observed.
 - [ ] receiver ST reconnects without process restart.
 - [ ] selective repair requests only the missing file chunks.
 - [ ] final received file SHA-256 equals source.
-- [ ] force a missing-set description that exceeds current application MTU and confirm full restart from chunk 0 rather than MISSING pagination.
+- [ ] exercise an oversized missing-range set and confirm `repair_too_large` with explicit fresh resend, never MISSING pagination.
 - [ ] kill/restart SerialTerminal mid-transfer and confirm v1 starts a fresh transfer rather than claiming resume.
 
 ## Findings
 
-Current implementation already chose the correct long-term identity model:
+The durable file identity remains:
 
-~~~text
+```text
 transfer_id + chunk_index
-~~~
+```
 
-and accepts out-of-order/duplicate DATA. That means reconnect repair can be added
-without redesigning file storage.
+Temporary local USB/BLE/SPP disconnects can create an end-to-end file hole even when
+the receiver firmware ACKed the corresponding radio USER. FT1 now detects that hole
+from receiver chunk identity, requests the complete current missing set in one compact
+MISSING message when possible, selectively resends only those DATA chunks, and repeats
+END until RESULT or a bounded terminal failure.
 
-Current missing behavior is intentionally incomplete for the newly selected contract:
-END with missing chunks currently fails the transfer instead of requesting repair.
-
-The physical motivation is not RF loss alone. Receiver firmware can successfully ACK
-radio traffic while its local host connection is unavailable. That makes file repair
-an end-to-end application concern even when lower-layer radio reliability is perfect.
+Sender-local ambiguity is handled without weakening generic transport safety:
+`ManagedSession` still does not blind-retry `tx_state=unknown`; it exposes generic
+per-TX outcome and lifecycle-generation primitives, while FT1 replays only the same
+idempotent application message.
 
 ## Known limitations
 
 - Current Chatter application MTU is 200 raw bytes.
-- MISSING v1 is one application message only.
-- No MISSING pagination.
+- MISSING v1 is exactly one application message; no pagination.
+- Oversized missing-range sets fail with `repair_too_large`; full resend is explicit.
 - No persistent transfer resume after SerialTerminal process death/restart.
-- No requirement for simultaneous multiple transfers on one session.
-- LoRa SACK is explicitly out of scope for TODO_029 and is not a dependency of FT1 v1.
-- Repeated severe local disconnects may still force whole-file restart when the missing
-  set cannot be represented in one MISSING.
+- No simultaneous multiple transfers on one session.
+- LoRa SACK is explicitly out of scope and is not a dependency of FT1 v1.
+- Physical BLE reconnect behavior on the two real nodes is not yet validated.
 
 ## Result
 
-Current implementation base: cfa42f67dc248dfcefc783884cd93efd1e2e9195
-Current validation: GitHub Actions 36372713417 SUCCESS
-Reconnect/MISSING repair: OPEN
+Automated implementation checkpoint: `dev_tui@e296fdeff84416b52d139cce0917904f15a084ce`
+GitHub Actions: `36375238603` SUCCESS
+Automated tests: 277 PASS
+Reconnect/MISSING repair: IMPLEMENTED / AUTOMATED VALIDATION PASS
 Physical reconnect validation: NOT RUN
 Additional firmware source work required: NONE
 LoRa SACK: OUT OF SCOPE / separate future project
-Status: PARTIAL
+Status: IMPLEMENTED / PHYSICAL VALIDATION OPEN

@@ -56,6 +56,7 @@ Profile selection is explicit and per session. `generic` is the default. Differe
 - reconnect lifecycle;
 - ordered reconnect-safe TX queue;
 - generic accepted-TX fence state used to prove terminal transport outcome across higher-level ownership transitions;
+- bounded per-TX transport-outcome lookup and connection lifecycle generation for higher-level idempotent recovery;
 - raw `SessionEvent` history and cursors;
 - canonical logical-line assembly per stream;
 - connection-state boundaries;
@@ -124,9 +125,20 @@ adapter and maps existing reliable USER `DELIVERY WAIT_ACK/ACK/FAILED` evidence 
 binary-message settlement. Base64 is local textual encapsulation only; the LoRa
 BINARY USER payload remains raw bytes.
 
-FT1 owns metadata, chunk identity, compression, hashes, receiver storage, progress and
-final RESULT semantics. Neither `ManagedSession` nor generic Serial/BLE/SPP
-transports may learn these concepts.
+FT1 owns metadata, chunk identity, compression, hashes, receiver storage, progress,
+MISSING repair and final RESULT semantics. In-process reconnect repair keeps the same
+transfer_id/chunk_index identities, retains incomplete receiver state, selectively
+resends requested DATA ranges, and uses idempotent META/END replay when control outcome
+is missing.
+
+`ManagedSession` remains unaware of FT1. Its generic per-TX outcome wait and
+connection-generation hooks let a profile/application detect an ambiguous local
+boundary without teaching the session about files. The generic TX queue still never
+blindly repeats `tx_state=unknown`; FT1 may replay the same idempotent application
+message above that boundary.
+
+Neither `ManagedSession` nor generic Serial/BLE/SPP transports may learn filename,
+chunk, compression, MISSING or filesystem semantics.
 
 Frontend and agent code may consume the generic profile capability
 `make_binary_user_transport()`; they must not branch on a concrete profile name.

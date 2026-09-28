@@ -449,6 +449,11 @@ Exactly `100.0` means `state=completed`. A sender that has delivered every DATA
 chunk but is still waiting for the receiver's final verified RESULT remains below
 100%.
 
+Reconnect-repair states include `waiting_result`, `repair_requested` and
+`repairing`. Transfer events may include `missing_detected`, `repair_requested`,
+`repair_round_sent` and `control_replay`; these are structured application events
+and do not require parsing human TUI output.
+
 Receiver `completed` means the wire stream and original file were verified and the
 final file was atomically published. Sender `completed` means it received remote
 `RESULT OK`; it does not mean merely that the last local BLE/USB write succeeded.
@@ -477,10 +482,22 @@ Base64 exists only on the local controller boundary. The LoRa BINARY USER and FT
 transport payload are raw bytes up to the profile-advertised capacity (currently 200
 bytes for Chatter).
 
-FT1 v1 does not implement reconnect/reboot resume, directory transfer or file-level
-per-DATA ACK/retransmission. It never silently restarts a failed transfer from zero.
-Transfer IDs and indexed DATA chunks are intentionally compatible with a future,
-separately specified resume/SACK mechanism.
+FT1 v1 supports temporary local transport reconnect repair while the same
+SerialTerminal process remains alive. Receiver state is indexed by
+`transfer_id + chunk_index`; after END it can send one compact MISSING range message
+and the sender retransmits only those DATA chunks before repeating END. Repeated
+identical META/END are idempotent and bounded META+END control replay can recover a
+missed control/result boundary.
+
+There is no per-DATA file ACK, no MISSING pagination, no persistent resume after the
+SerialTerminal process exits/restarts, and no LoRa SACK dependency. If the complete
+missing range set does not fit one application payload, the transfer terminates with
+stable `repair_too_large`; callers start a new `file_send_start` explicitly if they
+want a full retransmission.
+
+A generic `tx_state=unknown` is still never blindly resent by `ManagedSession`. For
+file transfer only, the profile/application layer may replay the same idempotent FT1
+message after an ambiguous local boundary.
 
 ## Sweep jobs
 

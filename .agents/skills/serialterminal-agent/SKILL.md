@@ -172,9 +172,21 @@ Sender completed только после remote verified `RESULT OK`. Receiver c
 `send_line`, `send_bytes`, `close` или sweep start. Read-only status/observe
 допустимы.
 
-FT1 v1 не имеет reconnect/reboot resume. При ambiguous/disconnected outcome не делай
-blind restart файла с нуля. Дождись terminal state/ошибки и следуй отдельному
-recovery/resume contract, когда он будет определён.
+FT1 v1 умеет in-process repair после временного local USB/BLE/SPP reconnect. Receiver
+сохраняет transfer state в памяти, после END может выдать один structured MISSING с
+диапазонами, sender досылает только указанные DATA и повторяет END. Следи через
+`file_transfer_observe` за состояниями `waiting_result`, `repair_requested`,
+`repairing` и событиями `missing_detected`, `repair_requested`,
+`repair_round_sent`, `control_replay`.
+
+Generic `tx_state=unknown` по-прежнему нельзя blind-retry через обычный
+`send_line`. File layer сам может повторить тот же idempotent FT1 message. Если
+получен `repair_too_large`, текущий transfer terminal-failed: для полной повторной
+передачи явно запускай новый `file_send_start`, не делай MISSING pagination и не
+создавай бесконечный restart loop.
+
+После restart самого SerialTerminal persistent resume нет: начинай новый transfer.
+LoRa SACK в этот contract не входит.
 
 ## Два уровня receive evidence
 
