@@ -137,7 +137,7 @@ def test_tui_scrollback_anchor_survives_wrap_width_change():
     buffer = TuiOutputBuffer()
     buffer.write("abcdefghij\nsecond\nthird\n")
     scroll = TuiScrollback(buffer)
-    scroll.scroll_up(2, width=4, body_rows=2)
+    scroll.scroll_up(4, width=4, body_rows=2)
     before = scroll.visible_rows(4, 2)
     assert before[0].line_id == 1
 
