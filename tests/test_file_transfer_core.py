@@ -16,6 +16,7 @@ from serialterminal.file_transfer import (
     encode_message,
     decode_message,
 )
+from serialterminal.file_transfer.core import default_receive_dir
 from serialterminal.file_transfer.protocol import data_payload_capacity
 
 
