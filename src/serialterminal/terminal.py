@@ -173,16 +173,6 @@ class TerminalSession(ManagedSession):
         observer = self.line_observer
         if observer is not None:
             observer(line)
-
-        # Primary human log records every completed logical RX line, including
-        # background Chatter telemetry that is intentionally hidden from the UI.
-        self._record_primary(
-            "O",
-            line.text,
-            timestamp=line.timestamp,
-            stream=line.stream,
-        )
-
         if line.stream not in self.profile.human_console_streams():
             return
         self._record_console("<", line.text, timestamp=line.timestamp)
@@ -233,6 +223,14 @@ class TerminalSession(ManagedSession):
 
         with self.output_lock:
             for line in lines:
+                # Primary human log is the timestamped all-stream line timeline.
+                # Background telemetry is logged even when it is not rendered.
+                self._write_primary_record_unlocked(
+                    "O",
+                    line.rstrip("\r\n"),
+                    stream=chunk.stream,
+                )
+
                 # Presentation outcomes принадлежат только human-console streams
                 # выбранного profile. Background streams остаются transcript-only.
                 if (

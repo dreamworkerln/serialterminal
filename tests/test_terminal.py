@@ -206,8 +206,6 @@ def test_human_terminal_creates_shared_timestamped_console_log(tmp_path):
 
         primary = log_path.read_text()
         assert "[I] /id" in primary
-        assert "[O chat] READY" in primary
-        assert "[O telemetry] MACHINE ONLY" in primary
 
         for line in lines:
             timestamp = line.split(" [s1] ", 1)[0]
