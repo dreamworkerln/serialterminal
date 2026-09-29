@@ -303,57 +303,98 @@ class FileBrowser:
         except curses.error:
             pass
 
+    @staticmethod
+    def _colors() -> dict[str, int]:
+        return {
+            "normal": curses.color_pair(1),
+            "header": curses.color_pair(2) | curses.A_BOLD,
+            "directory": curses.color_pair(3) | curses.A_BOLD,
+            "columns": curses.color_pair(3) | curses.A_BOLD | curses.A_UNDERLINE,
+            "status": curses.color_pair(4),
+            "search": curses.color_pair(6) | curses.A_BOLD,
+            "selected": curses.color_pair(2) | curses.A_BOLD,
+            "dim": curses.color_pair(1) | curses.A_DIM,
+        }
+
     def draw(self) -> int:
         self.stdscr.erase()
         height, width = self.stdscr.getmaxyx()
+        colors = self._colors()
 
         if height < 10 or width < 50:
-            self._safe_addstr(self.stdscr, 0, 0, "Terminal is too small.")
-            self._safe_addstr(self.stdscr, 1, 0, "Resize to at least 50x10.")
+            self._safe_addstr(
+                self.stdscr,
+                0,
+                0,
+                "Terminal is too small.",
+                colors["header"],
+            )
+            self._safe_addstr(
+                self.stdscr,
+                1,
+                0,
+                "Resize to at least 50x10.",
+                colors["dim"],
+            )
             self.stdscr.refresh()
             return 1
 
-        title = f" FILE BROWSER  {self.directory}"
+        title = (
+            f" FILE BROWSER  {self.directory}   "
+            f"{len(self.items)}/{len(self.all_items)}"
+        )
+        if self.query:
+            title += f'   filter:"{self.query}"'
         self._safe_addstr(
             self.stdscr,
             0,
             0,
-            shorten(title, width - 1),
-            curses.A_BOLD,
+            shorten(title, width - 1).ljust(max(1, width - 1)),
+            colors["header"],
         )
+
         separator = "─" * max(1, width - 1)
-        self._safe_addstr(self.stdscr, 1, 0, separator, curses.A_DIM)
+        self._safe_addstr(
+            self.stdscr,
+            1,
+            0,
+            separator,
+            colors["dim"],
+        )
 
         list_top = 3
         footer_rows = 4
         page_rows = max(1, height - list_top - footer_rows)
 
-        show_date = width >= 92
-        show_size = width >= 68
-        show_type = width >= 55
+        # Keep the same adaptive-table feel as image_browser.py.
+        show_date = width >= 95
+        show_size = width >= 72
+        show_type = width >= 58
 
-        right_reserved = 4
+        number_w = max(4, len(str(max(1, len(self.items)))))
+        right_reserved = number_w + 4
         if show_type:
-            right_reserved += 9
+            right_reserved += 8
         if show_size:
             right_reserved += 12
         if show_date:
             right_reserved += 18
-        name_width = max(12, width - right_reserved - 2)
+        name_width = max(10, width - right_reserved - 2)
 
-        columns = f"  {'Name':<{name_width}}"
+        columns = f"{'#':>{number_w}}  {'Name':<{name_width}}"
         if show_type:
-            columns += "  Type "
+            columns += "  Type"
         if show_size:
-            columns += f" {'Size':>10}"
+            columns += f"  {'Size':>9}"
         if show_date:
             columns += "  Modified"
+
         self._safe_addstr(
             self.stdscr,
             2,
             0,
             shorten(columns, width - 1),
-            curses.A_BOLD | curses.A_UNDERLINE,
+            colors["columns"],
         )
 
         self.ensure_visible(page_rows)
@@ -361,37 +402,65 @@ class FileBrowser:
             message = "Directory is empty."
             if self.query:
                 message = f'No matches for "{self.query}".'
-            self._safe_addstr(self.stdscr, list_top, 2, message, curses.A_DIM)
+            self._safe_addstr(
+                self.stdscr,
+                list_top,
+                2,
+                message,
+                colors["dim"],
+            )
         else:
             for row in range(page_rows):
                 index = self.top + row
                 if index >= len(self.items):
                     break
+
                 item = self.items[index]
                 marker = ">" if index == self.selected else " "
-                display_name = item.name + ("/" if item.is_dir and not item.is_parent else "")
-                line = f"{marker} {shorten(display_name, name_width):<{name_width}}"
+                display_name = item.name
+                if item.is_dir and not item.is_parent:
+                    display_name += "/"
+
+                line = (
+                    f"{marker}{index + 1:>{number_w}}  "
+                    f"{shorten(display_name, name_width):<{name_width}}"
+                )
                 if show_type:
-                    line += f"  {'<DIR>' if item.is_dir else item.path.suffix[1:].upper() or 'FILE':<5}"
+                    item_type = (
+                        "<DIR>"
+                        if item.is_dir
+                        else item.path.suffix[1:].upper() or "FILE"
+                    )
+                    line += f"  {item_type:<5}"
                 if show_size:
-                    line += f" {format_size(item.size):>10}"
+                    line += f"  {format_size(item.size):>9}"
                 if show_date:
                     line += f"  {format_date(item.mtime)}"
-                attr = (
-                    curses.A_REVERSE | curses.A_BOLD
-                    if index == self.selected
-                    else curses.A_NORMAL
-                )
+
+                if index == self.selected:
+                    attr = colors["selected"]
+                elif item.is_dir:
+                    attr = colors["directory"]
+                else:
+                    attr = colors["normal"]
+
                 self._safe_addstr(
                     self.stdscr,
                     list_top + row,
                     0,
-                    shorten(line, width - 1),
+                    shorten(line, width - 1).ljust(max(1, width - 1)),
                     attr,
                 )
 
         sep_y = height - 4
-        self._safe_addstr(self.stdscr, sep_y, 0, separator, curses.A_DIM)
+        self._safe_addstr(
+            self.stdscr,
+            sep_y,
+            0,
+            separator,
+            colors["dim"],
+        )
+
         item = self.current_item
         info = str(item.path if item is not None else self.directory)
         self._safe_addstr(
@@ -399,29 +468,37 @@ class FileBrowser:
             sep_y + 1,
             0,
             shorten(info, width - 1),
-            curses.A_DIM,
+            colors["dim"],
         )
+
         if self.search_mode:
             status = f"/ {self.query}█"
+            status_attr = colors["search"]
         else:
             status = self.status or (
                 "↑↓ move  PgUp/PgDn page  Enter select/open  "
                 "←/Backspace parent  / search  R reload  Esc cancel"
             )
+            status_attr = colors["status"]
+
         self._safe_addstr(
             self.stdscr,
             sep_y + 2,
             0,
             shorten(status, width - 1),
-            curses.A_BOLD if self.search_mode else 0,
+            status_attr,
         )
         self._safe_addstr(
             self.stdscr,
             sep_y + 3,
             0,
-            shorten("Home/End first/last   → enter directory", width - 1),
-            curses.A_DIM,
+            shorten(
+                "Home/End first/last   → enter directory",
+                width - 1,
+            ),
+            colors["dim"],
         )
+
         self.stdscr.refresh()
         return page_rows
 
