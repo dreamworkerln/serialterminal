@@ -156,3 +156,45 @@ def test_tui_mouse_wheel_direction_recognizes_button_masks(monkeypatch):
     assert TerminalTui._mouse_wheel_direction(0x01) == -1
     assert TerminalTui._mouse_wheel_direction(0x02) == 1
     assert TerminalTui._mouse_wheel_direction(0x00) == 0
+
+
+
+def test_tui_modal_text_escape_cancels():
+    import curses
+    from serialterminal.tui import TerminalTui
+
+    text, cursor, action = TerminalTui._edit_modal_text(
+        "/tmp/demo.bin",
+        len("/tmp/demo.bin"),
+        "\x1b",
+    )
+
+    assert text == "/tmp/demo.bin"
+    assert cursor == len("/tmp/demo.bin")
+    assert action == "cancel"
+
+
+def test_tui_modal_text_enter_accepts_without_treating_empty_as_cancel():
+    import curses
+    from serialterminal.tui import TerminalTui
+
+    text, cursor, action = TerminalTui._edit_modal_text("", 0, curses.KEY_ENTER)
+
+    assert text == ""
+    assert cursor == 0
+    assert action == "accept"
+
+
+def test_tui_modal_text_supports_path_editing():
+    import curses
+    from serialterminal.tui import TerminalTui
+
+    text, cursor, action = TerminalTui._edit_modal_text("/tmp/dmo", 6, "e")
+    assert (text, cursor, action) == ("/tmp/demo", 7, None)
+
+    text, cursor, action = TerminalTui._edit_modal_text(
+        text,
+        cursor,
+        curses.KEY_BACKSPACE,
+    )
+    assert (text, cursor, action) == ("/tmp/dmo", 6, None)
