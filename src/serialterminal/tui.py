@@ -4,7 +4,9 @@ from collections import deque
 import curses
 from dataclasses import dataclass
 import threading
+from pathlib import Path
 
+from .file_browser import browse_file
 from .file_transfer import FileTransferError, FileTransferManager
 from .profiles import PROFILE_NAMES, TerminalProfile, resolve_profile
 from .session import SessionLine, SessionTxFenceTimeout, SessionTxOutcomeUnknown
@@ -768,117 +770,6 @@ class TerminalTui:
         self.session.start()
         self.status = f"Profile switched to {next_name}; reconnecting same target"
 
-    @staticmethod
-    def _edit_modal_text(
-        text: str,
-        cursor: int,
-        key,
-    ) -> tuple[str, int, str | None]:
-        if key == "\x1b":
-            return text, cursor, "cancel"
-        if key in ("\x11", "\x03"):
-            return text, cursor, "quit"
-        if key in ("\n", "\r") or key == curses.KEY_ENTER:
-            return text, cursor, "accept"
-        if key == curses.KEY_LEFT:
-            return text, max(0, cursor - 1), None
-        if key == curses.KEY_RIGHT:
-            return text, min(len(text), cursor + 1), None
-        if key == curses.KEY_HOME or key == "\x01":
-            return text, 0, None
-        if key == curses.KEY_END or key == "\x05":
-            return text, len(text), None
-        if key == curses.KEY_DC:
-            if cursor < len(text):
-                text = text[:cursor] + text[cursor + 1 :]
-            return text, cursor, None
-        if key in (curses.KEY_BACKSPACE, "\x7f", "\b"):
-            if cursor > 0:
-                text = text[: cursor - 1] + text[cursor:]
-                cursor -= 1
-            return text, cursor, None
-        if isinstance(key, str) and key.isprintable():
-            text = text[:cursor] + key + text[cursor:]
-            cursor += len(key)
-        return text, cursor, None
-
-    def _prompt_file_path(self, stdscr) -> str | None:
-        prompt = "File to send (Esc cancels): "
-        value = ""
-        cursor = 0
-
-        while self.running:
-            self._render(stdscr)
-            height, width = stdscr.getmaxyx()
-            if height < 4 or width < 20:
-                self.status = "Terminal is too small for file path input"
-                return None
-
-            input_y = height - 3
-            status_y = height - 2
-            available = max(1, width - len(prompt) - 1)
-            start = (
-                0
-                if cursor < available
-                else cursor - available + 1
-            )
-            visible = value[start : start + available]
-            colors = self._colors()
-
-            self._safe_addstr(
-                stdscr,
-                input_y,
-                0,
-                " " * max(1, width - 1),
-                colors["input"],
-            )
-            self._safe_addstr(
-                stdscr,
-                input_y,
-                0,
-                prompt + visible,
-                colors["input"],
-            )
-            self._safe_addstr(
-                stdscr,
-                status_y,
-                0,
-                self._fit(
-                    "Enter: send file | Esc: cancel",
-                    width - 1,
-                ).ljust(max(1, width - 1)),
-                colors["status"],
-            )
-            cursor_x = len(prompt) + cursor - start
-            try:
-                stdscr.move(input_y, min(width - 2, max(0, cursor_x)))
-            except curses.error:
-                pass
-            stdscr.refresh()
-
-            try:
-                key = stdscr.get_wch()
-            except curses.error:
-                continue
-
-            value, cursor, action = self._edit_modal_text(
-                value,
-                cursor,
-                key,
-            )
-            if action == "cancel":
-                return None
-            if action == "quit":
-                self.running = False
-                return None
-            if action == "accept":
-                local_path = value.strip()
-                if local_path:
-                    return local_path
-                self.status = "Enter a file path or press Esc to cancel"
-
-        return None
-
     def _choose_file(self, stdscr) -> None:
         manager = self._file_transfer
         if manager is None:
@@ -888,10 +779,9 @@ class TerminalTui:
             self.status = "A file transfer is already active"
             return
 
-        local_path = self._prompt_file_path(stdscr)
+        local_path = browse_file(stdscr, start_dir=Path.cwd())
         if local_path is None:
-            if self.running:
-                self.status = "File selection cancelled"
+            self.status = "File selection cancelled"
             return
         try:
             result = manager.start_send(local_path)
