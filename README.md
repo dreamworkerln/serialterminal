@@ -47,12 +47,20 @@ profile, потому что BLE stream layout и controller preamble являю
 F2       device chooser
 F3       switch generic/chatter profile
 F4       clear screen only (logs are preserved)
-F5       send file (profiles with file capability, e.g. chatter)
+F5       send file (Esc cancels the file-path prompt)
 F6       cancel active file transfer
 F9       help
-PgUp/Dn  scroll output
+PgUp/Dn  page through output scrollback
+Wheel    scroll output by a few visual rows
+End      return to FOLLOW / newest output
 Ctrl+Q   exit
 ```
+
+Output scrollback имеет два режима. В FOLLOW окно держится на самом свежем выводе.
+После PgUp или wheel-up viewport фиксируется на выбранном месте; новый output не
+сдвигает читаемый текст, а status показывает количество новых строк. PgDn/wheel-down
+листают к хвосту, End сразу возвращает FOLLOW. Длинные logical lines visual-wrap'ятся
+по ширине окна вместо необратимого обрезания справа.
 
 Старый line-oriented human frontend пока сохранён как fallback:
 
