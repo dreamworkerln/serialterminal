@@ -33,6 +33,13 @@ def test_chatter_tui_panel_tracks_radio_and_link_status():
         "telemetry",
         "RX USER session=118C seq=3 frame=20B user=8B RX=-42/7 Q96 disposition=0",
     )
+    panel.consume_line(
+        "telemetry",
+        (
+            "RX HEARTBEAT PONG request=118C/4 frame=16B "
+            "RX=-116/-18 TX=-111/-12 Q87"
+        ),
+    )
     lines = panel.status_lines()
     assert "LoRa-Chatter-1B44" in lines[0]
     assert "470 MHz" in lines[0]
@@ -42,7 +49,7 @@ def test_chatter_tui_panel_tracks_radio_and_link_status():
     assert "heartbeat=OFF" in lines[1]
     assert "retry=ON/5" in lines[1]
     assert "diag=OFF" in lines[1]
-    assert "last RX -42/7 Q96" in lines[1]
+    assert panel.header_status() == "RX -116/-18 | TX -111/-12 | Q87"
 
 
 def test_chatter_tui_panel_refresh_is_profile_owned():
@@ -198,3 +205,50 @@ def test_tui_modal_text_supports_path_editing():
         curses.KEY_BACKSPACE,
     )
     assert (text, cursor, action) == ("/tmp/dmo", 6, None)
+
+
+
+def test_chatter_tui_header_status_tracks_diag_directional_metrics():
+    panel = ChatterTuiPanel()
+
+    panel.consume_line(
+        "chat",
+        "[LNK OK]   RX -116/-18  TX -111/-12  Q87 ",
+    )
+    assert panel.header_status() == "RX -116/-18 | TX -111/-12 | Q87"
+
+    panel.consume_line(
+        "chat",
+        "[LNK NRP]  RX  ---/---  TX  ---/---  Q82 ",
+    )
+    assert panel.header_status() == "RX ---/--- | TX ---/--- | Q82"
+
+
+def test_chatter_tui_header_status_updates_q_on_normal_heartbeat_timeout():
+    panel = ChatterTuiPanel()
+    panel.consume_line(
+        "telemetry",
+        (
+            "RX HEARTBEAT PONG request=118C/4 frame=16B "
+            "RX=-116/-18 TX=-111/-12 Q87"
+        ),
+    )
+    panel.consume_line(
+        "telemetry",
+        "HEARTBEAT TIMEOUT request=118C/5 outcome=NRP Q=82 recovery=1 jitter<=10ms",
+    )
+
+    assert panel.header_status() == "RX -116/-18 | TX -111/-12 | Q82"
+
+
+def test_tui_header_composition_keeps_profile_status_right_aligned():
+    from serialterminal.tui import TerminalTui
+
+    header = TerminalTui._compose_header(
+        " SerialTerminal | very-long-device | profile:chatter",
+        "CONNECTED | RX -116/-18 | TX -111/-12 | Q87",
+        90,
+    )
+
+    assert len(header) == 90
+    assert header.endswith(" CONNECTED | RX -116/-18 | TX -111/-12 | Q87 ")

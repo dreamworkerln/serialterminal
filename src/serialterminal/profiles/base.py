@@ -54,6 +54,9 @@ class TuiProfilePanel(Protocol):
     def status_lines(self) -> tuple[str, ...]:
         ...
 
+    def header_status(self) -> str:
+        ...
+
 
 class PresentationAdapter(Protocol):
     def submit_payload(self, text: str) -> bool:

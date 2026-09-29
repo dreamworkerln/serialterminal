@@ -401,6 +401,18 @@ class TerminalTui:
             return "…"
         return text[: width - 1] + "…"
 
+    @staticmethod
+    def _compose_header(left: str, right: str, width: int) -> str:
+        width = max(1, width)
+        right_block = f" {right} " if right else ""
+        if len(right_block) >= width:
+            return TerminalTui._fit(right_block, width)
+        left_width = width - len(right_block)
+        return (
+            TerminalTui._fit(left, left_width).ljust(left_width)
+            + right_block
+        )
+
     def _colors(self) -> dict[str, int]:
         return {
             "normal": curses.color_pair(1),
@@ -436,13 +448,24 @@ class TerminalTui:
             return
 
         transport = self.session._current_transport()
-        connection = "CONNECTED" if self.session.connected_event.is_set() else "WAITING"
-        header = (
+        connected = self.session.connected_event.is_set()
+        connection = "CONNECTED" if connected else "WAITING"
+        header_left = (
             f" SerialTerminal | {transport.description} | "
-            f"profile:{self.profile.name} | {connection} "
+            f"profile:{self.profile.name}"
+        )
+        header_right = connection
+        if connected and self.panel is not None:
+            profile_status = self.panel.header_status()
+            if profile_status:
+                header_right += f" | {profile_status}"
+        header = self._compose_header(
+            header_left,
+            header_right,
+            width=max(1, width - 1),
         )
         self._safe_addstr(
-            stdscr, 0, 0, self._fit(header.ljust(width), width), colors["header"]
+            stdscr, 0, 0, header, colors["header"]
         )
 
         y = 1
