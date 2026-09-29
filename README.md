@@ -47,11 +47,13 @@ profile, потому что BLE stream layout и controller preamble являю
 F2       device chooser
 F3       switch generic/chatter profile
 F4       clear screen only (logs are preserved)
-F5       send file (Esc cancels the file-path prompt)
+F5       open filesystem browser and send selected file
 F6       cancel active file transfer
+F8       toggle application mouse capture
 F9       help
+↑/↓      previous/next submitted command
 PgUp/Dn  page through output scrollback
-Wheel    scroll output by a few visual rows
+Wheel    scroll output by a few visual rows (mouse capture ON)
 End      return to FOLLOW / newest output
 Ctrl+Q   exit
 ```
@@ -60,7 +62,25 @@ Output scrollback имеет два режима. В FOLLOW окно держи�
 После PgUp или wheel-up viewport фиксируется на выбранном месте; новый output не
 сдвигает читаемый текст, а status показывает количество новых строк. PgDn/wheel-down
 листают к хвосту, End сразу возвращает FOLLOW. Длинные logical lines visual-wrap'ятся
-по ширине окна вместо необратимого обрезания справа.
+по ширине окна вместо необратимого обрезания справа. Main output рисует собственный
+scrollbar справа; scrollbar terminal emulator-а не отражает curses viewport.
+
+TUI хранит до 500 последних непустых submitted lines в памяти текущего процесса.
+Стрелки ↑/↓ листают эту историю и после последней записи возвращают черновик, который
+был набран до входа в history.
+
+Mouse capture по умолчанию включён, чтобы Wheel и клик по внутреннему scrollbar
+управляли curses viewport. В terminal emulator-ах с application mouse reporting
+обычный selection/context menu может перехватываться приложением: F8 выключает
+mouse capture и возвращает обычное terminal mouse behavior. При включённом capture
+terminal-specific bypass через Shift+mouse остаётся доступен там, где его поддерживает
+сам emulator.
+
+F5 открывает однопанельный filesystem browser, начиная с текущего working directory.
+Папки идут перед файлами; `..` поднимает на уровень вверх. Enter на каталоге входит в
+него, Enter на любом обычном файле выбирает его для передачи, Esc отменяет. Доступны
+↑/↓, PgUp/PgDn, Home/End, ←/Backspace для parent, → для входа в каталог, `/` для
+фильтра и R для reload.
 
 Старый line-oriented human frontend пока сохранён как fallback:
 
