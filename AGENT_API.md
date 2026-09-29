@@ -361,11 +361,10 @@ file, base64 chunks, send firmware `/bin` commands or parse a human progress bar
 The selected session profile must provide an opaque binary USER capability. Otherwise
 file operations fail with `file_transfer_unsupported`.
 
-Agent receive directory defaults to:
-
-```text
-~/Downloads/SerialTerminal
-```
+Agent receive directory defaults to the `files` directory in the SerialTerminal
+source root (next to `pyproject.toml`) for a source checkout/editable install.
+Packaged installs without that source root fall back to `./files` in the launch
+directory. The directory is created on demand on Linux and Windows.
 
 Override for the whole agent process with:
 
