@@ -916,7 +916,7 @@ class TerminalTui:
         elif key == curses.KEY_NPAGE:
             self.scrollback.scroll_down(
                 max(1, body_rows),
-                width=max(1, stdscr.getmaxyx()[1] - 1),
+                width=self._output_width(stdscr.getmaxyx()[1]),
                 body_rows=body_rows,
             )
         elif key == curses.KEY_END:
