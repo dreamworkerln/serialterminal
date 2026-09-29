@@ -84,7 +84,7 @@ The main `.log` is forensic/API/transport evidence and contains chronological re
 [SWEEP]
 ```
 
-Raw RX records preserve event `seq`, stream, transport/session chunk boundaries, incremental decoded `text`, and byte-accurate `data_b64`. There are no separate forensic `[RX LINE]` or `[RX PARTIAL]` records.
+Raw RX records preserve event `seq`, stream, transport/session chunk boundaries and incremental decoded `text`. On disk, `data_b64` is redacted to `<base64>` by default; start the agent with `--log-base64` only when byte-accurate persisted base64 is explicitly required. The live `observe(include_events=true)` response remains byte-accurate regardless of that logging flag. There are no separate forensic `[RX LINE]` or `[RX PARTIAL]` records.
 
 The event ring is bounded. If the persisted logger observes a sequence discontinuity because retained events were lost, it writes an explicit error record before the next retained event:
 
@@ -111,6 +111,17 @@ The companion `.console.log` is presentation/audit convenience:
 `[I]` is text accepted through `send_line`. `[O]` is a completed logical line from a human-console stream declared by the selected profile. `send_bytes` is not rendered as ordinary human input. Background streams remain absent from the companion log even though their raw events remain in the forensic log and `observe.result.events`.
 
 Startup `[AGENT]` metadata records both paths.
+
+
+Base64 persistence is opt-in:
+
+```bash
+python3 serialterminal.py agent --log-base64
+```
+
+Without that flag, BINARY USER payloads and structured `*_b64` fields in both log
+files use the literal `<base64>` placeholder. This changes only persisted logs, not
+JSONL responses.
 
 ## Discovery
 

@@ -174,9 +174,16 @@ Normal CLI передаёт выбранный profile явно в terminal/sess
 - capability cache для найденных NUS/SPP устройств;
 - Bluetooth scanner/prober;
 - timestamped all-stream human log с немедленным `flush()`;
+- base64 payloads в любых log-файлах по умолчанию заменяются на `<base64>`; raw persistence включается только `--log-base64`;
 - `LF`, `CRLF` или `CR` после `Enter`.
 
 Chatter-specific возможности — `/id`, `/help`, output/echo shortcuts, `chat`/`telemetry`, pending USER/ECHO presentation и optional BLE `0004` — принадлежат bundled `chatter` profile, а не generic default.
+
+
+Chatter BINARY USER presentation не выводит raw base64 в human TUI/classic screen:
+firmware `[BINARY] ...` lines скрыты из normal display, а локальный ручной
+`/bin ...` отображается как `/bin <base64>`. Флаг `--log-base64` этого не меняет —
+он разрешает raw base64 только в log-файлах.
 
 ## Codex hardware-test workspace
 

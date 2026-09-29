@@ -20,6 +20,41 @@ logs/serialterminal-YYYYMMDD-HHMMSS-ffffff-pPID.console.log
 
 If `--log <path>` is supplied, that path names the primary `.log`; the companion path is derived by replacing a final `.log` with `.console.log` or appending `.console.log` otherwise.
 
+
+## Base64 payload policy
+
+Raw base64 payloads are **not persisted by default** in any SerialTerminal log file.
+Known BINARY USER text and structured `*_b64` fields retain their surrounding record
+but replace the payload with the exact placeholder:
+
+```text
+<base64>
+```
+
+Examples:
+
+```text
+/bin <base64>
+> [BINARY] <base64>
+"data_b64":"<base64>"
+```
+
+This default applies to human primary logs, companion `.console.log` files and agent
+forensic/API logs. It prevents file-transfer traffic and raw transport chunks from
+inflating logs with duplicate base64 material.
+
+Raw base64 persistence is an explicit forensic opt-in:
+
+```bash
+serialterminal --profile chatter --log-base64
+serialterminal agent --log-base64
+```
+
+`--log-base64` affects log files only. It does not make Chatter BINARY presentation
+visible in the human screen/TUI. The agent JSONL API also remains unchanged:
+`observe(include_events=true)` may return exact `data_b64` to the caller even when
+the persisted forensic log contains only `<base64>`.
+
 ## Primary `.log` roles
 
 The primary file is frontend-specific and its role must not be inferred from the extension alone.
@@ -44,7 +79,7 @@ Agent:
 .log = forensic/API/transport record
 ```
 
-It contains timestamped `[RUN]`, `[AGENT]`, request/response, state, TX, raw RX, error and generic sweep-mechanics records. Raw RX preserves transport chunk boundaries and byte-accurate `data_b64`. Persisted sequence gaps remain explicit through `forensic_gap`.
+It contains timestamped `[RUN]`, `[AGENT]`, request/response, state, TX, raw RX, error and generic sweep-mechanics records. Raw RX preserves transport chunk boundaries and event metadata. Exact RX bytes remain available through the live API; persisted `data_b64` is `<base64>` by default and is byte-accurate only with `--log-base64`. Persisted sequence gaps remain explicit through `forensic_gap`.
 
 Do not replace the agent forensic log with the human all-stream line format.
 

@@ -195,7 +195,7 @@ firmware/protocol reasoning   -> result.lines
 transport/chunk forensics     -> result.events / data_b64
 ```
 
-`result.events` при `include_events:true` сохраняет raw session event truth: `seq`, state/TX metadata, stream, chunk boundaries, decoded chunk text и exact bytes через `data_b64`. Без opt-in эти данные остаются в forensic `.log`, но не размножаются в model-facing JSON response.
+`result.events` при `include_events:true` сохраняет raw session event truth: `seq`, state/TX metadata, stream, chunk boundaries, decoded chunk text и exact bytes через `data_b64`. Persisted forensic `.log` по умолчанию заменяет `data_b64` на `<base64>`; raw base64 на диск разрешается только явным process flag `--log-base64`. API response при этом остаётся exact и не зависит от logging flag.
 
 `result.lines` содержит только завершённые LF-terminated lines. Line assembly выполняется один раз на session layer независимо для каждого stream.
 
