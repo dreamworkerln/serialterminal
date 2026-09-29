@@ -811,3 +811,17 @@ def test_file_layer_replays_same_idempotent_chunk_after_local_tx_unknown(tmp_pat
     finally:
         tx.close()
         rx.close()
+
+
+
+def test_default_receive_dir_is_local_files_directory(monkeypatch, tmp_path):
+    monkeypatch.chdir(tmp_path)
+
+    assert default_receive_dir() == Path("files")
+
+    transport = _PairBinaryTransport()
+    manager = FileTransferManager(transport)
+    try:
+        assert manager.receive_dir == Path("files")
+    finally:
+        manager.close()

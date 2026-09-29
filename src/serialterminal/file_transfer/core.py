@@ -99,7 +99,7 @@ class _CancelIncoming:
 
 
 def default_receive_dir() -> Path:
-    return Path.home() / "Downloads" / "SerialTerminal"
+    return Path("files")
 
 
 def safe_received_filename(filename: str) -> str:

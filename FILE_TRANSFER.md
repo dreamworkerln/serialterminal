@@ -98,8 +98,11 @@ publishes the final file only after all checks succeed.
 Default receive directory:
 
 ```text
-~/Downloads/SerialTerminal
+./files
 ```
+
+It is relative to the directory where SerialTerminal is started and is created on
+demand. The same rule is used on Linux and Windows.
 
 Human TUI and agent may override it with:
 
