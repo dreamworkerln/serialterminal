@@ -160,7 +160,6 @@ def test_tui_mouse_wheel_direction_recognizes_button_masks(monkeypatch):
 
 
 def test_tui_modal_text_escape_cancels():
-    import curses
     from serialterminal.tui import TerminalTui
 
     text, cursor, action = TerminalTui._edit_modal_text(
