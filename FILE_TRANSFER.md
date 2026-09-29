@@ -101,8 +101,10 @@ Default receive directory:
 ./files
 ```
 
-It is relative to the directory where SerialTerminal is started and is created on
-demand. The same rule is used on Linux and Windows.
+When running from a source checkout/editable install, this is the `files` directory
+in the SerialTerminal source root next to `pyproject.toml`. Packaged installs without
+that source root fall back to `./files` in the launch directory. The directory is
+created on demand on both Linux and Windows.
 
 Human TUI and agent may override it with:
 

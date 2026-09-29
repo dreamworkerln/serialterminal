@@ -815,14 +815,16 @@ def test_file_layer_replays_same_idempotent_chunk_after_local_tx_unknown(tmp_pat
 
 
 
-def test_default_receive_dir_is_local_files_directory(monkeypatch, tmp_path):
-    monkeypatch.chdir(tmp_path)
+def test_default_receive_dir_is_serialterminal_source_root_files_directory():
+    import serialterminal.file_transfer.core as core
 
-    assert default_receive_dir() == Path("files")
+    source_root = Path(core.__file__).resolve().parents[3]
+    assert (source_root / "pyproject.toml").is_file()
+    assert default_receive_dir() == source_root / "files"
 
     transport = _PairBinaryTransport()
     manager = FileTransferManager(transport)
     try:
-        assert manager.receive_dir == Path("files")
+        assert manager.receive_dir == source_root / "files"
     finally:
         manager.close()

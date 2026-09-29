@@ -126,9 +126,11 @@ capability; generic remains a normal controller-agnostic terminal. Chatter TUI u
 bar for both TX and incoming RX transfers. Same-process temporary local reconnects can
 repair missing FT1 chunks selectively through one compact MISSING range message;
 persistent resume after SerialTerminal process restart is intentionally not provided.
-Verified incoming files default to `./files` in the directory where
-SerialTerminal is started; the directory is created on demand on Linux/Windows.
-Use `--receive-dir <path>` to override it. Protocol, reconnect repair, hash/compression,
+Verified incoming files default to the `files` directory in the SerialTerminal
+source root (next to `pyproject.toml`) when running from a checkout/editable install;
+the directory is created on demand on Linux/Windows. Packaged installs without a
+source root fall back to `./files` in the launch directory. Use
+`--receive-dir <path>` to override it. Protocol, reconnect repair, hash/compression,
 atomic-save and completion semantics are documented in [FILE_TRANSFER.md](FILE_TRANSFER.md).
 
 Normal CLI передаёт выбранный profile явно в terminal/session factory. Прямые `TerminalSession` и `DeviceSelector` constructors тоже используют `generic` по умолчанию; Chatter behavior включается только явным `profile=CHATTER_PROFILE` или `--profile chatter`.

@@ -99,7 +99,10 @@ class _CancelIncoming:
 
 
 def default_receive_dir() -> Path:
-    return Path("files")
+    source_root = Path(__file__).resolve().parents[3]
+    if (source_root / "pyproject.toml").is_file():
+        return source_root / "files"
+    return Path.cwd() / "files"
 
 
 def safe_received_filename(filename: str) -> str:
