@@ -566,3 +566,52 @@ def test_human_log_base64_opt_in_keeps_raw_payloads(tmp_path):
         assert "QUJDRA==" in session.console_path.read_text(encoding="utf-8")
     finally:
         session.log_file.close()
+
+
+
+def test_chatter_binary_presentation_is_not_rendered_on_human_screen(
+    tmp_path,
+    monkeypatch,
+):
+    fake_stdout = FakeStdout()
+    monkeypatch.setattr(terminal_module.sys, "stdout", fake_stdout)
+    session = _chatter_session(
+        DummyBleLikeTransport(),
+        log_path=tmp_path / "terminal.log",
+    )
+    try:
+        session.write_received(
+            ReceivedChunk("chat", b"> [BINARY] QUJDRA==\n")
+        )
+        session.write_received(
+            ReceivedChunk(
+                "chat",
+                b"< [-116/-18 Q87] [BINARY] QUJDRA==\n",
+            )
+        )
+        assert fake_stdout.writes == []
+    finally:
+        session.log_file.close()
+
+
+def test_chatter_local_bin_command_is_redacted_on_screen_even_with_raw_log_opt_in(
+    tmp_path,
+    monkeypatch,
+):
+    fake_stdout = FakeStdout()
+    monkeypatch.setattr(terminal_module.sys, "stdout", fake_stdout)
+    session = _chatter_session(
+        DummyBleLikeTransport(),
+        log_path=tmp_path / "terminal.log",
+        log_base64=True,
+    )
+    try:
+        session._submit_interactive_line("/bin QUJDRA==")
+
+        assert "".join(fake_stdout.writes) == "/bin <base64>\n"
+        assert session.outgoing.get_nowait() == "/bin QUJDRA=="
+        assert "QUJDRA==" in (tmp_path / "terminal.log").read_text(
+            encoding="utf-8"
+        )
+    finally:
+        session.log_file.close()

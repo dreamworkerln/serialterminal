@@ -117,3 +117,20 @@ def test_binary_user_capability_is_profile_owned():
     assert generic is None
     assert isinstance(chatter, ChatterBinaryUserAdapter)
     assert CHATTER_PROFILE.recognized_command("/bin AA==") == "/bin AA=="
+
+
+
+def test_chatter_profile_hides_binary_presentation_but_generic_does_not():
+    from serialterminal.profiles import GENERIC_PROFILE
+    from serialterminal.profiles.chatter import CHATTER_PROFILE
+
+    line = "> [BINARY] QUJDRA==\n"
+
+    assert CHATTER_PROFILE.human_line_visible("chat", line) is False
+    assert GENERIC_PROFILE.human_line_visible("main", line) is True
+    assert CHATTER_PROFILE.human_screen_text("/bin QUJDRA==\n") == (
+        "/bin <base64>\n"
+    )
+    assert GENERIC_PROFILE.human_screen_text("/bin QUJDRA==\n") == (
+        "/bin QUJDRA==\n"
+    )

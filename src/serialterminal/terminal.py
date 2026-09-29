@@ -94,6 +94,7 @@ class TerminalSession(ManagedSession):
         return payload or None
 
     def _screen_write(self, text: str) -> None:
+        text = self.profile.human_screen_text(text)
         writer = self.screen_writer
         if writer is not None:
             writer(text)
@@ -213,8 +214,8 @@ class TerminalSession(ManagedSession):
             self._received_decoders.clear()
             self._received_line_buffers.clear()
 
-    def _received_line_visible(self, stream: str, _line: str) -> bool:
-        return self._received_visible(stream)
+    def _received_line_visible(self, stream: str, line: str) -> bool:
+        return self.profile.human_line_visible(stream, line)
 
     def write_received(self, chunk: ReceivedChunk) -> None:
         if not chunk.data:

@@ -19,7 +19,11 @@ from ..base import (
     ProfileBinaryUserAdapter,
     TuiProfilePanel,
 )
-from .binary_user import ChatterBinaryUserAdapter
+from .binary_user import (
+    ChatterBinaryUserAdapter,
+    is_binary_presentation_line,
+    redact_binary_human_text,
+)
 from .presentation import ChatterPresentation, recognized_chatter_command
 from .sweep import create_reliable_user_sweep_adapter
 from .tui import ChatterTuiPanel
@@ -114,6 +118,15 @@ class ChatterProfile:
 
     def human_console_streams(self) -> tuple[str, ...]:
         return ("main", "chat")
+
+    def human_screen_text(self, text: str) -> str:
+        return redact_binary_human_text(text)
+
+    def human_line_visible(self, stream: str, line: str) -> bool:
+        return (
+            stream in self.human_console_streams()
+            and not is_binary_presentation_line(line)
+        )
 
     def device_help_action(self) -> ProfileAction | None:
         return SendLine(CHATTER_HELP_COMMAND)

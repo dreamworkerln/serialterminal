@@ -47,6 +47,13 @@ class GenericProfile:
     def human_console_streams(self) -> tuple[str, ...]:
         return ("main",)
 
+    def human_screen_text(self, text: str) -> str:
+        return text
+
+    def human_line_visible(self, stream: str, line: str) -> bool:
+        del line
+        return stream in self.human_console_streams()
+
     def device_help_action(self) -> ProfileAction | None:
         return None
 

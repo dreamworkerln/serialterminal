@@ -13,6 +13,7 @@ from ...file_transfer.transport import (
     BinaryUserCancelled,
     BinaryUserError,
 )
+from ...log_redaction import redact_base64_text
 
 
 BINARY_USER_MAX_BYTES = 243
@@ -78,6 +79,17 @@ def parse_binary_rx_line(line: str) -> bytes | None:
     if not prefix.startswith("< [") or not prefix.endswith("]"):
         return None
     return _decode_binary_base64(encoded)
+
+
+def is_binary_presentation_line(line: str) -> bool:
+    value = line.rstrip("\r\n")
+    return value.startswith("> [BINARY] ") or (
+        value.startswith("< [") and _BINARY_MARKER in value
+    )
+
+
+def redact_binary_human_text(text: str) -> str:
+    return redact_base64_text(text)
 
 
 def parse_binary_tx_line(line: str) -> bytes | None:
