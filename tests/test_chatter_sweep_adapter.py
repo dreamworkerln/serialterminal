@@ -9,6 +9,7 @@ from serialterminal.profiles.chatter.sweep import (
 )
 from serialterminal.sweep import (
     SweepCancelled,
+    SweepError,
     SweepPhaseContext,
     SweepPhaseTimeout,
     normalize_sweep_plan,
@@ -364,6 +365,51 @@ def _coordinate():
         "payload_bytes": 32,
         "direction": "s1>s2",
     }
+
+
+def test_payload_boundary_matches_current_chatter_user_mtu():
+    context = _ScriptContext()
+
+    maximum = normalize_sweep_plan(
+        {
+            "constants": {
+                "frequency_hz": 470_000_000,
+                "power_dbm": 2,
+                "bandwidth_hz": 500_000,
+                "sf": 7,
+                "payload_bytes": 243,
+                "direction": "s1>s2",
+            },
+            "axes": [],
+            "repetitions": 1,
+        }
+    )
+    chatter_sweep._validate_chatter_plan(
+        context,
+        ("s1", "s2"),
+        maximum,
+    )
+
+    oversized = normalize_sweep_plan(
+        {
+            "constants": {
+                "frequency_hz": 470_000_000,
+                "power_dbm": 2,
+                "bandwidth_hz": 500_000,
+                "sf": 7,
+                "payload_bytes": 244,
+                "direction": "s1>s2",
+            },
+            "axes": [],
+            "repetitions": 1,
+        }
+    )
+    with pytest.raises(SweepError, match=r"payload_bytes must be 1\.\.243"):
+        chatter_sweep._validate_chatter_plan(
+            context,
+            ("s1", "s2"),
+            oversized,
+        )
 
 
 def test_prepare_settles_reliable_flow_before_other_mutations():

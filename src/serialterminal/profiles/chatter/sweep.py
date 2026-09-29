@@ -227,10 +227,10 @@ def _validate_chatter_plan(
             )
     for value in _possible_values(plan, "payload_bytes"):
         size = _require_int("payload_bytes", value)
-        if not 1 <= size <= 200:
+        if not 1 <= size <= 243:
             raise SweepError(
                 "invalid_sweep_plan",
-                "payload_bytes must be 1..200",
+                "payload_bytes must be 1..243",
             )
 
     allowed_directions = {
