@@ -512,3 +512,57 @@ def test_disconnect_reveals_sent_pending_payload_without_relogging(tmp_path, mon
         assert log_path.read_text().count("hello\n") == 1
     finally:
         session.log_file.close()
+
+
+
+def test_human_logs_redact_binary_base64_by_default(tmp_path):
+    log_path = tmp_path / "terminal.log"
+    session = _chatter_session(
+        DummyBleLikeTransport(),
+        log_path=log_path,
+    )
+    try:
+        assert session.send_line("/bin QUJDRA==")
+        session._record_event(
+            "rx",
+            stream="chat",
+            data=b"> [BINARY] QUJDRA==\n",
+            text="> [BINARY] QUJDRA==\n",
+            device_key="dummy",
+        )
+        session.write_received(
+            ReceivedChunk("chat", b"> [BINARY] QUJDRA==\n")
+        )
+
+        primary = log_path.read_text(encoding="utf-8")
+        console = session.console_path.read_text(encoding="utf-8")
+        assert "QUJDRA==" not in primary
+        assert "QUJDRA==" not in console
+        assert "/bin <base64>" in primary
+        assert "/bin <base64>" in console
+        assert "[BINARY] <base64>" in primary
+        assert "[BINARY] <base64>" in console
+    finally:
+        session.log_file.close()
+
+
+def test_human_log_base64_opt_in_keeps_raw_payloads(tmp_path):
+    log_path = tmp_path / "terminal.log"
+    session = _chatter_session(
+        DummyBleLikeTransport(),
+        log_path=log_path,
+        log_base64=True,
+    )
+    try:
+        assert session.send_line("/bin QUJDRA==")
+        session._record_event(
+            "rx",
+            stream="chat",
+            data=b"> [BINARY] QUJDRA==\n",
+            text="> [BINARY] QUJDRA==\n",
+            device_key="dummy",
+        )
+        assert "QUJDRA==" in log_path.read_text(encoding="utf-8")
+        assert "QUJDRA==" in session.console_path.read_text(encoding="utf-8")
+    finally:
+        session.log_file.close()

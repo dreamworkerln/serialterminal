@@ -159,9 +159,11 @@ def test_agent_subcommand_dispatches_to_jsonl_frontend(monkeypatch, tmp_path):
         receive_dir=None,
         stdin=None,
         stdout=None,
+        log_base64=False,
     ):
         observed["log_path"] = log_path
         observed["receive_dir"] = receive_dir
+        observed["log_base64"] = log_base64
         return 23
 
     monkeypatch.setattr(agent_module, "run_agent", fake_run_agent)
@@ -171,6 +173,7 @@ def test_agent_subcommand_dispatches_to_jsonl_frontend(monkeypatch, tmp_path):
     assert observed == {
         "log_path": str(log_path),
         "receive_dir": None,
+        "log_base64": False,
     }
 
 
@@ -240,3 +243,19 @@ def test_selector_recreates_explicit_serial_transport_for_new_profile():
     assert recreated.device_key == original.device_key
     assert recreated.baud == 57600
     assert selector.profile.name == "generic"
+
+
+
+def test_agent_log_base64_flag_is_explicit_opt_in(monkeypatch):
+    import serialterminal.agent as agent_module
+
+    observed = {}
+
+    def fake_run_agent(**kwargs):
+        observed.update(kwargs)
+        return 0
+
+    monkeypatch.setattr(agent_module, "run_agent", fake_run_agent)
+
+    assert cli_module.main(["agent", "--log-base64"]) == 0
+    assert observed["log_base64"] is True

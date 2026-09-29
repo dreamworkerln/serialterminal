@@ -1661,11 +1661,12 @@ def run_agent(
     receive_dir: str | Path | None = None,
     stdin: TextIO | None = None,
     stdout: TextIO | None = None,
+    log_base64: bool = False,
 ) -> int:
     input_stream = sys.stdin if stdin is None else stdin
     output_stream = sys.stdout if stdout is None else stdout
 
-    with RunLog(log_path) as run_log:
+    with RunLog(log_path, log_base64=log_base64) as run_log:
         manager = SessionManager(
             run_log=run_log,
             receive_dir=receive_dir,

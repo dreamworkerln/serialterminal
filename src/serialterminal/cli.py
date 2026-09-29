@@ -454,6 +454,11 @@ def _add_profile_argument(parser: argparse.ArgumentParser) -> None:
         default=None,
         help="directory for verified incoming files in the TUI",
     )
+    parser.add_argument(
+        "--log-base64",
+        action="store_true",
+        help="include raw base64 payloads in log files (default: redact)",
+    )
 
 
 def _serial_parser(prog: str) -> argparse.ArgumentParser:
@@ -576,6 +581,11 @@ def _agent_parser(prog: str) -> argparse.ArgumentParser:
         default=None,
         help="directory for verified incoming files",
     )
+    parser.add_argument(
+        "--log-base64",
+        action="store_true",
+        help="include raw base64 payloads in log files (default: redact)",
+    )
     return parser
 
 
@@ -631,6 +641,7 @@ def _run_session(
     profile: TerminalProfile = GENERIC_PROFILE,
     classic: bool = False,
     receive_dir: str | None = None,
+    log_base64: bool = False,
 ) -> int:
     actual_log_path = str(default_log_path()) if log_path is None else log_path
     print(f"Locked target: {transport.description}")
@@ -650,6 +661,7 @@ def _run_session(
             selector=selector,
             profile=profile,
             receive_dir=receive_dir,
+            log_base64=log_base64,
         )
 
     TerminalSession(
@@ -659,6 +671,7 @@ def _run_session(
         reconnect_delay=reconnect_delay,
         device_chooser=selector.choose_transport_menu,
         profile=profile,
+        log_base64=log_base64,
     ).run()
     return 0
 
@@ -693,6 +706,7 @@ def _run_serial(argv: list[str], prog: str) -> int:
         profile=profile,
         classic=args.classic,
         receive_dir=args.receive_dir,
+        log_base64=args.log_base64,
     )
 
 
@@ -721,6 +735,7 @@ def _run_ble(argv: list[str], prog: str) -> int:
         profile=profile,
         classic=args.classic,
         receive_dir=args.receive_dir,
+        log_base64=args.log_base64,
     )
 
 
@@ -749,6 +764,7 @@ def _run_spp(argv: list[str], prog: str) -> int:
         profile=profile,
         classic=args.classic,
         receive_dir=args.receive_dir,
+        log_base64=args.log_base64,
     )
 
 
@@ -805,6 +821,7 @@ def _run_agent(argv: list[str], prog: str) -> int:
     return run_agent(
         log_path=args.log,
         receive_dir=args.receive_dir,
+        log_base64=args.log_base64,
     )
 
 
@@ -828,6 +845,8 @@ def _run_auto(argv: list[str], prog: str) -> int:
             selector=selector,
             profile=profile,
             classic=args.classic,
+            receive_dir=args.receive_dir,
+            log_base64=args.log_base64,
         )
 
     selector = DeviceSelector(
@@ -854,6 +873,7 @@ def _run_auto(argv: list[str], prog: str) -> int:
         profile=profile,
         classic=args.classic,
         receive_dir=args.receive_dir,
+        log_base64=args.log_base64,
     )
 
 

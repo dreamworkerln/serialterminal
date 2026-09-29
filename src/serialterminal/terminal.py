@@ -12,6 +12,7 @@ from prompt_toolkit import PromptSession
 from prompt_toolkit.key_binding import KeyBindings
 from prompt_toolkit.patch_stdout import patch_stdout
 
+from .log_redaction import redact_base64_text
 from .runlog import console_log_path, format_console_record
 from .profiles import (
     GENERIC_PROFILE,
@@ -44,6 +45,7 @@ class TerminalSession(ManagedSession):
         profile: TerminalProfile = GENERIC_PROFILE,
         screen_writer: Callable[[str], None] | None = None,
         line_observer: Callable[[SessionLine], None] | None = None,
+        log_base64: bool = False,
     ):
         self.profile = profile
         super().__init__(
@@ -59,6 +61,7 @@ class TerminalSession(ManagedSession):
         self.device_chooser = device_chooser
         self.screen_writer = screen_writer
         self.line_observer = line_observer
+        self.log_base64 = bool(log_base64)
 
         self.output_lock = threading.Lock()
         self.decode_lock = threading.Lock()
@@ -112,7 +115,8 @@ class TerminalSession(ManagedSession):
             else datetime.fromtimestamp(timestamp).astimezone()
         )
         label = marker if stream is None else f"{marker} {stream}"
-        visible = text.replace("\r", "\\r").replace("\n", "\\n")
+        log_text = text if self.log_base64 else redact_base64_text(text)
+        visible = log_text.replace("\r", "\\r").replace("\n", "\\n")
         self.log_file.write(
             f"{moment.isoformat(timespec='milliseconds')} "
             f"[{self.console_session}] [{label}] {visible}\n"
@@ -159,12 +163,13 @@ class TerminalSession(ManagedSession):
         timestamp: float | None = None,
     ) -> None:
         with self.output_lock:
+            visible = text if self.log_base64 else redact_base64_text(text)
             with self.console_path.open("a", encoding="utf-8", buffering=1) as file:
                 file.write(
                     format_console_record(
                         self.console_session,
                         direction,
-                        text,
+                        visible,
                         timestamp=timestamp,
                     )
                 )

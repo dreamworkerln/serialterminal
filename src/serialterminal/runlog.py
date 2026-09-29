@@ -7,6 +7,8 @@ from pathlib import Path
 import threading
 from typing import Any
 
+from .log_redaction import redact_base64_payload, redact_base64_text
+
 
 def default_log_path(
     *,
@@ -56,8 +58,14 @@ def format_console_record(
 class RunLog:
     """Thread-safe forensic log plus companion human-console view for one run."""
 
-    def __init__(self, path: str | Path | None = None):
+    def __init__(
+        self,
+        path: str | Path | None = None,
+        *,
+        log_base64: bool = False,
+    ):
         self.path = Path(path) if path is not None else default_log_path()
+        self.log_base64 = bool(log_base64)
         self.console_path = console_log_path(self.path)
         self.path.parent.mkdir(parents=True, exist_ok=True)
         self.console_path.parent.mkdir(parents=True, exist_ok=True)
@@ -69,12 +77,16 @@ class RunLog:
         )
         self.record("RUN", {"event": "start", "pid": os.getpid()})
 
-    @staticmethod
-    def _render_payload(payload: Any) -> str:
-        if isinstance(payload, str):
-            return payload
+    def _render_payload(self, payload: Any) -> str:
+        visible_payload = (
+            payload
+            if self.log_base64
+            else redact_base64_payload(payload)
+        )
+        if isinstance(visible_payload, str):
+            return visible_payload
         return json.dumps(
-            payload,
+            visible_payload,
             ensure_ascii=False,
             separators=(",", ":"),
             sort_keys=True,
@@ -133,7 +145,8 @@ class RunLog:
 
     def write(self, text: str) -> None:
         with self._lock:
-            self._file.write(text)
+            visible = text if self.log_base64 else redact_base64_text(text)
+            self._file.write(visible)
             self._file.flush()
 
     def record(self, tag: str, payload: Any) -> None:
@@ -151,11 +164,12 @@ class RunLog:
         timestamp: float | None = None,
     ) -> None:
         with self._lock:
+            visible = text if self.log_base64 else redact_base64_text(text)
             self._console_file.write(
                 format_console_record(
                     session,
                     direction,
-                    text,
+                    visible,
                     timestamp=timestamp,
                 )
             )

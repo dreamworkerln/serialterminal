@@ -49,3 +49,42 @@ def test_run_log_keeps_raw_rx_only_without_line_or_partial_records(tmp_path):
     ]
     assert not any(tag.startswith("RX LINE ") for tag, _ in records)
     assert not any(tag.startswith("RX PARTIAL ") for tag, _ in records)
+
+
+
+def test_run_log_redacts_base64_fields_and_binary_text_by_default(tmp_path):
+    log_path = tmp_path / "agent.log"
+    with RunLog(log_path) as run_log:
+        run_log.record(
+            "RX chat",
+            {
+                "session": "s1",
+                "seq": 1,
+                "data_b64": "QUJDRA==",
+                "text": "> [BINARY] QUJDRA==",
+            },
+        )
+        run_log.record("AGENT REQUEST", '{"data_b64":"QUJDRA=="}')
+        run_log.record_console("s1", ">", "/bin QUJDRA==")
+
+    raw = log_path.read_text(encoding="utf-8")
+    console = log_path.with_name("agent.console.log").read_text(encoding="utf-8")
+    assert "QUJDRA==" not in raw
+    assert '"data_b64":"<base64>"' in raw
+    assert "[BINARY] <base64>" in raw
+    assert "/bin <base64>" in console
+
+
+def test_run_log_raw_base64_is_explicit_opt_in(tmp_path):
+    log_path = tmp_path / "agent.log"
+    with RunLog(log_path, log_base64=True) as run_log:
+        run_log.record(
+            "RX chat",
+            {"session": "s1", "seq": 1, "data_b64": "QUJDRA=="},
+        )
+        run_log.record_console("s1", ">", "/bin QUJDRA==")
+
+    assert "QUJDRA==" in log_path.read_text(encoding="utf-8")
+    assert "QUJDRA==" in log_path.with_name("agent.console.log").read_text(
+        encoding="utf-8"
+    )

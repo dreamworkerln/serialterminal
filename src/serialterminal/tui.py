@@ -274,6 +274,7 @@ class TerminalTui:
         selector,
         profile: TerminalProfile,
         receive_dir: str | None = None,
+        log_base64: bool = False,
     ) -> None:
         self.transport = transport
         self.log_path = log_path
@@ -282,6 +283,7 @@ class TerminalTui:
         self.selector = selector
         self.profile = profile
         self.receive_dir = receive_dir
+        self.log_base64 = bool(log_base64)
         self.output = TuiOutputBuffer()
         self.scrollback = TuiScrollback(self.output)
         self.input_text = ""
@@ -313,6 +315,7 @@ class TerminalTui:
             profile=profile,
             screen_writer=self.output.write,
             line_observer=self._observe_line,
+            log_base64=self.log_base64,
         )
 
     def _configure_file_transfer(self, profile: TerminalProfile) -> None:
@@ -1006,6 +1009,7 @@ def run_terminal_tui(
     selector,
     profile: TerminalProfile,
     receive_dir: str | None = None,
+    log_base64: bool = False,
 ) -> int:
     tui = TerminalTui(
         transport=transport,
@@ -1015,6 +1019,7 @@ def run_terminal_tui(
         selector=selector,
         profile=profile,
         receive_dir=receive_dir,
+        log_base64=log_base64,
     )
     curses.wrapper(tui.run)
     return 0
