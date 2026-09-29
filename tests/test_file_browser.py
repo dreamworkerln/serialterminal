@@ -1,5 +1,3 @@
-from pathlib import Path
-
 from serialterminal.file_browser import FileBrowser, scan_directory
 
 
