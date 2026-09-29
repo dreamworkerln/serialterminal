@@ -68,7 +68,7 @@ compression method, negotiated DATA chunk size and SHA-256 of the original file.
 
 `DATA` adds a uint32 chunk index to the common header. The file-data capacity is
 computed from `BinaryUserTransport.payload_capacity`; it is not hard-coded to the
-current Chatter limit. With a 200-byte BINARY USER payload, FT1 DATA carries 184 bytes
+current Chatter limit. With the current 243-byte BINARY USER payload, FT1 DATA carries 227 bytes
 of file data.
 
 `END` contains the expected chunk count and SHA-256 of the wire stream.

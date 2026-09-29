@@ -27,10 +27,16 @@ The primary file is frontend-specific and its role must not be inferred from the
 Human terminal:
 
 ```text
-.log = compatibility transcript
+.log = timestamped all-stream execution timeline
 ```
 
-It preserves terminal-local status text, accepted typed input and received transport text using the existing transcript behavior. It is useful for operator review but is not the agent forensic event record.
+Each physical record carries an offset-aware ISO timestamp with millisecond precision
+and the process-local session token. Human input is tagged `[I]`, local
+SerialTerminal status is tagged `[LOCAL]`, and completed received logical lines are
+tagged with their source stream, for example `[O chat]` or `[O telemetry]`.
+Background Chatter telemetry is therefore present in the ordinary human `.log` even
+when it is hidden from the interactive console. The old untimestamped compatibility
+transcript format is no longer produced.
 
 Agent:
 
@@ -40,7 +46,7 @@ Agent:
 
 It contains timestamped `[RUN]`, `[AGENT]`, request/response, state, TX, raw RX, error and generic sweep-mechanics records. Raw RX preserves transport chunk boundaries and byte-accurate `data_b64`. Persisted sequence gaps remain explicit through `forensic_gap`.
 
-Do not replace the agent forensic log with the human transcript format.
+Do not replace the agent forensic log with the human all-stream line format.
 
 ### Sweep forensic records
 
@@ -109,12 +115,13 @@ generic BLE: main
 Chatter BLE: chat
 ```
 
-Background streams such as Chatter machine telemetry remain outside `.console.log`. In agent mode they remain available in the forensic `.log` and raw `observe.result.events`; in human mode the compatibility transcript keeps its existing receive/transcript behavior.
+Background streams such as Chatter machine telemetry remain outside `.console.log`. In agent mode they remain available in the forensic `.log` and raw `observe.result.events`; in human mode they are present in the timestamped primary `.log` as stream-tagged completed logical lines.
 
 ## Lifecycle and compatibility
 
-The human transcript format remains available in its primary `.log` so existing operator workflows are not broken.
+The old untimestamped human compatibility transcript has been removed. Human primary
+logs are now timestamped all-stream timelines; agent primary logs remain forensic and
+retain `forensic_gap` semantics unchanged.
 
-The agent forensic format and `forensic_gap` semantics remain unchanged.
-
-The shared companion exists to give human and agent runs a comparable timestamped logical timeline without pretending that a presentation log is raw forensic evidence.
+The shared companion remains a filtered presentation/audit view and does not pretend
+to be raw forensic evidence.

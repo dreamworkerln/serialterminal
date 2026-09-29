@@ -106,7 +106,7 @@ logs/serialterminal-YYYYMMDD-HHMMSS-ffffff-pPID.log
 logs/serialterminal-YYYYMMDD-HHMMSS-ffffff-pPID.console.log
 ```
 
-Основной human `.log` сохраняет исторический terminal transcript для обратной совместимости. Companion `.console.log` использует общий human-console формат с agent: offset-aware ISO timestamp с миллисекундами, process-local session token, направление `[I]/[O]` и одна logical line на физическую строку logfile.
+Основной human `.log` теперь является timestamped all-stream timeline: input помечается `[I]`, локальные сообщения `[LOCAL]`, а принятые logical lines — `[O <stream>]`, включая background Chatter telemetry. Старый untimestamped compatibility transcript больше не создаётся. Companion `.console.log` остаётся фильтрованным human-console view с offset-aware ISO timestamp, millisecond precision и process-local session token.
 
 Явный `--log <path>` выбирает путь основного файла; companion автоматически получает тот же basename с суффиксом `.console.log`. Полный общий logging contract описан в `LOGGING.md`.
 
@@ -173,7 +173,7 @@ Normal CLI передаёт выбранный profile явно в terminal/sess
 - локальное line editing через `prompt_toolkit`, включая Backspace/Delete и Unicode;
 - capability cache для найденных NUS/SPP устройств;
 - Bluetooth scanner/prober;
-- transcript с немедленным `flush()`;
+- timestamped all-stream human log с немедленным `flush()`;
 - `LF`, `CRLF` или `CR` после `Enter`.
 
 Chatter-specific возможности — `/id`, `/help`, output/echo shortcuts, `chat`/`telemetry`, pending USER/ECHO presentation и optional BLE `0004` — принадлежат bundled `chatter` profile, а не generic default.
@@ -426,7 +426,7 @@ SerialTerminal не синтезирует RF marker:
 
 Эти строки принадлежат Chatter firmware. В текущем Chatter contract они означают firmware-side TX outcome, но сами по себе не доказывают peer delivery.
 
-Interactive USER/ECHO payload в Chatter human profile сначала хранится как pending presentation и сразу записывается в transcript, но не дублируется на экране. Firmware success line показывает payload один раз.
+Interactive USER payload в Chatter human profile сначала хранится как pending presentation и записывается как timestamped input record, но не дублируется на экране. Firmware success line показывает payload один раз.
 
 Если firmware отвергает payload до успешного RF TX, terminal сначала показывает исходный submit как plain local line, затем оставляет firmware failure неизменённым, например:
 
@@ -437,7 +437,7 @@ hello
 
 Plain `hello` означает только «это было отправлено пользователем в controller», а не RF success.
 
-Background BLE `0004` telemetry не участвует в human pending-presentation resolution. Все transport chunks при этом сохраняются в transcript/forensic records.
+Background BLE `0004` telemetry не участвует в human pending-presentation resolution. В human frontend completed telemetry lines сохраняются в timestamped primary `.log`; agent сохраняет raw transport events в forensic records.
 
 Если связь пропала после transport write, но до firmware outcome, sent-but-unresolved payload раскрывается как plain local line. Payload, который ещё не был физически записан в transport, остаётся pending и может быть отправлен обычным reconnect retry.
 

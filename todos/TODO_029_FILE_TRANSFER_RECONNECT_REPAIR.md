@@ -56,7 +56,7 @@ tests: 277 PASS
 - uint64 transfer_id;
 - uint32 DATA chunk_index;
 - transport-advertised payload capacity;
-- 184-byte FT1 DATA content under current 200-byte Chatter BINARY USER MTU;
+- 227-byte FT1 DATA content under current 243-byte Chatter BINARY USER MTU;
 - gzip-or-none streaming preparation;
 - SHA-256 verification;
 - out-of-order receiver storage;
@@ -107,7 +107,7 @@ Chatter CI 36368553637 SUCCESS
 Current Chatter contract:
 
 ~~~text
-BINARY USER application payload capacity = 200 raw bytes
+BINARY USER application payload capacity = 243 raw bytes
 BINARY USER uses the same USER session/seq + ACK/retry/dedup
 base64 exists only on local host<->firmware text boundary
 LoRa payload is raw bytes
@@ -276,13 +276,13 @@ else:
 Under current Chatter:
 
 ~~~text
-capacity = 200 raw bytes
+capacity = 243 raw bytes
 ~~~
 
-The 200-byte limit includes the FT1 common header and MISSING body.
+The 243-byte limit includes the FT1 common header and MISSING body.
 
 The file-transfer layer must use the advertised transport capacity and must not
-hard-code 200 or a future 32*200 value.
+hard-code a transport MTU or a future batch-size-times-MTU value.
 
 ## Oversized MISSING fallback
 
@@ -409,7 +409,7 @@ This avoids running a second full stop-and-wait protocol above Chatter reliabili
 
 TODO_029 is defined only for the current Chatter reliable USER + ACK transport.
 
-Current BinaryUserTransport payload capacity is 200 raw bytes. FT1 consumes the
+Current BinaryUserTransport payload capacity is 243 raw bytes. FT1 consumes the
 capacity advertised by the transport abstraction, but this TODO does not design,
 simulate, implement or validate any internal radio SACK/batching protocol.
 
@@ -655,7 +655,7 @@ idempotent application message.
 
 ## Known limitations
 
-- Current Chatter application MTU is 200 raw bytes.
+- Current Chatter application MTU is 243 raw bytes.
 - MISSING v1 is exactly one application message; no pagination.
 - Oversized missing-range sets fail with `repair_too_large`; full resend is explicit.
 - No persistent transfer resume after SerialTerminal process death/restart.
