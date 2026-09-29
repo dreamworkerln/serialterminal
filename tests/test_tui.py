@@ -1,5 +1,5 @@
 from serialterminal.profiles.chatter.tui import ChatterTuiPanel
-from serialterminal.tui import TuiOutputBuffer
+from serialterminal.tui import TuiOutputBuffer, TuiScrollback
 
 
 def test_tui_output_buffer_keeps_complete_and_partial_lines():
@@ -74,3 +74,85 @@ def test_tui_file_recovery_states_are_human_readable():
     assert TerminalTui.file_state_label("repair_requested") == "repair requested"
     assert TerminalTui.file_state_label("repairing") == "repairing"
     assert TerminalTui.file_state_label("completed") == "completed"
+
+
+
+def test_tui_output_buffer_assigns_stable_ids_across_partial_writes():
+    buffer = TuiOutputBuffer(max_lines=4)
+    buffer.write("hel")
+    first = buffer.entries()
+    assert [(item.line_id, item.text) for item in first] == [(1, "hel")]
+
+    buffer.write("lo\nnext")
+    second = buffer.entries()
+    assert [(item.line_id, item.text) for item in second] == [
+        (1, "hello"),
+        (2, "next"),
+    ]
+
+
+def test_tui_output_wraps_long_logical_lines_into_visual_rows():
+    buffer = TuiOutputBuffer()
+    buffer.write("abcdefghij\n")
+
+    rows = buffer.visual_rows(4)
+
+    assert [(row.line_id, row.char_start, row.text) for row in rows] == [
+        (1, 0, "abcd"),
+        (1, 4, "efgh"),
+        (1, 8, "ij"),
+    ]
+
+
+def test_tui_scrollback_freezes_anchor_while_new_output_arrives():
+    buffer = TuiOutputBuffer()
+    buffer.write("0\n1\n2\n3\n4\n")
+    scroll = TuiScrollback(buffer)
+
+    assert [row.text for row in scroll.visible_rows(20, 3)] == ["2", "3", "4"]
+    scroll.scroll_up(2, width=20, body_rows=3)
+    assert [row.text for row in scroll.visible_rows(20, 3)] == ["0", "1", "2"]
+
+    buffer.write("5\n6\n")
+    assert [row.text for row in scroll.visible_rows(20, 3)] == ["0", "1", "2"]
+    assert scroll.new_line_count() == 2
+    assert scroll.rows_above_bottom(width=20, body_rows=3) == 4
+
+
+def test_tui_scrollback_page_down_returns_to_follow_tail():
+    buffer = TuiOutputBuffer()
+    buffer.write("0\n1\n2\n3\n4\n")
+    scroll = TuiScrollback(buffer)
+    scroll.scroll_up(2, width=20, body_rows=3)
+    assert scroll.follow_tail is False
+
+    scroll.scroll_down(20, width=20, body_rows=3)
+
+    assert scroll.follow_tail is True
+    assert [row.text for row in scroll.visible_rows(20, 3)] == ["2", "3", "4"]
+    assert scroll.new_line_count() == 0
+
+
+def test_tui_scrollback_anchor_survives_wrap_width_change():
+    buffer = TuiOutputBuffer()
+    buffer.write("abcdefghij\nsecond\nthird\n")
+    scroll = TuiScrollback(buffer)
+    scroll.scroll_up(2, width=4, body_rows=2)
+    before = scroll.visible_rows(4, 2)
+    assert before[0].line_id == 1
+
+    after = scroll.visible_rows(6, 2)
+
+    assert after[0].line_id == 1
+    assert after[0].char_start <= before[0].char_start
+
+
+def test_tui_mouse_wheel_direction_recognizes_button_masks(monkeypatch):
+    from serialterminal.tui import TerminalTui
+
+    monkeypatch.setattr("serialterminal.tui.curses.BUTTON4_PRESSED", 0x01)
+    monkeypatch.setattr("serialterminal.tui.curses.BUTTON5_PRESSED", 0x02)
+
+    assert TerminalTui._mouse_wheel_direction(0x01) == -1
+    assert TerminalTui._mouse_wheel_direction(0x02) == 1
+    assert TerminalTui._mouse_wheel_direction(0x00) == 0

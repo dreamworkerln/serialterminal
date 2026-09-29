@@ -2,6 +2,7 @@ from __future__ import annotations
 
 from collections import deque
 import curses
+from dataclasses import dataclass
 import threading
 
 from .file_transfer import FileTransferError, FileTransferManager
@@ -11,13 +12,34 @@ from .terminal import TerminalSession
 from .transports.base import Transport, TransportError
 
 
+@dataclass(frozen=True)
+class TuiOutputLine:
+    line_id: int
+    text: str
+
+
+@dataclass(frozen=True)
+class TuiVisualRow:
+    line_id: int
+    char_start: int
+    text: str
+    logical_text: str
+
+
 class TuiOutputBuffer:
     """Bounded logical-line buffer shared by session threads and the curses UI."""
 
-    def __init__(self, max_lines: int = 4000) -> None:
-        self._lines: deque[str] = deque(maxlen=max_lines)
+    def __init__(self, max_lines: int = 10000) -> None:
+        self._lines: deque[TuiOutputLine] = deque(maxlen=max_lines)
         self._partial = ""
+        self._partial_id: int | None = None
+        self._next_line_id = 1
         self._lock = threading.Lock()
+
+    def _allocate_line_id(self) -> int:
+        line_id = self._next_line_id
+        self._next_line_id += 1
+        return line_id
 
     def write(self, text: str) -> None:
         if not text:
@@ -25,21 +47,176 @@ class TuiOutputBuffer:
         normalized = text.replace("\r\n", "\n").replace("\r", "\n")
         with self._lock:
             combined = self._partial + normalized
+            current_id = self._partial_id
             parts = combined.split("\n")
-            self._partial = parts.pop()
-            self._lines.extend(parts)
+            tail = parts.pop()
 
-    def snapshot(self) -> list[str]:
+            for part in parts:
+                if current_id is None:
+                    current_id = self._allocate_line_id()
+                self._lines.append(TuiOutputLine(current_id, part))
+                current_id = None
+
+            self._partial = tail
+            if tail:
+                if current_id is None:
+                    current_id = self._allocate_line_id()
+                self._partial_id = current_id
+            else:
+                self._partial_id = None
+
+    def entries(self) -> list[TuiOutputLine]:
         with self._lock:
             lines = list(self._lines)
-            if self._partial:
-                lines.append(self._partial)
+            if self._partial_id is not None:
+                lines.append(TuiOutputLine(self._partial_id, self._partial))
             return lines
+
+    def snapshot(self) -> list[str]:
+        return [line.text for line in self.entries()]
+
+    def latest_line_id(self) -> int | None:
+        with self._lock:
+            if self._partial_id is not None:
+                return self._partial_id
+            if self._lines:
+                return self._lines[-1].line_id
+            return None
+
+    def visual_rows(self, width: int) -> list[TuiVisualRow]:
+        wrap_width = max(1, width)
+        rows: list[TuiVisualRow] = []
+        for line in self.entries():
+            if line.text == "":
+                rows.append(
+                    TuiVisualRow(
+                        line_id=line.line_id,
+                        char_start=0,
+                        text="",
+                        logical_text=line.text,
+                    )
+                )
+                continue
+            for start in range(0, len(line.text), wrap_width):
+                rows.append(
+                    TuiVisualRow(
+                        line_id=line.line_id,
+                        char_start=start,
+                        text=line.text[start : start + wrap_width],
+                        logical_text=line.text,
+                    )
+                )
+        return rows
 
     def clear(self) -> None:
         with self._lock:
             self._lines.clear()
             self._partial = ""
+            self._partial_id = None
+
+
+class TuiScrollback:
+    """Stable viewport over wrapped output rows with explicit follow-tail mode."""
+
+    def __init__(self, output: TuiOutputBuffer) -> None:
+        self.output = output
+        self.follow_tail = True
+        self._anchor: tuple[int, int] | None = None
+        self._seen_tail_id: int | None = None
+
+    @staticmethod
+    def _row_key(row: TuiVisualRow) -> tuple[int, int]:
+        return (row.line_id, row.char_start)
+
+    def _anchor_index(self, rows: list[TuiVisualRow], body_rows: int) -> int:
+        tail_top = max(0, len(rows) - max(1, body_rows))
+        if self.follow_tail or self._anchor is None:
+            return tail_top
+        if not rows:
+            return 0
+
+        line_id, char_start = self._anchor
+        candidate: int | None = None
+        for index, row in enumerate(rows):
+            if row.line_id < line_id:
+                continue
+            if row.line_id > line_id:
+                return index
+            candidate = index
+            if row.char_start >= char_start:
+                if row.char_start > char_start and index > 0:
+                    previous = rows[index - 1]
+                    if previous.line_id == line_id:
+                        return index - 1
+                return index
+        if candidate is not None:
+            return candidate
+        if line_id < rows[0].line_id:
+            return 0
+        return tail_top
+
+    def visible_rows(self, width: int, body_rows: int) -> list[TuiVisualRow]:
+        rows = self.output.visual_rows(width)
+        if not rows:
+            return []
+        start = self._anchor_index(rows, body_rows)
+        if not self.follow_tail:
+            self._anchor = self._row_key(rows[start])
+        return rows[start : start + max(1, body_rows)]
+
+    def _leave_follow(self) -> None:
+        if self.follow_tail:
+            self._seen_tail_id = self.output.latest_line_id()
+        self.follow_tail = False
+
+    def scroll_up(self, count: int, *, width: int, body_rows: int) -> None:
+        rows = self.output.visual_rows(width)
+        if not rows:
+            return
+        current = self._anchor_index(rows, body_rows)
+        target = max(0, current - max(1, count))
+        if target == current and not self.follow_tail:
+            return
+        self._leave_follow()
+        self._anchor = self._row_key(rows[target])
+
+    def scroll_down(self, count: int, *, width: int, body_rows: int) -> None:
+        if self.follow_tail:
+            return
+        rows = self.output.visual_rows(width)
+        if not rows:
+            self.follow()
+            return
+        current = self._anchor_index(rows, body_rows)
+        tail_top = max(0, len(rows) - max(1, body_rows))
+        target = min(tail_top, current + max(1, count))
+        if target >= tail_top:
+            self.follow()
+            return
+        self._anchor = self._row_key(rows[target])
+
+    def follow(self) -> None:
+        self.follow_tail = True
+        self._anchor = None
+        self._seen_tail_id = self.output.latest_line_id()
+
+    def new_line_count(self) -> int:
+        if self.follow_tail:
+            return 0
+        latest = self.output.latest_line_id()
+        if latest is None or self._seen_tail_id is None:
+            return 0
+        return max(0, latest - self._seen_tail_id)
+
+    def rows_above_bottom(self, *, width: int, body_rows: int) -> int:
+        if self.follow_tail:
+            return 0
+        rows = self.output.visual_rows(width)
+        if not rows:
+            return 0
+        current = self._anchor_index(rows, body_rows)
+        tail_top = max(0, len(rows) - max(1, body_rows))
+        return max(0, tail_top - current)
 
 
 _FILE_STATE_LABELS = {
@@ -69,9 +246,9 @@ class TerminalTui:
         self.profile = profile
         self.receive_dir = receive_dir
         self.output = TuiOutputBuffer()
+        self.scrollback = TuiScrollback(self.output)
         self.input_text = ""
         self.input_cursor = 0
-        self.scroll_offset = 0
         self.status = ""
         self.running = True
         self.panel = profile.make_tui_panel()
@@ -293,13 +470,15 @@ class TerminalTui:
 
         footer_rows = 4
         body_rows = max(1, height - y - footer_rows)
-        lines = self.output.snapshot()
-        end = max(0, len(lines) - self.scroll_offset)
-        start = max(0, end - body_rows)
-        for row, line in enumerate(lines[start:end]):
+        output_width = max(1, width - 1)
+        visible_rows = self.scrollback.visible_rows(output_width, body_rows)
+        for row, visual in enumerate(visible_rows):
             self._safe_addstr(
-                stdscr, y + row, 0, self._fit(line, width - 1),
-                self._line_attr(line, colors),
+                stdscr,
+                y + row,
+                0,
+                visual.text,
+                self._line_attr(visual.logical_text, colors),
             )
 
         input_sep_y = height - footer_rows
@@ -321,10 +500,25 @@ class TerminalTui:
         )
         if self._file_transfer is not None:
             default_status = (
-                "Enter send | F2 Device | F3 Profile | F4 Clear | "
+                "PgUp/PgDn/Wheel scroll | Enter send | F2 Device | F3 Profile | "
                 "F5 Send file | F6 Cancel file | F9 Help | Ctrl+Q Quit"
             )
         status = self.status or default_status
+        if not self.scrollback.follow_tail:
+            rows_above = self.scrollback.rows_above_bottom(
+                width=max(1, width - 1),
+                body_rows=body_rows,
+            )
+            new_lines = self.scrollback.new_line_count()
+            scroll_status = f"SCROLL {rows_above} rows above bottom"
+            if new_lines:
+                scroll_status += f" | {new_lines} new ↓"
+            scroll_status += " | PgUp/PgDn/Wheel | End: follow"
+            status = (
+                f"{scroll_status} | {self.status}"
+                if self.status
+                else scroll_status
+            )
         self._safe_addstr(
             stdscr, input_sep_y + 2, 0, self._fit(status, width - 1),
             colors["status"],
@@ -361,7 +555,7 @@ class TerminalTui:
         line = self.input_text
         self.input_text = ""
         self.input_cursor = 0
-        self.scroll_offset = 0
+        self.scrollback.follow()
         self.status = ""
         self.session._submit_interactive_line(line)
 
@@ -459,6 +653,51 @@ class TerminalTui:
             return
         self.status = f"Cancellation requested for {result['transfer_id']}"
 
+    @staticmethod
+    def _mouse_wheel_direction(button_state: int) -> int:
+        up_mask = (
+            getattr(curses, "BUTTON4_PRESSED", 0)
+            | getattr(curses, "BUTTON4_CLICKED", 0)
+        )
+        down_mask = (
+            getattr(curses, "BUTTON5_PRESSED", 0)
+            | getattr(curses, "BUTTON5_CLICKED", 0)
+        )
+        if up_mask and button_state & up_mask:
+            return -1
+        if down_mask and button_state & down_mask:
+            return 1
+        return 0
+
+    def _handle_mouse(self, stdscr, body_rows: int) -> None:
+        try:
+            _mouse_id, _x, y, _z, button_state = curses.getmouse()
+        except curses.error:
+            return
+
+        height, width = stdscr.getmaxyx()
+        panel_rows = len(self.panel.status_lines()) if self.panel else 0
+        file_rows = len(self._file_status_lines(width))
+        body_top = 2 + panel_rows + file_rows
+        body_bottom = min(height - 4, body_top + body_rows)
+        if not body_top <= y < body_bottom:
+            return
+
+        direction = self._mouse_wheel_direction(button_state)
+        step = 3
+        if direction < 0:
+            self.scrollback.scroll_up(
+                step,
+                width=max(1, width - 1),
+                body_rows=body_rows,
+            )
+        elif direction > 0:
+            self.scrollback.scroll_down(
+                step,
+                width=max(1, width - 1),
+                body_rows=body_rows,
+            )
+
     def _handle_key(self, stdscr, key, body_rows: int) -> None:
         if key in ("\x11", "\x03"):
             self.running = False
@@ -470,7 +709,7 @@ class TerminalTui:
             self._switch_profile()
         elif key == curses.KEY_F4:
             self.output.clear()
-            self.scroll_offset = 0
+            self.scrollback.follow()
             self.status = "Screen cleared; log files were not changed"
         elif key == curses.KEY_F5:
             self._choose_file(stdscr)
@@ -478,19 +717,23 @@ class TerminalTui:
             self._cancel_file()
         elif key == curses.KEY_F9:
             self.session._show_full_help()
-            self.scroll_offset = 0
             self.status = "Help added to terminal output"
         elif key == curses.KEY_PPAGE:
-            maximum = max(0, len(self.output.snapshot()) - 1)
-            self.scroll_offset = min(
-                maximum, self.scroll_offset + max(1, body_rows)
+            self.scrollback.scroll_up(
+                max(1, body_rows),
+                width=max(1, stdscr.getmaxyx()[1] - 1),
+                body_rows=body_rows,
             )
         elif key == curses.KEY_NPAGE:
-            self.scroll_offset = max(
-                0, self.scroll_offset - max(1, body_rows)
+            self.scrollback.scroll_down(
+                max(1, body_rows),
+                width=max(1, stdscr.getmaxyx()[1] - 1),
+                body_rows=body_rows,
             )
         elif key == curses.KEY_END:
-            self.scroll_offset = 0
+            self.scrollback.follow()
+        elif key == curses.KEY_MOUSE:
+            self._handle_mouse(stdscr, body_rows)
         elif key == curses.KEY_LEFT:
             self.input_cursor = max(0, self.input_cursor - 1)
         elif key == curses.KEY_RIGHT:
@@ -522,6 +765,17 @@ class TerminalTui:
         curses.curs_set(1)
         stdscr.keypad(True)
         stdscr.timeout(100)
+        wheel_mask = (
+            getattr(curses, "BUTTON4_PRESSED", 0)
+            | getattr(curses, "BUTTON4_CLICKED", 0)
+            | getattr(curses, "BUTTON5_PRESSED", 0)
+            | getattr(curses, "BUTTON5_CLICKED", 0)
+        )
+        if wheel_mask:
+            try:
+                curses.mousemask(wheel_mask)
+            except curses.error:
+                pass
         if curses.has_colors():
             curses.start_color()
             try:
