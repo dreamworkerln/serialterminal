@@ -88,3 +88,22 @@ def test_run_log_raw_base64_is_explicit_opt_in(tmp_path):
     assert "QUJDRA==" in log_path.with_name("agent.console.log").read_text(
         encoding="utf-8"
     )
+
+
+
+def test_run_log_redacts_binary_base64_embedded_inside_json_text(tmp_path):
+    log_path = tmp_path / "agent.log"
+    with RunLog(log_path) as run_log:
+        run_log.record(
+            "AGENT REQUEST",
+            '{"id":1,"op":"send_line","text":"/bin QUJDRA=="}',
+        )
+        run_log.record(
+            "AGENT RESPONSE",
+            '{"id":2,"result":{"lines":[{"text":"> [BINARY] QUJDRA=="}]}}',
+        )
+
+    raw = log_path.read_text(encoding="utf-8")
+    assert "QUJDRA==" not in raw
+    assert "/bin <base64>" in raw
+    assert "[BINARY] <base64>" in raw

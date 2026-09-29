@@ -7,12 +7,12 @@ from typing import Any
 BASE64_PLACEHOLDER = "<base64>"
 
 _BINARY_COMMAND_RE = re.compile(
-    r"(?m)(?P<prefix>^[ \t]*/bin[ \t]+)"
-    r"(?P<payload>[A-Za-z0-9+/]+={0,2})(?=\r?$)"
+    r"(?P<prefix>/bin[ \t]+)"
+    r"(?P<payload>[A-Za-z0-9+/]+={0,2})"
 )
 _BINARY_PRESENTATION_RE = re.compile(
-    r"(?m)(?P<prefix>\[BINARY\][ \t]+)"
-    r"(?P<payload>[A-Za-z0-9+/]+={0,2})(?=\r?$)"
+    r"(?P<prefix>\[BINARY\][ \t]+)"
+    r"(?P<payload>[A-Za-z0-9+/]+={0,2})"
 )
 _JSON_B64_FIELD_RE = re.compile(
     r'(?P<prefix>"[^"]*_b64"\s*:\s*")(?P<payload>[^"]*)(?P<suffix>")'
