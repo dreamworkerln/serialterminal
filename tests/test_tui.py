@@ -137,14 +137,15 @@ def test_tui_scrollback_anchor_survives_wrap_width_change():
     buffer = TuiOutputBuffer()
     buffer.write("abcdefghij\nsecond\nthird\n")
     scroll = TuiScrollback(buffer)
-    scroll.scroll_up(4, width=4, body_rows=2)
+    scroll.scroll_up(3, width=4, body_rows=2)
     before = scroll.visible_rows(4, 2)
     assert before[0].line_id == 1
+    assert before[0].char_start == 8
 
     after = scroll.visible_rows(6, 2)
 
     assert after[0].line_id == 1
-    assert after[0].char_start <= before[0].char_start
+    assert after[0].char_start == 6
 
 
 def test_tui_mouse_wheel_direction_recognizes_button_masks(monkeypatch):

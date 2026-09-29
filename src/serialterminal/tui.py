@@ -141,7 +141,7 @@ class TuiScrollback:
             if row.line_id < line_id:
                 continue
             if row.line_id > line_id:
-                return index
+                return candidate if candidate is not None else index
             candidate = index
             if row.char_start >= char_start:
                 if row.char_start > char_start and index > 0:
