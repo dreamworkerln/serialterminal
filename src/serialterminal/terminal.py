@@ -232,7 +232,8 @@ class TerminalSession(ManagedSession):
                 )
 
                 # Presentation outcomes принадлежат только human-console streams
-                # выбранного profile. Background streams остаются transcript-only.
+                # выбранного profile. Background streams остаются только в
+                # timestamped primary log и не печатаются в normal console.
                 if (
                     self._presentation is not None
                     and chunk.stream in self.profile.human_console_streams()
