@@ -32,16 +32,17 @@ def test_binary_user_all_byte_values_roundtrip_without_utf8():
         assert parse_binary_tx_line(_tx_line(payload)) == payload
 
 
-def test_binary_user_200_byte_boundary_roundtrip():
-    payload = bytes(range(200))
+def test_binary_user_243_byte_boundary_roundtrip():
+    payload = bytes(range(243))
     command = encode_binary_command(payload)
     assert parse_binary_rx_line(_rx_line(payload)) == payload
     assert parse_binary_tx_line(_tx_line(payload)) == payload
-    assert len(base64.b64decode(command.split(" ", 1)[1])) == 200
-    assert BINARY_USER_MAX_BYTES == 200
+    assert len(base64.b64decode(command.split(" ", 1)[1])) == 243
+    assert BINARY_USER_MAX_BYTES == 243
+    assert len(command) == 5 + 324
 
 
-@pytest.mark.parametrize("size", [0, 201])
+@pytest.mark.parametrize("size", [0, 244])
 def test_binary_user_rejects_out_of_range_payload(size):
     with pytest.raises(ValueError):
         encode_binary_command(b"x" * size)

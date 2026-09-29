@@ -204,6 +204,11 @@ def test_human_terminal_creates_shared_timestamped_console_log(tmp_path):
         assert lines[1].endswith(" [s1] [O] READY")
         assert "MACHINE ONLY" not in "\n".join(lines)
 
+        primary = log_path.read_text()
+        assert "[I] /id" in primary
+        assert "[O chat] READY" in primary
+        assert "[O telemetry] MACHINE ONLY" in primary
+
         for line in lines:
             timestamp = line.split(" [s1] ", 1)[0]
             parsed = datetime.fromisoformat(timestamp)
@@ -228,15 +233,18 @@ def test_human_console_log_escapes_control_characters_in_queued_input(tmp_path):
         session.log_file.close()
 
 
-def test_input_is_still_retained_in_transcript(tmp_path):
+def test_human_primary_log_timestamps_queued_input(tmp_path):
     log_path = tmp_path / "terminal.log"
     session = _chatter_session(
         DummyBleLikeTransport(),
         log_path=log_path,
     )
     try:
-        session.log_input("hello over radio")
-        assert "hello over radio\n" in log_path.read_text()
+        assert session.send_line("hello over radio")
+        primary = log_path.read_text()
+        line = next(item for item in primary.splitlines() if "[I] hello over radio" in item)
+        timestamp = line.split(" [s1] ", 1)[0]
+        assert datetime.fromisoformat(timestamp).utcoffset() is not None
     finally:
         session.log_file.close()
 
@@ -280,13 +288,30 @@ def test_received_ble_chunks_are_committed_as_complete_lines(tmp_path, monkeypat
         log_path=log_path,
     )
     try:
-        session.write_received(ReceivedChunk("telemetry", b"TX HEARTBEAT seq=18"))
+        first = ReceivedChunk("telemetry", b"TX HEARTBEAT seq=18")
+        session._record_event(
+            "rx",
+            stream="telemetry",
+            data=first.data,
+            text="TX HEARTBEAT seq=18",
+            device_key="dummy",
+        )
+        session.write_received(first)
         assert fake_stdout.writes == []
 
-        session.write_received(ReceivedChunk("telemetry", b" frame=12B\n"))
+        second = ReceivedChunk("telemetry", b" frame=12B\n")
+        session._record_event(
+            "rx",
+            stream="telemetry",
+            data=second.data,
+            text=" frame=12B\n",
+            device_key="dummy",
+        )
+        session.write_received(second)
 
         assert fake_stdout.writes == []
-        assert "TX HEARTBEAT seq=18 frame=12B\n" in log_path.read_text()
+        primary = log_path.read_text()
+        assert "[O telemetry] TX HEARTBEAT seq=18 frame=12B" in primary
         assert fake_stdout.flush_count == 0
     finally:
         session.log_file.close()
@@ -313,9 +338,9 @@ def test_received_utf8_survives_ble_notification_boundary(tmp_path, monkeypatch)
         assert rendered == text
         assert "�" not in rendered
 
-        transcript = (tmp_path / "terminal.log").read_text()
-        assert text in transcript
-        assert "�" not in transcript
+        # write_received() is presentation-only; durable RX logging is driven
+        # by ManagedSession's completed logical-line notifier.
+        assert "�" not in rendered
     finally:
         session.log_file.close()
 

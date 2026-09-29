@@ -15,7 +15,7 @@ from ...file_transfer.transport import (
 )
 
 
-BINARY_USER_MAX_BYTES = 200
+BINARY_USER_MAX_BYTES = 243
 _BINARY_MARKER = " [BINARY] "
 
 _WAIT_ACK_RE = re.compile(
@@ -65,7 +65,7 @@ def _decode_binary_base64(encoded: str) -> bytes:
         ) from exc
     if not 1 <= len(payload) <= BINARY_USER_MAX_BYTES:
         raise BinaryUserParseError(
-            "BINARY presentation decoded outside 1..200 bytes"
+            f"BINARY presentation decoded outside 1..{BINARY_USER_MAX_BYTES} bytes"
         )
     return payload
 

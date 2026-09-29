@@ -67,12 +67,10 @@ class TerminalSession(ManagedSession):
         self._received_line_buffers = {}
 
         self.log_file = self.log_path.open("a", encoding="utf-8", buffering=1)
-        # Human frontend сохраняет исторический transcript .log, а рядом создаёт
-        # общий с agent timestamped console view для сопоставимого timing analysis.
+        # Human primary log is a timestamped all-stream execution timeline.
+        # The companion console log remains the filtered human-console view.
         self.console_path.touch(exist_ok=True)
-        stamp = datetime.now().astimezone().strftime("%Y-%m-%d %H:%M:%S %z")
-        self.log_file.write(f"\n===== serialterminal session {stamp} =====\n")
-        self.log_file.flush()
+        self._write_primary_record_unlocked("LOCAL", "serialterminal session start")
 
     def _profile_action_bytes(self, action: ProfileAction) -> bytes:
         if isinstance(action, SendLine):
@@ -100,12 +98,53 @@ class TerminalSession(ManagedSession):
         sys.stdout.write(text)
         sys.stdout.flush()
 
+    def _write_primary_record_unlocked(
+        self,
+        marker: str,
+        text: str,
+        *,
+        timestamp: float | None = None,
+        stream: str | None = None,
+    ) -> None:
+        moment = (
+            datetime.now().astimezone()
+            if timestamp is None
+            else datetime.fromtimestamp(timestamp).astimezone()
+        )
+        label = marker if stream is None else f"{marker} {stream}"
+        visible = text.replace("\r", "\\r").replace("\n", "\\n")
+        self.log_file.write(
+            f"{moment.isoformat(timespec='milliseconds')} "
+            f"[{self.console_session}] [{label}] {visible}\n"
+        )
+        self.log_file.flush()
+
+    def _record_primary(
+        self,
+        marker: str,
+        text: str,
+        *,
+        timestamp: float | None = None,
+        stream: str | None = None,
+    ) -> None:
+        with self.output_lock:
+            self._write_primary_record_unlocked(
+                marker,
+                text,
+                timestamp=timestamp,
+                stream=stream,
+            )
+
+    def _write_primary_text_unlocked(self, marker: str, text: str) -> None:
+        for line in text.splitlines():
+            if line:
+                self._write_primary_record_unlocked(marker, line)
+
     def write_output(self, text: str) -> None:
-        """Write local terminal/status output to both screen and transcript."""
+        """Write local terminal/status output to screen and timestamped primary log."""
         with self.output_lock:
             self._screen_write(text)
-            self.log_file.write(text)
-            self.log_file.flush()
+            self._write_primary_text_unlocked("LOCAL", text)
 
     def _write_console_only(self, text: str) -> None:
         """Write local presentation text without duplicating the transcript."""
@@ -134,6 +173,16 @@ class TerminalSession(ManagedSession):
         observer = self.line_observer
         if observer is not None:
             observer(line)
+
+        # Primary human log records every completed logical RX line, including
+        # background Chatter telemetry that is intentionally hidden from the UI.
+        self._record_primary(
+            "O",
+            line.text,
+            timestamp=line.timestamp,
+            stream=line.stream,
+        )
+
         if line.stream not in self.profile.human_console_streams():
             return
         self._record_console("<", line.text, timestamp=line.timestamp)
@@ -183,9 +232,6 @@ class TerminalSession(ManagedSession):
         lines = self._complete_received_lines(chunk.stream, text)
 
         with self.output_lock:
-            self.log_file.write(text)
-            self.log_file.flush()
-
             for line in lines:
                 # Presentation outcomes принадлежат только human-console streams
                 # выбранного profile. Background streams остаются transcript-only.
@@ -199,11 +245,6 @@ class TerminalSession(ManagedSession):
 
                 if self._received_line_visible(chunk.stream, line):
                     self._screen_write(line)
-
-    def log_input(self, line: str) -> None:
-        with self.output_lock:
-            self.log_file.write(line + "\n")
-            self.log_file.flush()
 
     def _reveal_sent_presentations(self) -> None:
         if self._presentation is None:
@@ -244,6 +285,7 @@ class TerminalSession(ManagedSession):
             self.queue_line(line)
         except SessionClosedError:
             return False
+        self._record_primary("I", line)
         self._record_console(">", line)
         return True
 
@@ -259,9 +301,7 @@ class TerminalSession(ManagedSession):
         raise TypeError(f"unsupported profile action: {type(action)!r}")
 
     def _submit_interactive_line(self, line: str) -> None:
-        """Log one accepted line and choose command or pending-payload presentation."""
-        self.log_input(line)
-
+        """Choose command or pending-payload presentation for one submitted line."""
         command = self.profile.recognized_command(line)
         if command is not None:
             self._write_console_only(line + "\n")
@@ -479,7 +519,7 @@ class TerminalSession(ManagedSession):
             self.close_logs()
 
     def close_logs(self) -> None:
-        """Flush and close human transcript output exactly once."""
+        """Flush and close the human primary log exactly once."""
         with self.output_lock:
             if self.log_file.closed:
                 return
