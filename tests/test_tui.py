@@ -252,3 +252,69 @@ def test_tui_header_composition_keeps_profile_status_right_aligned():
 
     assert len(header) == 90
     assert header.endswith(" CONNECTED | RX -116/-18 | TX -111/-12 | Q87 ")
+
+
+
+def test_tui_scrollback_scrollbar_geometry_tracks_viewport():
+    from serialterminal.tui import TerminalTui
+
+    assert TerminalTui._scrollbar_geometry(5, 0, 10) is None
+    top = TerminalTui._scrollbar_geometry(100, 0, 20)
+    middle = TerminalTui._scrollbar_geometry(100, 40, 20)
+    bottom = TerminalTui._scrollbar_geometry(100, 80, 20)
+
+    assert top == (0, 4)
+    assert middle == (8, 4)
+    assert bottom == (16, 4)
+
+
+def test_tui_scrollback_scroll_to_row_and_follow():
+    buffer = TuiOutputBuffer()
+    buffer.write("0\n1\n2\n3\n4\n5\n")
+    scroll = TuiScrollback(buffer)
+
+    scroll.scroll_to_row(1, width=20, body_rows=3)
+    assert scroll.follow_tail is False
+    assert [row.text for row in scroll.visible_rows(20, 3)] == ["1", "2", "3"]
+
+    scroll.scroll_to_row(99, width=20, body_rows=3)
+    assert scroll.follow_tail is True
+    assert [row.text for row in scroll.visible_rows(20, 3)] == ["3", "4", "5"]
+
+
+def test_tui_command_history_up_down_restores_draft():
+    from serialterminal.tui import TerminalTui
+
+    tui = object.__new__(TerminalTui)
+    tui.command_history = ["/help", "/config"]
+    tui.history_index = None
+    tui.history_draft = ""
+    tui.input_text = "draft"
+    tui.input_cursor = len(tui.input_text)
+
+    tui._history_up()
+    assert tui.input_text == "/config"
+    tui._history_up()
+    assert tui.input_text == "/help"
+    tui._history_down()
+    assert tui.input_text == "/config"
+    tui._history_down()
+    assert tui.input_text == "draft"
+    assert tui.history_index is None
+
+
+def test_tui_command_history_is_bounded_and_deduplicates_adjacent():
+    from serialterminal.tui import TerminalTui
+
+    tui = object.__new__(TerminalTui)
+    tui.command_history = []
+    tui.history_index = None
+    tui.history_draft = ""
+
+    tui._remember_command("/help")
+    tui._remember_command("/help")
+    for index in range(600):
+        tui._remember_command(f"/x {index}")
+
+    assert len(tui.command_history) == 500
+    assert tui.command_history[-1] == "/x 599"

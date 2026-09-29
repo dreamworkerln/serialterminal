@@ -219,6 +219,41 @@ class TuiScrollback:
         return max(0, tail_top - current)
 
 
+    def viewport_metrics(
+        self,
+        *,
+        width: int,
+        body_rows: int,
+    ) -> tuple[int, int, int]:
+        rows = self.output.visual_rows(width)
+        if not rows:
+            return (0, 0, max(1, body_rows))
+        return (
+            len(rows),
+            self._anchor_index(rows, body_rows),
+            max(1, body_rows),
+        )
+
+    def scroll_to_row(
+        self,
+        target: int,
+        *,
+        width: int,
+        body_rows: int,
+    ) -> None:
+        rows = self.output.visual_rows(width)
+        if not rows:
+            self.follow()
+            return
+        tail_top = max(0, len(rows) - max(1, body_rows))
+        bounded = max(0, min(tail_top, target))
+        if bounded >= tail_top:
+            self.follow()
+            return
+        self._leave_follow()
+        self._anchor = self._row_key(rows[bounded])
+
+
 _FILE_STATE_LABELS = {
     "waiting_result": "waiting for remote verification",
     "repair_requested": "repair requested",
@@ -249,8 +284,12 @@ class TerminalTui:
         self.scrollback = TuiScrollback(self.output)
         self.input_text = ""
         self.input_cursor = 0
+        self.command_history: list[str] = []
+        self.history_index: int | None = None
+        self.history_draft = ""
         self.status = ""
         self.running = True
+        self.mouse_capture = True
         self.panel = profile.make_tui_panel()
         self._was_connected = False
         self._binary_adapter = None
@@ -413,6 +452,84 @@ class TerminalTui:
             + right_block
         )
 
+    @staticmethod
+    def _output_width(width: int) -> int:
+        # Reserve one visible column at the right edge for the application
+        # scroll indicator. The terminal emulator's own scrollbar cannot
+        # represent curses' alternate-screen viewport.
+        return max(1, width - 2)
+
+    @staticmethod
+    def _scrollbar_geometry(
+        total_rows: int,
+        top_row: int,
+        body_rows: int,
+    ) -> tuple[int, int] | None:
+        body_rows = max(1, body_rows)
+        if total_rows <= body_rows:
+            return None
+        thumb_rows = max(
+            1,
+            min(body_rows, round(body_rows * body_rows / total_rows)),
+        )
+        max_top = total_rows - body_rows
+        track_range = max(0, body_rows - thumb_rows)
+        thumb_top = (
+            0
+            if max_top <= 0
+            else round(track_range * top_row / max_top)
+        )
+        return (thumb_top, thumb_rows)
+
+    @staticmethod
+    def _mouse_mask() -> int:
+        return (
+            getattr(curses, "BUTTON1_PRESSED", 0)
+            | getattr(curses, "BUTTON1_CLICKED", 0)
+            | getattr(curses, "BUTTON4_PRESSED", 0)
+            | getattr(curses, "BUTTON4_CLICKED", 0)
+            | getattr(curses, "BUTTON5_PRESSED", 0)
+            | getattr(curses, "BUTTON5_CLICKED", 0)
+        )
+
+    def _set_mouse_capture(self, enabled: bool) -> None:
+        self.mouse_capture = enabled
+        try:
+            curses.mousemask(self._mouse_mask() if enabled else 0)
+        except curses.error:
+            pass
+
+    def _remember_command(self, line: str) -> None:
+        if line and (not self.command_history or self.command_history[-1] != line):
+            self.command_history.append(line)
+            if len(self.command_history) > 500:
+                del self.command_history[:-500]
+        self.history_index = None
+        self.history_draft = ""
+
+    def _history_up(self) -> None:
+        if not self.command_history:
+            return
+        if self.history_index is None:
+            self.history_draft = self.input_text
+            self.history_index = len(self.command_history) - 1
+        elif self.history_index > 0:
+            self.history_index -= 1
+        self.input_text = self.command_history[self.history_index]
+        self.input_cursor = len(self.input_text)
+
+    def _history_down(self) -> None:
+        if self.history_index is None:
+            return
+        if self.history_index < len(self.command_history) - 1:
+            self.history_index += 1
+            self.input_text = self.command_history[self.history_index]
+        else:
+            self.history_index = None
+            self.input_text = self.history_draft
+            self.history_draft = ""
+        self.input_cursor = len(self.input_text)
+
     def _colors(self) -> dict[str, int]:
         return {
             "normal": curses.color_pair(1),
@@ -493,7 +610,7 @@ class TerminalTui:
 
         footer_rows = 4
         body_rows = max(1, height - y - footer_rows)
-        output_width = max(1, width - 1)
+        output_width = self._output_width(width)
         visible_rows = self.scrollback.visible_rows(output_width, body_rows)
         for row, visual in enumerate(visible_rows):
             self._safe_addstr(
@@ -503,6 +620,23 @@ class TerminalTui:
                 visual.text,
                 self._line_attr(visual.logical_text, colors),
             )
+
+        total_rows, top_row, _ = self.scrollback.viewport_metrics(
+            width=output_width,
+            body_rows=body_rows,
+        )
+        geometry = self._scrollbar_geometry(total_rows, top_row, body_rows)
+        if geometry is not None:
+            thumb_top, thumb_rows = geometry
+            scrollbar_x = max(0, width - 2)
+            for row in range(body_rows):
+                character = (
+                    "█"
+                    if thumb_top <= row < thumb_top + thumb_rows
+                    else "│"
+                )
+                attr = colors["status"] if character == "█" else colors["dim"]
+                self._safe_addstr(stdscr, y + row, scrollbar_x, character, attr)
 
         input_sep_y = height - footer_rows
         self._safe_addstr(stdscr, input_sep_y, 0, separator, colors["dim"])
@@ -518,18 +652,18 @@ class TerminalTui:
         )
 
         default_status = (
-            "PgUp/PgDn scroll | Enter send | F2 Device | F3 Profile | "
-            "F4 Clear | F9 Help | Ctrl+Q Quit"
+            "PgUp/PgDn scroll | ↑↓ history | F2 Device | F3 Profile | "
+            "F4 Clear | F8 Mouse | F9 Help | Ctrl+Q Quit"
         )
         if self._file_transfer is not None:
             default_status = (
-                "PgUp/PgDn/Wheel scroll | Enter send | F2 Device | F3 Profile | "
-                "F5 Send file | F6 Cancel file | F9 Help | Ctrl+Q Quit"
+                "PgUp/PgDn/Wheel scroll | ↑↓ history | F2 Device | F3 Profile | "
+                "F5 Send file | F6 Cancel | F8 Mouse | F9 Help | Ctrl+Q Quit"
             )
         status = self.status or default_status
         if not self.scrollback.follow_tail:
             rows_above = self.scrollback.rows_above_bottom(
-                width=max(1, width - 1),
+                width=self._output_width(width),
                 body_rows=body_rows,
             )
             new_lines = self.scrollback.new_line_count()
@@ -576,6 +710,7 @@ class TerminalTui:
             self.status = "Manual USER input is locked during active file transfer"
             return
         line = self.input_text
+        self._remember_command(line)
         self.input_text = ""
         self.input_cursor = 0
         self.scrollback.follow()
@@ -814,18 +949,43 @@ class TerminalTui:
         if not body_top <= y < body_bottom:
             return
 
+        output_width = self._output_width(width)
         direction = self._mouse_wheel_direction(button_state)
         step = 3
         if direction < 0:
             self.scrollback.scroll_up(
                 step,
-                width=max(1, width - 1),
+                width=output_width,
                 body_rows=body_rows,
             )
-        elif direction > 0:
+            return
+        if direction > 0:
             self.scrollback.scroll_down(
                 step,
-                width=max(1, width - 1),
+                width=output_width,
+                body_rows=body_rows,
+            )
+            return
+
+        left_mask = (
+            getattr(curses, "BUTTON1_PRESSED", 0)
+            | getattr(curses, "BUTTON1_CLICKED", 0)
+        )
+        if left_mask and button_state & left_mask and _x >= width - 2:
+            total_rows, _top_row, _ = self.scrollback.viewport_metrics(
+                width=output_width,
+                body_rows=body_rows,
+            )
+            if total_rows <= body_rows:
+                return
+            relative_y = max(0, min(body_rows - 1, y - body_top))
+            tail_top = max(0, total_rows - body_rows)
+            target = round(
+                tail_top * relative_y / max(1, body_rows - 1)
+            )
+            self.scrollback.scroll_to_row(
+                target,
+                width=output_width,
                 body_rows=body_rows,
             )
 
@@ -846,13 +1006,21 @@ class TerminalTui:
             self._choose_file(stdscr)
         elif key == curses.KEY_F6:
             self._cancel_file()
+        elif key == curses.KEY_F8:
+            self._set_mouse_capture(not self.mouse_capture)
+            self.status = (
+                "Mouse capture ON: wheel/scrollbar active; "
+                "Shift+mouse reaches terminal"
+                if self.mouse_capture
+                else "Mouse capture OFF: terminal selection/RMB restored"
+            )
         elif key == curses.KEY_F9:
             self.session._show_full_help()
             self.status = "Help added to terminal output"
         elif key == curses.KEY_PPAGE:
             self.scrollback.scroll_up(
                 max(1, body_rows),
-                width=max(1, stdscr.getmaxyx()[1] - 1),
+                width=self._output_width(stdscr.getmaxyx()[1]),
                 body_rows=body_rows,
             )
         elif key == curses.KEY_NPAGE:
@@ -865,6 +1033,10 @@ class TerminalTui:
             self.scrollback.follow()
         elif key == curses.KEY_MOUSE:
             self._handle_mouse(stdscr, body_rows)
+        elif key == curses.KEY_UP:
+            self._history_up()
+        elif key == curses.KEY_DOWN:
+            self._history_down()
         elif key == curses.KEY_LEFT:
             self.input_cursor = max(0, self.input_cursor - 1)
         elif key == curses.KEY_RIGHT:
@@ -896,17 +1068,7 @@ class TerminalTui:
         curses.curs_set(1)
         stdscr.keypad(True)
         stdscr.timeout(100)
-        wheel_mask = (
-            getattr(curses, "BUTTON4_PRESSED", 0)
-            | getattr(curses, "BUTTON4_CLICKED", 0)
-            | getattr(curses, "BUTTON5_PRESSED", 0)
-            | getattr(curses, "BUTTON5_CLICKED", 0)
-        )
-        if wheel_mask:
-            try:
-                curses.mousemask(wheel_mask)
-            except curses.error:
-                pass
+        self._set_mouse_capture(True)
         if curses.has_colors():
             curses.start_color()
             try:
