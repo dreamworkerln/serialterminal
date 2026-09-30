@@ -55,7 +55,6 @@ def test_chatter_tui_panel_tracks_radio_and_link_status():
 def test_chatter_tui_panel_refresh_is_profile_owned():
     panel = ChatterTuiPanel()
     assert [action.text for action in panel.connected_actions()] == [
-        "/id",
         "/config",
     ]
 

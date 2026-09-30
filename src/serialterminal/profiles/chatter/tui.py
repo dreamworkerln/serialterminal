@@ -80,7 +80,10 @@ class ChatterTuiPanel:
     def connected_actions(self) -> tuple[ProfileAction, ...]:
         # TUI status is refreshed after every reconnect without teaching the
         # generic frontend any Chatter command names or response syntax.
-        return (SendLine("/id"), SendLine("/config"))
+        # Serial identity comes from the profile connect preamble. BLE identity
+        # is announced once by Chatter firmware when human-console notifications
+        # are subscribed. TUI only refreshes runtime configuration here.
+        return (SendLine("/config"),)
 
     def consume_line(self, stream: str, line: str) -> None:
         del stream
