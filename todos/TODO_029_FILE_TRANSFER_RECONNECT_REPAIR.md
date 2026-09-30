@@ -38,12 +38,12 @@ transport MTU, FT1 v1 не пакетирует MISSING: текущий transfer
 Automated source checkpoint:
 
 ~~~text
-dev_tui@4c41eeb32825e5f7de27e33daba3e1aced83c468
-GitHub Actions 36654487546 SUCCESS
+dev_tui@aa2d3cc1fd65cbe228efbee6cdab4dccdbc62ada
+GitHub Actions 36655735769 SUCCESS
 compile PASS
 static analysis PASS
 complexity PASS
-tests: 311 PASS
+tests: 313 PASS
 ~~~
 
 На этом checkpoint реализованы:
@@ -91,6 +91,25 @@ Fix at the checkpoint above:
   reports completed compression as `compressing 0%`.
 
 No firmware change was required.
+
+A second live TUI run exposed a presentation regression from that fix: because USB
+uses one human-console stream, temporarily selecting `BOTH` made DELIVERY/ACK and
+other telemetry flood the curses scrollback during file copy. The required contract
+is instead: telemetry must stay available internally for FT1 settlement, but active
+file copy must not write controller/protocol traffic into the TUI body.
+
+Follow-up fix:
+
+- TUI file-transfer claim enables a dedicated session-screen mute only after the
+  pre-transfer TX fence succeeds;
+- the line observer still feeds the Chatter adapter and TUI profile panel, and normal
+  logs are unchanged;
+- the file progress/status rows remain rendered;
+- `release_transfer` clears the mute only after `end_transfer()` has restored the
+  previous human-console mode, so `[SYS] OUTPUT BOTH/CHAT/TELEMETRY` cannot leak into
+  the transfer-time scrollback;
+- this is TUI presentation policy only; agent/session/FT1 settlement semantics are
+  unchanged.
 
 ## Deployment topology invariant
 
@@ -593,6 +612,8 @@ e296fdeff84416b52d139cce0917904f15a084ce  file: expose repair state in tui and a
 f3c9df73ade57f4bdf385089fe9ab4d45da98845  fix: keep chatter telemetry visible during file transfer
 d328e2c444e13f359116532a71ef497e81367f6a  fix: defer chatter output mode generation binding
 4c41eeb32825e5f7de27e33daba3e1aced83c468  fix: harden binary transfer lifecycle cleanup
+bc26123f985cd0bd0addf522a0e66c190bf0bae2  fix: mute terminal output during file transfer
+aa2d3cc1fd65cbe228efbee6cdab4dccdbc62ada  test: fix tui session line fixture
 ```
 
 ## Validation
@@ -637,6 +658,7 @@ UI/API tests:
 - [x] Active transfer reasserts `BOTH` after connection-generation change.
 - [x] META settlement is reported as `sending`, not false `compressing 0%`.
 - [x] optional binary-transport lifecycle is invoked for both sender and receiver transfers.
+- [x] active FT1 mutes TUI session output until release while line observer/adapter still receive protocol lines.
 - [x] TUI renders `waiting_result`, `repair_requested` and `repairing` as explicit recovery states.
 - [x] agent observe returns structured repair events.
 - [x] agent request reader remains responsive while file-transfer observe is pending.
@@ -696,9 +718,9 @@ idempotent application message.
 
 ## Result
 
-Automated implementation checkpoint: `dev_tui@4c41eeb32825e5f7de27e33daba3e1aced83c468`
-GitHub Actions: `36654487546` SUCCESS
-Automated tests: 311 PASS
+Automated implementation checkpoint: `dev_tui@aa2d3cc1fd65cbe228efbee6cdab4dccdbc62ada`
+GitHub Actions: `36655735769` SUCCESS
+Automated tests: 313 PASS
 Reconnect/MISSING repair: IMPLEMENTED / AUTOMATED VALIDATION PASS
 Physical reconnect validation: NOT RUN
 Additional firmware source work required: NONE

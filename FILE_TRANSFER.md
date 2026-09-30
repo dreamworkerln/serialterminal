@@ -215,6 +215,13 @@ The TUI displays a determinate progress bar, filename, TX/RX direction, byte/chu
 counts, state, final path or failure. Incoming transfers appear through the same
 progress model.
 
+While an FT1 transfer is active, the human TUI session-output sink is muted. Controller
+and protocol lines, including Chatter DELIVERY/ACK/PEER_REPORT telemetry and temporary
+output-mode confirmations, are not appended to the TUI scrollback. The same lines
+remain available to the profile adapter, TUI status panel and forensic/console logs,
+so settlement/reconnect logic is unaffected. The mute is released only after
+profile-owned transfer cleanup has restored the previous controller output mode.
+
 ## Agent API
 
 High-level operations are documented in `AGENT_API.md`:

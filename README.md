@@ -144,11 +144,13 @@ File transfer controls appear only for profiles that advertise the binary-messag
 capability; generic remains a normal controller-agnostic terminal. Chatter TUI uses
 `F5` to select/send a file and `F6` to cancel, and shows a determinate progress
 bar for both TX and incoming RX transfers. While a Chatter transfer is active,
-SerialTerminal temporarily puts the local controller human output into `BOTH` so
-BINARY presentation and reliable-delivery telemetry are both observable; the
-previously tracked CHAT/TELEMETRY/BOTH mode is restored after completion, failure or
-cancellation. The same transfer reasserts `BOTH` after a local reconnect before
-continuing. Same-process temporary local reconnects can repair missing FT1 chunks
+SerialTerminal temporarily puts the local controller human output into `BOTH`
+internally so BINARY presentation and reliable-delivery telemetry remain available to
+the transfer logic, but the TUI session-output sink is muted: protocol/controller
+lines do not flood the scrollback and only the file progress/status UI remains live.
+The previously tracked CHAT/TELEMETRY/BOTH mode is restored after completion, failure
+or cancellation, and the same transfer reasserts `BOTH` after a local reconnect
+before continuing. Same-process temporary local reconnects can repair missing FT1 chunks
 selectively through one compact MISSING range message; persistent resume after
 SerialTerminal process restart is intentionally not provided.
 Verified incoming files default to the `files` directory in the SerialTerminal
