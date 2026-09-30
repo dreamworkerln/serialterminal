@@ -157,11 +157,10 @@ class ChatterBinaryUserAdapter:
         # Chatter firmware boots in CHAT. Confirmed [SYS] OUTPUT/current lines
         # update this value whenever the controller reports a later mode.
         self._output_mode = "CHAT"
-        self._output_mode_generation = (
-            connection_generation()
-            if connection_generation is not None
-            else None
-        )
+        # Generation is unknown until the controller confirms a mode on a
+        # concrete connection. This avoids treating a cached boot default as
+        # confirmation for a transport generation that has not spoken yet.
+        self._output_mode_generation: int | None = None
         self._transfer_restore_mode: str | None = None
         self.last_parse_error: str | None = None
 
