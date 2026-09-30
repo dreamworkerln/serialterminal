@@ -50,7 +50,7 @@ class _PairBinaryTransport:
         self.sent.append(bytes(data))
         if self.peer is not None and self.peer.receiver is not None:
             self.peer.receiver(bytes(data))
-        return BinarySendReceipt(tx_id=len(self.sent), user_id=f"TEST/{len(self.sent)}")
+        return BinarySendReceipt(tx_id=len(self.sent))
 
 
 class _LegacyLifecycleTrapTransport(_PairBinaryTransport):
