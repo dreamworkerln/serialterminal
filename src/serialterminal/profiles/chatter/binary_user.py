@@ -31,6 +31,18 @@ _FAILED_RE = re.compile(
 _CANCEL_RE = re.compile(
     r"DELIVERY CANCEL(?:LED)? user=(?P<user>[0-9A-Fa-f]+/\d+)"
 )
+_OUTPUT_MODE_RE = re.compile(
+    r"\[SYS\] OUTPUT (?P<mode>CHAT|TELEMETRY|BOTH)\b"
+)
+_CURRENT_MODE_RE = re.compile(
+    r"\[SYS\]\s+current=(?P<mode>CHAT|TELEMETRY|BOTH)\b"
+)
+_OUTPUT_MODE_COMMANDS = {
+    "CHAT": "/chat",
+    "TELEMETRY": "/tele",
+    "BOTH": "/both",
+}
+
 _REJECTION_MARKERS = (
     "[SYS] INPUT TOO LONG",
     "[SYS] SEND QUEUE FULL",
@@ -122,14 +134,18 @@ class ChatterBinaryUserAdapter:
         send_line: Callable[[str], Any],
         *,
         delivery_timeout_s: float = 3600.0,
+        mode_switch_timeout_s: float = 5.0,
         line_retention: int = 4096,
         wait_tx_outcome: Callable[[int, float], str | None] | None = None,
         connection_generation: Callable[[], int] | None = None,
     ) -> None:
         if delivery_timeout_s <= 0:
             raise ValueError("delivery_timeout_s must be positive")
+        if mode_switch_timeout_s <= 0:
+            raise ValueError("mode_switch_timeout_s must be positive")
         self._send_line = send_line
         self._delivery_timeout_s = float(delivery_timeout_s)
+        self._mode_switch_timeout_s = float(mode_switch_timeout_s)
         self._wait_tx_outcome = wait_tx_outcome
         self._connection_generation = connection_generation
         self._receiver: BinaryReceiver | None = None
@@ -138,6 +154,15 @@ class ChatterBinaryUserAdapter:
         self._condition = threading.Condition()
         self._lines: deque[tuple[int, str]] = deque(maxlen=line_retention)
         self._next_seq = 1
+        # Chatter firmware boots in CHAT. Confirmed [SYS] OUTPUT/current lines
+        # update this value whenever the controller reports a later mode.
+        self._output_mode = "CHAT"
+        self._output_mode_generation = (
+            connection_generation()
+            if connection_generation is not None
+            else None
+        )
+        self._transfer_restore_mode: str | None = None
         self.last_parse_error: str | None = None
 
     def set_receiver(self, receiver: BinaryReceiver | None) -> None:
@@ -146,7 +171,17 @@ class ChatterBinaryUserAdapter:
 
     def feed_line(self, stream: str, line: str) -> None:
         del stream
+        value = line.rstrip("\r\n")
+        mode_match = _OUTPUT_MODE_RE.search(value) or _CURRENT_MODE_RE.search(value)
         with self._condition:
+            if mode_match is not None:
+                self._output_mode = mode_match.group("mode")
+                generation_reader = self._connection_generation
+                self._output_mode_generation = (
+                    generation_reader()
+                    if generation_reader is not None
+                    else None
+                )
             seq = self._next_seq
             self._next_seq += 1
             self._lines.append((seq, line))
@@ -176,6 +211,113 @@ class ChatterBinaryUserAdapter:
             if seq > cursor
         ]
 
+    def _set_output_mode_locked(self, mode: str) -> None:
+        command = _OUTPUT_MODE_COMMANDS[mode]
+        generation_reader = self._connection_generation
+        target_generation = (
+            generation_reader()
+            if generation_reader is not None
+            else None
+        )
+        with self._condition:
+            if (
+                self._output_mode == mode
+                and (
+                    generation_reader is None
+                    or self._output_mode_generation == target_generation
+                )
+            ):
+                return
+            if self._output_mode == mode:
+                # A reconnect can preserve the cached mode string while the
+                # controller has rebooted to CHAT. Require fresh confirmation
+                # on the current transport generation before BINARY USER work.
+                self._output_mode_generation = None
+
+        result = self._send_line(command)
+        tx_id = _tx_id_from_result(result)
+        deadline = time.monotonic() + self._mode_switch_timeout_s
+
+        waiter = self._wait_tx_outcome
+        if waiter is not None and tx_id is not None:
+            remaining = max(0.0, deadline - time.monotonic())
+            local_outcome = waiter(tx_id, remaining)
+            if local_outcome is None:
+                raise BinaryUserError(
+                    "output_mode_tx_timeout",
+                    f"Chatter {command} write did not settle before timeout",
+                )
+            if local_outcome in {"unknown", "expired"}:
+                raise BinaryUserError(
+                    "output_mode_tx_unknown",
+                    f"Chatter {command} write outcome is ambiguous",
+                )
+            if local_outcome != "written":
+                raise BinaryUserError(
+                    "output_mode_tx_failed",
+                    f"unexpected Chatter {command} TX outcome: {local_outcome}",
+                )
+
+        while True:
+            with self._condition:
+                if (
+                    self._output_mode == mode
+                    and (
+                        generation_reader is None
+                        or self._output_mode_generation == target_generation
+                    )
+                ):
+                    return
+
+                remaining = deadline - time.monotonic()
+                if remaining <= 0:
+                    raise BinaryUserError(
+                        "output_mode_timeout",
+                        f"Chatter did not confirm output mode {mode}",
+                    )
+                self._condition.wait(timeout=min(0.25, remaining))
+
+            if (
+                generation_reader is not None
+                and target_generation is not None
+                and generation_reader() != target_generation
+            ):
+                raise BinaryUserError(
+                    "local_disconnect",
+                    "local connection changed during Chatter output-mode switch",
+                )
+
+    def _ensure_transfer_mode_locked(self) -> None:
+        if self._transfer_restore_mode is not None:
+            self._set_output_mode_locked("BOTH")
+
+    def begin_transfer(self) -> None:
+        with self._send_lock:
+            if self._transfer_restore_mode is not None:
+                raise BinaryUserError(
+                    "transfer_mode_busy",
+                    "binary file-transfer output-mode lease is already active",
+                )
+            with self._condition:
+                restore_mode = self._output_mode
+            self._transfer_restore_mode = restore_mode
+            try:
+                self._set_output_mode_locked("BOTH")
+            except Exception:
+                self._transfer_restore_mode = None
+                raise
+
+    def end_transfer(self) -> None:
+        with self._send_lock:
+            restore_mode = self._transfer_restore_mode
+            if restore_mode is None:
+                return
+            try:
+                if restore_mode != "BOTH":
+                    self._set_output_mode_locked(restore_mode)
+            finally:
+                self._transfer_restore_mode = None
+
     def send_binary(
         self,
         data: bytes,
@@ -184,6 +326,7 @@ class ChatterBinaryUserAdapter:
     ) -> BinaryDelivery:
         command = encode_binary_command(data)
         with self._send_lock:
+            self._ensure_transfer_mode_locked()
             with self._condition:
                 cursor = self._next_seq - 1
 

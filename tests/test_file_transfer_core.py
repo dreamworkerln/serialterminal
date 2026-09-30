@@ -6,6 +6,7 @@ import time
 
 from serialterminal.file_transfer import (
     BinaryDelivery,
+    BinaryUserError,
     Compression,
     DataMessage,
     EndMessage,
@@ -50,6 +51,30 @@ class _PairBinaryTransport:
         if self.peer is not None and self.peer.receiver is not None:
             self.peer.receiver(bytes(data))
         return BinaryDelivery(tx_id=len(self.sent), user_id=f"TEST/{len(self.sent)}")
+
+
+class _LifecyclePairBinaryTransport(_PairBinaryTransport):
+    def __init__(self):
+        super().__init__()
+        self.lifecycle = []
+
+    def begin_transfer(self):
+        self.lifecycle.append("begin")
+
+    def end_transfer(self):
+        self.lifecycle.append("end")
+
+
+class _BlockingMetaBinaryTransport(_PairBinaryTransport):
+    def __init__(self):
+        super().__init__()
+        self.started = threading.Event()
+        self.release = threading.Event()
+
+    def send_binary(self, data, *, cancel_event=None):
+        self.started.set()
+        self.release.wait(timeout=2.0)
+        raise BinaryUserError("test_stop", "stop after metadata state check")
 
 
 class _LossyPairBinaryTransport(_PairBinaryTransport):
@@ -827,4 +852,65 @@ def test_default_receive_dir_is_serialterminal_source_root_files_directory():
     try:
         assert manager.receive_dir == source_root / "files"
     finally:
+        manager.close()
+
+
+
+def test_file_transfer_invokes_optional_binary_transport_lifecycle(tmp_path):
+    left = _LifecyclePairBinaryTransport()
+    right = _LifecyclePairBinaryTransport()
+    left.peer = right
+    right.peer = left
+    tx = FileTransferManager(
+        left,
+        receive_dir=tmp_path / "left-lifecycle",
+        id_factory=lambda: 0x1111,
+        result_timeout_s=2.0,
+    )
+    rx = FileTransferManager(
+        right,
+        receive_dir=tmp_path / "right-lifecycle",
+        id_factory=lambda: 0x2222,
+        result_timeout_s=2.0,
+    )
+    source = tmp_path / "lifecycle.bin"
+    source.write_bytes(b"lifecycle" * 100)
+    try:
+        tx.start_send(source)
+        done = _wait_until(
+            lambda: (
+                snapshot
+                if (snapshot := tx.display_snapshot())
+                and snapshot["state"] == "completed"
+                else None
+            )
+        )
+        assert done["state"] == "completed"
+        assert left.lifecycle == ["begin", "end"]
+        assert right.lifecycle == ["begin", "end"]
+    finally:
+        tx.close()
+        rx.close()
+
+
+def test_file_transfer_leaves_compressing_before_metadata_delivery_wait(tmp_path):
+    source = tmp_path / "state.bin"
+    source.write_bytes(b"A" * 4096)
+    transport = _BlockingMetaBinaryTransport()
+    manager = FileTransferManager(
+        transport,
+        receive_dir=tmp_path / "state-rx",
+        id_factory=lambda: 0x3333,
+        result_timeout_s=2.0,
+    )
+    try:
+        manager.start_send(source)
+        assert transport.started.wait(timeout=2.0)
+        snapshot = manager.display_snapshot()
+        assert snapshot is not None
+        assert snapshot["state"] == "sending"
+        assert snapshot["percentage"] == 0.0
+    finally:
+        transport.release.set()
+        manager.join_all(2.0)
         manager.close()

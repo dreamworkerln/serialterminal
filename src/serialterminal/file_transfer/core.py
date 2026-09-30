@@ -34,6 +34,7 @@ from .protocol import (
 from .transport import (
     BinaryUserCancelled,
     BinaryUserError,
+    BinaryUserTransferLifecycle,
     BinaryUserTransport,
 )
 
@@ -535,13 +536,33 @@ class FileTransferManager:
             )
             self._records[transfer_id] = record
             self._active_id = transfer_id
+        lifecycle_started = False
         try:
             self._claim(transfer_id, direction)
+            if isinstance(self.transport, BinaryUserTransferLifecycle):
+                try:
+                    self.transport.begin_transfer()
+                    lifecycle_started = True
+                except BinaryUserError as exc:
+                    raise FileTransferError(
+                        "binary_prepare_failed",
+                        exc.message,
+                        phase="preparing",
+                        details={"binary_error": exc.code},
+                    ) from exc
         except Exception:
-            with self._lock:
-                if self._active_id == transfer_id:
-                    self._active_id = None
-                self._records.pop(transfer_id, None)
+            if lifecycle_started:
+                try:
+                    self.transport.end_transfer()
+                except Exception:
+                    pass
+            try:
+                self._release(transfer_id, direction)
+            finally:
+                with self._lock:
+                    if self._active_id == transfer_id:
+                        self._active_id = None
+                    self._records.pop(transfer_id, None)
             raise
         record.event("transfer_started", progress=record.snapshot())
         return record
@@ -555,15 +576,35 @@ class FileTransferManager:
         final_path: Path | None = None,
     ) -> None:
         record.terminal(state, failure=failure, final_path=final_path)
-        with self._lock:
-            if self._active_id == record.transfer_id:
-                self._active_id = None
-            self._terminal_order.append(record.transfer_id)
-            while len(self._terminal_order) > self.max_retained_terminal:
-                evicted = self._terminal_order.popleft()
-                if self._active_id != evicted:
-                    self._records.pop(evicted, None)
-        self._release(record.transfer_id, record.direction)
+        try:
+            if isinstance(self.transport, BinaryUserTransferLifecycle):
+                try:
+                    self.transport.end_transfer()
+                except BinaryUserError as exc:
+                    record.event(
+                        "cleanup_failed",
+                        code="binary_cleanup_failed",
+                        binary_error=exc.code,
+                        message=exc.message,
+                    )
+                except Exception as exc:
+                    record.event(
+                        "cleanup_failed",
+                        code="binary_cleanup_failed",
+                        message=str(exc),
+                    )
+        finally:
+            try:
+                self._release(record.transfer_id, record.direction)
+            finally:
+                with self._lock:
+                    if self._active_id == record.transfer_id:
+                        self._active_id = None
+                    self._terminal_order.append(record.transfer_id)
+                    while len(self._terminal_order) > self.max_retained_terminal:
+                        evicted = self._terminal_order.popleft()
+                        if self._active_id != evicted:
+                            self._records.pop(evicted, None)
 
     def _prepare_source(
         self,
@@ -740,8 +781,8 @@ class FileTransferManager:
                 wire_sha256=prepared.wire_sha256,
             )
 
-            self._send_message(meta, cancel_event=record.cancel_event)
             record.set_state("sending")
+            self._send_message(meta, cancel_event=record.cancel_event)
             self._send_all_chunks(
                 record,
                 prepared,

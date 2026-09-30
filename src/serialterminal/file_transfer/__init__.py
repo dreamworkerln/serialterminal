@@ -27,6 +27,7 @@ from .transport import (
     BinaryUserCancelled,
     BinaryUserError,
     BinaryUserTransport,
+    BinaryUserTransferLifecycle,
 )
 
 __all__ = [
@@ -34,6 +35,7 @@ __all__ = [
     "BinaryUserCancelled",
     "BinaryUserError",
     "BinaryUserTransport",
+    "BinaryUserTransferLifecycle",
     "Compression",
     "DataMessage",
     "EndMessage",

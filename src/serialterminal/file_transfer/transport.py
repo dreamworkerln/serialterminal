@@ -2,7 +2,7 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 import threading
-from typing import Callable, Protocol
+from typing import Callable, Protocol, runtime_checkable
 
 
 BinaryReceiver = Callable[[bytes], None]
@@ -40,4 +40,15 @@ class BinaryUserTransport(Protocol):
         *,
         cancel_event: threading.Event | None = None,
     ) -> BinaryDelivery:
+        ...
+
+
+@runtime_checkable
+class BinaryUserTransferLifecycle(Protocol):
+    """Optional per-transfer setup/cleanup around an opaque binary transport."""
+
+    def begin_transfer(self) -> None:
+        ...
+
+    def end_transfer(self) -> None:
         ...

@@ -180,3 +180,91 @@ def test_binary_adapter_reports_disconnect_before_delivery_observation():
         adapter.send_binary(b"abc")
 
     assert getattr(caught.value, "code", None) == "local_disconnect"
+
+
+
+def test_binary_adapter_file_transfer_forces_both_and_restores_chat():
+    holder = {}
+    sent = []
+
+    def send_line(text):
+        sent.append(text)
+        adapter = holder["adapter"]
+        if text == "/both":
+            adapter.feed_line("main", "[SYS] OUTPUT BOTH")
+        elif text == "/chat":
+            adapter.feed_line("main", "[SYS] OUTPUT CHAT")
+        return {"tx_id": len(sent)}
+
+    adapter = ChatterBinaryUserAdapter(
+        send_line,
+        wait_tx_outcome=lambda _tx_id, _timeout: "written",
+    )
+    holder["adapter"] = adapter
+
+    adapter.begin_transfer()
+    adapter.end_transfer()
+
+    assert sent == ["/both", "/chat"]
+
+
+def test_binary_adapter_file_transfer_restores_preexisting_telemetry_mode():
+    holder = {}
+    sent = []
+
+    def send_line(text):
+        sent.append(text)
+        adapter = holder["adapter"]
+        if text == "/both":
+            adapter.feed_line("main", "[SYS] OUTPUT BOTH")
+        elif text == "/tele":
+            adapter.feed_line("main", "[SYS] OUTPUT TELEMETRY")
+        return {"tx_id": len(sent)}
+
+    adapter = ChatterBinaryUserAdapter(
+        send_line,
+        wait_tx_outcome=lambda _tx_id, _timeout: "written",
+    )
+    holder["adapter"] = adapter
+    adapter.feed_line("main", "[SYS] OUTPUT TELEMETRY")
+
+    adapter.begin_transfer()
+    adapter.end_transfer()
+
+    assert sent == ["/both", "/tele"]
+
+
+def test_binary_adapter_reasserts_both_after_reconnect_during_transfer():
+    holder = {}
+    sent = []
+    generation = {"value": 1}
+
+    def send_line(text):
+        sent.append(text)
+        adapter = holder["adapter"]
+        if text == "/both":
+            adapter.feed_line("main", "[SYS] OUTPUT BOTH")
+        elif text.startswith("/bin "):
+            adapter.feed_line(
+                "telemetry",
+                "DELIVERY WAIT_ACK user=A001/7 attempt=1/5 timeout=10ms queue=0",
+            )
+            adapter.feed_line(
+                "telemetry",
+                "DELIVERY ACK user=A001/7 attempts=1/5 elapsed=2ms queue=0",
+            )
+        return {"tx_id": len(sent)}
+
+    adapter = ChatterBinaryUserAdapter(
+        send_line,
+        wait_tx_outcome=lambda _tx_id, _timeout: "written",
+        connection_generation=lambda: generation["value"],
+    )
+    holder["adapter"] = adapter
+
+    adapter.begin_transfer()
+    generation["value"] = 2
+    result = adapter.send_binary(b"abc")
+
+    assert result.user_id == "A001/7"
+    assert sent[:3] == ["/both", "/both", encode_binary_command(b"abc")]
