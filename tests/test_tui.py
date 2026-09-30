@@ -340,10 +340,11 @@ def test_tui_file_transfer_screen_mute_does_not_block_line_observer():
     tui._binary_adapter = _Adapter()
 
     line = SessionLine(
-        seq=1,
-        timestamp=1.0,
         stream="main",
+        seq_first=1,
+        seq_last=1,
         text="DELIVERY ACK user=1234/1 attempts=1/5 elapsed=49ms queue=0",
+        timestamp=1.0,
     )
     tui._observe_line(line)
     tui._write_session_screen(line.text + "\n")
