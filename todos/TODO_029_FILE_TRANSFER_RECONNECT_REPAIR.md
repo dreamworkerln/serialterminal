@@ -706,6 +706,23 @@ Sender-local ambiguity is handled without weakening generic transport safety:
 per-TX outcome and lifecycle-generation primitives, while FT1 replays only the same
 idempotent application message.
 
+### 2026-09-30 follow-up: settlement/output-mode design
+
+Physical throughput investigation exposed that the transfer-wide Chatter `BOTH` lease is
+not the desired long-term ownership model. The operator explicitly requires ordinary file
+transfer to stop using TELEMETRY as a mandatory control plane and to stop changing/restoring
+the human output mode. That follow-up is tracked in
+`TODO_030_CHATTER_FT1_NO_TELEMETRY.md`.
+
+The same run also exposed a separate generic Serial RX batching defect (`read(512)` with
+`timeout=0.20`) that adds an approximately 200 ms host-visible delay to short bursts; it is
+tracked independently in `TODO_031_SERIAL_RX_LOW_LATENCY.md`.
+
+These follow-ups do not invalidate the implemented transfer identity, MISSING repair,
+idempotent replay or RESULT semantics of this TODO. They do mean that final physical
+acceptance should be repeated after TODO_030/TODO_031 rather than blessing the current
+`BOTH` lease as the permanent design.
+
 ## Known limitations
 
 - Current Chatter application MTU is 243 raw bytes.

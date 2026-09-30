@@ -132,7 +132,7 @@ Remaining work: align the primary `NODE_OBSERVATION_RECORDING_POLICY.md` and nod
 
 TODO_026 logging-contract investigation is also OPEN and may be scheduled independently when log-format work is selected.
 
-Suggested next work: physically validate the implemented `TODO_029` reconnect/MISSING repair on the two-node topology when convenient; independently finish the HCI boundary isolation in `TODO_024`; after that continue correctness/evidence boundaries (`TODO_011`, `TODO_013`, `TODO_016`, `TODO_017`, `TODO_021`, remaining `TODO_025` docs), lifecycle/API robustness (`TODO_019`, `TODO_022`, `TODO_023`), and consistency/docs follow-ups (`TODO_012`, `TODO_014`, `TODO_015`, `TODO_020`). Re-evaluate ordering if implementation exposes dependencies.
+Suggested next work: implement TODO_030 and TODO_031 before treating the current TODO_029 physical file-transfer validation as acceptance of the long-term design. Then rerun the two-node TODO_029 reconnect/MISSING validation and throughput baseline; independently finish the HCI boundary isolation in TODO_024; after that continue correctness/evidence boundaries (`TODO_011`, `TODO_013`, `TODO_016`, `TODO_017`, `TODO_021`, remaining `TODO_025` docs), lifecycle/API robustness (`TODO_019`, `TODO_022`, `TODO_023`), and consistency/docs follow-ups (`TODO_012`, `TODO_014`, `TODO_015`, `TODO_020`). Re-evaluate ordering if implementation exposes dependencies.
 
 ### TODO_026 — `todos/TODO_026_UNIFIED_LOGGING_CONTRACT.md`
 
@@ -156,6 +156,22 @@ Goal: FT1/BINARY USER file transfer over current Chatter USER+ACK now supports s
 Automated implementation checkpoint: `dev_tui@aa2d3cc1fd65cbe228efbee6cdab4dccdbc62ada`; GitHub Actions `36655735769` SUCCESS; 313 tests PASS. The 2026-09-30 human USB stall was fixed by a profile-owned file-transfer output-mode lease: Chatter temporarily uses `BOTH` internally so DELIVERY telemetry is available for settlement, restores the prior tracked mode on terminal cleanup, and reasserts `BOTH` after reconnect. A follow-up TUI presentation fix mutes all session/controller scrollback output for the active transfer lifetime while preserving adapter/panel/log consumption and file-progress rendering, so telemetry no longer floods the TUI. META settlement remains shown as `sending`, not false `compressing 0%`. Oversized missing-range sets still terminate with stable `repair_too_large`; a full resend is an explicit new `file_send_start`, so v1 never enters an automatic restart loop.
 
 Key boundary: current radio transport is ordinary Chatter USER + ACK only; no per-chunk file ACK, no MISSING pagination, and no persistent resume after SerialTerminal process death. LoRa SACK is explicitly out of scope. Physical two-node transfer/reconnect validation of the updated checkpoint remains open.
+
+### TODO_030 — `todos/TODO_030_CHATTER_FT1_NO_TELEMETRY.md`
+
+Status: OPEN
+
+Goal: remove the ordinary FT1 dependency on Chatter TELEMETRY and eliminate the transfer-owned `/both` / reconnect reassert / prior-mode restore lifecycle. `DELIVERY ...` lines become optional diagnostics only; FT1 correctness must remain application-level and TODO_029 reconnect/MISSING semantics must be preserved.
+
+Operator decision / finding: 2026-09-30. Current TODO_029 output-mode lease is a follow-up defect and is superseded only for this settlement/presentation aspect; no firmware change is authorized.
+
+### TODO_031 — `todos/TODO_031_SERIAL_RX_LOW_LATENCY.md`
+
+Status: OPEN
+
+Goal: remove the generic Serial `read(512)` + `timeout=0.20` short-burst batching latency while preserving efficient idle blocking, full-duplex operation and reconnect semantics.
+
+Baseline: operator log `serialterminal-20260930-045442-141753-p62766.log`, USB Serial 115200 / SF7 BW500, ~4.8 kbit/s file rate, ~203 ms median host TX USER -> WAIT_ACK timestamp gap and ~384 ms median full-DATA cadence. Physical regression follows TODO_030/031 implementation.
 
 ## Closed
 
