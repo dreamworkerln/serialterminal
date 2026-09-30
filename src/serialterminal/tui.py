@@ -4,6 +4,7 @@ from collections import deque
 import curses
 from dataclasses import dataclass
 import threading
+import time
 from pathlib import Path
 
 from .file_browser import browse_file
@@ -299,6 +300,8 @@ class TerminalTui:
         self._binary_adapter = None
         self._file_transfer: FileTransferManager | None = None
         self._file_transfer_screen_muted = threading.Event()
+        self._file_rate_transfer_id: str | None = None
+        self._file_rate_samples: deque[tuple[float, int]] = deque()
         self.session = self._make_session(transport, profile)
         self._configure_file_transfer(profile)
 
@@ -403,6 +406,42 @@ class TerminalTui:
     def file_state_label(state: str) -> str:
         return _FILE_STATE_LABELS.get(state, state)
 
+    def _file_wire_rate_kbit_s(
+        self,
+        snapshot: dict,
+        *,
+        now: float | None = None,
+    ) -> float:
+        transfer_id = str(snapshot.get("transfer_id", ""))
+        current_bytes = max(0, int(snapshot.get("bytes_completed", 0)))
+        current_time = time.monotonic() if now is None else float(now)
+
+        if transfer_id != self._file_rate_transfer_id:
+            self._file_rate_transfer_id = transfer_id
+            self._file_rate_samples.clear()
+
+        if self._file_rate_samples:
+            previous_time, previous_bytes = self._file_rate_samples[-1]
+            if current_time < previous_time or current_bytes < previous_bytes:
+                self._file_rate_samples.clear()
+
+        self._file_rate_samples.append((current_time, current_bytes))
+        cutoff = current_time - 1.5
+        while (
+            len(self._file_rate_samples) > 2
+            and self._file_rate_samples[1][0] <= cutoff
+        ):
+            self._file_rate_samples.popleft()
+
+        if len(self._file_rate_samples) < 2:
+            return 0.0
+        first_time, first_bytes = self._file_rate_samples[0]
+        elapsed = current_time - first_time
+        if elapsed < 0.25:
+            return 0.0
+        delta_bytes = max(0, current_bytes - first_bytes)
+        return delta_bytes * 8.0 / elapsed / 1000.0
+
     @staticmethod
     def render_progress_bar(percentage: float, width: int = 24) -> str:
         width = max(4, width)
@@ -420,6 +459,7 @@ class TerminalTui:
             bar_width,
         )
         raw_state = str(snapshot.get("state", "?"))
+        wire_rate = self._file_wire_rate_kbit_s(snapshot)
         first = (
             f" File {snapshot.get('direction', '?')} "
             f"{snapshot.get('filename', '?')} [{bar}] "
@@ -430,7 +470,8 @@ class TerminalTui:
             f"      {snapshot.get('chunks_completed', 0)}/"
             f"{snapshot.get('chunks_total', 0)} chunks  "
             f"{snapshot.get('bytes_completed', 0)}/"
-            f"{snapshot.get('wire_bytes', 0)} wire bytes"
+            f"{snapshot.get('wire_bytes', 0)} wire bytes  "
+            f"{wire_rate:.1f} kbit/s"
         )
         failure = snapshot.get("failure")
         if isinstance(failure, dict):

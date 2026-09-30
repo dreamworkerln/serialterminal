@@ -352,3 +352,83 @@ def test_tui_file_transfer_screen_mute_does_not_block_line_observer():
     assert tui.output.snapshot() == []
     assert tui.panel.lines == [("main", line.text)]
     assert tui._binary_adapter.lines == [("main", line.text)]
+
+
+
+def test_tui_file_wire_rate_uses_recent_wire_bytes():
+    from collections import deque
+
+    from serialterminal.tui import TerminalTui
+
+    tui = object.__new__(TerminalTui)
+    tui._file_rate_transfer_id = None
+    tui._file_rate_samples = deque()
+
+    snapshot = {"transfer_id": "abc", "bytes_completed": 0}
+    assert tui._file_wire_rate_kbit_s(snapshot, now=10.0) == 0.0
+
+    snapshot["bytes_completed"] = 1000
+    assert tui._file_wire_rate_kbit_s(snapshot, now=11.0) == 8.0
+
+    snapshot["bytes_completed"] = 2000
+    assert tui._file_wire_rate_kbit_s(snapshot, now=12.0) == 8.0
+
+
+def test_tui_file_wire_rate_resets_for_new_transfer():
+    from collections import deque
+
+    from serialterminal.tui import TerminalTui
+
+    tui = object.__new__(TerminalTui)
+    tui._file_rate_transfer_id = None
+    tui._file_rate_samples = deque()
+
+    first = {"transfer_id": "one", "bytes_completed": 0}
+    tui._file_wire_rate_kbit_s(first, now=1.0)
+    first["bytes_completed"] = 1000
+    assert tui._file_wire_rate_kbit_s(first, now=2.0) == 8.0
+
+    second = {"transfer_id": "two", "bytes_completed": 500}
+    assert tui._file_wire_rate_kbit_s(second, now=3.0) == 0.0
+
+
+def test_tui_file_status_shows_wire_rate_right_of_wire_bytes(monkeypatch):
+    from collections import deque
+
+    from serialterminal.tui import TerminalTui
+
+    tui = object.__new__(TerminalTui)
+    tui._file_rate_transfer_id = None
+    tui._file_rate_samples = deque()
+    snapshots = [
+        {
+            "transfer_id": "abc",
+            "direction": "TX",
+            "filename": "Ritta02.webp",
+            "percentage": 6.5,
+            "state": "sending",
+            "chunks_completed": 32,
+            "chunks_total": 495,
+            "bytes_completed": 0,
+            "wire_bytes": 112208,
+        },
+        {
+            "transfer_id": "abc",
+            "direction": "TX",
+            "filename": "Ritta02.webp",
+            "percentage": 6.5,
+            "state": "sending",
+            "chunks_completed": 32,
+            "chunks_total": 495,
+            "bytes_completed": 1000,
+            "wire_bytes": 112208,
+        },
+    ]
+    tui._file_transfer = object()
+    monkeypatch.setattr(tui, "_file_snapshot", lambda: snapshots.pop(0))
+    monkeypatch.setattr("serialterminal.tui.time.monotonic", lambda: 10.0)
+    tui._file_status_lines(120)
+    monkeypatch.setattr("serialterminal.tui.time.monotonic", lambda: 11.0)
+    lines = tui._file_status_lines(120)
+
+    assert lines[1].endswith("1000/112208 wire bytes  8.0 kbit/s")
