@@ -42,6 +42,16 @@ DELIVERY ACK user=<same-id>
 `DELIVERY FAILED` is a link failure. FT1 does not add a second per-DATA ACK or
 retransmission protocol.
 
+For Chatter, those settlement records are TELEMETRY output while BINARY USER
+presentation is CHAT output. Therefore an FT1 transfer takes a profile-owned output
+mode lease: before TX or RX work starts, the Chatter adapter switches the local
+controller to `BOTH` and waits for `[SYS] OUTPUT BOTH`. It remembers the previously
+tracked CHAT/TELEMETRY/BOTH mode and restores it when the transfer completes, fails or
+is cancelled. If the local Serial/BLE/SPP connection generation changes while the
+same transfer remains alive, the adapter reasserts `BOTH` before the next BINARY
+message. FT1 itself only invokes a generic optional binary-transport lifecycle hook
+and does not know these Chatter commands.
+
 ## FT1 framing
 
 All FT1 messages begin with a compact 12-byte common header:
@@ -183,6 +193,10 @@ cancelled
 Exactly `100%` is reserved for `completed`. Even after all DATA bytes have crossed
 the binary transport, progress remains below 100% until the sender receives remote
 `RESULT OK`.
+
+The sender leaves `compressing` as soon as source preparation is finished. The
+blocking META reliable-USER settlement is part of `sending`, so a slow or missing
+META ACK is no longer presented as a false `compressing 0%` state.
 
 ## TUI
 

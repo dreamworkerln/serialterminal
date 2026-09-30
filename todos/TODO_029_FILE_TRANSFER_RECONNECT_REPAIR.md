@@ -38,11 +38,12 @@ transport MTU, FT1 v1 не пакетирует MISSING: текущий transfer
 Automated source checkpoint:
 
 ~~~text
-dev_tui@e296fdeff84416b52d139cce0917904f15a084ce
-GitHub Actions 36375238603 SUCCESS
+dev_tui@4c41eeb32825e5f7de27e33daba3e1aced83c468
+GitHub Actions 36654487546 SUCCESS
 compile PASS
 static analysis PASS
-tests: 277 PASS
+complexity PASS
+tests: 311 PASS
 ~~~
 
 На этом checkpoint реализованы:
@@ -68,6 +69,28 @@ tests: 277 PASS
 Temporary local transport reconnect repair is implemented while the same SerialTerminal
 process remains alive. Persistent resume after process death/restart remains outside
 the v1 contract.
+
+### 2026-09-30 human USB finding
+
+A live TUI attempt exposed a host-side settlement visibility defect. The first FT1
+BINARY message was physically transmitted and observed by the peer, while the sender
+TUI remained at `compressing 0%`. Chatter reliable USER settlement records
+(`DELIVERY WAIT_ACK/ACK/FAILED`) are TELEMETRY-only, but a normal human USB session
+boots in CHAT. The binary adapter therefore waited for settlement evidence that the
+local controller was not presenting, even after firmware had already finished the
+reliable USER transaction.
+
+Fix at the checkpoint above:
+
+- FT1 uses an optional generic `BinaryUserTransferLifecycle`;
+- the Chatter adapter switches to `BOTH` before active TX/RX transfer work;
+- it tracks confirmed `[SYS] OUTPUT ...` / help-current mode and restores the
+  previous CHAT/TELEMETRY/BOTH mode on completion, failure or cancellation;
+- after local reconnect it reasserts `BOTH` before the next BINARY operation;
+- the sender enters `sending` before blocking META settlement, so the UI no longer
+  reports completed compression as `compressing 0%`.
+
+No firmware change was required.
 
 ## Deployment topology invariant
 
@@ -567,6 +590,9 @@ e8d435bd17f97e26c68bd54d93859ef956a40772  file: repair missing chunks after reco
 fa13e058dcc272209649d245e1389956d8d6bde9  test: fix file repair result import
 6b17ed299e46e7b9176cdd5cdc09c2ef9f6b7090  file: recover ambiguous local binary delivery
 e296fdeff84416b52d139cce0917904f15a084ce  file: expose repair state in tui and agent
+f3c9df73ade57f4bdf385089fe9ab4d45da98845  fix: keep chatter telemetry visible during file transfer
+d328e2c444e13f359116532a71ef497e81367f6a  fix: defer chatter output mode generation binding
+4c41eeb32825e5f7de27e33daba3e1aced83c468  fix: harden binary transfer lifecycle cleanup
 ```
 
 ## Validation
@@ -606,6 +632,11 @@ Core/reconnect deterministic tests:
 
 UI/API tests:
 
+- [x] Chatter file transfer temporarily forces `BOTH` and restores prior CHAT mode.
+- [x] Chatter file transfer restores a previously tracked TELEMETRY mode.
+- [x] Active transfer reasserts `BOTH` after connection-generation change.
+- [x] META settlement is reported as `sending`, not false `compressing 0%`.
+- [x] optional binary-transport lifecycle is invoked for both sender and receiver transfers.
 - [x] TUI renders `waiting_result`, `repair_requested` and `repairing` as explicit recovery states.
 - [x] agent observe returns structured repair events.
 - [x] agent request reader remains responsive while file-transfer observe is pending.
@@ -665,9 +696,9 @@ idempotent application message.
 
 ## Result
 
-Automated implementation checkpoint: `dev_tui@e296fdeff84416b52d139cce0917904f15a084ce`
-GitHub Actions: `36375238603` SUCCESS
-Automated tests: 277 PASS
+Automated implementation checkpoint: `dev_tui@4c41eeb32825e5f7de27e33daba3e1aced83c468`
+GitHub Actions: `36654487546` SUCCESS
+Automated tests: 311 PASS
 Reconnect/MISSING repair: IMPLEMENTED / AUTOMATED VALIDATION PASS
 Physical reconnect validation: NOT RUN
 Additional firmware source work required: NONE

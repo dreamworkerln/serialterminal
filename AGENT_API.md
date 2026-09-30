@@ -418,6 +418,14 @@ The Chatter adapter treats existing reliable USER `DELIVERY ACK` as link-level
 binary-message settlement. Local `queued` or `tx_state=written` is never enough to
 advance file DATA progress.
 
+Chatter `DELIVERY WAIT_ACK/ACK/FAILED` records are TELEMETRY output. During an
+active file transfer the profile-owned binary adapter temporarily switches the local
+controller output to `BOTH`, reasserts `BOTH` after a local reconnect before the
+next BINARY operation, and restores the previously tracked human-console mode when
+the transfer reaches a terminal state. This is internal to the profile capability;
+the JSONL file-transfer operations and generic session API do not expose Chatter
+output-mode controls.
+
 ### Observe
 
 ```json

@@ -143,9 +143,14 @@ chatter
 File transfer controls appear only for profiles that advertise the binary-message
 capability; generic remains a normal controller-agnostic terminal. Chatter TUI uses
 `F5` to select/send a file and `F6` to cancel, and shows a determinate progress
-bar for both TX and incoming RX transfers. Same-process temporary local reconnects can
-repair missing FT1 chunks selectively through one compact MISSING range message;
-persistent resume after SerialTerminal process restart is intentionally not provided.
+bar for both TX and incoming RX transfers. While a Chatter transfer is active,
+SerialTerminal temporarily puts the local controller human output into `BOTH` so
+BINARY presentation and reliable-delivery telemetry are both observable; the
+previously tracked CHAT/TELEMETRY/BOTH mode is restored after completion, failure or
+cancellation. The same transfer reasserts `BOTH` after a local reconnect before
+continuing. Same-process temporary local reconnects can repair missing FT1 chunks
+selectively through one compact MISSING range message; persistent resume after
+SerialTerminal process restart is intentionally not provided.
 Verified incoming files default to the `files` directory in the SerialTerminal
 source root (next to `pyproject.toml`) when running from a checkout/editable install;
 the directory is created on demand on Linux/Windows. Packaged installs without a

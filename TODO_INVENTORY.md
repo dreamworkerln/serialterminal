@@ -153,9 +153,9 @@ Status: IMPLEMENTED / PHYSICAL VALIDATION OPEN
 
 Goal: FT1/BINARY USER file transfer over current Chatter USER+ACK now supports same-process local reconnect repair with stable chunk IDs, one compact MISSING ranges message, idempotent META/END replay and selective resend when the missing set fits the transport application MTU.
 
-Automated implementation checkpoint: `dev_tui@e296fdeff84416b52d139cce0917904f15a084ce`; GitHub Actions `36375238603` SUCCESS; 277 tests PASS. Oversized missing-range sets terminate with stable `repair_too_large`; a full resend is an explicit new `file_send_start`, so v1 never enters an automatic restart loop.
+Automated implementation checkpoint: `dev_tui@4c41eeb32825e5f7de27e33daba3e1aced83c468`; GitHub Actions `36654487546` SUCCESS; 311 tests PASS. The 2026-09-30 human USB stall was fixed by a profile-owned file-transfer output-mode lease: Chatter temporarily uses `BOTH` so DELIVERY telemetry is observable, restores the prior tracked mode on terminal cleanup, and reasserts `BOTH` after reconnect. META settlement is now shown as `sending`, not false `compressing 0%`. Oversized missing-range sets still terminate with stable `repair_too_large`; a full resend is an explicit new `file_send_start`, so v1 never enters an automatic restart loop.
 
-Key boundary: current radio transport is ordinary Chatter USER + ACK only; no per-chunk file ACK, no MISSING pagination, and no persistent resume after SerialTerminal process death. LoRa SACK is explicitly out of scope. Only physical two-node reconnect validation remains open.
+Key boundary: current radio transport is ordinary Chatter USER + ACK only; no per-chunk file ACK, no MISSING pagination, and no persistent resume after SerialTerminal process death. LoRa SACK is explicitly out of scope. Physical two-node transfer/reconnect validation of the updated checkpoint remains open.
 
 ## Closed
 

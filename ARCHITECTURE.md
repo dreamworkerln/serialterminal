@@ -120,6 +120,13 @@ ManagedSession / Transport
 and link-settled `send_binary()`. It does not expose filenames, compression,
 filesystem state or file progress.
 
+A binary transport may additionally implement the generic per-transfer
+`BinaryUserTransferLifecycle` hook. FT1 invokes it around an active transfer without
+knowing controller commands. The bundled Chatter adapter uses this hook to make
+reliable-USER settlement telemetry observable for the whole transfer and to restore
+the prior controller output mode afterwards; generic FT1/session/transport code does
+not learn Chatter output-mode semantics.
+
 The bundled `chatter` profile owns the local `/bin <BASE64>` command/presentation
 adapter and maps existing reliable USER `DELIVERY WAIT_ACK/ACK/FAILED` evidence to
 binary-message settlement. Base64 is local textual encapsulation only; the LoRa
