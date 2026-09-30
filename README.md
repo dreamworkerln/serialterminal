@@ -97,7 +97,7 @@ Generic profile не отправляет устройству controller-specif
 python3 serialterminal.py --profile chatter
 ```
 
-Human `chatter` profile сохраняет Chatter-aware presentation/hotkeys и для USB Serial отправляет `/id` как connect/reconnect preamble. Human BLE/SPP не получают автоматический `/id`.
+Human `chatter` profile сохраняет Chatter-aware presentation/hotkeys и для USB Serial отправляет `/id` как connect/reconnect preamble. Для BLE актуальная Chatter firmware сама один раз на каждое соединение публикует canonical identity после подписки клиента на human-console characteristic `0003`; TUI не дублирует этот identity запросом `/id`.
 
 По умолчанию каждый отдельный запуск human terminal создаёт связанную пару:
 
@@ -133,9 +133,9 @@ generic
 
 chatter
     explicit LoRa-Chatter profile
-    /id connect preamble
+    /id connect preamble for USB Serial
     Chatter help/hotkeys/presentation
-    BLE 0003 -> chat
+    BLE 0003 -> chat + one controller-owned identity announcement per connection
     optional BLE 0004 -> telemetry
     BINARY USER + FT1 file-transfer capability
 ```
@@ -423,7 +423,7 @@ Canonical identity Chatter имеет вид:
 
 Это controller-owned identity. `serialterminal` не строит собственный node ID.
 
-Human `chatter` profile после успешного `SerialTransport.connect()` отправляет `/id` до открытия reconnect-safe user TX gate. Human BLE NUS и Bluetooth SPP автоматический `/id` не получают. Agent `profile:"chatter"`, напротив, применяет profile preamble при каждом transport connect/reconnect независимо от transport kind.
+Human `chatter` profile после успешного `SerialTransport.connect()` отправляет `/id` до открытия reconnect-safe user TX gate. На BLE human identity не запрашивается второй раз: актуальная Chatter firmware сама публикует один `[SYS] CHATTER NODE ...` после подписки клиента на `0003`. Agent `profile:"chatter"` по-прежнему применяет profile preamble при transport connect/reconnect независимо от transport kind.
 
 При классификации Chatter-команды profile использует ту же boundary-normalization, что и актуальная firmware: ASCII control/space + DEL по краям игнорируются только для command matching. Если после такого trim строка не совпала с известной командой, обычный payload отправляется в исходном виде.
 
@@ -514,7 +514,7 @@ PRIMARY / human TX      6E400003-B5A3-F393-E0A9-E50E24DCCA9E -> stream chat
 MACHINE TELEMETRY       6E400004-B5A3-F393-E0A9-E50E24DCCA9E -> stream telemetry (optional)
 ```
 
-Human console на `0003` следует режиму Chatter firmware. Если `0004` существует, profile подписывает transport на него best-effort как отдельный background stream. Отсутствие `0004` не делает BLE connection невалидным.
+Human console на `0003` следует режиму Chatter firmware. При первой notification-подписке на `0003` firmware публикует canonical `[SYS] CHATTER NODE ...` ровно один раз для текущего BLE connection epoch; повторная запись CCCD в том же соединении identity не дублирует. Если `0004` существует, profile подписывает transport на него best-effort как отдельный background stream. Отсутствие `0004` не делает BLE connection невалидным.
 
 Human terminal не показывает background `telemetry` stream в normal console только из-за подписки. Agent и forensic log сохраняют его отдельно.
 
