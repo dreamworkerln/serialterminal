@@ -676,6 +676,16 @@ class SessionManager:
                         transfer_id,
                         direction,
                     ),
+                event_sink=(
+                    (
+                        lambda event: self.run_log.record(
+                            "FT1",
+                            {"session": session_id, **event},
+                        )
+                    )
+                    if self.run_log is not None
+                    else None
+                ),
             )
             if binary_adapter is not None
             else None

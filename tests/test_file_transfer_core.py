@@ -985,3 +985,45 @@ def test_receiver_activity_refreshes_stale_deadline(tmp_path):
         assert manager.display_snapshot()["state"] == "receiving"
     finally:
         manager.close()
+
+
+
+def test_file_transfer_event_sink_records_message_stages_without_payload(tmp_path):
+    events = []
+    left = _PairBinaryTransport()
+    right = _PairBinaryTransport()
+    left.peer = right
+    right.peer = left
+    tx = FileTransferManager(
+        left,
+        receive_dir=tmp_path / "log-left",
+        id_factory=lambda: 0xB01,
+        result_timeout_s=2.0,
+        event_sink=events.append,
+    )
+    rx = FileTransferManager(
+        right,
+        receive_dir=tmp_path / "log-right",
+        id_factory=lambda: 0xB02,
+        result_timeout_s=2.0,
+    )
+    source = tmp_path / "logged.bin"
+    source.write_bytes(b"forensic-stage" * 40)
+    try:
+        tx.start_send(source)
+        assert _wait_until(
+            lambda: tx.display_snapshot()
+            and tx.display_snapshot()["state"] == "completed"
+        )
+        starts = [event for event in events if event["kind"] == "binary_send_start"]
+        settled = [event for event in events if event["kind"] == "binary_send_settled"]
+        assert any(event["message_type"] == "META" for event in starts)
+        assert any(event["message_type"] == "DATA" for event in starts)
+        assert any(event["message_type"] == "END" for event in starts)
+        assert len(settled) >= len(starts) - 1
+        rendered = repr(events)
+        assert "payload" not in rendered
+        assert "base64" not in rendered
+    finally:
+        tx.close()
+        rx.close()

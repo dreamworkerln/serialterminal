@@ -184,6 +184,7 @@ class _TransferRecord:
         direction: str,
         filename: str,
         event_retention: int,
+        event_sink: Callable[[dict[str, Any]], None] | None = None,
     ) -> None:
         self.transfer_id = transfer_id
         self.direction = direction
@@ -207,6 +208,7 @@ class _TransferRecord:
         self._events: deque[dict[str, Any]] = deque(maxlen=event_retention)
         self._next_event_seq = 1
         self._thread: threading.Thread | None = None
+        self._event_sink = event_sink
 
     def _percentage_locked(self) -> float:
         if self.state == "completed":
@@ -256,7 +258,21 @@ class _TransferRecord:
             self._next_event_seq += 1
             self._events.append(event)
             self._condition.notify_all()
-            return event
+
+        sink = self._event_sink
+        if sink is not None:
+            envelope = {
+                "transfer_id": transfer_id_text(self.transfer_id),
+                "direction": self.direction,
+                "filename": self.filename,
+                **event,
+            }
+            try:
+                sink(envelope)
+            except Exception:
+                # Forensic logging не является частью FT1 correctness path.
+                pass
+        return event
 
     def set_state(self, state: str) -> None:
         with self._condition:
@@ -443,6 +459,7 @@ class FileTransferManager:
         max_repair_rounds: int = FILE_MAX_REPAIR_ROUNDS,
         max_local_message_replays: int = FILE_MAX_LOCAL_MESSAGE_REPLAYS,
         incoming_idle_timeout_s: float = FILE_INCOMING_IDLE_TIMEOUT_S,
+        event_sink: Callable[[dict[str, Any]], None] | None = None,
     ) -> None:
         self.transport = transport
         self.receive_dir = (
@@ -473,6 +490,7 @@ class FileTransferManager:
         self.max_repair_rounds = int(max_repair_rounds)
         self.max_local_message_replays = int(max_local_message_replays)
         self.incoming_idle_timeout_s = float(incoming_idle_timeout_s)
+        self.event_sink = event_sink
 
         self._lock = threading.Lock()
         self._records: dict[int, _TransferRecord] = {}
@@ -539,6 +557,7 @@ class FileTransferManager:
                 direction=direction,
                 filename=filename,
                 event_retention=self.event_retention,
+                event_sink=self.event_sink,
             )
             self._records[transfer_id] = record
             self._active_id = transfer_id
@@ -654,6 +673,16 @@ class FileTransferManager:
             temporary_path.unlink(missing_ok=True)
             raise
 
+    @staticmethod
+    def _message_event_fields(message: FileMessage) -> dict[str, Any]:
+        fields: dict[str, Any] = {"message_type": type(message).__name__.removesuffix("Message").upper()}
+        if isinstance(message, DataMessage):
+            fields["chunk_index"] = message.chunk_index
+        elif isinstance(message, MissingMessage):
+            fields["ranges"] = len(message.ranges)
+            fields["chunks"] = sum(item.count for item in message.ranges)
+        return fields
+
     def _send_message(
         self,
         message: FileMessage,
@@ -661,6 +690,12 @@ class FileTransferManager:
         cancel_event: threading.Event | None,
     ) -> None:
         payload = encode_message(message, self.transport.payload_capacity)
+        fields = self._message_event_fields(message)
+        with self._lock:
+            record = self._records.get(message.transfer_id)
+        if record is not None:
+            record.event("binary_send_start", **fields)
+
         replay = 0
         while True:
             try:
@@ -668,6 +703,12 @@ class FileTransferManager:
                     payload,
                     cancel_event=cancel_event,
                 )
+                if record is not None:
+                    record.event(
+                        "binary_send_settled",
+                        **fields,
+                        local_replays=replay,
+                    )
                 return
             except BinaryUserCancelled as exc:
                 raise FileTransferCancelled(str(exc)) from exc
@@ -681,7 +722,22 @@ class FileTransferManager:
                     and replay < self.max_local_message_replays
                 ):
                     replay += 1
+                    if record is not None:
+                        record.event(
+                            "binary_send_replay",
+                            **fields,
+                            reason=exc.code,
+                            attempt=replay,
+                            maximum=self.max_local_message_replays,
+                        )
                     continue
+                if record is not None:
+                    record.event(
+                        "binary_send_failed",
+                        **fields,
+                        binary_error=exc.code,
+                        local_replays=replay,
+                    )
                 raise FileTransferError(
                     "binary_send_failed",
                     exc.message,

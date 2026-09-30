@@ -3,6 +3,7 @@ from __future__ import annotations
 from collections import deque
 import curses
 from dataclasses import dataclass
+import json
 import threading
 import time
 from pathlib import Path
@@ -349,9 +350,25 @@ class TerminalTui:
                 receive_dir=self.receive_dir,
                 claim_transfer=self._claim_file_transfer,
                 release_transfer=self._release_file_transfer,
+                event_sink=self._log_file_transfer_event,
             )
             if adapter is not None
             else None
+        )
+
+    def _log_file_transfer_event(self, event: dict) -> None:
+        # Progress уже виден в dedicated TUI status и создаёт по записи на chunk.
+        # Остальные FT1 lifecycle/send-stage события остаются в primary log.
+        if event.get("kind") == "progress":
+            return
+        self.session._record_primary(
+            "FT1",
+            json.dumps(
+                event,
+                ensure_ascii=False,
+                separators=(",", ":"),
+                sort_keys=True,
+            ),
         )
 
     def _claim_file_transfer(

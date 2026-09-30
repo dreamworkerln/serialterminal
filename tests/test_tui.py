@@ -573,3 +573,44 @@ def test_tui_file_transfer_mute_keeps_reconnect_status_visible():
         "[waiting for selected device...]",
         "[connected: serial:/dev/fake]",
     ]
+
+
+
+def test_tui_ft1_event_logger_skips_progress_and_records_send_stage():
+    from serialterminal.tui import TerminalTui
+
+    class _Session:
+        def __init__(self):
+            self.records = []
+
+        def _record_primary(self, marker, text):
+            self.records.append((marker, text))
+
+    tui = object.__new__(TerminalTui)
+    tui.session = _Session()
+
+    tui._log_file_transfer_event(
+        {
+            "transfer_id": "1234",
+            "direction": "TX",
+            "filename": "x.bin",
+            "kind": "progress",
+        }
+    )
+    tui._log_file_transfer_event(
+        {
+            "transfer_id": "1234",
+            "direction": "TX",
+            "filename": "x.bin",
+            "kind": "binary_send_start",
+            "message_type": "DATA",
+            "chunk_index": 7,
+        }
+    )
+
+    assert len(tui.session.records) == 1
+    marker, text = tui.session.records[0]
+    assert marker == "FT1"
+    assert '"kind":"binary_send_start"' in text
+    assert '"chunk_index":7' in text
+    assert "base64" not in text
