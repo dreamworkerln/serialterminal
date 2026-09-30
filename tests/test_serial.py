@@ -1,4 +1,5 @@
 import threading
+import time
 
 from serialterminal.transports import serial as serial_transport
 from serialterminal.transports.serial import SerialDeviceIdentity, SerialTransport
@@ -289,5 +290,126 @@ def test_disconnect_waits_for_active_serial_write_and_flush():
 
     assert fake.flushed.is_set()
     assert disconnect_done.is_set()
+    assert fake.closed.is_set()
+    assert not transport.is_connected
+
+
+
+class TimeoutBufferedSerial:
+    def __init__(self, timeout=0.20):
+        self.is_open = True
+        self.timeout = timeout
+        self._condition = threading.Condition()
+        self._buffer = bytearray()
+        self.read_sizes = []
+        self.closed = threading.Event()
+        self.cancelled = False
+
+    @property
+    def in_waiting(self):
+        with self._condition:
+            return len(self._buffer)
+
+    def feed(self, data):
+        with self._condition:
+            self._buffer.extend(data)
+            self._condition.notify_all()
+
+    def read(self, size):
+        self.read_sizes.append(size)
+        deadline = time.monotonic() + self.timeout
+        with self._condition:
+            while not self._buffer and not self.cancelled:
+                remaining = deadline - time.monotonic()
+                if remaining <= 0:
+                    return b""
+                self._condition.wait(timeout=remaining)
+            if self.cancelled:
+                self.cancelled = False
+                return b""
+
+            # Имитация pyserial read(N): после первого байта ждёт заполнения N
+            # либо timeout. Именно это делало read(512) 200-ms batcher'ом.
+            while len(self._buffer) < size:
+                remaining = deadline - time.monotonic()
+                if remaining <= 0:
+                    break
+                self._condition.wait(timeout=remaining)
+
+            count = min(size, len(self._buffer))
+            result = bytes(self._buffer[:count])
+            del self._buffer[:count]
+            return result
+
+    def cancel_read(self):
+        with self._condition:
+            self.cancelled = True
+            self._condition.notify_all()
+
+    def close(self):
+        self.is_open = False
+        self.closed.set()
+
+
+def test_serial_short_burst_returns_without_waiting_for_large_read_timeout():
+    transport = SerialTransport(device="/dev/fake")
+    fake = TimeoutBufferedSerial(timeout=0.20)
+    _install_fake_serial(transport, fake)
+    result = {}
+    finished = threading.Event()
+
+    def read_once():
+        result["data"] = transport.read(512)
+        finished.set()
+
+    reader = threading.Thread(target=read_once)
+    reader.start()
+
+    # Idle RX remains blocked rather than polling.
+    time.sleep(0.03)
+    assert not finished.is_set()
+
+    started = time.monotonic()
+    fake.feed(b"OK\n")
+    assert finished.wait(timeout=0.10)
+    elapsed = time.monotonic() - started
+
+    reader.join(timeout=1.0)
+    assert result["data"] == b"OK\n"
+    assert elapsed < 0.10
+    assert fake.read_sizes[0] == 1
+    assert 512 not in fake.read_sizes
+
+
+def test_serial_low_latency_read_drains_immediately_available_bytes():
+    transport = SerialTransport(device="/dev/fake")
+    fake = TimeoutBufferedSerial(timeout=0.20)
+    fake.feed(b"abcdef")
+    _install_fake_serial(transport, fake)
+
+    assert transport.read(4) == b"abcd"
+    assert fake.read_sizes == [4]
+    assert fake.in_waiting == 2
+
+
+def test_serial_idle_low_latency_read_is_cancelled_by_disconnect():
+    transport = SerialTransport(device="/dev/fake")
+    fake = TimeoutBufferedSerial(timeout=1.0)
+    _install_fake_serial(transport, fake)
+    result = {}
+
+    reader = threading.Thread(
+        target=lambda: result.setdefault("data", transport.read(512))
+    )
+    reader.start()
+    time.sleep(0.03)
+    assert reader.is_alive()
+
+    disconnector, disconnect_done = _disconnect_in_thread(transport)
+    assert disconnect_done.wait(timeout=0.20)
+    reader.join(timeout=1.0)
+    disconnector.join(timeout=1.0)
+
+    assert result["data"] == b""
     assert fake.closed.is_set()
     assert not transport.is_connected

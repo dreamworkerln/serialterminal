@@ -393,10 +393,36 @@ class SerialTransport(Transport):
     def read(self, size: int = 512) -> bytes:
         # Serialize only multiple readers. A writer runs concurrently with this
         # blocking read, preserving the serial link's full-duplex behavior.
+        if size <= 0:
+            return b""
         with self._read_lock:
             ser = self._begin_io(is_read=True)
             try:
-                return ser.read(size)
+                try:
+                    waiting = int(ser.in_waiting)
+                except (AttributeError, SerialException, OSError, TypeError, ValueError):
+                    # Реальный pyserial предоставляет in_waiting. Fallback сохраняет
+                    # совместимость с минимальными Serial-like backend/fake objects.
+                    return ser.read(size)
+
+                # Если байты уже есть, забираем только реально доступный объём.
+                # Если буфер пуст, блокируемся максимум на timeout только ради
+                # первого байта; большой caller buffer не превращается в batching delay.
+                first_size = min(size, waiting) if waiting > 0 else 1
+                first = ser.read(first_size)
+                if not first or len(first) >= size:
+                    return first
+
+                data = bytearray(first)
+                while len(data) < size:
+                    waiting = int(ser.in_waiting)
+                    if waiting <= 0:
+                        break
+                    chunk = ser.read(min(size - len(data), waiting))
+                    if not chunk:
+                        break
+                    data.extend(chunk)
+                return bytes(data)
             except (SerialException, OSError) as exc:
                 raise TransportError(str(exc)) from exc
             finally:
