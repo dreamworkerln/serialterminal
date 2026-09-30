@@ -52,11 +52,17 @@ _EXACT_FAILURE_LINES = frozenset(
         "[ECHO] REQUEST PENDING, message not sent",
     }
 )
+_CONTROLLER_RESET_PREFIXES = (
+    "[SYS] RADIO FATAL ",
+    "ESP-ROM:",
+    "rst:0x",
+)
+_CONTROLLER_READY_LINE = "[SYS] CHATTER READY"
+
 _FAILURE_PREFIXES = (
     "[SYS] INPUT TOO LONG:",
     "[SYS] SEND QUEUE FULL:",
     "[SYS] DELIVERY CANCELLED:",
-    "[SYS] RADIO FATAL ",
     "TX FRAME BUILD ERROR ",
     "TX FATAL state=",
 )
@@ -147,8 +153,31 @@ class ChatterPresentation:
             return True
         return any(line.startswith(prefix) for prefix in _FAILURE_PREFIXES)
 
+    @staticmethod
+    def _is_controller_epoch_boundary(line: str) -> bool:
+        value = line.rstrip("\r\n")
+        if value == _CONTROLLER_READY_LINE:
+            return True
+        return any(value.startswith(prefix) for prefix in _CONTROLLER_RESET_PREFIXES)
+
+    def _consume_all_sent_locked(self) -> list[str]:
+        reveal = [pending.text for pending in self._pending if pending.sent]
+        self._pending = deque(
+            pending for pending in self._pending if not pending.sent
+        )
+        return reveal
+
     def consume_firmware_line(self, line: str) -> str | None:
         """Resolve one firmware line; return local text to reveal before a failure."""
+        if self._is_controller_epoch_boundary(line):
+            # ESP reboot может не разорвать USB-UART. Все уже written, но ещё
+            # не подтверждённые human presentations относятся к старой controller
+            # epoch и больше не могут получить свой "> ..."; unsent queue entries
+            # сохраняются, потому что session TX ещё может записать их после READY.
+            with self._lock:
+                reveal = self._consume_all_sent_locked()
+            return "\n".join(reveal) if reveal else None
+
         candidates = self._success_payload_candidates(line)
         if candidates:
             with self._lock:
@@ -173,11 +202,7 @@ class ChatterPresentation:
     def consume_sent_on_disconnect(self) -> list[str]:
         """Reveal sent-but-unresolved submissions when their result channel is lost."""
         with self._lock:
-            reveal = [pending.text for pending in self._pending if pending.sent]
-            self._pending = deque(
-                pending for pending in self._pending if not pending.sent
-            )
-            return reveal
+            return self._consume_all_sent_locked()
 
     def pending_count(self) -> int:
         with self._lock:

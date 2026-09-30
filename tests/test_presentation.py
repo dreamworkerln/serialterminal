@@ -191,3 +191,45 @@ def test_presentation_queue_is_bounded():
 
     with pytest.raises(ValueError):
         ChatterPresentation(limit=0)
+
+
+
+def test_controller_fatal_releases_all_sent_pending_presentations():
+    tracker = ChatterPresentation(limit=4)
+    for text in ("one", "two", "three", "four"):
+        assert tracker.submit_payload(text)
+        tracker.mark_sent(text)
+
+    reveal = tracker.consume_firmware_line(
+        "[SYS] RADIO FATAL RX_RESTART after TX (-16), rebooting\n"
+    )
+
+    assert reveal == "one\ntwo\nthree\nfour"
+    assert tracker.pending_count() == 0
+    assert tracker.submit_payload("after-reset")
+
+
+def test_controller_ready_releases_stale_sent_without_dropping_unsent():
+    tracker = ChatterPresentation(limit=4)
+    assert tracker.submit_payload("sent-old-epoch")
+    assert tracker.submit_payload("queued-not-written")
+    tracker.mark_sent("sent-old-epoch")
+
+    assert (
+        tracker.consume_firmware_line("[SYS] CHATTER READY\n")
+        == "sent-old-epoch"
+    )
+    assert tracker.pending_count() == 1
+
+    tracker.mark_sent("queued-not-written")
+    assert tracker.consume_firmware_line("> queued-not-written\n") is None
+    assert tracker.pending_count() == 0
+
+
+def test_boot_banner_is_controller_epoch_boundary_for_pending_presentations():
+    tracker = ChatterPresentation()
+    assert tracker.submit_payload("ambiguous")
+    tracker.mark_sent("ambiguous")
+
+    assert tracker.consume_firmware_line("ESP-ROM:esp32s3-20210327\n") == "ambiguous"
+    assert tracker.pending_count() == 0

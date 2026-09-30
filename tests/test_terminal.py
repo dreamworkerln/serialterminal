@@ -615,3 +615,42 @@ def test_chatter_local_bin_command_is_redacted_on_screen_even_with_raw_log_opt_i
         )
     finally:
         session.log_file.close()
+
+
+
+def test_human_presentation_queue_recovers_after_controller_reboot_without_disconnect(
+    tmp_path, monkeypatch
+):
+    fake_stdout = FakeStdout()
+    monkeypatch.setattr(terminal_module.sys, "stdout", fake_stdout)
+
+    session = _chatter_session(
+        DummyBleLikeTransport(),
+        log_path=tmp_path / "terminal.log",
+    )
+    try:
+        for text in ("one", "two", "three", "four"):
+            session._submit_interactive_line(text)
+            assert session.outgoing.get_nowait() == text
+            session._presentation.mark_sent(text)
+
+        assert session._presentation.pending_count() == 4
+
+        session.write_received(
+            ReceivedChunk(
+                "chat",
+                b"[SYS] RADIO FATAL RX_RESTART after TX (-16), rebooting\n",
+            )
+        )
+
+        assert session._presentation.pending_count() == 0
+        rendered = "".join(fake_stdout.writes)
+        for text in ("one\n", "two\n", "three\n", "four\n"):
+            assert text in rendered
+
+        session._submit_interactive_line("after-reset")
+        assert session.outgoing.get_nowait() == "after-reset"
+        assert session._presentation.pending_count() == 1
+        assert "pending presentation queue full" not in "".join(fake_stdout.writes)
+    finally:
+        session.log_file.close()

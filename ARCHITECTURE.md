@@ -122,6 +122,11 @@ transport write is known and the profile-specific controller has exposed its bou
 submission/first-transmit signal; it is explicitly not peer delivery proof. The
 transport does not expose filenames, compression, filesystem state or file progress.
 
+Human Chatter USER presentation state is also profile-owned. Sent-but-unresolved
+human payloads are released when a controller reset/boot/READY boundary is observed,
+even if the USB-UART transport never disconnected; unsent session-queue entries are
+preserved for the existing TX path.
+
 The bundled `chatter` profile owns the local `/bin <BASE64>` command/presentation
 adapter. It settles a send on the exact matching local `> [BINARY] <BASE64>`
 presentation emitted after first physical TxDone. `DELIVERY WAIT_ACK/ACK/FAILED`
