@@ -177,6 +177,9 @@ Sender completed только после remote verified `RESULT OK`. Receiver c
 `send_binary()` использует exact `> [BINARY]` как controller backpressure, а remote
 truth принадлежит FT1 MISSING/RESULT. В TELEMETRY-only режиме без BINARY presentation
 transfer должен явно завершиться capability error, а не переключать `/both`.
+Если mode ещё неизвестен, Chatter profile сам делает read-only `/help` preflight.
+Controller reboot без physical disconnect считается отдельной epoch: replay допустим
+только после нового `CHATTER READY`.
 
 FT1 v1 умеет in-process repair после временного local USB/BLE/SPP reconnect. Receiver
 сохраняет transfer state в памяти, после END может выдать один structured MISSING с
@@ -191,7 +194,9 @@ Generic `tx_state=unknown` по-прежнему нельзя blind-retry чер
 передачи явно запускай новый `file_send_start`, не делай MISSING pagination и не
 создавай бесконечный restart loop.
 
-После restart самого SerialTerminal persistent resume нет: начинай новый transfer.
+Если incoming transfer больше 120 секунд не получает META/DATA/END, он завершается
+`remote_sender_timeout` и освобождает session. После restart самого SerialTerminal
+persistent resume нет: начинай новый transfer.
 LoRa SACK в этот contract не входит.
 
 ## Два уровня receive evidence

@@ -163,6 +163,12 @@ Operator decision on 2026-09-30: TELEMETRY is diagnostic output and must not be 
 control plane for ordinary file transfer. The current `BOTH` lease/restore behavior is
 therefore a follow-up defect, not the desired long-term contract.
 
+Physical reproduction later the same day exposed a second host-side boundary: a Chatter
+controller can reboot after RF Tx while its USB-UART transport stays connected. The pending
+exact `> [BINARY]` line then becomes impossible without a transport-generation change.
+SerialTerminal now tracks a profile-owned controller epoch, waits for `CHATTER READY`
+before replay, bounds local presentation/mode-query waits, and expires abandoned RX state.
+
 ## Known limitations
 
 The existing firmware exposes BINARY payload presentation through the human CHAT path.
@@ -173,6 +179,9 @@ that limitation honestly instead of changing the mode behind the user's back.
 ## Result
 
 Implemented: `9ede53de6317774866097d0df8780e62200dc3c7` + fixture correction `14b9a80044461910e4a19ee63accbf7507183daf`
-Validated automated: GitHub Actions `36665521352` SUCCESS, 323 tests PASS
-Physical: NOT RUN
+Controller-reset/recovery follow-up: `28b849e49f97b7787fe180eb5e0fca870ea0ee97`
+Stale-RX/TUI-critical follow-up: `a05b885854ec98b7a2ee2a771f96ae223510cf81`
+FT1 forensic logging follow-up: `ab7933ab7c55b0091b823824aed9ea71945d91e5`
+Validated automated: GitHub Actions through `36678083788` SUCCESS
+Physical: reproduction captured; corrected path still needs revalidation
 Status: `IMPLEMENTED / PHYSICAL VALIDATION OPEN`

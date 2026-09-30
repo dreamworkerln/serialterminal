@@ -128,13 +128,21 @@ presentation emitted after first physical TxDone. `DELIVERY WAIT_ACK/ACK/FAILED`
 telemetry is diagnostic only and is not part of FT1 progression, backpressure,
 correctness or reconnect recovery. Base64 is local textual encapsulation only; the
 LoRa BINARY USER payload remains raw bytes. FT1 never changes CHAT/TELEMETRY/BOTH
-mode on behalf of a transfer.
+mode on behalf of a transfer. Unknown Chatter mode is discovered through the
+profile-owned read-only `/help` status response before BINARY submission.
+
+Chatter controller lifetime is tracked separately from generic transport connection
+generation. A firmware reset may leave USB-UART physically connected, so a pending
+profile-local BINARY settlement is invalidated by controller reset markers and replay
+is held until a new `CHATTER READY`. Generic `ManagedSession` remains unaware of
+Chatter reboot syntax.
 
 FT1 owns metadata, chunk identity, compression, hashes, receiver storage, progress,
 MISSING repair and final RESULT semantics. In-process reconnect repair keeps the same
 transfer_id/chunk_index identities, retains incomplete receiver state, selectively
 resends requested DATA ranges, and uses idempotent META/END replay when control outcome
-is missing.
+is missing. Incomplete receiver state is bounded by an FT1-owned inactivity timeout so
+an abandoned META cannot hold session mutation ownership forever.
 
 `ManagedSession` remains unaware of FT1. Its generic per-TX outcome wait and
 connection-generation hooks let a profile/application detect an ambiguous local

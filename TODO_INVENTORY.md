@@ -153,7 +153,7 @@ Status: IMPLEMENTED / PHYSICAL VALIDATION OPEN
 
 Goal: FT1/BINARY USER file transfer over current Chatter USER+ACK now supports same-process local reconnect repair with stable chunk IDs, one compact MISSING ranges message, idempotent META/END replay and selective resend when the missing set fits the transport application MTU.
 
-Automated implementation checkpoint: `dev_tui@aa2d3cc1fd65cbe228efbee6cdab4dccdbc62ada`; GitHub Actions `36655735769` SUCCESS; 313 tests PASS. The 2026-09-30 human USB stall was fixed by a profile-owned file-transfer output-mode lease: Chatter temporarily uses `BOTH` internally so DELIVERY telemetry is available for settlement, restores the prior tracked mode on terminal cleanup, and reasserts `BOTH` after reconnect. A follow-up TUI presentation fix mutes all session/controller scrollback output for the active transfer lifetime while preserving adapter/panel/log consumption and file-progress rendering, so telemetry no longer floods the TUI. META settlement remains shown as `sending`, not false `compressing 0%`. Oversized missing-range sets still terminate with stable `repair_too_large`; a full resend is an explicit new `file_send_start`, so v1 never enters an automatic restart loop.
+Automated implementation checkpoint: `dev_tui@aa2d3cc1fd65cbe228efbee6cdab4dccdbc62ada`; GitHub Actions `36655735769` SUCCESS; 313 tests PASS. The historical temporary `BOTH`/DELIVERY settlement design was superseded by TODO_030: current FT1 never mutates output mode and uses exact local BINARY presentation only as controller-local backpressure. TUI still suppresses ordinary transfer protocol noise while preserving adapter/panel/log consumption and file-progress rendering. META settlement remains shown as `sending`, not false `compressing 0%`. Oversized missing-range sets still terminate with stable `repair_too_large`; a full resend is an explicit new `file_send_start`, so v1 never enters an automatic restart loop.
 
 Key boundary: current radio transport is ordinary Chatter USER + ACK only; no per-chunk file ACK, no MISSING pagination, and no persistent resume after SerialTerminal process death. LoRa SACK is explicitly out of scope. Physical two-node transfer/reconnect validation of the updated checkpoint remains open.
 
@@ -163,7 +163,7 @@ Status: IMPLEMENTED / PHYSICAL VALIDATION OPEN
 
 Goal: ordinary FT1 is now independent of Chatter TELEMETRY and emits no transfer-owned output-mode commands. Chatter `send_binary()` settles on exact local BINARY presentation; FT1 MISSING/RESULT remains end-to-end truth.
 
-Implementation: `dev_tui@9ede53de6317774866097d0df8780e62200dc3c7` + `14b9a80044461910e4a19ee63accbf7507183daf`; GitHub Actions `36665521352` SUCCESS; 323 tests PASS. Physical two-node validation remains open.
+Implementation: `dev_tui@9ede53de6317774866097d0df8780e62200dc3c7` + `14b9a80044461910e4a19ee63accbf7507183daf`; GitHub Actions `36665521352` SUCCESS; 323 tests PASS. Physical reproduction on 2026-09-30 exposed two host-side recovery gaps: firmware reboot can leave USB connected while invalidating pending local BINARY presentation, and a peer that stops after META can leave RX ownership stale. Follow-up fixes are `28b849e49f97b7787fe180eb5e0fca870ea0ee97`, `a05b885854ec98b7a2ee2a771f96ae223510cf81` and `ab7933ab7c55b0091b823824aed9ea71945d91e5`; physical revalidation remains open.
 
 ### TODO_031 — `todos/TODO_031_SERIAL_RX_LOW_LATENCY.md`
 

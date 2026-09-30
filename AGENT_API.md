@@ -421,10 +421,16 @@ remote delivery proof. `DELIVERY WAIT_ACK/ACK/FAILED` telemetry is diagnostic on
 and does not drive FT1 state.
 
 File transfer never sends `/both`, `/chat` or `/tele`, including reconnect and
-terminal cleanup. Remote completion remains FT1-level: stable transfer/chunk identity,
-MISSING repair and final `RESULT OK`. If the current Chatter human mode is known
-TELEMETRY-only and no BINARY presentation stream is available, the operation fails
-deterministically instead of changing the operator-selected mode.
+terminal cleanup. If Chatter output mode is not yet known for the current
+connection/controller epoch, the profile issues read-only `/help` and consumes
+`[SYS] current=...`; TELEMETRY-only still fails before `/bin` rather than changing
+the operator-selected mode.
+
+Remote completion remains FT1-level: stable transfer/chunk identity, MISSING repair and
+final `RESULT OK`. A controller reboot may occur without transport disconnect. The
+profile waits for a new `CHATTER READY` and FT1 can replay the same idempotent message.
+Abandoned incoming transfers fail after 120 seconds of META/DATA/END inactivity with
+`remote_sender_timeout`, releasing session mutation ownership.
 
 ### Observe
 
@@ -856,3 +862,12 @@ SerialTransport / BleNusTransport / BluetoothSppTransport
 ```
 
 The agent layer must not directly open serial ports, create Bleak clients, or create RFCOMM sockets. A future adapter or broad autonomous test harness should wrap the same `SessionManager`/JSONL contract instead of duplicating transport/session logic.
+
+
+### FT1 forensic log records
+
+Primary interactive and agent logs include payload-free `[FT1]` records for lifecycle
+and local binary-send stages. Records identify transfer, direction, message type and DATA
+`chunk_index` where applicable; raw FT1 bytes/base64 are not included. Agent records also
+include the owning session id. This logging is diagnostic only and does not change
+file-transfer state.

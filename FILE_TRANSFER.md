@@ -216,6 +216,7 @@ sender firmware emits:
 
 The current `ChatterBinaryUserAdapter.send_binary()` waits for the exact matching
 local presentation. This is a **controller-local submission/backpressure signal**.
+The wait is bounded independently from the much longer FT1 remote RESULT timeout.
 
 It means approximately:
 
@@ -263,10 +264,18 @@ use DELIVERY telemetry as chunk truth
 
 The operator-selected output mode belongs to the operator.
 
-Current Chatter BINARY presentation is on the CHAT human stream. If the controller is
-known to be in TELEMETRY-only mode and no BINARY presentation is available, the
-adapter fails deterministically with `binary_presentation_unavailable` instead of
-silently changing mode.
+Current Chatter BINARY presentation is on the CHAT human stream. Before the first
+BINARY send of a connection/controller epoch, an unknown mode is queried read-only
+through `/help` and its `[SYS] current=...` response. SerialTerminal never sends
+`/chat`, `/tele` or `/both` for this preflight. TELEMETRY-only mode therefore fails
+deterministically with `binary_presentation_unavailable` before `/bin` is submitted.
+
+A controller reboot is not assumed to imply a USB disconnect: common USB-UART bridges
+can stay connected while the ESP restarts. Chatter profile state therefore tracks a
+separate controller epoch. If a reset/fatal marker arrives while exact
+`> [BINARY]` settlement is pending, that submission becomes ambiguous; the adapter
+waits for a new `[SYS] CHATTER READY` and reports `local_controller_reset`. FT1 may
+then replay the exact same idempotent META/DATA/END message.
 
 The relevant implementation/design record is:
 
@@ -691,7 +700,10 @@ Repeated identical END is idempotent.
 ## 14. Receiver assembly and completeness
 
 After META, the receiver creates a hidden temporary wire file and tracks received
-chunk indexes.
+chunk indexes. Incomplete incoming state also has a bounded inactivity lifetime:
+current META/DATA/END activity refreshes the deadline, and after 120 seconds with no
+FT1 activity the receiver fails that transfer with `remote_sender_timeout`, removes
+the temporary state and releases the one-transfer session lease.
 
 For each DATA:
 
@@ -1387,6 +1399,10 @@ firmware reliable USER max attempts      5
 firmware reliable USER queue depth       8
 FT1 repair rounds                        8
 FT1 local-message replays                4
+Chatter local BINARY presentation timeout 30 s
+Chatter output-mode query timeout         5 s
+Chatter controller READY timeout          15 s
+FT1 incoming inactivity timeout           120 s
 FT1 control replay interval              30 s
 FT1 maximum control replays              3
 FT1 overall remote-result timeout        3600 s
@@ -1467,6 +1483,9 @@ Before accepting a file-transfer implementation, verify all of the following:
 - [ ] no FT1 correctness dependency on TELEMETRY;
 - [ ] transfer sends no automatic `/both`, `/chat` or `/tele`;
 - [ ] local `> [BINARY]` is treated only as controller-local submission/backpressure;
+- [ ] controller reboot can invalidate a pending local presentation without a USB reconnect;
+- [ ] replay after controller reboot waits for a new `CHATTER READY`;
+- [ ] incomplete incoming transfer state expires after bounded inactivity;
 - [ ] remote completion requires FT1 RESULT OK;
 - [ ] BINARY payload capacity is taken from `BinaryUserTransport`, currently 243 bytes
       for Chatter;
@@ -1523,3 +1542,16 @@ Peer SerialTerminal:
 Completion:
     only RESULT OK after full hash/decompression/filesystem verification.
 ```
+
+
+## 34. FT1 forensic logging
+
+Interactive and agent primary logs record payload-free FT1 lifecycle/send-stage entries.
+Typical records include `binary_send_start`, `binary_send_settled`,
+`binary_send_replay`, terminal state changes and repair/control events. DATA records carry
+`chunk_index`, but never raw FT1 payload or base64. This makes a stalled transfer
+distinguishable as META/DATA/END local settlement without enabling `--log-base64`.
+
+During an active TUI transfer, ordinary protocol/BINARY scrollback remains muted, but
+critical controller-reset/reconnect lines such as `[SYS] RADIO FATAL ...`,
+`ESP-ROM:`, `[SYS] CHATTER READY`, disconnect and reconnect status bypass that mute.
