@@ -414,17 +414,17 @@ ownership after settling a pre-transfer accepted-TX fence. While owned, ordinary
 rejected with `session_busy`. Read-only `status` and ordinary `observe` remain
 available.
 
-The Chatter adapter treats existing reliable USER `DELIVERY ACK` as link-level
-binary-message settlement. Local `queued` or `tx_state=written` is never enough to
-advance file DATA progress.
+The Chatter binary adapter settles each local `/bin` submission on the exact matching
+controller `> [BINARY]` presentation after first physical TxDone. Local
+`tx_state=written` alone is not controller backpressure, and this presentation is not
+remote delivery proof. `DELIVERY WAIT_ACK/ACK/FAILED` telemetry is diagnostic only
+and does not drive FT1 state.
 
-Chatter `DELIVERY WAIT_ACK/ACK/FAILED` records are TELEMETRY output. During an
-active file transfer the profile-owned binary adapter temporarily switches the local
-controller output to `BOTH`, reasserts `BOTH` after a local reconnect before the
-next BINARY operation, and restores the previously tracked human-console mode when
-the transfer reaches a terminal state. This is internal to the profile capability;
-the JSONL file-transfer operations and generic session API do not expose Chatter
-output-mode controls.
+File transfer never sends `/both`, `/chat` or `/tele`, including reconnect and
+terminal cleanup. Remote completion remains FT1-level: stable transfer/chunk identity,
+MISSING repair and final `RESULT OK`. If the current Chatter human mode is known
+TELEMETRY-only and no BINARY presentation stream is available, the operation fails
+deterministically instead of changing the operator-selected mode.
 
 ### Observe
 

@@ -1,7 +1,7 @@
 # File transfer over binary USER
 
-SerialTerminal file transfer is an application protocol above an opaque reliable binary
-message transport. The current bundled implementation uses the Chatter `BINARY USER`
+SerialTerminal file transfer is an application protocol above an opaque BINARY
+application transport. The current bundled implementation uses the Chatter `BINARY USER`
 capability, but file semantics do not live in `ManagedSession`, Serial/BLE/SPP
 transports, or the Chatter firmware.
 
@@ -30,27 +30,23 @@ RX: < [RSSI/SNR Q] [BINARY] <BASE64>
 Base64 exists only on the local USB/BLE/SPP textual boundary. The LoRa BINARY USER
 payload and the `BinaryUserTransport` payload are raw bytes.
 
-A locally queued line or a transport `tx_state=written` is not radio delivery.
-`ChatterBinaryUserAdapter` waits for the existing reliable USER settlement:
+A locally queued line or transport `tx_state=written` is only a host transport fact.
+For Chatter, `send_binary()` additionally waits for the exact local
+`> [BINARY] <BASE64>` presentation corresponding to the submitted raw bytes. Firmware
+emits that CHAT presentation after the first successful physical TxDone, so it provides
+bounded controller-local backpressure without claiming peer delivery.
 
-```text
-DELIVERY WAIT_ACK user=<id>
-...
-DELIVERY ACK user=<same-id>
-```
+Reliable USER `DELIVERY WAIT_ACK/ACK/FAILED` lines are TELEMETRY diagnostics only.
+FT1 never waits for them, never enables `/both`, and never changes or restores the
+operator-selected CHAT/TELEMETRY/BOTH mode. If BINARY presentation is known to be
+unavailable in TELEMETRY-only mode, the Chatter adapter fails with
+`binary_presentation_unavailable` instead of changing mode. A local connection
+generation change before exact presentation becomes observable is reported upward as
+`local_disconnect`; FT1 may replay the same idempotent application message.
 
-`DELIVERY FAILED` is a link failure. FT1 does not add a second per-DATA ACK or
-retransmission protocol.
-
-For Chatter, those settlement records are TELEMETRY output while BINARY USER
-presentation is CHAT output. Therefore an FT1 transfer takes a profile-owned output
-mode lease: before TX or RX work starts, the Chatter adapter switches the local
-controller to `BOTH` and waits for `[SYS] OUTPUT BOTH`. It remembers the previously
-tracked CHAT/TELEMETRY/BOTH mode and restores it when the transfer completes, fails or
-is cancelled. If the local Serial/BLE/SPP connection generation changes while the
-same transfer remains alive, the adapter reasserts `BOTH` before the next BINARY
-message. FT1 itself only invokes a generic optional binary-transport lifecycle hook
-and does not know these Chatter commands.
+Remote truth remains entirely FT1-level: DATA identity is `transfer_id + chunk_index`,
+holes are repaired through MISSING/selective resend, and only remote `RESULT OK`
+completes the sender. FT1 does not add a second per-DATA ACK.
 
 ## FT1 framing
 
@@ -216,11 +212,10 @@ counts, state, final path or failure. Incoming transfers appear through the same
 progress model.
 
 While an FT1 transfer is active, the human TUI session-output sink is muted. Controller
-and protocol lines, including Chatter DELIVERY/ACK/PEER_REPORT telemetry and temporary
-output-mode confirmations, are not appended to the TUI scrollback. The same lines
-remain available to the profile adapter, TUI status panel and forensic/console logs,
-so settlement/reconnect logic is unaffected. The mute is released only after
-profile-owned transfer cleanup has restored the previous controller output mode.
+and protocol lines are not appended to the TUI scrollback, while the line observer,
+profile adapter, status panel and logs continue to receive them. This presentation-only
+mute is independent of controller output mode and is released when session transfer
+ownership ends; file transfer never changes CHAT/TELEMETRY/BOTH.
 
 ## Agent API
 

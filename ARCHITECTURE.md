@@ -100,7 +100,7 @@ Transport code may accept generic configuration such as BLE write UUID and recei
 
 ### File transfer layering
 
-File transfer is an application layer above an opaque reliable binary-message
+File transfer is an application layer above an opaque BINARY application transport
 abstraction:
 
 ```text
@@ -117,20 +117,18 @@ ManagedSession / Transport
 ```
 
 `BinaryUserTransport` exposes raw binary payload capacity, binary receive delivery
-and link-settled `send_binary()`. It does not expose filenames, compression,
-filesystem state or file progress.
-
-A binary transport may additionally implement the generic per-transfer
-`BinaryUserTransferLifecycle` hook. FT1 invokes it around an active transfer without
-knowing controller commands. The bundled Chatter adapter uses this hook to make
-reliable-USER settlement telemetry observable for the whole transfer and to restore
-the prior controller output mode afterwards; generic FT1/session/transport code does
-not learn Chatter output-mode semantics.
+and controller-local `send_binary()` settlement. A successful send means the local
+transport write is known and the profile-specific controller has exposed its bounded
+submission/first-transmit signal; it is explicitly not peer delivery proof. The
+transport does not expose filenames, compression, filesystem state or file progress.
 
 The bundled `chatter` profile owns the local `/bin <BASE64>` command/presentation
-adapter and maps existing reliable USER `DELIVERY WAIT_ACK/ACK/FAILED` evidence to
-binary-message settlement. Base64 is local textual encapsulation only; the LoRa
-BINARY USER payload remains raw bytes.
+adapter. It settles a send on the exact matching local `> [BINARY] <BASE64>`
+presentation emitted after first physical TxDone. `DELIVERY WAIT_ACK/ACK/FAILED`
+telemetry is diagnostic only and is not part of FT1 progression, backpressure,
+correctness or reconnect recovery. Base64 is local textual encapsulation only; the
+LoRa BINARY USER payload remains raw bytes. FT1 never changes CHAT/TELEMETRY/BOTH
+mode on behalf of a transfer.
 
 FT1 owns metadata, chunk identity, compression, hashes, receiver storage, progress,
 MISSING repair and final RESULT semantics. In-process reconnect repair keeps the same
@@ -239,7 +237,7 @@ For the bundled `chatter` profile, controller-specific ownership currently inclu
 - command classification helpers and Chatter presentation state;
 - the `chatter.reliable_user` sweep adapter, including Chatter quiet-state preparation through existing commands, command/config application and reliable-USER operational settlement;
 - host-side Chatter sweep isolation semantics: profile preparation plus generic SerialTerminal session ownership; no firmware `/sweep` command or wire-level sweep identity is part of this contract;
-- Chatter BINARY USER local base64 framing and reliable-USER delivery settlement used to implement the generic `BinaryUserTransport` capability.
+- Chatter BINARY USER local base64 framing and exact local BINARY-presentation settlement used to implement the generic `BinaryUserTransport` capability; DELIVERY telemetry remains diagnostic only.
 
 The following remain generic and must not depend on Chatter naming:
 
