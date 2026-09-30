@@ -1,7 +1,7 @@
 # Chatter FT1 telemetry-independent settlement TODO
 
 TODO-ID: TODO_030
-Status: OPEN
+Status: IMPLEMENTED / PHYSICAL VALIDATION OPEN
 
 ## Purpose
 
@@ -115,37 +115,37 @@ error before claiming transfer progress.
 
 ## Implementation
 
-- [ ] remove mandatory parsing/waiting on `DELIVERY WAIT_ACK/ACK/FAILED` from ordinary FT1
+- [x] remove mandatory parsing/waiting on `DELIVERY WAIT_ACK/ACK/FAILED` from ordinary FT1
       send progression;
-- [ ] remove `/both` acquisition, reconnect reassertion and prior-mode restoration from
+- [x] remove `/both` acquisition, reconnect reassertion and prior-mode restoration from
       file-transfer lifecycle;
-- [ ] define and document the replacement binary-send settlement/backpressure contract;
-- [ ] preserve bounded handling of local write failure / unknown outcome without blind
+- [x] define and document the replacement binary-send settlement/backpressure contract;
+- [x] preserve bounded handling of local write failure / unknown outcome without blind
       duplicate side effects;
-- [ ] preserve META/DATA/END/MISSING/RESULT reconnect repair from TODO_029;
-- [ ] decouple TUI transfer-output muting from any controller output-mode lease;
-- [ ] update `ARCHITECTURE.md`, `FILE_TRANSFER.md`, `AGENT_API.md` and the agent skill if
+- [x] preserve META/DATA/END/MISSING/RESULT reconnect repair from TODO_029;
+- [x] decouple TUI transfer-output muting from any controller output-mode lease;
+- [x] update `ARCHITECTURE.md`, `FILE_TRANSFER.md`, `AGENT_API.md` and the agent skill if
       their documented contracts change;
-- [ ] remove or update tests that currently require temporary `BOTH` and mode restoration;
-- [ ] add regressions proving no transfer-owned output-mode commands are emitted.
+- [x] remove or update tests that currently require temporary `BOTH` and mode restoration;
+- [x] add regressions proving no transfer-owned output-mode commands are emitted.
 
 ## Validation
 
 Automated:
 
-- [ ] TX file transfer succeeds in a fixture where no `DELIVERY ...` telemetry lines are
+- [x] TX file transfer succeeds in a fixture where no `DELIVERY ...` telemetry lines are
       ever produced;
-- [ ] RX file transfer and final RESULT path succeed without telemetry settlement lines;
-- [ ] starting, completing, failing and cancelling a transfer emits no `/both`, `/chat` or
+- [x] RX file transfer and final RESULT path succeed without telemetry settlement lines;
+- [x] starting, completing, failing and cancelling a transfer emits no `/both`, `/chat` or
       `/tele` commands;
-- [ ] reconnect during an active transfer emits no output-mode command and still reaches
+- [x] reconnect during an active transfer emits no output-mode command and still reaches
       deterministic repair/completion or bounded failure;
-- [ ] CHAT/BOTH/TELEMETRY tracked mode values are unchanged by the transfer lifecycle;
-- [ ] TELEMETRY-only/no-BINARY-visibility case has explicit deterministic behavior and does
+- [x] CHAT/BOTH/TELEMETRY tracked mode values are unchanged by the transfer lifecycle;
+- [x] TELEMETRY-only/no-BINARY-visibility case has explicit deterministic behavior and does
       not silently mutate mode;
-- [ ] TODO_029 selective MISSING repair, duplicate handling, RESULT semantics and
+- [x] TODO_029 selective MISSING repair, duplicate handling, RESULT semantics and
       `repair_too_large` regressions remain green;
-- [ ] full pytest suite passes because the change touches profile, session-facing binary
+- [x] full pytest suite passes because the change touches profile, session-facing binary
       transport and file-transfer behavior.
 
 Physical:
@@ -172,6 +172,7 @@ that limitation honestly instead of changing the mode behind the user's back.
 
 ## Result
 
-Implemented: `OPEN`
-Validated: `OPEN`
-Status: `OPEN`
+Implemented: `9ede53de6317774866097d0df8780e62200dc3c7` + fixture correction `14b9a80044461910e4a19ee63accbf7507183daf`
+Validated automated: GitHub Actions `36665521352` SUCCESS, 323 tests PASS
+Physical: NOT RUN
+Status: `IMPLEMENTED / PHYSICAL VALIDATION OPEN`

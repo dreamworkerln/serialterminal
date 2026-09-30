@@ -1,7 +1,7 @@
 # Serial RX low-latency delivery TODO
 
 TODO-ID: TODO_031
-Status: OPEN
+Status: IMPLEMENTED / PHYSICAL VALIDATION OPEN
 
 ## Purpose
 
@@ -103,26 +103,26 @@ must not be used as the host acceptance threshold.
 
 ## Implementation
 
-- [ ] change Serial RX so a short available burst is returned promptly instead of waiting
+- [x] change Serial RX so a short available burst is returned promptly instead of waiting
       for `read(512)` to fill or hit 0.20 s;
-- [ ] preserve an efficient blocking idle path; no high-frequency spin loop;
-- [ ] preserve full-duplex write concurrency and disconnect lifecycle;
-- [ ] audit `ManagedSession` TX queue waits and Chatter adapter condition waits to confirm
+- [x] preserve an efficient blocking idle path; no high-frequency spin loop;
+- [x] preserve full-duplex write concurrency and disconnect lifecycle;
+- [x] audit `ManagedSession` TX queue waits and Chatter adapter condition waits to confirm
       they are event-woken and do not add fixed per-chunk sleeps/poll intervals;
-- [ ] do not add compensating sleeps, pacing constants or arbitrary debounce delays;
-- [ ] add focused regression tests for short serial bursts smaller than 512 bytes;
-- [ ] run the full test suite because the generic Serial transport is shared behavior.
+- [x] do not add compensating sleeps, pacing constants or arbitrary debounce delays;
+- [x] add focused regression tests for short serial bursts smaller than 512 bytes;
+- [x] run the full test suite because the generic Serial transport is shared behavior.
 
 ## Validation
 
 Automated:
 
-- [ ] deterministic fake/PTY test: a short burst much smaller than 512 bytes becomes a
+- [x] deterministic fake/PTY test: a short burst much smaller than 512 bytes becomes a
       session RX event promptly without waiting the configured 0.20 s idle timeout;
-- [ ] idle read still blocks efficiently and shutdown/reconnect can wake it;
-- [ ] RX and TX remain concurrent;
-- [ ] fragmented and multi-line serial input retains exact bytes/order;
-- [ ] existing reconnect and forensic logging tests remain green.
+- [x] idle read still blocks efficiently and shutdown/reconnect can wake it;
+- [x] RX and TX remain concurrent;
+- [x] fragmented and multi-line serial input retains exact bytes/order;
+- [x] existing reconnect and forensic logging tests remain green.
 
 Physical regression using the same topology/file as the 2026-09-30 baseline:
 
@@ -148,6 +148,7 @@ measured/justified separately rather than hidden inside this latency fix.
 
 ## Result
 
-Implemented: `OPEN`
-Validated: `OPEN`
-Status: `OPEN`
+Implemented: `a6581f0655a5c15d538b7511ec6b2a67fc9bb693`
+Validated automated: GitHub Actions `36665201283` SUCCESS
+Physical throughput regression: NOT RUN
+Status: `IMPLEMENTED / PHYSICAL VALIDATION OPEN`
