@@ -45,7 +45,7 @@ class BinaryUserTransport(Protocol):
 
 @runtime_checkable
 class BinaryUserTransferLifecycle(Protocol):
-    """Optional per-transfer setup/cleanup around an opaque binary transport."""
+    """Опциональная подготовка/очистка вокруг одной binary-передачи."""
 
     def begin_transfer(self) -> None:
         ...

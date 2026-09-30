@@ -154,12 +154,12 @@ class ChatterBinaryUserAdapter:
         self._condition = threading.Condition()
         self._lines: deque[tuple[int, str]] = deque(maxlen=line_retention)
         self._next_seq = 1
-        # Chatter firmware boots in CHAT. Confirmed [SYS] OUTPUT/current lines
-        # update this value whenever the controller reports a later mode.
+        # Chatter firmware стартует в CHAT. Подтверждённые строки
+        # [SYS] OUTPUT/current обновляют это значение при смене режима.
         self._output_mode = "CHAT"
-        # Generation is unknown until the controller confirms a mode on a
-        # concrete connection. This avoids treating a cached boot default as
-        # confirmation for a transport generation that has not spoken yet.
+        # Поколение неизвестно, пока controller не подтвердит режим на текущем
+        # соединении: кешированный boot default не является подтверждением
+        # после reconnect.
         self._output_mode_generation: int | None = None
         self._transfer_restore_mode: str | None = None
         self.last_parse_error: str | None = None
@@ -228,9 +228,9 @@ class ChatterBinaryUserAdapter:
             ):
                 return
             if self._output_mode == mode:
-                # A reconnect can preserve the cached mode string while the
-                # controller has rebooted to CHAT. Require fresh confirmation
-                # on the current transport generation before BINARY USER work.
+                # После reconnect кеш может помнить прежний режим, хотя
+                # controller снова загрузился в CHAT. Перед BINARY USER нужна
+                # свежая фиксация режима на текущем поколении соединения.
                 self._output_mode_generation = None
 
         result = self._send_line(command)

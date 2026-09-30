@@ -536,9 +536,11 @@ class FileTransferManager:
             )
             self._records[transfer_id] = record
             self._active_id = transfer_id
+        claimed = False
         lifecycle_started = False
         try:
             self._claim(transfer_id, direction)
+            claimed = True
             if isinstance(self.transport, BinaryUserTransferLifecycle):
                 try:
                     self.transport.begin_transfer()
@@ -557,7 +559,8 @@ class FileTransferManager:
                 except Exception:
                     pass
             try:
-                self._release(transfer_id, direction)
+                if claimed:
+                    self._release(transfer_id, direction)
             finally:
                 with self._lock:
                     if self._active_id == transfer_id:
