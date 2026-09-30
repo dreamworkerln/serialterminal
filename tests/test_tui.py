@@ -500,3 +500,36 @@ def test_chatter_tui_heartbeat_timeout_refreshes_only_q_ttl():
 
     now["value"] = 32.0
     assert panel.header_status() == "RX ---/--- | TX ---/--- | Q---"
+
+
+
+def test_tui_completed_file_status_shows_only_saved_filename(monkeypatch):
+    from collections import deque
+
+    from serialterminal.tui import TerminalTui
+
+    tui = object.__new__(TerminalTui)
+    tui._file_rate_transfer_id = None
+    tui._file_rate_samples = deque()
+    tui._file_transfer = object()
+    snapshot = {
+        "transfer_id": "done",
+        "direction": "RX",
+        "filename": "Ritta02.webp",
+        "percentage": 100.0,
+        "state": "completed",
+        "chunks_completed": 495,
+        "chunks_total": 495,
+        "bytes_completed": 112208,
+        "wire_bytes": 112208,
+        "final_path": "/home/dream/coding/python/serialterminal/files/Ritta02 (1).webp",
+    }
+    monkeypatch.setattr(tui, "_file_snapshot", lambda: snapshot)
+    monkeypatch.setattr("serialterminal.tui.time.monotonic", lambda: 10.0)
+
+    lines = tui._file_status_lines(160)
+
+    assert lines[1].endswith(
+        "112208/112208 wire bytes  0.0 kbit/s  -> Ritta02 (1).webp"
+    )
+    assert "/home/dream/" not in lines[1]

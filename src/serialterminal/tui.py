@@ -480,7 +480,7 @@ class TerminalTui:
                 f"{failure.get('message', '')}"
             )
         elif snapshot.get("final_path"):
-            second += f"  -> {snapshot['final_path']}"
+            second += f"  -> {Path(str(snapshot['final_path'])).name}"
         return (first, second)
 
     @staticmethod
