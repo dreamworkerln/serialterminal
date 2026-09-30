@@ -306,9 +306,27 @@ def test_tui_file_transfer_mutes_session_screen_until_release():
     tui._write_session_screen("[SYS] OUTPUT BOTH\n")
     assert tui.output.snapshot() == ["before"]
 
+    tui._write_session_screen(
+        "[SYS] RADIO FATAL RX_RESTART after TX (-16), rebooting\n"
+    )
+    tui._write_session_screen("ESP-ROM:esp32s3-20210327\n")
+    tui._write_session_screen("[SYS] CHATTER READY\n")
+    assert tui.output.snapshot() == [
+        "before",
+        "[SYS] RADIO FATAL RX_RESTART after TX (-16), rebooting",
+        "ESP-ROM:esp32s3-20210327",
+        "[SYS] CHATTER READY",
+    ]
+
     tui._release_file_transfer(1, "TX")
     tui._write_session_screen("after\n")
-    assert tui.output.snapshot() == ["before", "after"]
+    assert tui.output.snapshot() == [
+        "before",
+        "[SYS] RADIO FATAL RX_RESTART after TX (-16), rebooting",
+        "ESP-ROM:esp32s3-20210327",
+        "[SYS] CHATTER READY",
+        "after",
+    ]
 
 
 def test_tui_file_transfer_screen_mute_does_not_block_line_observer():
@@ -532,3 +550,26 @@ def test_tui_completed_file_status_shows_only_saved_filename(monkeypatch):
         "112208/112208 wire bytes  0.0 kbit/s  -> Ritta02 (1).webp"
     )
     assert "/home/dream/" not in lines[1]
+
+
+
+def test_tui_file_transfer_mute_keeps_reconnect_status_visible():
+    import threading
+
+    from serialterminal.tui import TerminalTui
+
+    tui = object.__new__(TerminalTui)
+    tui.output = TuiOutputBuffer()
+    tui._file_transfer_screen_muted = threading.Event()
+    tui._file_transfer_screen_muted.set()
+
+    tui._write_session_screen("[disconnected: serial:/dev/fake]\n")
+    tui._write_session_screen("ordinary chatter line\n")
+    tui._write_session_screen("[waiting for selected device...]\n")
+    tui._write_session_screen("[connected: serial:/dev/fake]\n")
+
+    assert tui.output.snapshot() == [
+        "[disconnected: serial:/dev/fake]",
+        "[waiting for selected device...]",
+        "[connected: serial:/dev/fake]",
+    ]

@@ -46,6 +46,8 @@ FILE_CONTROL_REPLAY_INTERVAL_S = 30.0
 FILE_MAX_CONTROL_REPLAYS = 3
 FILE_MAX_REPAIR_ROUNDS = 8
 FILE_MAX_LOCAL_MESSAGE_REPLAYS = 4
+FILE_INCOMING_IDLE_TIMEOUT_S = 120.0
+FILE_RX_IDLE_SWEEP_S = 1.0
 _IO_CHUNK = 256 * 1024
 
 _TERMINAL_STATES = frozenset({"completed", "failed", "cancelled"})
@@ -91,6 +93,7 @@ class _IncomingState:
     record: "_TransferRecord"
     wire_path: Path
     received: dict[int, int]
+    last_activity_monotonic: float
 
 
 @dataclass(frozen=True)
@@ -439,6 +442,7 @@ class FileTransferManager:
         max_control_replays: int = FILE_MAX_CONTROL_REPLAYS,
         max_repair_rounds: int = FILE_MAX_REPAIR_ROUNDS,
         max_local_message_replays: int = FILE_MAX_LOCAL_MESSAGE_REPLAYS,
+        incoming_idle_timeout_s: float = FILE_INCOMING_IDLE_TIMEOUT_S,
     ) -> None:
         self.transport = transport
         self.receive_dir = (
@@ -461,11 +465,14 @@ class FileTransferManager:
             raise ValueError("max_repair_rounds must be positive")
         if max_local_message_replays < 0:
             raise ValueError("max_local_message_replays must be non-negative")
+        if incoming_idle_timeout_s <= 0:
+            raise ValueError("incoming_idle_timeout_s must be positive")
         self.result_timeout_s = float(result_timeout_s)
         self.control_replay_interval_s = float(control_replay_interval_s)
         self.max_control_replays = int(max_control_replays)
         self.max_repair_rounds = int(max_repair_rounds)
         self.max_local_message_replays = int(max_local_message_replays)
+        self.incoming_idle_timeout_s = float(incoming_idle_timeout_s)
 
         self._lock = threading.Lock()
         self._records: dict[int, _TransferRecord] = {}
@@ -988,7 +995,11 @@ class FileTransferManager:
 
     def _rx_loop(self) -> None:
         while not self._stopping.is_set():
-            item = self._rx_queue.get()
+            try:
+                item = self._rx_queue.get(timeout=FILE_RX_IDLE_SWEEP_S)
+            except queue.Empty:
+                self._expire_stale_incoming()
+                continue
             if item is None:
                 return
             try:
@@ -1004,6 +1015,30 @@ class FileTransferManager:
                 # Receiver protocol failures are converted to terminal transfer
                 # state inside the handlers. Never kill the shared RX worker.
                 continue
+
+    def _touch_incoming(self, incoming: _IncomingState) -> None:
+        incoming.last_activity_monotonic = time.monotonic()
+
+    def _expire_stale_incoming(self) -> None:
+        with self._lock:
+            incoming = self._incoming
+        if incoming is None:
+            return
+        idle_s = time.monotonic() - incoming.last_activity_monotonic
+        if idle_s < self.incoming_idle_timeout_s:
+            return
+        self._fail_incoming(
+            incoming,
+            FileTransferError(
+                "remote_sender_timeout",
+                (
+                    "incoming FT1 transfer received no META/DATA/END activity "
+                    f"for {self.incoming_idle_timeout_s:.0f}s"
+                ),
+                phase="receiving",
+                details={"idle_seconds": round(idle_s, 3)},
+            ),
+        )
 
     def _send_result(
         self,
@@ -1073,6 +1108,7 @@ class FileTransferManager:
                     incoming is not None
                     and incoming.record.transfer_id == meta.transfer_id
                 ):
+                    self._touch_incoming(incoming)
                     existing.event("meta_replayed")
                 return
             self._reject_incoming(
@@ -1148,6 +1184,7 @@ class FileTransferManager:
                 record=record,
                 wire_path=wire_path,
                 received={},
+                last_activity_monotonic=time.monotonic(),
             )
 
     def _incoming_for(self, transfer_id: int) -> _IncomingState | None:
@@ -1177,6 +1214,7 @@ class FileTransferManager:
         incoming = self._incoming_for(message.transfer_id)
         if incoming is None:
             return
+        self._touch_incoming(incoming)
         if incoming.record.cancel_event.is_set():
             self._fail_incoming(
                 incoming,
@@ -1260,6 +1298,7 @@ class FileTransferManager:
                     "conflicting END for completed transfer_id",
                 )
             return
+        self._touch_incoming(incoming)
         if incoming.record.cancel_event.is_set():
             self._fail_incoming(
                 incoming,
@@ -1506,6 +1545,7 @@ class FileTransferManager:
                         "original_hash_mismatch",
                         "storage_failed",
                         "repair_too_large",
+                        "remote_sender_timeout",
                         "cancelled",
                         "protocol_error",
                     }

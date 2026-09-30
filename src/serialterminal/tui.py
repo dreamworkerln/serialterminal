@@ -257,6 +257,17 @@ class TuiScrollback:
         self._anchor = self._row_key(rows[bounded])
 
 
+_FILE_TRANSFER_CRITICAL_SCREEN_MARKERS = (
+    "[SYS] RADIO FATAL ",
+    "ESP-ROM:",
+    "rst:0x",
+    "[SYS] CHATTER READY",
+    "[disconnected:",
+    "[connected:",
+    "[waiting for selected device",
+)
+
+
 _FILE_STATE_LABELS = {
     "waiting_result": "waiting for remote verification",
     "repair_requested": "repair requested",
@@ -367,8 +378,8 @@ class TerminalTui:
             ) from exc
 
         # Во время FT1 protocol/session output остаётся доступен adapter/panel/log,
-        # но не должен засорять human TUI. Mute снимается только release callback
-        # после profile-owned transfer cleanup и восстановления output mode.
+        # но BINARY/protocol flood не должен засорять human TUI. Critical reset/
+        # reconnect lines проходят через mute, чтобы recovery не выглядел зависанием.
         self._file_transfer_screen_muted.set()
 
     def _release_file_transfer(
@@ -379,8 +390,19 @@ class TerminalTui:
         del transfer_id, direction
         self._file_transfer_screen_muted.clear()
 
+    @staticmethod
+    def _critical_file_transfer_screen_text(text: str) -> str:
+        kept: list[str] = []
+        for line in text.splitlines(keepends=True):
+            if any(marker in line for marker in _FILE_TRANSFER_CRITICAL_SCREEN_MARKERS):
+                kept.append(line)
+        return "".join(kept)
+
     def _write_session_screen(self, text: str) -> None:
         if self._file_transfer_screen_muted.is_set():
+            critical = self._critical_file_transfer_screen_text(text)
+            if critical:
+                self.output.write(critical)
             return
         self.output.write(text)
 

@@ -905,3 +905,83 @@ def test_file_transfer_leaves_compressing_before_metadata_binary_send_settles(tm
         transport.release.set()
         manager.join_all(2.0)
         manager.close()
+
+
+
+def test_receiver_stale_meta_times_out_and_releases_session(tmp_path):
+    transport = _PairBinaryTransport()
+    manager = FileTransferManager(
+        transport,
+        receive_dir=tmp_path / "rx-stale",
+        id_factory=lambda: 77,
+        incoming_idle_timeout_s=0.05,
+    )
+    payload = b"x" * 20
+    meta = MetaMessage(
+        transfer_id=0x9001,
+        filename="stale.bin",
+        original_size=len(payload),
+        wire_size=len(payload),
+        compression=Compression.NONE,
+        chunk_size=data_payload_capacity(200),
+        original_sha256=hashlib.sha256(payload).digest(),
+    )
+    try:
+        manager.feed_binary(encode_message(meta, 200))
+        assert _wait_until(
+            lambda: manager.display_snapshot()
+            and manager.display_snapshot()["state"] == "receiving"
+        )
+
+        # Sweep thread is deliberately coarse in production; call the same
+        # expiry routine directly so this unit regression stays deterministic.
+        time.sleep(0.06)
+        manager._expire_stale_incoming()
+
+        failed = manager.display_snapshot()
+        assert failed is not None
+        assert failed["state"] == "failed"
+        assert failed["failure"]["code"] == "remote_sender_timeout"
+
+        next_source = tmp_path / "next.bin"
+        next_source.write_bytes(b"next")
+        started = manager.start_send(next_source)
+        assert started["direction"] == "TX"
+    finally:
+        manager.close()
+
+
+def test_receiver_activity_refreshes_stale_deadline(tmp_path):
+    transport = _PairBinaryTransport()
+    manager = FileTransferManager(
+        transport,
+        receive_dir=tmp_path / "rx-touch",
+        incoming_idle_timeout_s=0.08,
+    )
+    payload = b"0123456789" * 10
+    chunk_size = data_payload_capacity(200)
+    meta = MetaMessage(
+        transfer_id=0x9002,
+        filename="touch.bin",
+        original_size=len(payload),
+        wire_size=len(payload),
+        compression=Compression.NONE,
+        chunk_size=chunk_size,
+        original_sha256=hashlib.sha256(payload).digest(),
+    )
+    try:
+        manager.feed_binary(encode_message(meta, 200))
+        assert _wait_until(lambda: manager.display_snapshot() is not None)
+        time.sleep(0.05)
+        manager.feed_binary(
+            encode_message(DataMessage(0x9002, 0, payload), 200)
+        )
+        assert _wait_until(
+            lambda: manager.display_snapshot()
+            and manager.display_snapshot()["chunks_completed"] == 1
+        )
+        time.sleep(0.05)
+        manager._expire_stale_incoming()
+        assert manager.display_snapshot()["state"] == "receiving"
+    finally:
+        manager.close()
