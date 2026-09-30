@@ -20,6 +20,12 @@ CHATTER_TEXT_COMMANDS = frozenset(
         "/bw",
         "/config",
         "/config reset",
+        "/heartbeat",
+        "/heartbeat on",
+        "/heartbeat off",
+        "/diag",
+        "/diag on",
+        "/diag off",
         "/chat",
         "/tele",
         "/both",
@@ -72,6 +78,10 @@ def recognized_chatter_command(line: str) -> str | None:
     if candidate.startswith("/bw "):
         return candidate
     if candidate.startswith("/config "):
+        return candidate
+    if candidate.startswith("/heartbeat"):
+        return candidate
+    if candidate.startswith("/diag"):
         return candidate
     if candidate.startswith("/bin "):
         return candidate

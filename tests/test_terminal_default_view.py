@@ -75,11 +75,18 @@ def test_chatter_local_commands_are_echoed_and_queued_uniformly(
         session._submit_interactive_line("/sf 9")
         session._submit_interactive_line("/bw 31.25")
         session._submit_interactive_line("/config reset")
+        session._submit_interactive_line("/heartbeat off")
+        session._submit_interactive_line("/diag")
+        session._submit_interactive_line("/diag size 100")
+        session._submit_interactive_line("/diag size 1")
+        session._submit_interactive_line("/diag off")
 
         assert capsys.readouterr().out == (
             "/help\n/version\n/firmware\n"
             "/power\n/power 20\n/freq 480.355\n"
             "/freq-oob on\n/sf 9\n/bw 31.25\n/config reset\n"
+            "/heartbeat off\n/diag\n/diag size 100\n"
+            "/diag size 1\n/diag off\n"
         )
         assert sent == [
             "/help",
@@ -92,6 +99,11 @@ def test_chatter_local_commands_are_echoed_and_queued_uniformly(
             "/sf 9",
             "/bw 31.25",
             "/config reset",
+            "/heartbeat off",
+            "/diag",
+            "/diag size 100",
+            "/diag size 1",
+            "/diag off",
         ]
         assert session._presentation is not None
         assert session._presentation.pending_count() == 0
