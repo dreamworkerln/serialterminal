@@ -653,11 +653,11 @@ Core/reconnect deterministic tests:
 
 UI/API tests:
 
-- [x] Chatter file transfer temporarily forces `BOTH` and restores prior CHAT mode.
-- [x] Chatter file transfer restores a previously tracked TELEMETRY mode.
-- [x] Active transfer reasserts `BOTH` after connection-generation change.
-- [x] META settlement is reported as `sending`, not false `compressing 0%`.
-- [x] optional binary-transport lifecycle is invoked for both sender and receiver transfers.
+- [x] Historical `BOTH` lease behavior was superseded by TODO_030.
+- [x] Current Chatter FT1 emits no transfer-owned `/both`, `/chat` or `/tele`.
+- [x] Reconnect repair no longer reasserts controller output mode.
+- [x] META local submission is reported as `sending`, not false `compressing 0%`.
+- [x] obsolete binary-transport transfer lifecycle abstraction was removed.
 - [x] active FT1 mutes TUI session output until release while line observer/adapter still receive protocol lines.
 - [x] TUI renders `waiting_result`, `repair_requested` and `repairing` as explicit recovery states.
 - [x] agent observe returns structured repair events.
@@ -719,9 +719,9 @@ The same run also exposed a separate generic Serial RX batching defect (`read(51
 tracked independently in `TODO_031_SERIAL_RX_LOW_LATENCY.md`.
 
 These follow-ups do not invalidate the implemented transfer identity, MISSING repair,
-idempotent replay or RESULT semantics of this TODO. They do mean that final physical
-acceptance should be repeated after TODO_030/TODO_031 rather than blessing the current
-`BOTH` lease as the permanent design.
+idempotent replay or RESULT semantics of this TODO. TODO_030/TODO_031 are now
+implemented in SerialTerminal; final physical reconnect/throughput acceptance remains
+open and must use the new telemetry-independent/low-latency path.
 
 ## Known limitations
 

@@ -172,10 +172,11 @@ Sender completed только после remote verified `RESULT OK`. Receiver c
 `send_line`, `send_bytes`, `close` или sweep start. Read-only status/observe
 допустимы.
 
-Для `chatter` не переключай human-console mode вручную ради file transfer. Profile
-сам временно включает `BOTH`, чтобы видеть BINARY presentation и DELIVERY telemetry,
-после terminal state восстанавливает прежний tracked CHAT/TELEMETRY/BOTH mode, а
-после local reconnect повторно утверждает `BOTH` перед следующим BINARY сообщением.
+Для `chatter` file transfer не использует TELEMETRY как control plane и вообще не
+меняет human-console mode. Не жди `DELIVERY ACK` на каждый DATA: локальный
+`send_binary()` использует exact `> [BINARY]` как controller backpressure, а remote
+truth принадлежит FT1 MISSING/RESULT. В TELEMETRY-only режиме без BINARY presentation
+transfer должен явно завершиться capability error, а не переключать `/both`.
 
 FT1 v1 умеет in-process repair после временного local USB/BLE/SPP reconnect. Receiver
 сохраняет transfer state в памяти, после END может выдать один structured MISSING с
