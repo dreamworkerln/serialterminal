@@ -1,71 +1,78 @@
 # Current work context
 
-Status: COMPLETED
+Status: PAUSED / HANDOFF PUBLISHED
 
 ## Current operation
 
-Recovery-history repair is complete.
+The active workstream is on `dev_tui`. The latest substantial implementation work
+covers profile-aware TUI, Chatter BINARY USER, FT1 file transfer/reconnect repair,
+filesystem picker, scrollback/usability and base64 redaction.
 
-Three snapshots that were accidentally published on the source branch `dev` were removed from that branch and inserted into the authoritative `dev_handoff` chronology. The former authoritative `dev_handoff/HANDOFF_008.md` was shifted to `HANDOFF_011.md`.
+The immediate unfinished operation is a timing investigation into low file-transfer
+chunk cadence. The operator runs two SerialTerminal processes from the same source
+directory on one computer and supplied a current console trace showing redacted BINARY
+lines mostly about 0.67-0.77 seconds apart.
 
-## Canonical snapshot chain
+No root-cause conclusion has been established.
 
-```text
-HANDOFF_001.md .. HANDOFF_007.md
-  original authoritative dev_handoff history
-
-HANDOFF_008.md
-  originally dev/HANDOFF_001.md
-  created 2026-09-26T22:29:35Z
-  original commit 06b2c56c9c7e7f51125e38e8e7a2c5a14901f054
-  original blob 73548fd665c60ab58b42b4e1b6c33b8ab71eafdb
-
-HANDOFF_009.md
-  originally dev/HANDOFF_002.md
-  created 2026-09-27T01:15:27Z
-  original commit 4adc721be89fb62d7941dda829d8e06c6d5d0a1c
-  original blob 7ddb27d7bf7ec536d629236cdd8c52adfccee729
-
-HANDOFF_010.md
-  originally dev/HANDOFF_003.md
-  created 2026-09-27T01:57:25Z
-  original commit 786f7b7daee160d409042418d5b3fcfb557cfa6b
-  original blob d2bc50f0372925c438cf28a1f95234f97bb9b471
-
-HANDOFF_011.md
-  formerly dev_handoff/HANDOFF_008.md
-  created 2026-09-27T02:02:00Z
-  pre-repair blob ef37b94cdec4fa7b1a9ad8a23d7576e1f978363a
-```
-
-## Exact repair checkpoints
+## Exact baselines
 
 ```text
-staged canonical HANDOFF_009..011:
-  dev_handoff@6034e0a2223264bd988c917bfc913a482743c987
+Active source:
+  dreamworkerln/serialterminal/dev_tui@3360be0ba73b4be7693c43c94f482755bd2e0508
+  GitHub Actions 36629183647 SUCCESS
+  pytest 306 passed
 
-installed canonical HANDOFF_008 and advanced HANDOFF_INDEX -> HANDOFF_011:
-  dev_handoff@6fc387013e76256edcb6e4751475b0ba3d022401
+Stable source baseline:
+  dreamworkerln/serialterminal/dev@7cf0459c4e00a81592d447e0592e83a1142e18d9
 
-removed numbered snapshots/index from source branch:
-  dev@307b57f2c9370150f73b1c2f5196025a7d7eb4a6
+Physical evidence authority:
+  dreamworkerln/serialterminal/node_observations@4f66626663521fab98eb3b80ef4409719e9ec3a8
+
+Firmware reference inspected read-only:
+  dreamworkerln/lora-sack-protocol/dev_chat_binary@e08b3851c6ec506b12f607601a0b7e6cb1af618b
+
+Latest recovery snapshot:
+  HANDOFF_012.md
+  snapshot commit b6dfe3749583c65f0227e6f4a6b0ab06e3221747
+  snapshot blob a20dc91f39d8140b5c1c5ccabf03ef848a543a25
 ```
 
-## Authority
+## Invariants / do not change
 
-- `dev_handoff` is authoritative recovery/handoff state.
-- `dev` is SerialTerminal source/tests/docs authority.
-- `dev` keeps only the small source-side `HANDOFF.md` pointer plus the shared `HANDOFF_MANAGEMENT_POLICY.md`; numbered snapshots and `HANDOFF_INDEX.md` live on `dev_handoff`.
-- `node_observations` remains physical hardware executor/evidence authority.
-- The original mispublished snapshot commits remain in git history as provenance.
+- Firmware repo is read-only from the SerialTerminal workstream.
+- Generic session/transport code must not learn file/controller semantics.
+- Do not add/remove arbitrary pacing delays until the timing path is evidenced.
+- Do not infer that two ST processes sharing one cwd implies a process-global lock.
+- Physical evidence belongs on `node_observations`, not source branches.
+- Raw base64 stays hidden from human screen and redacted from persisted logs by default.
+
+## Last completed action
+
+`HANDOFF_012.md` was created on `dev_handoff` and read back successfully.
+
+## Next action
+
+Resume the file-transfer timing investigation:
+
+1. refetch `dev_tui`;
+2. inspect `file_transfer/core.py` sender loop;
+3. inspect `file_transfer/transport.py` and Chatter `binary_user.py`;
+4. inspect ManagedSession TX settlement and BLE write path;
+5. correlate host write -> firmware DELIVERY WAIT_ACK/ACK -> next chunk;
+6. check shared cwd paths/state for the two ST processes without assuming causality.
+
+## Required validation
+
+If a source fix is required, use focused commits, inspect deletions/function definitions,
+run targeted tests and full CI. Physical timing/reconnect claims require separate
+hardware evidence.
 
 ## Recovery order
 
-1. read current source `dev:AGENTS.md`;
-2. read this `CONTEXT.md`;
-3. read `HANDOFF_INDEX.md` on `dev_handoff`;
-4. read verified `HANDOFF_011.md`;
-5. read current `TODO_INVENTORY.md` and relevant source docs on `dev`;
-6. refetch moving `dev`, `node_observations`, and relevant firmware refs before current work.
-
-Historical snapshot state never overrides refetched source for current implementation truth.
+1. current source `dev_tui:AGENTS.md`;
+2. this `CONTEXT.md`;
+3. `HANDOFF_INDEX.md`;
+4. `HANDOFF_012.md`;
+5. current `dev_tui` docs/source;
+6. refetch moving source/evidence/firmware refs.
