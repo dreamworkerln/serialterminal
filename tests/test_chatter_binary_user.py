@@ -69,6 +69,7 @@ def test_binary_adapter_settles_on_exact_local_presentation_without_telemetry():
 
     adapter = ChatterBinaryUserAdapter(send_line)
     holder["adapter"] = adapter
+    adapter.feed_line("main", "[SYS] current=CHAT")
 
     receipt = adapter.send_binary(b"payload")
 
@@ -97,6 +98,7 @@ def test_binary_adapter_delivery_telemetry_is_not_send_settlement():
         wait_tx_outcome=lambda _tx_id, _timeout: "written",
     )
     holder["adapter"] = adapter
+    adapter.feed_line("main", "[SYS] current=CHAT")
 
     with pytest.raises(Exception) as caught:
         adapter.send_binary(b"abc")
@@ -119,6 +121,7 @@ def test_binary_adapter_checks_local_tx_outcome_before_presentation():
         connection_generation=lambda: 5,
     )
     holder["adapter"] = adapter
+    adapter.feed_line("main", "[SYS] current=CHAT")
 
     receipt = adapter.send_binary(b"abc")
 
@@ -132,6 +135,7 @@ def test_binary_adapter_reports_ambiguous_local_write():
         wait_tx_outcome=lambda _tx_id, _timeout: "unknown",
         connection_generation=lambda: 1,
     )
+    adapter.feed_line("main", "[SYS] current=CHAT")
 
     with pytest.raises(Exception) as caught:
         adapter.send_binary(b"abc")
@@ -153,6 +157,7 @@ def test_binary_adapter_reports_disconnect_before_presentation_without_mode_comm
         wait_tx_outcome=lambda _tx_id, _timeout: "written",
         connection_generation=lambda: generation["value"],
     )
+    adapter.feed_line("main", "[SYS] current=CHAT")
 
     with pytest.raises(Exception) as caught:
         adapter.send_binary(b"abc")
@@ -198,7 +203,9 @@ class _ChatterPairEndpoint:
 
     def _send_line(self, text):
         self.sent.append(text)
-        if text.startswith("/bin "):
+        if text == "/help":
+            self.adapter.feed_line("chat", "[SYS] current=CHAT")
+        elif text.startswith("/bin "):
             payload = base64.b64decode(text.split(" ", 1)[1], validate=True)
             self.adapter.feed_line("chat", _tx_line(payload))
             if self.peer is not None:
@@ -246,7 +253,11 @@ def test_ft1_end_to_end_succeeds_without_delivery_telemetry_or_mode_commands(tmp
         assert open(received["final_path"], "rb").read() == source.read_bytes()
 
         all_commands = left.sent + right.sent
-        assert all(command.startswith("/bin ") for command in all_commands)
+        assert all(
+            command == "/help" or command.startswith("/bin ")
+            for command in all_commands
+        )
+        assert all_commands.count("/help") == 2
         assert not any(
             command in {"/both", "/chat", "/tele"}
             for command in all_commands
@@ -269,3 +280,155 @@ def test_binary_adapter_cancelled_before_send_has_no_controller_side_effect():
 
     assert getattr(caught.value, "code", None) == "cancelled"
     assert sent == []
+
+
+
+def test_binary_adapter_queries_unknown_mode_without_changing_it():
+    holder = {}
+    sent = []
+
+    def send_line(text):
+        sent.append(text)
+        if text == "/help":
+            holder["adapter"].feed_line("main", "[SYS] current=CHAT")
+        elif text.startswith("/bin "):
+            holder["adapter"].feed_line("main", _tx_line(b"abc"))
+        return {"tx_id": len(sent)}
+
+    adapter = ChatterBinaryUserAdapter(
+        send_line,
+        wait_tx_outcome=lambda _tx_id, _timeout: "written",
+        mode_query_timeout_s=0.2,
+    )
+    holder["adapter"] = adapter
+
+    receipt = adapter.send_binary(b"abc")
+
+    assert receipt.tx_id == 2
+    assert sent == ["/help", encode_binary_command(b"abc")]
+    assert not any(command in {"/chat", "/tele", "/both"} for command in sent)
+
+
+def test_binary_adapter_unknown_telemetry_mode_fails_before_bin_without_mode_change():
+    holder = {}
+    sent = []
+
+    def send_line(text):
+        sent.append(text)
+        if text == "/help":
+            holder["adapter"].feed_line("main", "[SYS] current=TELEMETRY")
+        return {"tx_id": len(sent)}
+
+    adapter = ChatterBinaryUserAdapter(
+        send_line,
+        wait_tx_outcome=lambda _tx_id, _timeout: "written",
+        mode_query_timeout_s=0.2,
+    )
+    holder["adapter"] = adapter
+
+    with pytest.raises(Exception) as caught:
+        adapter.send_binary(b"abc")
+
+    assert getattr(caught.value, "code", None) == "binary_presentation_unavailable"
+    assert sent == ["/help"]
+
+
+def test_binary_adapter_controller_reboot_breaks_presentation_wait_after_ready():
+    holder = {}
+    sent = []
+
+    def send_line(text):
+        sent.append(text)
+        if text.startswith("/bin "):
+            holder["adapter"].feed_line(
+                "main",
+                "[SYS] RADIO FATAL RX_RESTART after TX (-16), rebooting",
+            )
+            holder["adapter"].feed_line("main", "ESP-ROM:esp32s3-20210327")
+            holder["adapter"].feed_line("main", "[SYS] CHATTER READY")
+        return {"tx_id": len(sent)}
+
+    adapter = ChatterBinaryUserAdapter(
+        send_line,
+        wait_tx_outcome=lambda _tx_id, _timeout: "written",
+        controller_ready_timeout_s=0.2,
+    )
+    holder["adapter"] = adapter
+    adapter.feed_line("main", "[SYS] current=CHAT")
+
+    with pytest.raises(Exception) as caught:
+        adapter.send_binary(b"abc")
+
+    assert getattr(caught.value, "code", None) == "local_controller_reset"
+    assert sent == [encode_binary_command(b"abc")]
+
+
+def test_ft1_replays_same_message_after_controller_reboot_and_ready(tmp_path):
+    class RebootOnceEndpoint(_ChatterPairEndpoint):
+        def __init__(self):
+            super().__init__()
+            self.rebooted = False
+
+        def _send_line(self, text):
+            self.sent.append(text)
+            if text == "/help":
+                self.adapter.feed_line("chat", "[SYS] current=CHAT")
+                return {"tx_id": len(self.sent), "state": "queued"}
+            if text.startswith("/bin "):
+                payload = base64.b64decode(text.split(" ", 1)[1], validate=True)
+                if not self.rebooted:
+                    self.rebooted = True
+                    if self.peer is not None:
+                        self.peer.adapter.feed_line("chat", _rx_line(payload))
+                    self.adapter.feed_line(
+                        "chat",
+                        "[SYS] RADIO FATAL RX_RESTART after TX (-16), rebooting",
+                    )
+                    self.adapter.feed_line("chat", "ESP-ROM:esp32s3-20210327")
+                    self.adapter.feed_line("chat", "[SYS] CHATTER READY")
+                    return {"tx_id": len(self.sent), "state": "queued"}
+                self.adapter.feed_line("chat", _tx_line(payload))
+                if self.peer is not None:
+                    self.peer.adapter.feed_line("chat", _rx_line(payload))
+            return {"tx_id": len(self.sent), "state": "queued"}
+
+    left = RebootOnceEndpoint()
+    right = _ChatterPairEndpoint()
+    left.peer = right
+    right.peer = left
+    tx = FileTransferManager(
+        left.adapter,
+        receive_dir=tmp_path / "left",
+        id_factory=lambda: 0xA01,
+        result_timeout_s=2.0,
+        control_replay_interval_s=0.05,
+    )
+    rx = FileTransferManager(
+        right.adapter,
+        receive_dir=tmp_path / "right",
+        id_factory=lambda: 0xA02,
+        result_timeout_s=2.0,
+        control_replay_interval_s=0.05,
+    )
+    source = tmp_path / "reboot.bin"
+    source.write_bytes(b"reboot-recovery" * 100)
+    try:
+        tx.start_send(source)
+        deadline = __import__("time").monotonic() + 3.0
+        done = None
+        while __import__("time").monotonic() < deadline:
+            done = tx.display_snapshot()
+            if done is not None and done["state"] in {"completed", "failed"}:
+                break
+            __import__("time").sleep(0.01)
+
+        assert done is not None
+        assert done["state"] == "completed"
+        assert left.rebooted is True
+        assert left.sent.count("/help") == 2
+        received = rx.display_snapshot()
+        assert received is not None
+        assert received["state"] == "completed"
+    finally:
+        tx.close()
+        rx.close()

@@ -17,7 +17,16 @@ from ...log_redaction import redact_base64_text
 
 
 BINARY_USER_MAX_BYTES = 243
+BINARY_PRESENTATION_TIMEOUT_S = 30.0
+BINARY_MODE_QUERY_TIMEOUT_S = 5.0
+CONTROLLER_READY_TIMEOUT_S = 15.0
 _BINARY_MARKER = " [BINARY] "
+_CONTROLLER_READY_MARKER = "[SYS] CHATTER READY"
+_CONTROLLER_RESET_MARKERS = (
+    "[SYS] RADIO FATAL ",
+    "ESP-ROM:",
+    "rst:0x",
+)
 
 _OUTPUT_MODE_RE = re.compile(
     r"\[SYS\] OUTPUT (?P<mode>CHAT|TELEMETRY|BOTH)\b"
@@ -121,15 +130,23 @@ class ChatterBinaryUserAdapter:
         self,
         send_line: Callable[[str], Any],
         *,
-        presentation_timeout_s: float = 3600.0,
+        presentation_timeout_s: float = BINARY_PRESENTATION_TIMEOUT_S,
+        mode_query_timeout_s: float = BINARY_MODE_QUERY_TIMEOUT_S,
+        controller_ready_timeout_s: float = CONTROLLER_READY_TIMEOUT_S,
         line_retention: int = 4096,
         wait_tx_outcome: Callable[[int, float], str | None] | None = None,
         connection_generation: Callable[[], int] | None = None,
     ) -> None:
         if presentation_timeout_s <= 0:
             raise ValueError("presentation_timeout_s must be positive")
+        if mode_query_timeout_s <= 0:
+            raise ValueError("mode_query_timeout_s must be positive")
+        if controller_ready_timeout_s <= 0:
+            raise ValueError("controller_ready_timeout_s must be positive")
         self._send_line = send_line
         self._presentation_timeout_s = float(presentation_timeout_s)
+        self._mode_query_timeout_s = float(mode_query_timeout_s)
+        self._controller_ready_timeout_s = float(controller_ready_timeout_s)
         self._wait_tx_outcome = wait_tx_outcome
         self._connection_generation = connection_generation
         self._receiver: BinaryReceiver | None = None
@@ -140,6 +157,9 @@ class ChatterBinaryUserAdapter:
         self._next_seq = 1
         self._output_mode: str | None = None
         self._output_mode_generation: int | None = None
+        self._controller_epoch = 0
+        self._controller_recovering = False
+        self._controller_ready = True
         self.last_parse_error: str | None = None
 
     def set_receiver(self, receiver: BinaryReceiver | None) -> None:
@@ -151,6 +171,22 @@ class ChatterBinaryUserAdapter:
         value = line.rstrip("\r\n")
         mode_match = _OUTPUT_MODE_RE.search(value) or _CURRENT_MODE_RE.search(value)
         with self._condition:
+            if any(marker in value for marker in _CONTROLLER_RESET_MARKERS):
+                # USB-UART может остаться физически подключённым во время reboot ESP.
+                # Поэтому controller epoch живёт отдельно от transport generation.
+                if not self._controller_recovering:
+                    self._controller_epoch += 1
+                self._controller_recovering = True
+                self._controller_ready = False
+                self._output_mode = None
+                self._output_mode_generation = None
+            elif _CONTROLLER_READY_MARKER in value:
+                self._controller_recovering = False
+                self._controller_ready = True
+                # После reboot output mode снова принадлежит новому controller epoch.
+                self._output_mode = None
+                self._output_mode_generation = None
+
             if mode_match is not None:
                 self._output_mode = mode_match.group("mode")
                 generation_reader = self._connection_generation
@@ -204,6 +240,129 @@ class ChatterBinaryUserAdapter:
             ),
         )
 
+
+    def _wait_tx_written(self, tx_id: int | None, deadline: float) -> None:
+        waiter = self._wait_tx_outcome
+        if waiter is None or tx_id is None:
+            return
+        remaining = max(0.0, deadline - time.monotonic())
+        local_outcome = waiter(tx_id, remaining)
+        if local_outcome is None:
+            raise BinaryUserError(
+                "local_tx_timeout",
+                "local controller write did not settle before timeout",
+            )
+        if local_outcome in {"unknown", "expired"}:
+            raise BinaryUserError(
+                "local_tx_unknown",
+                "local controller write outcome is ambiguous",
+            )
+        if local_outcome != "written":
+            raise BinaryUserError(
+                "local_tx_failed",
+                f"unexpected local TX outcome: {local_outcome}",
+            )
+
+    def _wait_until_controller_ready(
+        self,
+        *,
+        generation: int | None,
+        cancel_event: threading.Event | None,
+    ) -> None:
+        deadline = time.monotonic() + self._controller_ready_timeout_s
+        generation_reader = self._connection_generation
+        while True:
+            if cancel_event is not None and cancel_event.is_set():
+                raise BinaryUserCancelled()
+            with self._condition:
+                if self._controller_ready and not self._controller_recovering:
+                    return
+                remaining = deadline - time.monotonic()
+                if remaining <= 0:
+                    raise BinaryUserError(
+                        "controller_ready_timeout",
+                        "Chatter controller did not become ready after reset",
+                    )
+                self._condition.wait(timeout=min(0.25, remaining))
+            if (
+                generation_reader is not None
+                and generation is not None
+                and generation_reader() != generation
+            ):
+                raise BinaryUserError(
+                    "local_disconnect",
+                    "local connection changed while waiting for Chatter controller ready",
+                )
+
+    def _ensure_binary_presentation_available(
+        self,
+        *,
+        generation: int | None,
+        cancel_event: threading.Event | None,
+    ) -> None:
+        self._wait_until_controller_ready(
+            generation=generation,
+            cancel_event=cancel_event,
+        )
+        mode = self._known_output_mode_for_generation(generation)
+        if mode == "TELEMETRY":
+            raise self._presentation_unavailable_error()
+        if mode in {"CHAT", "BOTH"}:
+            return
+
+        # Firmware не имеет отдельного read-only mode query; /help публикует
+        # [SYS] current=... и не изменяет operator-selected output mode.
+        result = self._send_line("/help")
+        tx_id = _tx_id_from_result(result)
+        deadline = time.monotonic() + self._mode_query_timeout_s
+        self._wait_tx_written(tx_id, deadline)
+
+        generation_reader = self._connection_generation
+        with self._condition:
+            controller_epoch = self._controller_epoch
+        while True:
+            if cancel_event is not None and cancel_event.is_set():
+                raise BinaryUserCancelled()
+            mode = self._known_output_mode_for_generation(generation)
+            if mode == "TELEMETRY":
+                raise self._presentation_unavailable_error()
+            if mode in {"CHAT", "BOTH"}:
+                return
+
+            with self._condition:
+                reset_seen = self._controller_epoch != controller_epoch
+            if reset_seen:
+                self._wait_until_controller_ready(
+                    generation=generation,
+                    cancel_event=cancel_event,
+                )
+                raise BinaryUserError(
+                    "local_controller_reset",
+                    "Chatter controller reset while querying BINARY presentation mode",
+                )
+
+            if (
+                generation_reader is not None
+                and generation is not None
+                and generation_reader() != generation
+            ):
+                raise BinaryUserError(
+                    "local_disconnect",
+                    "local connection changed while querying Chatter output mode",
+                )
+
+            remaining = deadline - time.monotonic()
+            if remaining <= 0:
+                raise BinaryUserError(
+                    "binary_mode_unknown",
+                    (
+                        "Chatter output mode could not be determined without "
+                        "changing the operator-selected mode"
+                    ),
+                )
+            with self._condition:
+                self._condition.wait(timeout=min(0.25, remaining))
+
     def send_binary(
         self,
         data: bytes,
@@ -223,35 +382,19 @@ class ChatterBinaryUserAdapter:
                 if generation_reader is not None
                 else None
             )
-            if self._known_output_mode_for_generation(generation) == "TELEMETRY":
-                raise self._presentation_unavailable_error()
+            self._ensure_binary_presentation_available(
+                generation=generation,
+                cancel_event=cancel_event,
+            )
 
             with self._condition:
                 cursor = self._next_seq - 1
+                controller_epoch = self._controller_epoch
 
             result = self._send_line(command)
             tx_id = _tx_id_from_result(result)
             deadline = time.monotonic() + self._presentation_timeout_s
-
-            waiter = self._wait_tx_outcome
-            if waiter is not None and tx_id is not None:
-                remaining = max(0.0, deadline - time.monotonic())
-                local_outcome = waiter(tx_id, remaining)
-                if local_outcome is None:
-                    raise BinaryUserError(
-                        "local_tx_timeout",
-                        "local BINARY USER write did not settle before timeout",
-                    )
-                if local_outcome in {"unknown", "expired"}:
-                    raise BinaryUserError(
-                        "local_tx_unknown",
-                        "local BINARY USER write outcome is ambiguous",
-                    )
-                if local_outcome != "written":
-                    raise BinaryUserError(
-                        "local_tx_failed",
-                        f"unexpected local TX outcome: {local_outcome}",
-                    )
+            self._wait_tx_written(tx_id, deadline)
 
             cancel_sent = False
             while True:
@@ -282,6 +425,23 @@ class ChatterBinaryUserAdapter:
                         continue
                     if presented == payload:
                         return BinarySendReceipt(tx_id=tx_id)
+
+                with self._condition:
+                    reset_seen = self._controller_epoch != controller_epoch
+                if reset_seen:
+                    # Старый > [BINARY] уже не может появиться после reboot.
+                    # Дожидаемся READY, чтобы FT1 replay не попал в boot window.
+                    self._wait_until_controller_ready(
+                        generation=generation,
+                        cancel_event=cancel_event,
+                    )
+                    raise BinaryUserError(
+                        "local_controller_reset",
+                        (
+                            "Chatter controller reset before exact BINARY "
+                            "presentation became observable"
+                        ),
+                    )
 
                 if (
                     generation_reader is not None

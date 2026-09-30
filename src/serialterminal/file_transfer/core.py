@@ -666,7 +666,11 @@ class FileTransferManager:
                 raise FileTransferCancelled(str(exc)) from exc
             except BinaryUserError as exc:
                 if (
-                    exc.code in {"local_tx_unknown", "local_disconnect"}
+                    exc.code in {
+                        "local_tx_unknown",
+                        "local_disconnect",
+                        "local_controller_reset",
+                    }
                     and replay < self.max_local_message_replays
                 ):
                     replay += 1
