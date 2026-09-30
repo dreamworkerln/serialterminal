@@ -5,7 +5,7 @@ import threading
 import time
 
 from serialterminal.file_transfer import (
-    BinaryDelivery,
+    BinarySendReceipt,
     BinaryUserError,
     Compression,
     DataMessage,
@@ -50,10 +50,10 @@ class _PairBinaryTransport:
         self.sent.append(bytes(data))
         if self.peer is not None and self.peer.receiver is not None:
             self.peer.receiver(bytes(data))
-        return BinaryDelivery(tx_id=len(self.sent), user_id=f"TEST/{len(self.sent)}")
+        return BinarySendReceipt(tx_id=len(self.sent), user_id=f"TEST/{len(self.sent)}")
 
 
-class _LifecyclePairBinaryTransport(_PairBinaryTransport):
+class _LegacyLifecycleTrapTransport(_PairBinaryTransport):
     def __init__(self):
         super().__init__()
         self.lifecycle = []
@@ -100,16 +100,10 @@ class _LossyPairBinaryTransport(_PairBinaryTransport):
         remaining = self.drop_counts.get(key, 0)
         if remaining > 0:
             self.drop_counts[key] = remaining - 1
-            return BinaryDelivery(
-                tx_id=len(self.sent),
-                user_id=f"TEST/{len(self.sent)}",
-            )
+            return BinarySendReceipt(tx_id=len(self.sent))
         if self.peer is not None and self.peer.receiver is not None:
             self.peer.receiver(payload)
-        return BinaryDelivery(
-            tx_id=len(self.sent),
-            user_id=f"TEST/{len(self.sent)}",
-        )
+        return BinarySendReceipt(tx_id=len(self.sent))
 
 
 def _pair(tmp_path):
@@ -474,7 +468,7 @@ class _RemoteFailureTransport:
                     200,
                 )
             )
-        return BinaryDelivery(tx_id=1, user_id="TEST/1")
+        return BinarySendReceipt(tx_id=1)
 
 
 def test_sender_remote_result_failure_is_not_completed(tmp_path):
@@ -783,10 +777,7 @@ class _AmbiguousOncePairTransport(_PairBinaryTransport):
                 "local_tx_unknown",
                 "simulated local transport ambiguity",
             )
-        return BinaryDelivery(
-            tx_id=len(self.sent),
-            user_id=f"TEST/{len(self.sent)}",
-        )
+        return BinarySendReceipt(tx_id=len(self.sent))
 
 
 def test_file_layer_replays_same_idempotent_chunk_after_local_tx_unknown(tmp_path):
@@ -856,9 +847,9 @@ def test_default_receive_dir_is_serialterminal_source_root_files_directory():
 
 
 
-def test_file_transfer_invokes_optional_binary_transport_lifecycle(tmp_path):
-    left = _LifecyclePairBinaryTransport()
-    right = _LifecyclePairBinaryTransport()
+def test_file_transfer_does_not_invoke_legacy_binary_transport_lifecycle(tmp_path):
+    left = _LegacyLifecycleTrapTransport()
+    right = _LegacyLifecycleTrapTransport()
     left.peer = right
     right.peer = left
     tx = FileTransferManager(
@@ -886,14 +877,14 @@ def test_file_transfer_invokes_optional_binary_transport_lifecycle(tmp_path):
             )
         )
         assert done["state"] == "completed"
-        assert left.lifecycle == ["begin", "end"]
-        assert right.lifecycle == ["begin", "end"]
+        assert left.lifecycle == []
+        assert right.lifecycle == []
     finally:
         tx.close()
         rx.close()
 
 
-def test_file_transfer_leaves_compressing_before_metadata_delivery_wait(tmp_path):
+def test_file_transfer_leaves_compressing_before_metadata_binary_send_settles(tmp_path):
     source = tmp_path / "state.bin"
     source.write_bytes(b"A" * 4096)
     transport = _BlockingMetaBinaryTransport()

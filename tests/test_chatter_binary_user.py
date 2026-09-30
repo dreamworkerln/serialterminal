@@ -3,6 +3,7 @@ import threading
 
 import pytest
 
+from serialterminal.file_transfer import FileTransferManager
 from serialterminal.profiles.chatter.binary_user import (
     BINARY_USER_MAX_BYTES,
     BinaryUserParseError,
@@ -54,7 +55,7 @@ def test_invalid_binary_base64_is_distinguished_from_non_binary_line():
         parse_binary_rx_line("< [-42/7 Q99] [BINARY] !!!!")
 
 
-def test_binary_adapter_waits_for_matching_delivery_ack():
+def test_binary_adapter_settles_on_exact_local_presentation_without_telemetry():
     holder = {}
     sent = []
 
@@ -62,64 +63,23 @@ def test_binary_adapter_waits_for_matching_delivery_ack():
         sent.append(text)
         if text.startswith("/bin "):
             adapter = holder["adapter"]
-            adapter.feed_line(
-                "telemetry",
-                "DELIVERY WAIT_ACK user=A001/7 attempt=1/5 timeout=10ms queue=0",
-            )
-            adapter.feed_line(
-                "telemetry",
-                "DELIVERY ACK user=BEEF/9 attempts=1/5 elapsed=1ms queue=0",
-            )
-            adapter.feed_line(
-                "telemetry",
-                "DELIVERY ACK user=A001/7 attempts=1/5 elapsed=2ms queue=0",
-            )
+            adapter.feed_line("chat", _tx_line(b"other"))
+            adapter.feed_line("chat", _tx_line(b"payload"))
         return {"tx_id": 17, "state": "queued"}
 
     adapter = ChatterBinaryUserAdapter(send_line)
     holder["adapter"] = adapter
-    payload = b"\x00\x0a\x0d\x7f\x80\xff"
 
-    result = adapter.send_binary(payload)
+    receipt = adapter.send_binary(b"payload")
 
-    assert result.tx_id == 17
-    assert result.user_id == "A001/7"
-    assert sent == [encode_binary_command(payload)]
+    assert receipt.tx_id == 17
+    assert sent == [encode_binary_command(b"payload")]
 
 
-def test_binary_adapter_feeds_exact_received_bytes():
-    adapter = ChatterBinaryUserAdapter(lambda _text: {"tx_id": 1})
-    received = []
-    adapter.set_receiver(received.append)
-
-    payload = b"\x00abc\xff\n\r"
-    adapter.feed_line("chat", _rx_line(payload))
-
-    assert received == [payload]
-
-
-def test_binary_adapter_cancel_requests_firmware_cancel():
-    sent = []
-    cancel = threading.Event()
-    cancel.set()
-    adapter = ChatterBinaryUserAdapter(
-        lambda text: sent.append(text) or {"tx_id": len(sent)},
-    )
-
-    with pytest.raises(Exception) as caught:
-        adapter.send_binary(b"x", cancel_event=cancel)
-
-    assert getattr(caught.value, "code", None) == "cancelled"
-    assert sent[0].startswith("/bin ")
-    assert sent[-1] == "/cancel all"
-
-
-
-def test_binary_adapter_checks_local_tx_outcome_before_link_delivery():
+def test_binary_adapter_delivery_telemetry_is_not_send_settlement():
     holder = {}
-    waited = []
 
-    def send_line(text):
+    def send_line(_text):
         adapter = holder["adapter"]
         adapter.feed_line(
             "telemetry",
@@ -129,6 +89,27 @@ def test_binary_adapter_checks_local_tx_outcome_before_link_delivery():
             "telemetry",
             "DELIVERY ACK user=A001/7 attempts=1/5 elapsed=2ms queue=0",
         )
+        return {"tx_id": 3}
+
+    adapter = ChatterBinaryUserAdapter(
+        send_line,
+        presentation_timeout_s=0.03,
+        wait_tx_outcome=lambda _tx_id, _timeout: "written",
+    )
+    holder["adapter"] = adapter
+
+    with pytest.raises(Exception) as caught:
+        adapter.send_binary(b"abc")
+
+    assert getattr(caught.value, "code", None) == "binary_presentation_timeout"
+
+
+def test_binary_adapter_checks_local_tx_outcome_before_presentation():
+    holder = {}
+    waited = []
+
+    def send_line(_text):
+        holder["adapter"].feed_line("chat", _tx_line(b"abc"))
         return {"tx_id": 42}
 
     adapter = ChatterBinaryUserAdapter(
@@ -139,9 +120,9 @@ def test_binary_adapter_checks_local_tx_outcome_before_link_delivery():
     )
     holder["adapter"] = adapter
 
-    result = adapter.send_binary(b"abc")
+    receipt = adapter.send_binary(b"abc")
 
-    assert result.tx_id == 42
+    assert receipt.tx_id == 42
     assert waited and waited[0][0] == 42
 
 
@@ -158,113 +139,133 @@ def test_binary_adapter_reports_ambiguous_local_write():
     assert getattr(caught.value, "code", None) == "local_tx_unknown"
 
 
-def test_binary_adapter_reports_disconnect_before_delivery_observation():
-    generations = iter([10, 11])
-    holder = {}
+def test_binary_adapter_reports_disconnect_before_presentation_without_mode_command():
+    generation = {"value": 10}
+    sent = []
 
-    def send_line(_text):
-        holder["adapter"].feed_line(
-            "telemetry",
-            "DELIVERY WAIT_ACK user=A001/7 attempt=1/5 timeout=10ms queue=0",
-        )
+    def send_line(text):
+        sent.append(text)
+        generation["value"] = 11
         return {"tx_id": 3}
-
-    adapter = ChatterBinaryUserAdapter(
-        send_line,
-        wait_tx_outcome=lambda _tx_id, _timeout: "written",
-        connection_generation=lambda: next(generations),
-    )
-    holder["adapter"] = adapter
-
-    with pytest.raises(Exception) as caught:
-        adapter.send_binary(b"abc")
-
-    assert getattr(caught.value, "code", None) == "local_disconnect"
-
-
-
-def test_binary_adapter_file_transfer_forces_both_and_restores_chat():
-    holder = {}
-    sent = []
-
-    def send_line(text):
-        sent.append(text)
-        adapter = holder["adapter"]
-        if text == "/both":
-            adapter.feed_line("main", "[SYS] OUTPUT BOTH")
-        elif text == "/chat":
-            adapter.feed_line("main", "[SYS] OUTPUT CHAT")
-        return {"tx_id": len(sent)}
-
-    adapter = ChatterBinaryUserAdapter(
-        send_line,
-        wait_tx_outcome=lambda _tx_id, _timeout: "written",
-    )
-    holder["adapter"] = adapter
-
-    adapter.begin_transfer()
-    adapter.end_transfer()
-
-    assert sent == ["/both", "/chat"]
-
-
-def test_binary_adapter_file_transfer_restores_preexisting_telemetry_mode():
-    holder = {}
-    sent = []
-
-    def send_line(text):
-        sent.append(text)
-        adapter = holder["adapter"]
-        if text == "/both":
-            adapter.feed_line("main", "[SYS] OUTPUT BOTH")
-        elif text == "/tele":
-            adapter.feed_line("main", "[SYS] OUTPUT TELEMETRY")
-        return {"tx_id": len(sent)}
-
-    adapter = ChatterBinaryUserAdapter(
-        send_line,
-        wait_tx_outcome=lambda _tx_id, _timeout: "written",
-    )
-    holder["adapter"] = adapter
-    adapter.feed_line("main", "[SYS] OUTPUT TELEMETRY")
-
-    adapter.begin_transfer()
-    adapter.end_transfer()
-
-    assert sent == ["/both", "/tele"]
-
-
-def test_binary_adapter_reasserts_both_after_reconnect_during_transfer():
-    holder = {}
-    sent = []
-    generation = {"value": 1}
-
-    def send_line(text):
-        sent.append(text)
-        adapter = holder["adapter"]
-        if text == "/both":
-            adapter.feed_line("main", "[SYS] OUTPUT BOTH")
-        elif text.startswith("/bin "):
-            adapter.feed_line(
-                "telemetry",
-                "DELIVERY WAIT_ACK user=A001/7 attempt=1/5 timeout=10ms queue=0",
-            )
-            adapter.feed_line(
-                "telemetry",
-                "DELIVERY ACK user=A001/7 attempts=1/5 elapsed=2ms queue=0",
-            )
-        return {"tx_id": len(sent)}
 
     adapter = ChatterBinaryUserAdapter(
         send_line,
         wait_tx_outcome=lambda _tx_id, _timeout: "written",
         connection_generation=lambda: generation["value"],
     )
-    holder["adapter"] = adapter
 
-    adapter.begin_transfer()
-    generation["value"] = 2
-    result = adapter.send_binary(b"abc")
+    with pytest.raises(Exception) as caught:
+        adapter.send_binary(b"abc")
 
-    assert result.user_id == "A001/7"
-    assert sent[:3] == ["/both", "/both", encode_binary_command(b"abc")]
+    assert getattr(caught.value, "code", None) == "local_disconnect"
+    assert sent == [encode_binary_command(b"abc")]
+
+
+def test_binary_adapter_known_telemetry_mode_fails_without_mutating_output_mode():
+    sent = []
+    adapter = ChatterBinaryUserAdapter(
+        lambda text: sent.append(text) or {"tx_id": len(sent)},
+    )
+    adapter.feed_line("main", "[SYS] OUTPUT TELEMETRY")
+
+    with pytest.raises(Exception) as caught:
+        adapter.send_binary(b"abc")
+
+    assert getattr(caught.value, "code", None) == "binary_presentation_unavailable"
+    assert sent == []
+
+
+def test_binary_adapter_feeds_exact_received_bytes():
+    adapter = ChatterBinaryUserAdapter(lambda _text: {"tx_id": 1})
+    received = []
+    adapter.set_receiver(received.append)
+
+    payload = b"\x00abc\xff\n\r"
+    adapter.feed_line("chat", _rx_line(payload))
+
+    assert received == [payload]
+
+
+class _ChatterPairEndpoint:
+    def __init__(self):
+        self.peer = None
+        self.sent = []
+        self.adapter = ChatterBinaryUserAdapter(
+            self._send_line,
+            wait_tx_outcome=lambda _tx_id, _timeout: "written",
+            presentation_timeout_s=1.0,
+        )
+
+    def _send_line(self, text):
+        self.sent.append(text)
+        if text.startswith("/bin "):
+            payload = base64.b64decode(text.split(" ", 1)[1], validate=True)
+            self.adapter.feed_line("chat", _tx_line(payload))
+            if self.peer is not None:
+                self.peer.adapter.feed_line("chat", _rx_line(payload))
+        return {"tx_id": len(self.sent), "state": "queued"}
+
+
+def test_ft1_end_to_end_succeeds_without_delivery_telemetry_or_mode_commands(tmp_path):
+    left = _ChatterPairEndpoint()
+    right = _ChatterPairEndpoint()
+    left.peer = right
+    right.peer = left
+
+    tx = FileTransferManager(
+        left.adapter,
+        receive_dir=tmp_path / "left",
+        id_factory=lambda: 0x101,
+        result_timeout_s=2.0,
+        control_replay_interval_s=0.05,
+    )
+    rx = FileTransferManager(
+        right.adapter,
+        receive_dir=tmp_path / "right",
+        id_factory=lambda: 0x202,
+        result_timeout_s=2.0,
+        control_replay_interval_s=0.05,
+    )
+    source = tmp_path / "payload.bin"
+    source.write_bytes(bytes(range(256)) * 4)
+    try:
+        tx.start_send(source)
+        deadline = __import__("time").monotonic() + 3.0
+        done = None
+        while __import__("time").monotonic() < deadline:
+            done = tx.display_snapshot()
+            if done is not None and done["state"] in {"completed", "failed"}:
+                break
+            __import__("time").sleep(0.01)
+
+        assert done is not None
+        assert done["state"] == "completed"
+        received = rx.display_snapshot()
+        assert received is not None
+        assert received["state"] == "completed"
+        assert open(received["final_path"], "rb").read() == source.read_bytes()
+
+        all_commands = left.sent + right.sent
+        assert all(command.startswith("/bin ") for command in all_commands)
+        assert not any(
+            command in {"/both", "/chat", "/tele"}
+            for command in all_commands
+        )
+    finally:
+        tx.close()
+        rx.close()
+
+
+def test_binary_adapter_cancelled_before_send_has_no_controller_side_effect():
+    cancel = threading.Event()
+    cancel.set()
+    sent = []
+    adapter = ChatterBinaryUserAdapter(
+        lambda text: sent.append(text) or {"tx_id": len(sent)},
+    )
+
+    with pytest.raises(Exception) as caught:
+        adapter.send_binary(b"x", cancel_event=cancel)
+
+    assert getattr(caught.value, "code", None) == "cancelled"
+    assert sent == []

@@ -34,7 +34,6 @@ from .protocol import (
 from .transport import (
     BinaryUserCancelled,
     BinaryUserError,
-    BinaryUserTransferLifecycle,
     BinaryUserTransport,
 )
 
@@ -423,7 +422,7 @@ class _TransferRecord:
 
 
 class FileTransferManager:
-    """One-session FT1 sender/receiver over an opaque reliable binary transport."""
+    """One-session FT1 sender/receiver over an opaque BINARY application transport."""
 
     def __init__(
         self,
@@ -537,27 +536,10 @@ class FileTransferManager:
             self._records[transfer_id] = record
             self._active_id = transfer_id
         claimed = False
-        lifecycle_started = False
         try:
             self._claim(transfer_id, direction)
             claimed = True
-            if isinstance(self.transport, BinaryUserTransferLifecycle):
-                try:
-                    self.transport.begin_transfer()
-                    lifecycle_started = True
-                except BinaryUserError as exc:
-                    raise FileTransferError(
-                        "binary_prepare_failed",
-                        exc.message,
-                        phase="preparing",
-                        details={"binary_error": exc.code},
-                    ) from exc
         except Exception:
-            if lifecycle_started:
-                try:
-                    self.transport.end_transfer()
-                except Exception:
-                    pass
             try:
                 if claimed:
                     self._release(transfer_id, direction)
@@ -580,34 +562,16 @@ class FileTransferManager:
     ) -> None:
         record.terminal(state, failure=failure, final_path=final_path)
         try:
-            if isinstance(self.transport, BinaryUserTransferLifecycle):
-                try:
-                    self.transport.end_transfer()
-                except BinaryUserError as exc:
-                    record.event(
-                        "cleanup_failed",
-                        code="binary_cleanup_failed",
-                        binary_error=exc.code,
-                        message=exc.message,
-                    )
-                except Exception as exc:
-                    record.event(
-                        "cleanup_failed",
-                        code="binary_cleanup_failed",
-                        message=str(exc),
-                    )
+            self._release(record.transfer_id, record.direction)
         finally:
-            try:
-                self._release(record.transfer_id, record.direction)
-            finally:
-                with self._lock:
-                    if self._active_id == record.transfer_id:
-                        self._active_id = None
-                    self._terminal_order.append(record.transfer_id)
-                    while len(self._terminal_order) > self.max_retained_terminal:
-                        evicted = self._terminal_order.popleft()
-                        if self._active_id != evicted:
-                            self._records.pop(evicted, None)
+            with self._lock:
+                if self._active_id == record.transfer_id:
+                    self._active_id = None
+                self._terminal_order.append(record.transfer_id)
+                while len(self._terminal_order) > self.max_retained_terminal:
+                    evicted = self._terminal_order.popleft()
+                    if self._active_id != evicted:
+                        self._records.pop(evicted, None)
 
     def _prepare_source(
         self,
@@ -708,7 +672,7 @@ class FileTransferManager:
                     replay += 1
                     continue
                 raise FileTransferError(
-                    "link_delivery_failed",
+                    "binary_send_failed",
                     exc.message,
                     phase="sending",
                     details={
@@ -928,7 +892,9 @@ class FileTransferManager:
                 remaining = deadline - time.monotonic()
                 if remaining <= 0:
                     return None
-                record._condition.wait(timeout=min(0.25, remaining))
+                # cancel() и remote outcome сами notify тот же condition, поэтому
+                # здесь нет периодического pacing/polling на fast path.
+                record._condition.wait(timeout=remaining)
 
     def _await_remote_completion(
         self,
@@ -1050,7 +1016,7 @@ class FileTransferManager:
                 )
             return False
         if record is not None:
-            record.event("result_delivered", ok=result.ok)
+            record.event("result_submitted", ok=result.ok)
         return True
 
     def _send_result_async(
@@ -1411,9 +1377,10 @@ class FileTransferManager:
             if final_temp != incoming.wire_path:
                 incoming.wire_path.unlink(missing_ok=True)
 
-            # Hold the session transfer lease until RESULT itself reaches
-            # link-level settlement, so manual USER traffic cannot interleave
-            # with the receiver's final application acknowledgement.
+            # Держим session transfer lease до controller-local BINARY
+            # presentation RESULT. RF delivery здесь не доказывается: если
+            # RESULT потеряется, sender повторит idempotent META/END и receiver
+            # снова отправит RESULT.
             self._send_result(
                 record,
                 ResultMessage(
@@ -1516,8 +1483,8 @@ class FileTransferManager:
         with self._lock:
             if self._incoming is incoming:
                 self._incoming = None
-        # A claimed incoming transfer keeps session ownership through
-        # failure RESULT settlement for the same ordering reason as success.
+        # Claimed incoming transfer держит session ownership до локального
+        # BINARY submission RESULT; remote loss чинится повторным FT1 control replay.
         self._send_result(
             incoming.record,
             ResultMessage(

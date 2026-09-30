@@ -23,19 +23,17 @@ from .protocol import (
     transfer_id_text,
 )
 from .transport import (
-    BinaryDelivery,
+    BinarySendReceipt,
     BinaryUserCancelled,
     BinaryUserError,
     BinaryUserTransport,
-    BinaryUserTransferLifecycle,
 )
 
 __all__ = [
-    "BinaryDelivery",
+    "BinarySendReceipt",
     "BinaryUserCancelled",
     "BinaryUserError",
     "BinaryUserTransport",
-    "BinaryUserTransferLifecycle",
     "Compression",
     "DataMessage",
     "EndMessage",

@@ -2,16 +2,17 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 import threading
-from typing import Callable, Protocol, runtime_checkable
+from typing import Callable, Protocol
 
 
 BinaryReceiver = Callable[[bytes], None]
 
 
 @dataclass(frozen=True)
-class BinaryDelivery:
+class BinarySendReceipt:
+    """Controller-local BINARY submission receipt, never remote delivery proof."""
+
     tx_id: int | None
-    user_id: str | None
 
 
 class BinaryUserError(RuntimeError):
@@ -27,7 +28,11 @@ class BinaryUserCancelled(BinaryUserError):
 
 
 class BinaryUserTransport(Protocol):
-    """Opaque reliable binary-message transport used by file-transfer core."""
+    """Opaque BINARY application transport used by the FT1 file layer.
+
+    send_binary() settles only controller-local submission/backpressure. Remote
+    application completion belongs to FT1 RESULT/MISSING semantics.
+    """
 
     payload_capacity: int
 
@@ -39,16 +44,5 @@ class BinaryUserTransport(Protocol):
         data: bytes,
         *,
         cancel_event: threading.Event | None = None,
-    ) -> BinaryDelivery:
-        ...
-
-
-@runtime_checkable
-class BinaryUserTransferLifecycle(Protocol):
-    """Опциональная подготовка/очистка вокруг одной binary-передачи."""
-
-    def begin_transfer(self) -> None:
-        ...
-
-    def end_transfer(self) -> None:
+    ) -> BinarySendReceipt:
         ...
