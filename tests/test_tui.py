@@ -432,3 +432,71 @@ def test_tui_file_status_shows_wire_rate_right_of_wire_bytes(monkeypatch):
     lines = tui._file_status_lines(120)
 
     assert lines[1].endswith("1000/112208 wire bytes  8.0 kbit/s")
+
+
+
+def test_chatter_tui_header_updates_rx_and_q_from_user_traffic():
+    now = {"value": 100.0}
+    panel = ChatterTuiPanel(clock=lambda: now["value"])
+
+    panel.consume_line(
+        "telemetry",
+        "RX USER session=792D seq=204 frame=255B user=243B RX=-16/5 Q100 disposition=0",
+    )
+
+    assert panel.header_status() == "RX -16/5 | TX ---/--- | Q100"
+
+
+def test_chatter_tui_link_metrics_expire_independently_by_ttl():
+    now = {"value": 0.0}
+    panel = ChatterTuiPanel(
+        link_metric_ttl_s=15.0,
+        clock=lambda: now["value"],
+    )
+
+    panel.consume_line(
+        "telemetry",
+        (
+            "RX HEARTBEAT PONG request=118C/4 frame=16B "
+            "RX=-116/-18 TX=-111/-12 Q87"
+        ),
+    )
+    assert panel.header_status() == "RX -116/-18 | TX -111/-12 | Q87"
+
+    now["value"] = 10.0
+    panel.consume_line(
+        "telemetry",
+        "RX USER session=792D seq=204 frame=255B user=243B RX=-16/5 Q100 disposition=0",
+    )
+
+    now["value"] = 16.0
+    assert panel.header_status() == "RX -16/5 | TX ---/--- | Q100"
+
+    now["value"] = 26.0
+    assert panel.header_status() == "RX ---/--- | TX ---/--- | Q---"
+
+
+def test_chatter_tui_heartbeat_timeout_refreshes_only_q_ttl():
+    now = {"value": 0.0}
+    panel = ChatterTuiPanel(
+        link_metric_ttl_s=15.0,
+        clock=lambda: now["value"],
+    )
+    panel.consume_line(
+        "telemetry",
+        (
+            "RX HEARTBEAT PONG request=118C/4 frame=16B "
+            "RX=-116/-18 TX=-111/-12 Q87"
+        ),
+    )
+
+    now["value"] = 16.0
+    panel.consume_line(
+        "telemetry",
+        "HEARTBEAT TIMEOUT request=118C/5 outcome=NRP Q=82 recovery=1 jitter<=10ms",
+    )
+
+    assert panel.header_status() == "RX ---/--- | TX ---/--- | Q82"
+
+    now["value"] = 32.0
+    assert panel.header_status() == "RX ---/--- | TX ---/--- | Q---"

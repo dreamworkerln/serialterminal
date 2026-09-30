@@ -1,6 +1,8 @@
 from __future__ import annotations
 
+from collections.abc import Callable
 import re
+import time
 
 from ..base import ProfileAction, SendLine
 
@@ -41,10 +43,22 @@ _SF_RE = re.compile(r"\[SYS\] SF (?P<sf>\d+)")
 _BW_RE = re.compile(r"\[SYS\] BW (?P<bw>[0-9.]+) kHz")
 
 
+LINK_METRIC_TTL_S = 15.0
+
+
 class ChatterTuiPanel:
     """Small profile-owned radio summary rendered by the generic TUI."""
 
-    def __init__(self) -> None:
+    def __init__(
+        self,
+        *,
+        link_metric_ttl_s: float = LINK_METRIC_TTL_S,
+        clock: Callable[[], float] | None = None,
+    ) -> None:
+        if link_metric_ttl_s <= 0:
+            raise ValueError("link_metric_ttl_s must be positive")
+        self._link_metric_ttl_s = float(link_metric_ttl_s)
+        self._clock = time.monotonic if clock is None else clock
         self.node = "?"
         self.power = "?"
         self.frequency = "?"
@@ -59,6 +73,9 @@ class ChatterTuiPanel:
         self.link_tx_rssi: str | None = None
         self.link_tx_snr: str | None = None
         self.link_quality: str | None = None
+        self._link_rx_at: float | None = None
+        self._link_tx_at: float | None = None
+        self._link_quality_at: float | None = None
 
     def connected_actions(self) -> tuple[ProfileAction, ...]:
         # TUI status is refreshed after every reconnect without teaching the
@@ -98,6 +115,12 @@ class ChatterTuiPanel:
 
         match = _RX_USER_RE.search(text)
         if match:
+            now = self._clock()
+            self.link_rx_rssi = match.group("rssi")
+            self.link_rx_snr = match.group("snr")
+            self.link_quality = self._known_metric(match.group("quality"))
+            self._link_rx_at = now
+            self._link_quality_at = now
             self.last_rx = (
                 f'{match.group("rssi")}/{match.group("snr")} '
                 f'Q{match.group("quality")}'
@@ -105,25 +128,34 @@ class ChatterTuiPanel:
 
         match = _RX_HEARTBEAT_PONG_RE.search(text)
         if match:
+            now = self._clock()
             self.link_rx_rssi = match.group("rx_rssi")
             self.link_rx_snr = match.group("rx_snr")
             self.link_tx_rssi = match.group("tx_rssi")
             self.link_tx_snr = match.group("tx_snr")
             self.link_quality = match.group("quality")
+            self._link_rx_at = now
+            self._link_tx_at = now
+            self._link_quality_at = now
 
         match = _DIAG_LINK_RE.search(text)
         if match:
+            now = self._clock()
             self.link_rx_rssi = self._known_metric(match.group("rx_rssi"))
             self.link_rx_snr = self._known_metric(match.group("rx_snr"))
             self.link_tx_rssi = self._known_metric(match.group("tx_rssi"))
             self.link_tx_snr = self._known_metric(match.group("tx_snr"))
             self.link_quality = match.group("quality")
+            self._link_rx_at = now
+            self._link_tx_at = now
+            self._link_quality_at = now
 
         match = _HEARTBEAT_TIMEOUT_RE.search(text)
         if match:
             # Normal heartbeat timeout carries the current local Q but no
             # trustworthy opposite-direction RSSI/SNR pair.
             self.link_quality = match.group("quality")
+            self._link_quality_at = self._clock()
 
     @staticmethod
     def _known_metric(value: str) -> str | None:
@@ -135,10 +167,32 @@ class ChatterTuiPanel:
             return "---/---"
         return f"{rssi}/{snr}"
 
+    def _fresh(self, updated_at: float | None, now: float) -> bool:
+        if updated_at is None:
+            return False
+        age = now - updated_at
+        return 0.0 <= age <= self._link_metric_ttl_s
+
     def header_status(self) -> str:
-        rx = self._metric_pair(self.link_rx_rssi, self.link_rx_snr)
-        tx = self._metric_pair(self.link_tx_rssi, self.link_tx_snr)
-        quality = self.link_quality if self.link_quality is not None else "---"
+        now = self._clock()
+        rx = (
+            self._metric_pair(self.link_rx_rssi, self.link_rx_snr)
+            if self._fresh(self._link_rx_at, now)
+            else "---/---"
+        )
+        tx = (
+            self._metric_pair(self.link_tx_rssi, self.link_tx_snr)
+            if self._fresh(self._link_tx_at, now)
+            else "---/---"
+        )
+        quality = (
+            self.link_quality
+            if (
+                self.link_quality is not None
+                and self._fresh(self._link_quality_at, now)
+            )
+            else "---"
+        )
         return f"RX {rx} | TX {tx} | Q{quality}"
 
     def status_lines(self) -> tuple[str, ...]:
