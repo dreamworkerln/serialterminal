@@ -277,3 +277,77 @@ def test_tui_command_history_is_bounded_and_deduplicates_adjacent():
 
     assert len(tui.command_history) == 500
     assert tui.command_history[-1] == "/x 599"
+
+
+
+class _FenceSession:
+    def capture_tx_fence(self):
+        return 17
+
+    def wait_tx_fence(self, fence, timeout):
+        assert fence == 17
+        assert timeout == 10.0
+
+
+def test_tui_file_transfer_mutes_session_screen_until_release():
+    import threading
+
+    from serialterminal.tui import TerminalTui
+
+    tui = object.__new__(TerminalTui)
+    tui.output = TuiOutputBuffer()
+    tui.session = _FenceSession()
+    tui._file_transfer_screen_muted = threading.Event()
+
+    tui._write_session_screen("before\n")
+    tui._claim_file_transfer(1, "TX")
+    tui._write_session_screen(
+        "DELIVERY ACK user=1234/1 attempts=1/5 elapsed=49ms queue=0\n"
+    )
+    tui._write_session_screen("[SYS] OUTPUT BOTH\n")
+    assert tui.output.snapshot() == ["before"]
+
+    tui._release_file_transfer(1, "TX")
+    tui._write_session_screen("after\n")
+    assert tui.output.snapshot() == ["before", "after"]
+
+
+def test_tui_file_transfer_screen_mute_does_not_block_line_observer():
+    import threading
+
+    from serialterminal.session import SessionLine
+    from serialterminal.tui import TerminalTui
+
+    class _Panel:
+        def __init__(self):
+            self.lines = []
+
+        def consume_line(self, stream, line):
+            self.lines.append((stream, line))
+
+    class _Adapter:
+        def __init__(self):
+            self.lines = []
+
+        def feed_line(self, stream, line):
+            self.lines.append((stream, line))
+
+    tui = object.__new__(TerminalTui)
+    tui.output = TuiOutputBuffer()
+    tui._file_transfer_screen_muted = threading.Event()
+    tui._file_transfer_screen_muted.set()
+    tui.panel = _Panel()
+    tui._binary_adapter = _Adapter()
+
+    line = SessionLine(
+        seq=1,
+        timestamp=1.0,
+        stream="main",
+        text="DELIVERY ACK user=1234/1 attempts=1/5 elapsed=49ms queue=0",
+    )
+    tui._observe_line(line)
+    tui._write_session_screen(line.text + "\n")
+
+    assert tui.output.snapshot() == []
+    assert tui.panel.lines == [("main", line.text)]
+    assert tui._binary_adapter.lines == [("main", line.text)]

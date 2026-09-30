@@ -298,6 +298,7 @@ class TerminalTui:
         self._was_connected = False
         self._binary_adapter = None
         self._file_transfer: FileTransferManager | None = None
+        self._file_transfer_screen_muted = threading.Event()
         self.session = self._make_session(transport, profile)
         self._configure_file_transfer(profile)
 
@@ -313,7 +314,7 @@ class TerminalTui:
             reconnect_delay=self.reconnect_delay,
             device_chooser=self.selector.choose_transport_menu,
             profile=profile,
-            screen_writer=self.output.write,
+            screen_writer=self._write_session_screen,
             line_observer=self._observe_line,
             log_base64=self.log_base64,
         )
@@ -333,6 +334,7 @@ class TerminalTui:
                 adapter,
                 receive_dir=self.receive_dir,
                 claim_transfer=self._claim_file_transfer,
+                release_transfer=self._release_file_transfer,
             )
             if adapter is not None
             else None
@@ -360,6 +362,24 @@ class TerminalTui:
                 phase="preparing",
                 details={"tx_id": exc.tx_id},
             ) from exc
+
+        # Во время FT1 protocol/session output остаётся доступен adapter/panel/log,
+        # но не должен засорять human TUI. Mute снимается только release callback
+        # после profile-owned transfer cleanup и восстановления output mode.
+        self._file_transfer_screen_muted.set()
+
+    def _release_file_transfer(
+        self,
+        transfer_id: int,
+        direction: str,
+    ) -> None:
+        del transfer_id, direction
+        self._file_transfer_screen_muted.clear()
+
+    def _write_session_screen(self, text: str) -> None:
+        if self._file_transfer_screen_muted.is_set():
+            return
+        self.output.write(text)
 
     def _observe_line(self, line: SessionLine) -> None:
         if self.panel is not None:
