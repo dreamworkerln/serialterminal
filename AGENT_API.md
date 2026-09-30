@@ -497,7 +497,7 @@ encapsulation is:
 ```
 
 Base64 exists only on the local controller boundary. The LoRa BINARY USER and FT1
-transport payload are raw bytes up to the profile-advertised capacity (currently 200
+transport payload are raw bytes up to the profile-advertised capacity (currently 243
 bytes for Chatter).
 
 FT1 v1 supports temporary local transport reconnect repair while the same
