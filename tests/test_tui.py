@@ -736,3 +736,89 @@ def test_tui_ctrl_c_keeps_default_quit_semantics():
     tui._handle_key(None, "\x03", 10)
 
     assert tui.running is False
+
+
+
+def test_tui_f2_preempts_active_transfer_and_switches_device(monkeypatch):
+    from serialterminal.tui import TerminalTui
+
+    class _Transport:
+        def __init__(self, key):
+            self.device_key = key
+            self.closed = False
+
+        def close(self):
+            self.closed = True
+
+    class _Session:
+        def __init__(self, transport):
+            self.transport = transport
+
+        def _current_transport(self):
+            return self.transport
+
+    class _Selector:
+        def __init__(self, selected):
+            self.selected = selected
+            self.calls = 0
+
+        def choose_transport_menu(self):
+            self.calls += 1
+            return self.selected
+
+    class _Screen:
+        def refresh(self):
+            pass
+
+    old = _Transport("old")
+    new = _Transport("new")
+    tui = object.__new__(TerminalTui)
+    tui.session = _Session(old)
+    tui.selector = _Selector(new)
+    tui.status = ""
+    tui._file_transfer_active = lambda: True
+    events = []
+    tui._abort_file_transfer_for_operator = lambda: events.append("abort") or True
+    tui._replace_tui_session = lambda transport: events.append(
+        ("replace", transport.device_key)
+    )
+    monkeypatch.setattr("serialterminal.tui.curses.endwin", lambda: None)
+
+    tui._choose_device(_Screen())
+
+    assert tui.selector.calls == 1
+    assert events == ["abort", ("replace", "new")]
+    assert tui.status == "File transfer aborted; switching device"
+
+
+def test_tui_f2_cancel_keeps_active_transfer_running(monkeypatch):
+    from serialterminal.tui import TerminalTui
+
+    class _Transport:
+        device_key = "old"
+
+    class _Session:
+        def _current_transport(self):
+            return _Transport()
+
+    class _Selector:
+        def choose_transport_menu(self):
+            return None
+
+    class _Screen:
+        def refresh(self):
+            pass
+
+    tui = object.__new__(TerminalTui)
+    tui.session = _Session()
+    tui.selector = _Selector()
+    tui.status = ""
+    tui._file_transfer_active = lambda: True
+    tui._abort_file_transfer_for_operator = lambda: (_ for _ in ()).throw(
+        AssertionError("cancelled chooser must not abort transfer")
+    )
+    monkeypatch.setattr("serialterminal.tui.curses.endwin", lambda: None)
+
+    tui._choose_device(_Screen())
+
+    assert tui.status == "Device selection cancelled; file transfer continues"
