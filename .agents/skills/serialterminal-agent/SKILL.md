@@ -265,3 +265,10 @@ Permission errors Bluetooth/D-Bus/sandbox не означают отсутств
 - finalized `.log`/`.console.log` проверяй targeted search/count/summary; не загружай целиком большой forensic log обратно в model context без конкретной forensic необходимости.
 
 Firmware-specific команды, RSSI/SNR/Q, radio collision rules, reboot/cancel semantics и acceptance criteria остаются в project-specific skill, а не здесь.
+
+
+## Exclusive serial ownership
+
+Не открывай один и тот же tty одновременно из двух процессов SerialTerminal. На POSIX
+transport запрашивает exclusive ownership; второй процесс остаётся reconnecting и
+получает `connect-failed` с `serial device busy: <path>` до освобождения порта.

@@ -440,3 +440,48 @@ def test_connection_generation_changes_only_on_lifecycle_boundaries():
     assert session.connection_generation() == initial + 1
     session._record_event("state", state="disconnected")
     assert session.connection_generation() == initial + 2
+
+
+class BusyConnectTransport(FakeTransport):
+    def __init__(self):
+        super().__init__()
+        self.busy = True
+
+    @property
+    def connect_error(self):
+        return "serial device busy: /dev/fake" if self.busy else None
+
+    def connect(self):
+        self.connect_count += 1
+        if self.busy:
+            return False
+        self.connected = True
+        return True
+
+
+def test_connect_failure_event_is_actionable_and_deduplicated():
+    transport = BusyConnectTransport()
+    session = ManagedSession(transport)
+    failures = []
+    session.on_connect_failed = lambda description, error: failures.append(
+        (description, error)
+    )
+
+    assert session._connect() is False
+    assert session._connect() is False
+
+    events = session.events_after(0, kinds=["error"])
+    assert len(events) == 1
+    assert events[0].state == "connect-failed"
+    assert events[0].error == "serial device busy: /dev/fake"
+    assert failures == [
+        ("fake-device", "serial device busy: /dev/fake")
+    ]
+
+    transport.busy = False
+    assert session._connect() is True
+
+    session._disconnect()
+    transport.busy = True
+    assert session._connect() is False
+    assert len(session.events_after(0, kinds=["error"])) == 2

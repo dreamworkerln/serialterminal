@@ -297,3 +297,12 @@ application ownership. Device/profile preemption creates a fresh ManagedSession 
 reconnect-safe TX queued for the old physical target cannot migrate to a newly selected
 target. Ctrl+C retains its ordinary process-quit meaning and is not repurposed as a
 file-transfer control.
+
+
+### Serial physical-port ownership
+
+On POSIX, `SerialTransport` requests pyserial exclusive ownership before opening a
+tty. Two cooperating SerialTerminal processes must not read the same physical serial
+stream concurrently: the second process remains disconnected and reports
+`serial device busy: <path>`. This ownership is transport-level and independent of
+controller profile, FT1, or session mutation ownership.

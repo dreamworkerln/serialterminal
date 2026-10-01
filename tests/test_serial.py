@@ -1,5 +1,8 @@
+import errno
 import threading
 import time
+
+from serial import SerialException
 
 from serialterminal.transports import serial as serial_transport
 from serialterminal.transports.serial import SerialDeviceIdentity, SerialTransport
@@ -413,3 +416,54 @@ def test_serial_idle_low_latency_read_is_cancelled_by_disconnect():
     assert result["data"] == b""
     assert fake.closed.is_set()
     assert not transport.is_connected
+
+
+class FakeConnectSerial:
+    def __init__(self, *, open_error=None):
+        self.is_open = False
+        self.open_error = open_error
+        self.exclusive = None
+        self.dtr = None
+        self.rts = None
+        self.closed = False
+
+    def open(self):
+        if self.open_error is not None:
+            raise self.open_error
+        assert self.exclusive is True
+        self.is_open = True
+
+    def close(self):
+        self.is_open = False
+        self.closed = True
+
+
+def test_serial_connect_requests_exclusive_posix_ownership(monkeypatch):
+    fake = FakeConnectSerial()
+    transport = SerialTransport(device="/dev/fake")
+    monkeypatch.setattr(transport, "_choose_device", lambda: "/dev/fake")
+    monkeypatch.setattr(transport, "_disable_hupcl", lambda _ser: None)
+    monkeypatch.setattr(serial_transport.serial, "Serial", lambda: fake)
+
+    assert transport.connect() is True
+    assert fake.exclusive is True
+    assert transport.connect_error is None
+
+    transport.disconnect()
+    assert fake.closed is True
+
+
+def test_serial_connect_reports_exclusive_port_busy(monkeypatch):
+    error = SerialException(
+        errno.EAGAIN,
+        "Could not exclusively lock port /dev/fake: "
+        "Resource temporarily unavailable",
+    )
+    fake = FakeConnectSerial(open_error=error)
+    transport = SerialTransport(device="/dev/fake")
+    monkeypatch.setattr(transport, "_choose_device", lambda: "/dev/fake")
+    monkeypatch.setattr(transport, "_disable_hupcl", lambda _ser: None)
+    monkeypatch.setattr(serial_transport.serial, "Serial", lambda: fake)
+
+    assert transport.connect() is False
+    assert transport.connect_error == "serial device busy: /dev/fake"

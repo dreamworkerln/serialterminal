@@ -269,6 +269,9 @@ class TerminalSession(ManagedSession):
         self._reset_received_decoders()
         self.write_output(f"\n[connected: {transport.description}]\n\n")
 
+    def on_connect_failed(self, description: str, error: str) -> None:
+        self.write_output(error + "\n")
+
     def on_received(self, chunk: ReceivedChunk) -> None:
         self.write_received(chunk)
 

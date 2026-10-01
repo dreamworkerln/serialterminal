@@ -871,3 +871,13 @@ and local binary-send stages. Records identify transfer, direction, message type
 `chunk_index` where applicable; raw FT1 bytes/base64 are not included. Agent records also
 include the owning session id. This logging is diagnostic only and does not change
 file-transfer state.
+
+
+### Busy serial target
+
+POSIX serial sessions request exclusive tty ownership. If another cooperating
+SerialTerminal process already owns the same port, the session remains in reconnect
+state and emits one deduplicated raw `error` event for that failure epoch with
+`state="connect-failed"` and text `serial device busy: <path>`. It may connect later
+after the other owner releases the port; no second SerialTerminal reader is allowed
+to consume the same serial byte stream concurrently.

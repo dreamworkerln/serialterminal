@@ -44,6 +44,11 @@ class Transport(ABC):
         return None
 
     @property
+    def connect_error(self) -> str | None:
+        """Actionable reason for the most recent failed connect attempt."""
+        return None
+
+    @property
     def stream_capabilities(self) -> tuple[str, ...]:
         """Logical receive streams exposed by this transport."""
         return ("main",)

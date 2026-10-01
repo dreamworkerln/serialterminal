@@ -158,6 +158,7 @@ class ManagedSession:
         self._tx_outcomes: dict[int, str] = {}
         self._tx_outcome_order: deque[int] = deque()
         self._connection_generation = 0
+        self._last_connect_error: str | None = None
         self._event_decode_lock = threading.Lock()
         self._event_decoders: dict[str, codecs.IncrementalDecoder] = {}
 
@@ -453,6 +454,9 @@ class ManagedSession:
     def on_connected(self, transport: Transport) -> None:
         """Frontend hook called after transport connect and connect preamble."""
 
+    def on_connect_failed(self, description: str, error: str) -> None:
+        """Frontend hook called for a new actionable connect failure."""
+
     def on_received(self, chunk: ReceivedChunk) -> None:
         """Frontend hook called after an RX event is recorded."""
 
@@ -471,8 +475,20 @@ class ManagedSession:
 
         transport = self._current_transport()
         if not transport.connect():
+            error = transport.connect_error
+            if error is not None and error != self._last_connect_error:
+                self._last_connect_error = error
+                self._record_event(
+                    "error",
+                    error=error,
+                    state="connect-failed",
+                    device_key=transport.device_key,
+                    description=transport.description,
+                )
+                self.on_connect_failed(transport.description, error)
             return False
 
+        self._last_connect_error = None
         if (
             self.connection_paused.is_set()
             or self.stop_event.is_set()

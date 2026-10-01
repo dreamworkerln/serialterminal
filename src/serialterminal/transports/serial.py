@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
+import errno
 import glob
 import os
 import threading
@@ -59,6 +60,16 @@ def _stable_serial_key(
         return f"serial-location:{vid:04x}:{pid:04x}:{location}"
 
     return f"serial-path:{real_path}"
+
+
+def _serial_busy_error(exc: BaseException) -> bool:
+    value = str(exc).lower()
+    return (
+        getattr(exc, "errno", None) == errno.EBUSY
+        or "could not exclusively lock port" in value
+        or "device or resource busy" in value
+        or "resource temporarily unavailable" in value
+    )
 
 
 def _meaningful_port_text(value: object) -> bool:
@@ -244,6 +255,7 @@ class SerialTransport(Transport):
         self.baud = baud
         self.last_device: str | None = None
         self._serial: serial.Serial | None = None
+        self._connect_error: str | None = None
 
         # `_lock` protects only connection state. It must never be held across
         # blocking pyserial read/write calls or RX would serialize TX.
@@ -274,6 +286,10 @@ class SerialTransport(Transport):
         if device is None:
             device = self.requested_device or "auto"
         return f"serial:{device} @ {self.baud}"
+
+    @property
+    def connect_error(self) -> str | None:
+        return self._connect_error
 
     def _choose_device(self) -> str | None:
         if self.identity is not None:
@@ -307,6 +323,7 @@ class SerialTransport(Transport):
             if self.is_connected:
                 return True
 
+            self._connect_error = None
             device = self._choose_device()
             if not device:
                 return False
@@ -324,6 +341,12 @@ class SerialTransport(Transport):
                 ser.dsrdtr = False
                 ser.xonxoff = False
 
+                if os.name == "posix":
+                    # pyserial реализует exclusive через неблокирующий flock.
+                    # Это не даёт двум процессам SerialTerminal одновременно
+                    # читать один tty и разрывать firmware stream между собой.
+                    ser.exclusive = True
+
                 # Best-effort no-reset sequence for ESP32-style auto-reset circuits.
                 ser.dtr = True
                 ser.rts = False
@@ -338,7 +361,9 @@ class SerialTransport(Transport):
                     self._state_changed.notify_all()
                 self.last_device = device
                 return True
-            except (SerialException, OSError):
+            except (SerialException, OSError) as exc:
+                if _serial_busy_error(exc):
+                    self._connect_error = f"serial device busy: {device}"
                 return False
 
     def disconnect(self) -> None:

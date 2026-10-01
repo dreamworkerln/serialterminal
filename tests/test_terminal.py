@@ -654,3 +654,24 @@ def test_human_presentation_queue_recovers_after_controller_reboot_without_disco
         assert "pending presentation queue full" not in "".join(fake_stdout.writes)
     finally:
         session.log_file.close()
+
+
+def test_human_terminal_renders_serial_busy_connect_error(tmp_path):
+    output = []
+    session = _chatter_session(
+        DummyTransport(),
+        log_path=tmp_path / "terminal.log",
+        screen_writer=output.append,
+    )
+    try:
+        session.on_connect_failed(
+            "serial:/dev/fake @ 115200",
+            "serial device busy: /dev/fake",
+        )
+
+        assert output == ["serial device busy: /dev/fake\n"]
+        assert "serial device busy: /dev/fake" in (
+            tmp_path / "terminal.log"
+        ).read_text()
+    finally:
+        session.log_file.close()
