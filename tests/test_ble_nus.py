@@ -125,6 +125,7 @@ def test_name_only_transport_uses_exact_arbitrary_advertised_name(monkeypatch):
         assert transport.target_name == "Plain Controller"
         assert transport.target_address is None
         assert transport.device_key == "ble-name:plain controller"
+        assert transport.identity_label == "Plain Controller"
     finally:
         transport.close()
 

@@ -77,6 +77,11 @@ class ChatterTuiPanel:
         self._link_tx_at: float | None = None
         self._link_quality_at: float | None = None
 
+    def set_transport_identity(self, label: str | None) -> None:
+        # BLE уже знает advertised peer name до controller /id. Это только
+        # UI seed: явная firmware identity ниже остаётся authoritative.
+        self.node = label or "?"
+
     def connected_actions(self) -> tuple[ProfileAction, ...]:
         # TUI status is refreshed after every reconnect without teaching the
         # generic frontend any Chatter command names or response syntax.

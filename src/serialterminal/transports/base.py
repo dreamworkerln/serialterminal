@@ -39,6 +39,11 @@ class Transport(ABC):
         return self.description
 
     @property
+    def identity_label(self) -> str | None:
+        """Human-visible peer identity already known from the transport."""
+        return None
+
+    @property
     def stream_capabilities(self) -> tuple[str, ...]:
         """Logical receive streams exposed by this transport."""
         return ("main",)

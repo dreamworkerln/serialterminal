@@ -59,6 +59,30 @@ def test_chatter_tui_panel_refresh_is_profile_owned():
     ]
 
 
+def test_chatter_tui_panel_uses_transport_identity_before_id_response():
+    panel = ChatterTuiPanel()
+
+    panel.set_transport_identity("LoRa-Chatter-1B44")
+
+    assert panel.status_lines()[0].startswith(
+        "Radio  LoRa-Chatter-1B44 |"
+    )
+
+
+def test_chatter_tui_firmware_identity_overrides_transport_seed():
+    panel = ChatterTuiPanel()
+    panel.set_transport_identity("Advertised-Name")
+
+    panel.consume_line(
+        "chat",
+        "[SYS] CHATTER NODE LoRa-Chatter-72E0",
+    )
+
+    assert panel.status_lines()[0].startswith(
+        "Radio  LoRa-Chatter-72E0 |"
+    )
+
+
 
 def test_tui_progress_bar_is_determinate_and_bounded():
     from serialterminal.tui import TerminalTui
@@ -614,3 +638,47 @@ def test_tui_ft1_event_logger_skips_progress_and_records_send_stage():
     assert '"kind":"binary_send_start"' in text
     assert '"chunk_index":7' in text
     assert "base64" not in text
+
+
+
+def test_tui_syncs_panel_identity_from_transport():
+    from serialterminal.tui import TerminalTui
+    from serialterminal.transports.base import Transport
+
+    class _Transport(Transport):
+        @property
+        def is_connected(self):
+            return False
+
+        @property
+        def description(self):
+            return "fake"
+
+        @property
+        def identity_label(self):
+            return "LoRa-Chatter-1B44"
+
+        def connect(self):
+            return False
+
+        def disconnect(self):
+            pass
+
+        def read(self, size=512):
+            return b""
+
+        def write(self, data):
+            pass
+
+    class _Panel:
+        def __init__(self):
+            self.identity = None
+
+        def set_transport_identity(self, label):
+            self.identity = label
+
+    tui = object.__new__(TerminalTui)
+    tui.panel = _Panel()
+    tui._sync_panel_transport_identity(_Transport())
+
+    assert tui.panel.identity == "LoRa-Chatter-1B44"

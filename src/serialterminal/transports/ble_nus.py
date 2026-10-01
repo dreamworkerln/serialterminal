@@ -139,6 +139,10 @@ class BleNusTransport(Transport):
         return f"ble-name:{self.target_name.lower()}"
 
     @property
+    def identity_label(self) -> str | None:
+        return self.target_name
+
+    @property
     def stream_capabilities(self) -> tuple[str, ...]:
         return tuple(dict.fromkeys(item.stream for item in self.receive_streams))
 

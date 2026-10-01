@@ -315,6 +315,7 @@ class TerminalTui:
         self._file_rate_transfer_id: str | None = None
         self._file_rate_samples: deque[tuple[float, int]] = deque()
         self.session = self._make_session(transport, profile)
+        self._sync_panel_transport_identity(transport)
         self._configure_file_transfer(profile)
 
     def _make_session(
@@ -422,6 +423,14 @@ class TerminalTui:
                 self.output.write(critical)
             return
         self.output.write(text)
+
+    def _sync_panel_transport_identity(self, transport: Transport) -> None:
+        panel = self.panel
+        if panel is None:
+            return
+        setter = getattr(panel, "set_transport_identity", None)
+        if callable(setter):
+            setter(transport.identity_label)
 
     def _observe_line(self, line: SessionLine) -> None:
         if self.panel is not None:
@@ -829,6 +838,9 @@ class TerminalTui:
         curses.endwin()
         try:
             self.session._change_device()
+            self._sync_panel_transport_identity(
+                self.session._current_transport()
+            )
         finally:
             stdscr.refresh()
         self.status = "Device chooser closed"
@@ -868,6 +880,7 @@ class TerminalTui:
         self.panel = next_profile.make_tui_panel()
         self.transport = new_transport
         self.session = self._make_session(new_transport, next_profile)
+        self._sync_panel_transport_identity(new_transport)
         self._configure_file_transfer(next_profile)
         self._was_connected = False
         self.session.start()

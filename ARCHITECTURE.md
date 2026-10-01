@@ -103,7 +103,7 @@ That settlement may require controller-specific protocol evidence, but interpret
 
 `Transport`, `SerialTransport`, `BleNusTransport` and `BluetoothSppTransport` own physical I/O only.
 
-Transport code may accept generic configuration such as BLE write UUID and receive characteristic/stream mappings. It must not import controller profiles, normalize controller aliases, recognize controller commands, infer application identity, or re-export controller constants.
+Transport code may accept generic configuration such as BLE write UUID and receive characteristic/stream mappings. It may also expose a controller-agnostic human identity label already known from the physical transport, such as a BLE advertised name; profile UI may use that only as a presentation hint until controller-owned identity output arrives. Transport code must not import controller profiles, normalize controller aliases, recognize controller commands, infer application identity, or re-export controller constants.
 
 ### File transfer layering
 
