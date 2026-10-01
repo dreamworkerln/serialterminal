@@ -38,11 +38,23 @@ def _install_fake_ble(monkeypatch):
 
     class FakeScanner:
         devices = []
+        discover_calls = 0
+        find_calls = []
 
         @staticmethod
         async def discover(timeout=3.0):
+            FakeScanner.discover_calls += 1
             await asyncio.sleep(0.001)
             return list(FakeScanner.devices)
+
+        @staticmethod
+        async def find_device_by_address(address, timeout=10.0):
+            FakeScanner.find_calls.append((address, timeout))
+            wanted = address.lower()
+            for device in FakeScanner.devices:
+                if device.address.lower() == wanted:
+                    return device
+            return None
 
     class FakeClient:
         last = None
@@ -275,5 +287,26 @@ def test_power_cycle_reconnect_ignores_stale_ble_callbacks(monkeypatch):
             "secondary",
             b"fresh-secondary\n",
         )
+    finally:
+        transport.close()
+
+
+
+def test_known_ble_address_uses_early_address_finder_instead_of_full_scan(monkeypatch):
+    FakeDevice, FakeScanner, _FakeClient = _install_fake_ble(monkeypatch)
+    selected = FakeDevice("Controller", "AA:42")
+    FakeScanner.devices = [selected]
+    FakeScanner.discover_calls = 0
+    FakeScanner.find_calls = []
+
+    transport = ble_nus.BleNusTransport(
+        BleDeviceIdentity(selected.name, selected.address),
+        scan_timeout=0.25,
+        connect_timeout=0.05,
+    )
+    try:
+        assert transport.connect()
+        assert FakeScanner.find_calls == [("AA:42", 0.25)]
+        assert FakeScanner.discover_calls == 0
     finally:
         transport.close()

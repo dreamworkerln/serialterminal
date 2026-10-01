@@ -5,6 +5,7 @@ import sys
 from dataclasses import dataclass
 from typing import Any
 
+from .device_cache import confirmed_devices
 from .profiles import (
     GENERIC_PROFILE,
     PROFILE_NAMES,
@@ -47,6 +48,7 @@ class DeviceSelector:
         self.baud = baud
         self.scan_seconds = scan_seconds
         self.profile = profile
+        self._known_candidates: dict[str, DeviceCandidate] = {}
 
     @staticmethod
     def _serial_candidate(item: SerialDeviceIdentity) -> DeviceCandidate:
@@ -111,6 +113,101 @@ class DeviceSelector:
                 raise
             return []
 
+    def _remember_candidates(
+        self,
+        candidates: list[DeviceCandidate],
+    ) -> None:
+        # BLE/SPP discovery дорогой, поэтому уже найденные physical identities
+        # живут в selector до конца процесса и доступны F2 без нового scan.
+        for candidate in candidates:
+            if candidate.kind in {"ble", "spp"}:
+                self._known_candidates[candidate.key] = candidate
+
+    def _cached_ble_candidates(self) -> list[DeviceCandidate]:
+        from .transports.ble_nus import BleDeviceIdentity
+
+        result: list[DeviceCandidate] = []
+        for record in confirmed_devices("ble", "nus"):
+            address = record.get("address")
+            if not isinstance(address, str) or not address:
+                continue
+            name = record.get("name")
+            identity = BleDeviceIdentity(
+                str(name or "<unnamed>"),
+                address,
+            )
+            result.append(
+                DeviceCandidate(
+                    kind="ble",
+                    key=identity.key,
+                    label=f"BLE  {identity.name}",
+                    detail=identity.address,
+                    identity=identity,
+                )
+            )
+        return result
+
+    def _cached_spp_candidates(self) -> list[DeviceCandidate]:
+        from .transports.bluetooth_spp import SppDeviceIdentity
+
+        result: list[DeviceCandidate] = []
+        for record in confirmed_devices("classic", "spp"):
+            address = record.get("address")
+            channel = record.get("metadata", {}).get("rfcomm_channel")
+            if (
+                not isinstance(address, str)
+                or not address
+                or not isinstance(channel, int)
+                or channel <= 0
+            ):
+                continue
+            identity = SppDeviceIdentity(
+                str(record.get("name") or "<unnamed>"),
+                address,
+                channel,
+            )
+            result.append(
+                DeviceCandidate(
+                    kind="spp",
+                    key=identity.key,
+                    label=f"SPP  {identity.name}",
+                    detail=(
+                        f"{identity.address}  RFCOMM channel={identity.channel}"
+                    ),
+                    identity=identity,
+                )
+            )
+        return result
+
+    def known_candidates(self) -> list[DeviceCandidate]:
+        """Return known terminal targets without active Bluetooth discovery."""
+        by_key: dict[str, DeviceCandidate] = {}
+
+        if self.scope in {"auto", "serial"}:
+            for candidate in self._discover_serial_candidates():
+                by_key[candidate.key] = candidate
+
+        allowed = {
+            "auto": {"ble", "spp"},
+            "ble": {"ble"},
+            "spp": {"spp"},
+            "serial": set(),
+        }[self.scope]
+        for candidate in self._known_candidates.values():
+            if candidate.kind in allowed:
+                by_key[candidate.key] = candidate
+
+        if "ble" in allowed:
+            for candidate in self._cached_ble_candidates():
+                by_key.setdefault(candidate.key, candidate)
+        if "spp" in allowed:
+            for candidate in self._cached_spp_candidates():
+                by_key.setdefault(candidate.key, candidate)
+
+        result = list(by_key.values())
+        result.sort(key=self._candidate_sort_key)
+        return result
+
     @staticmethod
     def _candidate_sort_key(candidate: DeviceCandidate) -> tuple[int, str, str]:
         kind_order = {"serial": 0, "ble": 1, "spp": 2}
@@ -131,6 +228,7 @@ class DeviceSelector:
             candidates.extend(self._discover_spp_candidates())
 
         candidates.sort(key=self._candidate_sort_key)
+        self._remember_candidates(candidates)
         return candidates
 
     @staticmethod
@@ -151,6 +249,8 @@ class DeviceSelector:
         return True
 
     def make_transport(self, candidate: DeviceCandidate) -> Transport:
+        self._remember_candidates([candidate])
+
         if candidate.kind == "serial":
             if not isinstance(candidate.identity, SerialDeviceIdentity):
                 raise TypeError("invalid serial device identity")
@@ -420,11 +520,14 @@ class DeviceSelector:
             return selected
 
     def choose_transport_menu(self) -> Transport | None:
-        """Explicit hotkey menu: always show choices and allow cancel."""
-        print("\nScanning devices for target selection...")
-        candidates = self.discover()
+        """Explicit hotkey menu over already known targets; no Bluetooth scan."""
+        print("\nKnown devices for target selection:")
+        candidates = self.known_candidates()
         if not candidates:
-            print("No devices are currently visible.")
+            print(
+                "No known devices. Use the Bluetooth scanner to discover "
+                "new targets first."
+            )
             return None
 
         selected = self.choose_from(

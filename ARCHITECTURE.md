@@ -30,6 +30,13 @@ Generic discovery owns:
 - sticky physical transport identity and reconnect target selection;
 - generic chooser/scanner behavior.
 
+The human device chooser and the capability scanner have different latency contracts.
+The chooser reuses already discovered/cached physical identities and must not perform an
+active Bluetooth scan before showing known targets. Explicit scanner/discovery paths
+remain responsible for finding new devices. A known BLE address may still require a
+bounded backend lookup before GATT connect, but that lookup should terminate when the
+specific address is found rather than waiting for a full discovery window.
+
 Generic discovery must not infer controller type from an advertised name and must not contain controller-specific aliases or trusted name prefixes. A profile does not whitelist a device into discovery.
 
 ### Controller profiles

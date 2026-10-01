@@ -203,6 +203,18 @@ class BleNusTransport(Transport):
         )
 
     async def _find_target_device(self) -> Any | None:
+        if self.target_address:
+            finder = getattr(BleakScanner, "find_device_by_address", None)
+            if finder is not None:
+                try:
+                    return await finder(
+                        self.target_address,
+                        timeout=self.scan_timeout,
+                    )
+                except TypeError:
+                    # Bleak variants may expose a narrower finder signature.
+                    return await finder(self.target_address)
+
         devices = await _scan_raw_devices(self.scan_timeout)
 
         if self.target_address:

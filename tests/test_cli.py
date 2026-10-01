@@ -259,3 +259,70 @@ def test_agent_log_base64_flag_is_explicit_opt_in(monkeypatch):
 
     assert cli_module.main(["agent", "--log-base64"]) == 0
     assert observed["log_base64"] is True
+
+
+
+def test_device_selector_fast_menu_uses_remembered_ble_without_discovery(monkeypatch):
+    selector = DeviceSelector("ble")
+    candidate = _candidate(1)
+    selector._remember_candidates([candidate])
+
+    monkeypatch.setattr(
+        selector,
+        "discover",
+        lambda: (_ for _ in ()).throw(
+            AssertionError("F2 chooser must not run active discovery")
+        ),
+    )
+    monkeypatch.setattr(
+        selector,
+        "choose_from",
+        lambda candidates, **_kwargs: candidates[0],
+    )
+    built = object()
+    monkeypatch.setattr(selector, "make_transport", lambda selected: built)
+
+    assert selector.choose_transport_menu() is built
+
+
+def test_device_selector_remembers_all_discovered_ble_targets(monkeypatch):
+    selector = DeviceSelector("ble")
+    one = _candidate(1)
+    two = _candidate(2)
+
+    monkeypatch.setattr(selector, "_discover_ble_candidates", lambda: [one, two])
+
+    assert selector.discover() == [one, two]
+    monkeypatch.setattr(
+        selector,
+        "_discover_ble_candidates",
+        lambda: (_ for _ in ()).throw(
+            AssertionError("known target list must not scan again")
+        ),
+    )
+
+    assert selector.known_candidates() == [one, two]
+
+
+def test_device_selector_fast_menu_reads_confirmed_ble_cache(tmp_path, monkeypatch):
+    from serialterminal.device_cache import update_cached_device
+
+    monkeypatch.setenv(
+        "SERIALTERMINAL_CACHE_FILE",
+        str(tmp_path / "devices.json"),
+    )
+    update_cached_device(
+        kind="ble",
+        address="AA:BB:CC:DD:EE:01",
+        name="Cached NUS",
+        capabilities={"nus": True},
+        probe_status="ok",
+    )
+
+    selector = DeviceSelector("ble")
+    candidates = selector.known_candidates()
+
+    assert len(candidates) == 1
+    assert candidates[0].kind == "ble"
+    assert candidates[0].label == "BLE  Cached NUS"
+    assert candidates[0].detail == "AA:BB:CC:DD:EE:01"
