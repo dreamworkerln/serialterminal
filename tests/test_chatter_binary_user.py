@@ -432,3 +432,29 @@ def test_ft1_replays_same_message_after_controller_reboot_and_ready(tmp_path):
     finally:
         tx.close()
         rx.close()
+
+
+
+def test_binary_adapter_local_tx_wait_is_cancel_responsive():
+    cancel = __import__("threading").Event()
+    waits = []
+
+    def wait_tx(_tx_id, timeout):
+        waits.append(timeout)
+        cancel.set()
+        return None
+
+    adapter = ChatterBinaryUserAdapter(
+        lambda _text: {"tx_id": 1},
+        wait_tx_outcome=wait_tx,
+        connection_generation=lambda: 1,
+        presentation_timeout_s=30.0,
+    )
+    adapter.feed_line("main", "[SYS] current=CHAT")
+
+    with pytest.raises(Exception) as caught:
+        adapter.send_binary(b"abc", cancel_event=cancel)
+
+    assert type(caught.value).__name__ == "BinaryUserCancelled"
+    assert waits
+    assert max(waits) <= 0.1

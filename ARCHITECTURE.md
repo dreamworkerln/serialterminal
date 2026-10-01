@@ -286,3 +286,14 @@ To add another controller family:
 7. add tests proving both the new profile behavior and continued zero-controller-assumption behavior of `generic`.
 
 If a proposed change requires the generic core to recognize a controller name, advertised-name prefix, alias, command, application identity, or protocol outcome, treat that as an architecture warning: first determine whether the behavior belongs in a profile or a consuming project-specific layer.
+
+
+### Human TUI preemption of file transfer
+
+The interactive TUI gives explicit operator actions precedence over an active FT1
+transfer. F6, manual submitted input, an explicit device change, or a profile change
+may abort the current TUI file transfer instead of trapping the operator behind
+application ownership. Device/profile preemption creates a fresh ManagedSession so
+reconnect-safe TX queued for the old physical target cannot migrate to a newly selected
+target. Ctrl+C retains its ordinary process-quit meaning and is not repurposed as a
+file-transfer control.

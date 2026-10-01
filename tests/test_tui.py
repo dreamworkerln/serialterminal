@@ -682,3 +682,58 @@ def test_tui_syncs_panel_identity_from_transport():
     tui._sync_panel_transport_identity(_Transport())
 
     assert tui.panel.identity == "LoRa-Chatter-1B44"
+
+
+
+def test_tui_manual_input_preempts_active_file_transfer_instead_of_locking():
+    from serialterminal.tui import TerminalTui
+
+    submitted = []
+
+    class _Session:
+        def _submit_interactive_line(self, line):
+            submitted.append(line)
+
+    tui = object.__new__(TerminalTui)
+    tui.input_text = "/config"
+    tui.input_cursor = len(tui.input_text)
+    tui.command_history = []
+    tui.history_index = None
+    tui.history_draft = ""
+    tui.scrollback = type("_Scroll", (), {"follow": lambda self: None})()
+    tui.session = _Session()
+    tui.status = ""
+    tui._abort_and_reconnect_same_target = lambda: True
+
+    tui._submit_input()
+
+    assert submitted == ["/config"]
+    assert tui.input_text == ""
+    assert "File transfer aborted" in tui.status
+
+
+def test_tui_f6_uses_local_abort_path_not_process_exit():
+    from serialterminal.tui import TerminalTui
+
+    tui = object.__new__(TerminalTui)
+    tui.status = ""
+    tui._file_transfer_active = lambda: True
+    tui._file_snapshot = lambda: {"state": "sending"}
+    calls = []
+    tui._abort_and_reconnect_same_target = lambda: calls.append("abort") or True
+
+    tui._cancel_file()
+
+    assert calls == ["abort"]
+    assert tui.status == "File transfer aborted locally; reconnecting same target"
+
+
+def test_tui_ctrl_c_keeps_default_quit_semantics(monkeypatch):
+    import curses
+    from serialterminal.tui import TerminalTui
+
+    tui = object.__new__(TerminalTui)
+    tui.running = True
+    tui._handle_key(None, "\x03", 10)
+
+    assert tui.running is False

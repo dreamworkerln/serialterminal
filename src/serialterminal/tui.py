@@ -336,13 +336,14 @@ class TerminalTui:
         )
 
     def _configure_file_transfer(self, profile: TerminalProfile) -> None:
+        session = self.session
         adapter = profile.make_binary_user_transport(
-            lambda text: {
-                "tx_id": self.session.queue_line(text),
+            lambda text, bound_session=session: {
+                "tx_id": bound_session.queue_line(text),
                 "state": "queued",
             },
-            wait_tx_outcome=self.session.wait_tx_outcome,
-            connection_generation=self.session.connection_generation,
+            wait_tx_outcome=session.wait_tx_outcome,
+            connection_generation=session.connection_generation,
         )
         self._binary_adapter = adapter
         self._file_transfer = (
@@ -351,18 +352,30 @@ class TerminalTui:
                 receive_dir=self.receive_dir,
                 claim_transfer=self._claim_file_transfer,
                 release_transfer=self._release_file_transfer,
-                event_sink=self._log_file_transfer_event,
+                event_sink=(
+                    lambda event, bound_session=session:
+                        self._log_file_transfer_event(
+                            event,
+                            session=bound_session,
+                        )
+                ),
             )
             if adapter is not None
             else None
         )
 
-    def _log_file_transfer_event(self, event: dict) -> None:
+    def _log_file_transfer_event(
+        self,
+        event: dict,
+        *,
+        session: TerminalSession | None = None,
+    ) -> None:
         # Progress уже виден в dedicated TUI status и создаёт по записи на chunk.
         # Остальные FT1 lifecycle/send-stage события остаются в primary log.
         if event.get("kind") == "progress":
             return
-        self.session._record_primary(
+        target_session = self.session if session is None else session
+        target_session._record_primary(
             "FT1",
             json.dumps(
                 event,
@@ -810,6 +823,82 @@ class TerminalTui:
             pass
         stdscr.refresh()
 
+    def _close_file_transfer_manager(self) -> None:
+        manager = self._file_transfer
+        self._file_transfer = None
+        self._binary_adapter = None
+        self._file_transfer_screen_muted.clear()
+        if manager is not None:
+            manager.close()
+
+    def _replace_tui_session(
+        self,
+        new_transport: Transport,
+        *,
+        profile: TerminalProfile | None = None,
+    ) -> None:
+        next_profile = self.profile if profile is None else profile
+        old_session = self.session
+
+        # Human preemption must create a new ManagedSession. Reusing the old
+        # reconnect-safe TX queue could otherwise deliver an old FT1 /bin to a
+        # newly selected physical target after F2.
+        self._close_file_transfer_manager()
+        old_session._reveal_sent_presentations()
+        old_session.stop()
+        old_session.close_logs()
+
+        self.profile = next_profile
+        self.selector.profile = next_profile
+        self.panel = next_profile.make_tui_panel()
+        self.transport = new_transport
+        self.session = self._make_session(new_transport, next_profile)
+        self._sync_panel_transport_identity(new_transport)
+        self._configure_file_transfer(next_profile)
+        self._was_connected = False
+        self.session.start()
+
+    def _abort_file_transfer_for_operator(self) -> bool:
+        manager = self._file_transfer
+        snapshot = self._file_snapshot()
+        if (
+            manager is None
+            or snapshot is None
+            or snapshot.get("state") in {"completed", "failed", "cancelled"}
+        ):
+            return False
+
+        try:
+            manager.cancel(str(snapshot["transfer_id"]))
+        except FileTransferError:
+            pass
+        # Mute belongs to FT1 convenience, not to operator ownership. Once the
+        # human preempts the transfer, controller output must be visible at once.
+        self._file_transfer_screen_muted.clear()
+        return True
+
+    def _abort_and_reconnect_same_target(self) -> bool:
+        if not self._file_transfer_active():
+            return False
+
+        old_transport = self.session._current_transport()
+        try:
+            replacement = self.selector.recreate_transport(
+                old_transport,
+                self.profile,
+            )
+        except (TransportError, ValueError) as exc:
+            self._abort_file_transfer_for_operator()
+            self.status = (
+                "File transfer cancellation requested; "
+                f"target reconnect could not be prepared: {exc}"
+            )
+            return True
+
+        self._abort_file_transfer_for_operator()
+        self._replace_tui_session(replacement)
+        return True
+
     def _run_connected_actions(self) -> None:
         connected = self.session.connected_event.is_set()
         if connected and not self._was_connected and self.panel is not None:
@@ -820,35 +909,55 @@ class TerminalTui:
         self._was_connected = connected
 
     def _submit_input(self) -> None:
-        if self._file_transfer_active():
-            self.status = "Manual USER input is locked during active file transfer"
-            return
         line = self.input_text
+        preempted = self._abort_and_reconnect_same_target()
         self._remember_command(line)
         self.input_text = ""
         self.input_cursor = 0
         self.scrollback.follow()
-        self.status = ""
+        self.status = (
+            "File transfer aborted; reconnecting same target for manual input"
+            if preempted
+            else ""
+        )
         self.session._submit_interactive_line(line)
 
     def _choose_device(self, stdscr) -> None:
-        if self._file_transfer_active():
-            self.status = "Cancel or finish file transfer before changing device"
-            return
         curses.endwin()
         try:
-            self.session._change_device()
-            self._sync_panel_transport_identity(
-                self.session._current_transport()
-            )
+            if not self._file_transfer_active():
+                self.session._change_device()
+                self._sync_panel_transport_identity(
+                    self.session._current_transport()
+                )
+                self.status = "Device chooser closed"
+                return
+
+            old_transport = self.session._current_transport()
+            try:
+                new_transport = self.selector.choose_transport_menu()
+            except KeyboardInterrupt:
+                raise
+            except Exception as exc:
+                self.status = f"Device chooser failed: {exc}"
+                return
+
+            if new_transport is None:
+                self.status = "Device selection cancelled; file transfer continues"
+                return
+            if new_transport.device_key == old_transport.device_key:
+                new_transport.close()
+                self.status = "Selected the same device; file transfer continues"
+                return
+
+            self._abort_file_transfer_for_operator()
+            self._replace_tui_session(new_transport)
+            self.status = "File transfer aborted; switching device"
         finally:
             stdscr.refresh()
-        self.status = "Device chooser closed"
 
     def _switch_profile(self) -> None:
-        if self._file_transfer_active():
-            self.status = "Cancel or finish file transfer before changing profile"
-            return
+        file_preempt = self._file_transfer_active()
         current = PROFILE_NAMES.index(self.profile.name)
         next_name = PROFILE_NAMES[(current + 1) % len(PROFILE_NAMES)]
         next_profile = resolve_profile(next_name)
@@ -862,29 +971,23 @@ class TerminalTui:
             self.status = f"Profile switch failed: {exc}"
             return
 
-        fence = self.session.capture_tx_fence()
-        try:
-            self.session.wait_tx_fence(fence, timeout=2.0)
-        except (SessionTxFenceTimeout, SessionTxOutcomeUnknown) as exc:
-            new_transport.close()
-            self.status = f"Profile switch blocked by unsettled TX: {exc}"
-            return
+        if not file_preempt:
+            fence = self.session.capture_tx_fence()
+            try:
+                self.session.wait_tx_fence(fence, timeout=2.0)
+            except (SessionTxFenceTimeout, SessionTxOutcomeUnknown) as exc:
+                new_transport.close()
+                self.status = f"Profile switch blocked by unsettled TX: {exc}"
+                return
+        else:
+            self._abort_file_transfer_for_operator()
 
-        self.session._reveal_sent_presentations()
-        if self._file_transfer is not None:
-            self._file_transfer.close()
-        self.session.stop()
-        self.session.close_logs()
-        self.selector.profile = next_profile
-        self.profile = next_profile
-        self.panel = next_profile.make_tui_panel()
-        self.transport = new_transport
-        self.session = self._make_session(new_transport, next_profile)
-        self._sync_panel_transport_identity(new_transport)
-        self._configure_file_transfer(next_profile)
-        self._was_connected = False
-        self.session.start()
-        self.status = f"Profile switched to {next_name}; reconnecting same target"
+        self._replace_tui_session(new_transport, profile=next_profile)
+        self.status = (
+            f"File transfer aborted; profile switched to {next_name}"
+            if file_preempt
+            else f"Profile switched to {next_name}; reconnecting same target"
+        )
 
     def _choose_file(self, stdscr) -> None:
         manager = self._file_transfer
@@ -910,20 +1013,17 @@ class TerminalTui:
         )
 
     def _cancel_file(self) -> None:
-        manager = self._file_transfer
-        snapshot = self._file_snapshot()
-        if manager is None or snapshot is None:
-            self.status = "No file transfer to cancel"
+        if not self._file_transfer_active():
+            snapshot = self._file_snapshot()
+            self.status = (
+                "File transfer is already terminal"
+                if snapshot is not None
+                else "No file transfer to cancel"
+            )
             return
-        if snapshot.get("state") in {"completed", "failed", "cancelled"}:
-            self.status = "File transfer is already terminal"
-            return
-        try:
-            result = manager.cancel(str(snapshot["transfer_id"]))
-        except FileTransferError as exc:
-            self.status = f"Cancel failed: {exc.code}: {exc.message}"
-            return
-        self.status = f"Cancellation requested for {result['transfer_id']}"
+
+        if self._abort_and_reconnect_same_target():
+            self.status = "File transfer aborted locally; reconnecting same target"
 
     @staticmethod
     def _mouse_wheel_direction(button_state: int) -> int:

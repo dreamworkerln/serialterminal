@@ -241,27 +241,44 @@ class ChatterBinaryUserAdapter:
         )
 
 
-    def _wait_tx_written(self, tx_id: int | None, deadline: float) -> None:
+    def _wait_tx_written(
+        self,
+        tx_id: int | None,
+        deadline: float,
+        *,
+        cancel_event: threading.Event | None = None,
+    ) -> None:
         waiter = self._wait_tx_outcome
         if waiter is None or tx_id is None:
             return
-        remaining = max(0.0, deadline - time.monotonic())
-        local_outcome = waiter(tx_id, remaining)
-        if local_outcome is None:
-            raise BinaryUserError(
-                "local_tx_timeout",
-                "local controller write did not settle before timeout",
-            )
-        if local_outcome in {"unknown", "expired"}:
-            raise BinaryUserError(
-                "local_tx_unknown",
-                "local controller write outcome is ambiguous",
-            )
-        if local_outcome != "written":
-            raise BinaryUserError(
-                "local_tx_failed",
-                f"unexpected local TX outcome: {local_outcome}",
-            )
+
+        while True:
+            if cancel_event is not None and cancel_event.is_set():
+                raise BinaryUserCancelled()
+
+            remaining = deadline - time.monotonic()
+            if remaining <= 0:
+                raise BinaryUserError(
+                    "local_tx_timeout",
+                    "local controller write did not settle before timeout",
+                )
+
+            # wait_tx_outcome не принимает cancel Event. Короткие slices нужны,
+            # чтобы F6/operator preemption не зависели от полного local timeout.
+            local_outcome = waiter(tx_id, min(0.1, remaining))
+            if local_outcome is None:
+                continue
+            if local_outcome in {"unknown", "expired"}:
+                raise BinaryUserError(
+                    "local_tx_unknown",
+                    "local controller write outcome is ambiguous",
+                )
+            if local_outcome != "written":
+                raise BinaryUserError(
+                    "local_tx_failed",
+                    f"unexpected local TX outcome: {local_outcome}",
+                )
+            return
 
     def _wait_until_controller_ready(
         self,
@@ -315,7 +332,11 @@ class ChatterBinaryUserAdapter:
         result = self._send_line("/help")
         tx_id = _tx_id_from_result(result)
         deadline = time.monotonic() + self._mode_query_timeout_s
-        self._wait_tx_written(tx_id, deadline)
+        self._wait_tx_written(
+            tx_id,
+            deadline,
+            cancel_event=cancel_event,
+        )
 
         generation_reader = self._connection_generation
         with self._condition:
@@ -394,7 +415,11 @@ class ChatterBinaryUserAdapter:
             result = self._send_line(command)
             tx_id = _tx_id_from_result(result)
             deadline = time.monotonic() + self._presentation_timeout_s
-            self._wait_tx_written(tx_id, deadline)
+            self._wait_tx_written(
+                tx_id,
+                deadline,
+                cancel_event=cancel_event,
+            )
 
             cancel_sent = False
             while True:

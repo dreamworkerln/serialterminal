@@ -1555,3 +1555,13 @@ distinguishable as META/DATA/END local settlement without enabling `--log-base64
 During an active TUI transfer, ordinary protocol/BINARY scrollback remains muted, but
 critical controller-reset/reconnect lines such as `[SYS] RADIO FATAL ...`,
 `ESP-ROM:`, `[SYS] CHATTER READY`, disconnect and reconnect status bypass that mute.
+
+
+## 35. Interactive escape path
+
+TUI file transfer never owns the human frontend irreversibly. F6 is a decisive local
+abort/reconnect of the same target. Manual submitted input preempts an active transfer
+and then proceeds, while F2/F3 can preempt the transfer for device/profile changes.
+Target-changing preemption uses a fresh ManagedSession so pending FT1 TX from the old
+target is not retried against the new device. Ctrl+C keeps the terminal's normal quit
+semantics.
