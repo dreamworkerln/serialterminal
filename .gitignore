@@ -11,3 +11,4 @@ serialterminal.log
 build/
 dist/
 *.log
+/files/
