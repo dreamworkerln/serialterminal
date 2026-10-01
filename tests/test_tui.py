@@ -728,8 +728,7 @@ def test_tui_f6_uses_local_abort_path_not_process_exit():
     assert tui.status == "File transfer aborted locally; reconnecting same target"
 
 
-def test_tui_ctrl_c_keeps_default_quit_semantics(monkeypatch):
-    import curses
+def test_tui_ctrl_c_keeps_default_quit_semantics():
     from serialterminal.tui import TerminalTui
 
     tui = object.__new__(TerminalTui)
