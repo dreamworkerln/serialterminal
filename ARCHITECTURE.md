@@ -105,6 +105,8 @@ That settlement may require controller-specific protocol evidence, but interpret
 
 Transport code may accept generic configuration such as BLE write UUID and receive characteristic/stream mappings. It may also expose a controller-agnostic human identity label already known from the physical transport, such as a BLE advertised name; profile UI may use that only as a presentation hint until controller-owned identity output arrives. Transport code must not import controller profiles, normalize controller aliases, recognize controller commands, infer application identity, or re-export controller constants.
 
+A logical `BleNusTransport.write()` remains one byte stream, but `response=False` GATT output is segmented to the selected characteristic's `max_write_without_response_size`. Segmentation inserts neither delimiters nor pacing sleeps. If a later fragment fails after one or more earlier fragments completed, the logical TX outcome is ambiguous and must surface as `tx_state=unknown` rather than allowing the generic session queue to replay the whole payload blindly.
+
 ### File transfer layering
 
 File transfer is an application layer above an opaque BINARY application transport

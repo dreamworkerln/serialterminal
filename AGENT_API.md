@@ -265,7 +265,7 @@ means the transport `write()` call completed successfully. It does **not** prove
 
 Ordinary transport failures that are known safe to repeat remain reconnect/retry ordered by the session queue.
 
-A transport may instead report an ambiguous write outcome. BLE GATT write timeout is the current example: cancellation can be requested, but SerialTerminal cannot prove that the backend/native side effect did not already occur. The session then records:
+A transport may instead report an ambiguous write outcome. Current BLE examples are a GATT write timeout, where cancellation cannot prove that the backend/native side effect did not already occur, and a fragmented write failure after at least one write-without-response ATT chunk completed. The session then records:
 
 ```json
 {"kind":"tx","tx_id":12,"tx_state":"unknown"}

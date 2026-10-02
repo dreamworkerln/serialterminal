@@ -227,7 +227,7 @@ transport/chunk forensics     -> result.events / data_b64
 
 `tx_state=written` означает успешное завершение transport `write()`. Это не доказательство peer delivery, firmware acceptance или выполнения higher-level operation.
 
-`tx_state=unknown` означает, что transport side effect неоднозначен. Текущий пример — BLE GATT write timeout: backend write мог завершиться поздно даже после cancellation request. SerialTerminal **не** выполняет automatic retry такого TX, чтобы не создавать потенциальный duplicate side effect.
+`tx_state=unknown` означает, что transport side effect неоднозначен. Для BLE это включает GATT write timeout и failure fragmented write после того, как хотя бы один write-without-response ATT chunk уже завершился: backend/peripheral side effect нельзя безопасно считать отсутствующим. SerialTerminal **не** выполняет automatic retry такого TX, чтобы не создавать потенциальный duplicate side effect.
 
 При `unknown` не делай blind resend. Используй последующие RX/application-level данные, чтобы определить результат; если доказательства недостаточны, outcome сценария должен быть `INCONCLUSIVE`/ambiguous согласно consuming skill, а не выдуманный PASS/FAIL доставки.
 

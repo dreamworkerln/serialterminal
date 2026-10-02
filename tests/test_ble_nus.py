@@ -1,6 +1,9 @@
 import asyncio
 
+import pytest
+
 from serialterminal.transports import ble_nus
+from serialterminal.transports.base import TransportWriteOutcomeUnknown
 from serialterminal.transports.ble_nus import (
     BleDeviceIdentity,
     BleReceiveStream,
@@ -56,10 +59,27 @@ def _install_fake_ble(monkeypatch):
                     return device
             return None
 
+    class FakeCharacteristic:
+        def __init__(self, client):
+            self._client = client
+
+        @property
+        def max_write_without_response_size(self):
+            return type(self._client).max_write_without_response_size
+
+    class FakeServices:
+        def __init__(self, client):
+            self._characteristic = FakeCharacteristic(client)
+
+        def get_characteristic(self, _uuid):
+            return self._characteristic
+
     class FakeClient:
         last = None
         instances = []
         fail_notify_uuids = set()
+        max_write_without_response_size = 20
+        fail_write_call = None
 
         def __init__(self, device, disconnected_callback=None, timeout=10.0):
             self.device = device
@@ -68,6 +88,8 @@ def _install_fake_ble(monkeypatch):
             self.notify = {}
             self.stop_calls = []
             self.writes = []
+            self.write_calls = 0
+            self.services = FakeServices(self)
             FakeClient.last = self
             FakeClient.instances.append(self)
 
@@ -84,6 +106,9 @@ def _install_fake_ble(monkeypatch):
             self.notify.pop(uuid, None)
 
         async def write_gatt_char(self, uuid, data, response=False):
+            self.write_calls += 1
+            if type(self).fail_write_call == self.write_calls:
+                raise RuntimeError(f"write failed: call {self.write_calls}")
             self.writes.append((uuid, bytes(data), response))
 
         async def disconnect(self):
@@ -153,6 +178,84 @@ def test_ble_transport_timing_marks_gatt_write_and_notifications(monkeypatch):
         names = [name for name, _fields in events]
         assert "ble_notify" in names
         assert names.index("ble_gatt_write_start") < names.index("ble_gatt_write_done")
+    finally:
+        transport.close()
+
+
+def test_ble_transport_fragments_write_without_response_to_characteristic_limit(
+    monkeypatch,
+):
+    FakeDevice, FakeScanner, FakeClient = _install_fake_ble(monkeypatch)
+    selected = FakeDevice("Controller", "AA:01")
+    FakeScanner.devices = [selected]
+    FakeClient.max_write_without_response_size = 244
+
+    transport = ble_nus.BleNusTransport(
+        BleDeviceIdentity(selected.name, selected.address),
+        scan_timeout=0.05,
+        connect_timeout=0.05,
+    )
+    try:
+        assert transport.connect()
+        payload = bytes(index % 251 for index in range(330))
+        transport.write(payload)
+
+        writes = FakeClient.last.writes
+        assert [len(data) for _uuid, data, _response in writes] == [244, 86]
+        assert b"".join(data for _uuid, data, _response in writes) == payload
+        assert all(uuid == NUS_RX_UUID for uuid, _data, _response in writes)
+        assert all(response is False for _uuid, _data, response in writes)
+    finally:
+        transport.close()
+
+
+def test_ble_transport_uses_backend_reported_twenty_byte_write_limit(monkeypatch):
+    FakeDevice, FakeScanner, FakeClient = _install_fake_ble(monkeypatch)
+    selected = FakeDevice("Controller", "AA:01")
+    FakeScanner.devices = [selected]
+    FakeClient.max_write_without_response_size = 20
+
+    transport = ble_nus.BleNusTransport(
+        BleDeviceIdentity(selected.name, selected.address),
+        scan_timeout=0.05,
+        connect_timeout=0.05,
+    )
+    try:
+        assert transport.connect()
+        payload = b"x" * 41
+        transport.write(payload)
+
+        writes = FakeClient.last.writes
+        assert [len(data) for _uuid, data, _response in writes] == [20, 20, 1]
+        assert b"".join(data for _uuid, data, _response in writes) == payload
+    finally:
+        transport.close()
+
+
+def test_ble_transport_partial_fragment_failure_is_unknown(monkeypatch):
+    FakeDevice, FakeScanner, FakeClient = _install_fake_ble(monkeypatch)
+    selected = FakeDevice("Controller", "AA:01")
+    FakeScanner.devices = [selected]
+    FakeClient.max_write_without_response_size = 20
+    FakeClient.fail_write_call = 2
+
+    transport = ble_nus.BleNusTransport(
+        BleDeviceIdentity(selected.name, selected.address),
+        scan_timeout=0.05,
+        connect_timeout=0.05,
+    )
+    try:
+        assert transport.connect()
+        with pytest.raises(
+            TransportWriteOutcomeUnknown,
+            match=r"after 1/2 chunks; outcome unknown",
+        ):
+            transport.write(b"x" * 21)
+
+        assert FakeClient.last.writes == [
+            (NUS_RX_UUID, b"x" * 20, False),
+        ]
+        assert not transport.is_connected
     finally:
         transport.close()
 

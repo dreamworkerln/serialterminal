@@ -1210,6 +1210,14 @@ So the local command is roughly 330 UART bytes.
 At 115200 baud, 8N1, that local text envelope has a real transmission cost of roughly
 29 ms.
 
+On BLE, that logical ~330-byte command may exceed one ATT Write Command.
+`BleNusTransport` therefore segments the unchanged byte stream according to the
+selected characteristic's `max_write_without_response_size` (for example 244 bytes
+with ATT MTU 247, or 20 bytes when that is all the backend exposes). It inserts no
+newline, delimiter or artificial sleep between fragments. This transport segmentation
+does not reduce the 243-byte BINARY USER / 227-byte FT1 DATA capacities and does not
+change the LoRa payload.
+
 Do not confuse this with LoRa airtime and do not include base64 expansion in the
 on-air 243-byte application payload.
 

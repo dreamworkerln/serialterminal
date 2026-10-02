@@ -26,8 +26,9 @@ The timing companion is deliberately deferred. SerialTerminal records its timing
 in memory with `time.perf_counter_ns()` while the run is active and writes
 `.fttiming.jsonl` only during clean log shutdown. This keeps timing-trace disk I/O out
 of the measured file-transfer path. The trace includes session/FT1 boundaries plus
-transport/BLE/BINARY and ordinary log-write start/done markers. It contains metadata
-and sizes, not BINARY/base64 payload bytes.
+logical BLE write start/done, per-GATT-fragment write start/done, BLE notify, BINARY
+submit/presentation/return, FT1 events and ordinary log-write start/done markers. It
+contains metadata and sizes, not BINARY/base64 payload bytes.
 
 
 ## Base64 payload policy

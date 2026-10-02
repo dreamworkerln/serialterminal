@@ -461,6 +461,31 @@ class BleNusTransport(Transport):
     def read(self, size: int = 512) -> bytes:
         return self.read_chunk(size).data
 
+    def _max_write_without_response_size(self, client: Any) -> int:
+        services = getattr(client, "services", None)
+        getter = getattr(services, "get_characteristic", None)
+        characteristic = None
+        if callable(getter):
+            try:
+                characteristic = getter(self.write_characteristic)
+            except Exception:
+                characteristic = None
+
+        try:
+            size = int(
+                getattr(
+                    characteristic,
+                    "max_write_without_response_size",
+                    0,
+                )
+            )
+        except (TypeError, ValueError):
+            size = 0
+
+        # max_write_without_response_size — authoritative bound для response=False.
+        # Старые Bleak/BlueZ могут не expose его; 20 байт — безопасный ATT default.
+        return size if size > 0 else 20
+
     async def _write_async(self, data: bytes) -> None:
         with self._state_lock:
             client = self._client
@@ -468,31 +493,80 @@ class BleNusTransport(Transport):
         if client is None or not self._connected.is_set():
             raise TransportError(f"{self.target_name} is disconnected")
 
+        max_chunk_bytes = self._max_write_without_response_size(client)
+        chunk_count = max(
+            1,
+            (len(data) + max_chunk_bytes - 1) // max_chunk_bytes,
+        )
         self._record_timing(
             "ble_gatt_write_start",
             bytes=len(data),
             characteristic=self.write_characteristic,
             response=False,
+            max_chunk_bytes=max_chunk_bytes,
+            chunks=chunk_count,
         )
+
+        completed_chunks = 0
         try:
-            await client.write_gatt_char(
-                self.write_characteristic,
-                data,
-                response=False,
-            )
+            for chunk_index in range(chunk_count):
+                offset = chunk_index * max_chunk_bytes
+                chunk = (
+                    data[offset : offset + max_chunk_bytes]
+                    if data
+                    else b""
+                )
+                self._record_timing(
+                    "ble_gatt_write_chunk_start",
+                    bytes=len(chunk),
+                    logical_bytes=len(data),
+                    chunk_index=chunk_index,
+                    chunks=chunk_count,
+                    offset=offset,
+                    characteristic=self.write_characteristic,
+                    response=False,
+                )
+                await client.write_gatt_char(
+                    self.write_characteristic,
+                    chunk,
+                    response=False,
+                )
+                completed_chunks += 1
+                self._record_timing(
+                    "ble_gatt_write_chunk_done",
+                    bytes=len(chunk),
+                    logical_bytes=len(data),
+                    chunk_index=chunk_index,
+                    chunks=chunk_count,
+                    offset=offset,
+                    characteristic=self.write_characteristic,
+                    response=False,
+                )
         except Exception as exc:
             self._record_timing(
                 "ble_gatt_write_error",
                 bytes=len(data),
                 characteristic=self.write_characteristic,
                 error=type(exc).__name__,
+                max_chunk_bytes=max_chunk_bytes,
+                chunks=chunk_count,
+                completed_chunks=completed_chunks,
+                failed_chunk_index=completed_chunks,
             )
+            if completed_chunks:
+                raise TransportWriteOutcomeUnknown(
+                    "BLE fragmented write failed after "
+                    f"{completed_chunks}/{chunk_count} chunks; outcome unknown"
+                ) from exc
             raise
+
         self._record_timing(
             "ble_gatt_write_done",
             bytes=len(data),
             characteristic=self.write_characteristic,
             response=False,
+            max_chunk_bytes=max_chunk_bytes,
+            chunks=chunk_count,
         )
 
     def write(self, data: bytes) -> None:
@@ -511,6 +585,9 @@ class BleNusTransport(Transport):
             raise TransportWriteOutcomeUnknown(
                 f"BLE write timed out after {self.write_timeout:g}s; outcome unknown"
             ) from exc
+        except TransportWriteOutcomeUnknown:
+            self._connected.clear()
+            raise
         except Exception as exc:
             self._connected.clear()
             raise TransportError(str(exc)) from exc
