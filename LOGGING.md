@@ -2,13 +2,14 @@
 
 This document defines the generic logging roles shared by the human terminal and the machine-facing agent.
 
-## Paired paths
+## Companion paths
 
-A normal run uses one basename and two files:
+A normal run uses one basename and three files:
 
 ```text
 <name>.log
 <name>.console.log
+<name>.fttiming.jsonl
 ```
 
 With the default unique name:
@@ -16,9 +17,17 @@ With the default unique name:
 ```text
 logs/serialterminal-YYYYMMDD-HHMMSS-ffffff-pPID.log
 logs/serialterminal-YYYYMMDD-HHMMSS-ffffff-pPID.console.log
+logs/serialterminal-YYYYMMDD-HHMMSS-ffffff-pPID.fttiming.jsonl
 ```
 
-If `--log <path>` is supplied, that path names the primary `.log`; the companion path is derived by replacing a final `.log` with `.console.log` or appending `.console.log` otherwise.
+If `--log <path>` is supplied, that path names the primary `.log`; companion paths are derived from the same basename.
+
+The timing companion is deliberately deferred. SerialTerminal records its timing points
+in memory with `time.perf_counter_ns()` while the run is active and writes
+`.fttiming.jsonl` only during clean log shutdown. This keeps timing-trace disk I/O out
+of the measured file-transfer path. The trace includes session/FT1 boundaries plus
+transport/BLE/BINARY and ordinary log-write start/done markers. It contains metadata
+and sizes, not BINARY/base64 payload bytes.
 
 
 ## Base64 payload policy
