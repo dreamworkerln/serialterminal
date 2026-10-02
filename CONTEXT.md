@@ -1,102 +1,130 @@
 # Current work context
 
-Status: PAUSED / HANDOFF PUBLISHED
+Status: PAUSED / HANDOFF 014 PUBLISHED
 
 ## Current operation
 
-The active source workstream is `dev_tui`.
+The active SerialTerminal source workstream is `dev_tui`.
 
-The latest completed source work added deferred file-transfer timing instrumentation
-and updated the generic agent skill so fast transfers are not throttled by per-chunk
-LLM/tool orchestration.
+The previous timing-measurement operation is complete enough to identify the dominant
+performance components. No new throughput optimization has been implemented in
+SerialTerminal or firmware from this workstream.
 
-The next unfinished operation is a manual BLE-vs-USB timing comparison using the new
-`.fttiming.jsonl` trace. No throughput root-cause conclusion has been accepted.
+Two follow-up tracks are open and intentionally separate:
+
+1. exercise the corrected hardware-agent instructions on a plain file-transfer request;
+2. let the firmware developer evaluate the measured receiver ACK scheduling delay and
+   repeat native timing after any firmware change.
 
 ## Exact baselines
 
 ```text
-Active source:
-  dreamworkerln/serialterminal/dev_tui@50c2536842aff60cd52f64e1031710cc5739d228
-  GitHub Actions 36964002644 SUCCESS
-  pytest 356 passed in 11.62 s
+Active SerialTerminal source:
+  dreamworkerln/serialterminal/dev_tui@57108999bf267d58b5f824ed1c153122d95f5dd4
+  GitHub Actions 36996139436 SUCCESS
+  job 110803169111 SUCCESS
 
-Stable source baseline:
+Stable SerialTerminal source baseline:
   dreamworkerln/serialterminal/dev@7cf0459c4e00a81592d447e0592e83a1142e18d9
 
-Physical evidence authority:
-  dreamworkerln/serialterminal/node_observations@baf0214e1edf18179389580aa0ac56d0fcfaf76c
+Hardware executor / evidence authority:
+  dreamworkerln/serialterminal-observations/master@a80c4f48844b8179729d966e3a51a932d11fb807
 
-Firmware reference inspected read-only:
-  dreamworkerln/lora-sack-protocol/dev_chat_binary@1cb43d9477b84269bc91003f89c0380f5c03b95f
+Deployed firmware used by latest complete profiling:
+  dreamworkerln/lora-sack-protocol@94ff6e4cb792cdb5e9ea77dcd214224053fb9c7b
+
+Current firmware investigation branch, read-only here:
+  dreamworkerln/lora-sack-protocol/dev_chat_ack_ble_tx_backpressure@d06a0d3cf2fd2156b98a936c0c22e403f72c9315
 
 Latest recovery snapshot:
-  HANDOFF_013.md
-  snapshot commit c8265900861a3262e87043ab9eee49c0060ab7ac
-  snapshot blob b283b7153248d055a9e058c70647780a5d15b9e8
+  HANDOFF_014.md
+  snapshot commit e146f4dafcf09e0f1d0acbc87699464f502d9864
+  snapshot blob c4690d949ee064381c0f59b4323293b6cb75e624
 ```
 
 ## Current implementation state
 
-A normal TUI/agent run now produces:
+SerialTerminal BLE NUS writes now fragment a logical command to the negotiated
+write-without-response size. Physical timing showed the normal 330-byte FT1 command
+submitted as 244+86 bytes.
+
+File transfer remains sequential at the local BINARY first-TxDone presentation
+boundary. No bounded multi-BINARY pipeline is implemented.
+
+The independent hardware executor now has an explicit QUICK file-transfer workflow and
+publishes evidence on `master`; old `node_observations` publication instructions are
+superseded.
+
+## Profiling state
+
+The complete native timing run established, approximately:
 
 ```text
-<name>.log
-<name>.console.log
-<name>.fttiming.jsonl
+sender BIN_INPUT -> USER_TX.start       ~4.5 ms
+full DATA USER airtime                  ~100.1 ms
+receiver BIN_RX -> ACK_PENDING          ~5.2 ms
+receiver ACK_PENDING -> ACK_TX.start    ~44.3 ms median
+ACK airtime                              ~12.0 ms
+sender USER_TX.done -> ACK_RX            ~62.2 ms
+sender ACK_RX -> ACK_MATCH               ~4.4 ms
+
+BLE/controller residual around next /bin:
+  roughly 160-180 ms median, quantized in about-45 ms steps
 ```
 
-Timing events stay in memory while the run is active and are dumped only on clean
-shutdown. Relevant events cover transport writes, BLE GATT writes/notifications,
-BINARY submit/presentation/return, FT1 events and ordinary log-write durations.
-
-The agent skill explicitly says not to chase every DATA chunk with
-`file_transfer_observe`/model turns. Use coarse `status` snapshots about every
-2–5 seconds and inspect finalized logs after the run.
+The receiver ACK delay has no observed `ACK_GATE_BUSY` and no intentional fixed
+44-ms guard at deployed firmware SHA. BLE output task scheduling/preemption is the
+leading hypothesis, not yet causal proof.
 
 ## Invariants / do not change
 
 - Firmware repo is read-only from the SerialTerminal workstream.
-- Generic session/transport timing remains controller-agnostic.
+- Generic transport/session timing remains controller-agnostic.
 - Chatter BINARY semantics stay profile-owned.
-- Do not add/remove pacing delays before timing evidence.
-- Do not add per-event disk writes to the timing trace.
-- Do not use per-chunk model/tool orchestration for fast file transfer.
+- FT1 stays above opaque BINARY USER.
+- Do not remove explicit ambiguous-write semantics.
+- Do not add unbounded host-side BINARY bursts.
+- Do not add per-event disk writes to active timing paths.
+- Do not reintroduce per-chunk model/tool orchestration.
+- Plain hardware file transfer uses the high-level file API, not manual `/bin`.
 - Raw base64 remains hidden/redacted by default.
-- Ctrl+C behavior remains ordinary quit semantics.
+- Ctrl+C remains ordinary quit behavior.
 
 ## Last completed action
 
-`HANDOFF_013.md` was created on `dev_handoff` and read back successfully.
+`HANDOFF_014.md` was created on `dev_handoff`, read back and verified. The hardware
+executor instructions were previously updated at
+`serialterminal-observations/master@a80c4f48844b8179729d966e3a51a932d11fb807`.
 
 ## Next action
 
-1. refetch `dev_tui`;
-2. manually send `3.jpg` over BLE from ordinary TUI;
-3. close ST cleanly and preserve `.fttiming.jsonl`;
-4. repeat over USB with the same file/radio settings;
-5. compare targeted middle DATA chunks;
-6. identify the dominant interval before changing source.
+When the operator next asks the hardware agent to transfer a file:
 
-## Known related findings
+1. refetch `serialterminal-observations/master`;
+2. use the QUICK file-transfer workflow;
+3. verify the sibling SerialTerminal runtime contains `file_send_start`;
+4. do not mutate RF experiment settings unless explicitly requested;
+5. preserve exact API/transport evidence if the workflow still misbehaves.
 
-- A successful USB diagnostic transfer completed 593/593 and remote RESULT OK.
-- Per-chunk agent event-history following caused `file_cursor_expired` while the
-  actual transfer still completed; this is an orchestration issue and the skill now
-  warns against it.
-- A separate stress attempt recorded both serial transports disconnected about 2.19 ms
-  apart after about 9.28 s with no FT1 progress. The physical cause remains unknown.
+In parallel, firmware optimization discussion should start from the exact deployed
+profiling SHA and the two distinct targets: receiver ACK scheduling and BLE/controller
+roundtrip.
 
 ## Required validation
 
-The source checkpoint is CI-green. The new timing trace still needs physical manual BLE
-and USB runs before any performance conclusion or pacing change is accepted.
+Still pending:
+
+- a new simple hardware-agent file transfer using the corrected executor instructions;
+- direct causal instrumentation of the receiver 44-ms ACK scheduling delay;
+- hardware validation after any firmware ACK fast-path/task-priority change;
+- any implementation/validation of bounded SerialTerminal BINARY pipelining;
+- canonical publication of the large profiling evidence if desired.
 
 ## Recovery order
 
 1. current source `dev_tui:AGENTS.md`;
 2. this `CONTEXT.md`;
 3. `HANDOFF_INDEX.md`;
-4. `HANDOFF_013.md`;
-5. current `dev_tui` docs/source;
+4. `HANDOFF_014.md`;
+5. current `dev_tui` docs/source and `serialterminal-observations` hardware skill;
 6. refetch moving source/evidence/firmware refs.
