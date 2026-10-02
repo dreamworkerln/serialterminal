@@ -14,6 +14,7 @@ from ...file_transfer.transport import (
     BinaryUserError,
 )
 from ...log_redaction import redact_base64_text
+from ...timing import TimingSink
 
 
 BINARY_USER_MAX_BYTES = 243
@@ -136,6 +137,7 @@ class ChatterBinaryUserAdapter:
         line_retention: int = 4096,
         wait_tx_outcome: Callable[[int, float], str | None] | None = None,
         connection_generation: Callable[[], int] | None = None,
+        timing_sink: TimingSink | None = None,
     ) -> None:
         if presentation_timeout_s <= 0:
             raise ValueError("presentation_timeout_s must be positive")
@@ -149,6 +151,9 @@ class ChatterBinaryUserAdapter:
         self._controller_ready_timeout_s = float(controller_ready_timeout_s)
         self._wait_tx_outcome = wait_tx_outcome
         self._connection_generation = connection_generation
+        self._timing_sink = timing_sink
+        self._next_binary_timing_seq = 1
+        self._active_binary_timing_seq: int | None = None
         self._receiver: BinaryReceiver | None = None
         self._receiver_lock = threading.Lock()
         self._send_lock = threading.Lock()
@@ -161,6 +166,16 @@ class ChatterBinaryUserAdapter:
         self._controller_recovering = False
         self._controller_ready = True
         self.last_parse_error: str | None = None
+
+    def _timing(self, event: str, **fields: Any) -> None:
+        sink = self._timing_sink
+        if sink is None:
+            return
+        try:
+            sink(event, **fields)
+        except Exception:
+            # Timing instrumentation must never alter BINARY/FT1 correctness.
+            pass
 
     def set_receiver(self, receiver: BinaryReceiver | None) -> None:
         with self._receiver_lock:
@@ -198,7 +213,15 @@ class ChatterBinaryUserAdapter:
             seq = self._next_seq
             self._next_seq += 1
             self._lines.append((seq, line))
+            active_binary_timing_seq = self._active_binary_timing_seq
             self._condition.notify_all()
+
+        if value.startswith("> [BINARY] "):
+            self._timing(
+                "binary_presentation_line",
+                binary_seq=active_binary_timing_seq,
+                line_chars=len(value),
+            )
 
         try:
             payload = parse_binary_rx_line(line)
@@ -397,113 +420,159 @@ class ChatterBinaryUserAdapter:
             if cancel_event is not None and cancel_event.is_set():
                 raise BinaryUserCancelled()
 
+            binary_seq = self._next_binary_timing_seq
+            self._next_binary_timing_seq += 1
+            tx_id: int | None = None
             generation_reader = self._connection_generation
             generation = (
                 generation_reader()
                 if generation_reader is not None
                 else None
             )
-            self._ensure_binary_presentation_available(
-                generation=generation,
-                cancel_event=cancel_event,
-            )
 
-            with self._condition:
-                cursor = self._next_seq - 1
-                controller_epoch = self._controller_epoch
-
-            result = self._send_line(command)
-            tx_id = _tx_id_from_result(result)
-            deadline = time.monotonic() + self._presentation_timeout_s
-            self._wait_tx_written(
-                tx_id,
-                deadline,
-                cancel_event=cancel_event,
-            )
-
-            cancel_sent = False
-            while True:
-                if cancel_event is not None and cancel_event.is_set():
-                    if not cancel_sent:
-                        try:
-                            self._send_line("/cancel all")
-                        except Exception:
-                            pass
-                        cancel_sent = True
-                    raise BinaryUserCancelled()
-
-                with self._condition:
-                    available = self._lines_after(cursor)
-
-                for seq, line in available:
-                    cursor = max(cursor, seq)
-                    value = line.rstrip("\r\n")
-                    if any(marker in value for marker in _REJECTION_MARKERS):
-                        raise BinaryUserError(
-                            "send_rejected",
-                            f"Chatter rejected BINARY USER: {value}",
-                        )
-                    try:
-                        presented = parse_binary_tx_line(line)
-                    except BinaryUserParseError as exc:
-                        self.last_parse_error = str(exc)
-                        continue
-                    if presented == payload:
-                        return BinarySendReceipt(tx_id=tx_id)
-
-                with self._condition:
-                    reset_seen = self._controller_epoch != controller_epoch
-                if reset_seen:
-                    # Старый > [BINARY] уже не может появиться после reboot.
-                    # Дожидаемся READY, чтобы FT1 replay не попал в boot window.
-                    self._wait_until_controller_ready(
-                        generation=generation,
-                        cancel_event=cancel_event,
-                    )
-                    raise BinaryUserError(
-                        "local_controller_reset",
-                        (
-                            "Chatter controller reset before exact BINARY "
-                            "presentation became observable"
-                        ),
-                    )
-
-                if (
-                    generation_reader is not None
-                    and generation is not None
-                    and generation_reader() != generation
-                ):
-                    raise BinaryUserError(
-                        "local_disconnect",
-                        (
-                            "local connection changed before exact Chatter "
-                            "BINARY presentation became observable"
-                        ),
-                    )
-
-                current_generation = (
-                    generation_reader()
-                    if generation_reader is not None
-                    else None
+            try:
+                self._ensure_binary_presentation_available(
+                    generation=generation,
+                    cancel_event=cancel_event,
                 )
-                if (
-                    self._known_output_mode_for_generation(current_generation)
-                    == "TELEMETRY"
-                ):
-                    raise self._presentation_unavailable_error()
 
-                remaining = deadline - time.monotonic()
-                if remaining <= 0:
-                    raise BinaryUserError(
-                        "binary_presentation_timeout",
-                        (
-                            "exact local Chatter BINARY presentation did not "
-                            "arrive before timeout"
-                        ),
-                    )
-                if not available:
+                with self._condition:
+                    cursor = self._next_seq - 1
+                    controller_epoch = self._controller_epoch
+                    self._active_binary_timing_seq = binary_seq
+
+                self._timing(
+                    "binary_submit",
+                    binary_seq=binary_seq,
+                    payload_bytes=len(payload),
+                    command_chars=len(command),
+                    generation=generation,
+                )
+                result = self._send_line(command)
+                tx_id = _tx_id_from_result(result)
+                self._timing(
+                    "binary_tx_queued",
+                    binary_seq=binary_seq,
+                    tx_id=tx_id,
+                )
+                deadline = time.monotonic() + self._presentation_timeout_s
+                self._wait_tx_written(
+                    tx_id,
+                    deadline,
+                    cancel_event=cancel_event,
+                )
+                self._timing(
+                    "binary_tx_written",
+                    binary_seq=binary_seq,
+                    tx_id=tx_id,
+                )
+
+                cancel_sent = False
+                while True:
+                    if cancel_event is not None and cancel_event.is_set():
+                        if not cancel_sent:
+                            try:
+                                self._send_line("/cancel all")
+                            except Exception:
+                                pass
+                            cancel_sent = True
+                        raise BinaryUserCancelled()
+
                     with self._condition:
-                        # feed_line() будит condition сразу. Короткий timeout
-                        # ограничивает только cancel/disconnect observation и
-                        # не является per-message pacing delay.
-                        self._condition.wait(timeout=min(0.25, remaining))
+                        available = self._lines_after(cursor)
+
+                    for seq, line in available:
+                        cursor = max(cursor, seq)
+                        value = line.rstrip("\r\n")
+                        if any(marker in value for marker in _REJECTION_MARKERS):
+                            raise BinaryUserError(
+                                "send_rejected",
+                                f"Chatter rejected BINARY USER: {value}",
+                            )
+                        try:
+                            presented = parse_binary_tx_line(line)
+                        except BinaryUserParseError as exc:
+                            self.last_parse_error = str(exc)
+                            continue
+                        if presented == payload:
+                            self._timing(
+                                "binary_presentation_match",
+                                binary_seq=binary_seq,
+                                tx_id=tx_id,
+                                line_chars=len(value),
+                            )
+                            self._timing(
+                                "binary_return",
+                                binary_seq=binary_seq,
+                                tx_id=tx_id,
+                            )
+                            return BinarySendReceipt(tx_id=tx_id)
+
+                    with self._condition:
+                        reset_seen = self._controller_epoch != controller_epoch
+                    if reset_seen:
+                        # Старый > [BINARY] уже не может появиться после reboot.
+                        # Дожидаемся READY, чтобы FT1 replay не попал в boot window.
+                        self._wait_until_controller_ready(
+                            generation=generation,
+                            cancel_event=cancel_event,
+                        )
+                        raise BinaryUserError(
+                            "local_controller_reset",
+                            (
+                                "Chatter controller reset before exact BINARY "
+                                "presentation became observable"
+                            ),
+                        )
+
+                    if (
+                        generation_reader is not None
+                        and generation is not None
+                        and generation_reader() != generation
+                    ):
+                        raise BinaryUserError(
+                            "local_disconnect",
+                            (
+                                "local connection changed before exact Chatter "
+                                "BINARY presentation became observable"
+                            ),
+                        )
+
+                    current_generation = (
+                        generation_reader()
+                        if generation_reader is not None
+                        else None
+                    )
+                    if (
+                        self._known_output_mode_for_generation(current_generation)
+                        == "TELEMETRY"
+                    ):
+                        raise self._presentation_unavailable_error()
+
+                    remaining = deadline - time.monotonic()
+                    if remaining <= 0:
+                        raise BinaryUserError(
+                            "binary_presentation_timeout",
+                            (
+                                "exact local Chatter BINARY presentation did not "
+                                "arrive before timeout"
+                            ),
+                        )
+                    if not available:
+                        with self._condition:
+                            # feed_line() будит condition сразу. Короткий timeout
+                            # ограничивает только cancel/disconnect observation и
+                            # не является per-message pacing delay.
+                            self._condition.wait(timeout=min(0.25, remaining))
+            except BinaryUserError as exc:
+                self._timing(
+                    "binary_error",
+                    binary_seq=binary_seq,
+                    tx_id=tx_id,
+                    code=exc.code,
+                )
+                raise
+            finally:
+                with self._condition:
+                    if self._active_binary_timing_seq == binary_seq:
+                        self._active_binary_timing_seq = None

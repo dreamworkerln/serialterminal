@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import codecs
 from dataclasses import dataclass
+import os
 import sys
 import threading
 from datetime import datetime
@@ -14,6 +15,7 @@ from prompt_toolkit.patch_stdout import patch_stdout
 
 from .log_redaction import redact_base64_text
 from .runlog import console_log_path, format_console_record
+from .timing import TimingTrace
 from .profiles import (
     GENERIC_PROFILE,
     ProfileAction,
@@ -48,16 +50,18 @@ class TerminalSession(ManagedSession):
         log_base64: bool = False,
     ):
         self.profile = profile
+        self.log_path = Path(log_path)
+        self.console_path = console_log_path(self.log_path)
+        self.console_session = "s1"
+        self.timing_trace = TimingTrace(self.log_path)
         super().__init__(
             transport,
             line_ending=line_ending,
             reconnect_delay=reconnect_delay,
             connect_preamble=self._human_connect_preamble,
             line_notifier=self._record_console_output_line,
+            timing_sink=self.record_timing,
         )
-        self.log_path = Path(log_path)
-        self.console_path = console_log_path(self.log_path)
-        self.console_session = "s1"
         self.device_chooser = device_chooser
         self.screen_writer = screen_writer
         self.line_observer = line_observer
@@ -73,7 +77,15 @@ class TerminalSession(ManagedSession):
         # Human primary log is a timestamped all-stream execution timeline.
         # The companion console log remains the filtered human-console view.
         self.console_path.touch(exist_ok=True)
+        self.timing_trace.record("run_start", frontend="tui", pid=os.getpid())
         self._write_primary_record_unlocked("LOCAL", "serialterminal session start")
+
+    @property
+    def timing_path(self) -> Path:
+        return self.timing_trace.path
+
+    def record_timing(self, event: str, **fields) -> None:
+        self.timing_trace.record(event, session=self.console_session, **fields)
 
     def _profile_action_bytes(self, action: ProfileAction) -> bytes:
         if isinstance(action, SendLine):
@@ -118,11 +130,13 @@ class TerminalSession(ManagedSession):
         label = marker if stream is None else f"{marker} {stream}"
         log_text = text if self.log_base64 else redact_base64_text(text)
         visible = log_text.replace("\r", "\\r").replace("\n", "\\n")
+        self.record_timing("primary_log_write_start", marker=label)
         self.log_file.write(
             f"{moment.isoformat(timespec='milliseconds')} "
             f"[{self.console_session}] [{label}] {visible}\n"
         )
         self.log_file.flush()
+        self.record_timing("primary_log_write_done", marker=label)
 
     def _record_primary(
         self,
@@ -165,6 +179,10 @@ class TerminalSession(ManagedSession):
     ) -> None:
         with self.output_lock:
             visible = text if self.log_base64 else redact_base64_text(text)
+            self.record_timing(
+                "console_log_write_start",
+                direction=direction,
+            )
             with self.console_path.open("a", encoding="utf-8", buffering=1) as file:
                 file.write(
                     format_console_record(
@@ -174,6 +192,10 @@ class TerminalSession(ManagedSession):
                         timestamp=timestamp,
                     )
                 )
+            self.record_timing(
+                "console_log_write_done",
+                direction=direction,
+            )
 
     def _record_console_output_line(self, line: SessionLine) -> None:
         observer = self.line_observer
@@ -436,6 +458,7 @@ class TerminalSession(ManagedSession):
             new_transport.close()
             self.write_output("\n[selected the same device]\n\n")
         else:
+            new_transport.set_timing_sink(self.record_timing)
             with self.transport_lock:
                 self.transport = new_transport
             old_transport.close()
@@ -499,7 +522,8 @@ class TerminalSession(ManagedSession):
         self.write_output("Ctrl+C exits immediately.\n")
         self.write_output("Input is sent only after Enter and survives reconnects.\n")
         self.write_output(f"Log: {self.log_path}\n")
-        self.write_output(f"Console log: {self.console_path}\n\n")
+        self.write_output(f"Console log: {self.console_path}\n")
+        self.write_output(f"Timing log: {self.timing_path}\n\n")
 
         prompt = self._make_prompt_session()
         buffered_line = ""
@@ -527,9 +551,10 @@ class TerminalSession(ManagedSession):
             self.close_logs()
 
     def close_logs(self) -> None:
-        """Flush and close the human primary log exactly once."""
+        """Flush logs and dump the in-memory timing trace exactly once."""
         with self.output_lock:
-            if self.log_file.closed:
-                return
-            self.log_file.flush()
-            self.log_file.close()
+            if not self.log_file.closed:
+                self.log_file.flush()
+                self.log_file.close()
+        self.timing_trace.record("run_stop", frontend="tui", pid=os.getpid())
+        self.timing_trace.close()

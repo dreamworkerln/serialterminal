@@ -183,10 +183,21 @@ Controller reboot без physical disconnect считается отдельно
 
 FT1 v1 умеет in-process repair после временного local USB/BLE/SPP reconnect. Receiver
 сохраняет transfer state в памяти, после END может выдать один structured MISSING с
-диапазонами, sender досылает только указанные DATA и повторяет END. Следи через
-`file_transfer_observe` за состояниями `waiting_result`, `repair_requested`,
-`repairing` и событиями `missing_detected`, `repair_requested`,
+диапазонами, sender досылает только указанные DATA и повторяет END. Следи за состояниями `waiting_result`, `repair_requested`, `repairing` и при
+необходимости за событиями `missing_detected`, `repair_requested`,
 `repair_round_sent`, `control_replay`.
+
+Для быстрого file transfer **не пытайся сопровождать каждый DATA chunk отдельным
+model/tool turn** и не вычитывай `file_transfer_observe.events` окно за окном в темпе
+передачи. Такой orchestration не успевает за потоком, может получить
+`file_cursor_expired` и на практике резко снижает полезную скорость сценария.
+Обычный progress контролируй coarse-grained snapshot-ами `status` примерно раз в
+2–5 секунд: `state`, `chunks_completed`, `bytes_completed`, `percentage` и
+`failure`. `file_transfer_observe` используй для bounded long-poll/редких lifecycle
+или fault events, когда они действительно нужны, а не как обязательный per-chunk
+control loop. Детальную последовательность chunk/send-stage событий после прогона
+бери targeted search из finalized forensic log; не загружай весь chunk backlog в
+контекст модели во время активной передачи.
 
 Generic `tx_state=unknown` по-прежнему нельзя blind-retry через обычный
 `send_line`. File layer сам может повторить тот же idempotent FT1 message. Если

@@ -501,6 +501,25 @@ class SessionManager:
             self._next_session_id += 1
             return session_id
 
+    def _session_timing_sink(self, session_id: str):
+        if self.run_log is None:
+            return None
+
+        def sink(event: str, **fields: Any) -> None:
+            self.run_log.record_timing(event, session=session_id, **fields)
+
+        return sink
+
+    def _log_file_transfer_event(
+        self,
+        session_id: str,
+        event: dict[str, Any],
+    ) -> None:
+        if self.run_log is None:
+            return
+        self.run_log.record_timing("ft1_event", session=session_id, ft1=event)
+        self.run_log.record("FT1", {"session": session_id, **event})
+
     def _log_event(self, session_id: str, event: SessionEvent) -> None:
         if self.run_log is None:
             return
@@ -645,6 +664,7 @@ class SessionManager:
             if binary_adapter is not None:
                 binary_adapter.feed_line(line.stream, line.text)
 
+        timing_sink = self._session_timing_sink(session_id)
         session = ManagedSession(
             transport,
             line_ending=line_ending,
@@ -652,6 +672,7 @@ class SessionManager:
             connect_preamble=preamble,
             event_notifier=self._notify_event_activity,
             line_notifier=line_notifier,
+            timing_sink=timing_sink,
         )
         binary_adapter = terminal_profile.make_binary_user_transport(
             lambda text: {
@@ -660,6 +681,7 @@ class SessionManager:
             },
             wait_tx_outcome=session.wait_tx_outcome,
             connection_generation=session.connection_generation,
+            timing_sink=timing_sink,
         )
         file_manager = (
             FileTransferManager(
@@ -678,9 +700,9 @@ class SessionManager:
                     ),
                 event_sink=(
                     (
-                        lambda event: self.run_log.record(
-                            "FT1",
-                            {"session": session_id, **event},
+                        lambda event: self._log_file_transfer_event(
+                            session_id,
+                            event,
                         )
                     )
                     if self.run_log is not None
@@ -1688,6 +1710,7 @@ def run_agent(
                 "event": "ready",
                 "log_path": str(run_log.path),
                 "console_log_path": str(run_log.console_path),
+                "timing_log_path": str(run_log.timing_path),
             },
         )
         _AgentJsonlRunner(

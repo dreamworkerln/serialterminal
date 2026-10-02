@@ -344,6 +344,7 @@ class TerminalTui:
             },
             wait_tx_outcome=session.wait_tx_outcome,
             connection_generation=session.connection_generation,
+            timing_sink=session.record_timing,
         )
         self._binary_adapter = adapter
         self._file_transfer = (
@@ -370,11 +371,12 @@ class TerminalTui:
         *,
         session: TerminalSession | None = None,
     ) -> None:
+        target_session = self.session if session is None else session
+        target_session.record_timing("ft1_event", ft1=event)
         # Progress уже виден в dedicated TUI status и создаёт по записи на chunk.
         # Остальные FT1 lifecycle/send-stage события остаются в primary log.
         if event.get("kind") == "progress":
             return
-        target_session = self.session if session is None else session
         target_session._record_primary(
             "FT1",
             json.dumps(

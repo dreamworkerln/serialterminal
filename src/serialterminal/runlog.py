@@ -8,6 +8,7 @@ import threading
 from typing import Any
 
 from .log_redaction import redact_base64_payload, redact_base64_text
+from .timing import TimingTrace
 
 
 def default_log_path(
@@ -67,6 +68,8 @@ class RunLog:
         self.path = Path(path) if path is not None else default_log_path()
         self.log_base64 = bool(log_base64)
         self.console_path = console_log_path(self.path)
+        self.timing_trace = TimingTrace(self.path)
+        self.timing_path = self.timing_trace.path
         self.path.parent.mkdir(parents=True, exist_ok=True)
         self.console_path.parent.mkdir(parents=True, exist_ok=True)
         self._lock = threading.Lock()
@@ -75,7 +78,11 @@ class RunLog:
         self._console_file = self.console_path.open(
             "a", encoding="utf-8", buffering=1
         )
+        self.timing_trace.record("run_start", frontend="agent", pid=os.getpid())
         self.record("RUN", {"event": "start", "pid": os.getpid()})
+
+    def record_timing(self, event: str, **fields: Any) -> None:
+        self.timing_trace.record(event, **fields)
 
     def _render_payload(self, payload: Any) -> str:
         visible_payload = (
@@ -144,16 +151,20 @@ class RunLog:
             self._event_sequences[session] = seq
 
     def write(self, text: str) -> None:
+        self.record_timing("forensic_log_write_start", tag="RAW")
         with self._lock:
             visible = text if self.log_base64 else redact_base64_text(text)
             self._file.write(visible)
             self._file.flush()
+        self.record_timing("forensic_log_write_done", tag="RAW")
 
     def record(self, tag: str, payload: Any) -> None:
+        self.record_timing("forensic_log_write_start", tag=tag)
         with self._lock:
             self._record_gap_if_needed_unlocked(tag, payload)
             self._write_record_unlocked(tag, payload)
             self._file.flush()
+        self.record_timing("forensic_log_write_done", tag=tag)
 
     def record_console(
         self,
@@ -163,6 +174,11 @@ class RunLog:
         *,
         timestamp: float | None = None,
     ) -> None:
+        self.record_timing(
+            "console_log_write_start",
+            session=session,
+            direction=direction,
+        )
         with self._lock:
             visible = text if self.log_base64 else redact_base64_text(text)
             self._console_file.write(
@@ -174,16 +190,24 @@ class RunLog:
                 )
             )
             self._console_file.flush()
+        self.record_timing(
+            "console_log_write_done",
+            session=session,
+            direction=direction,
+        )
 
     def close(self) -> None:
         with self._lock:
-            if self._file.closed:
-                return
-            self._write_record_unlocked("RUN", {"event": "stop", "pid": os.getpid()})
-            self._file.flush()
-            self._console_file.flush()
-            self._file.close()
-            self._console_file.close()
+            if not self._file.closed:
+                self._write_record_unlocked(
+                    "RUN", {"event": "stop", "pid": os.getpid()}
+                )
+                self._file.flush()
+                self._console_file.flush()
+                self._file.close()
+                self._console_file.close()
+        self.timing_trace.record("run_stop", frontend="agent", pid=os.getpid())
+        self.timing_trace.close()
 
     def __enter__(self) -> RunLog:
         return self

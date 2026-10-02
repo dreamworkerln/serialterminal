@@ -198,7 +198,14 @@ class BleNusTransport(Transport):
             if self._active_generation != generation:
                 return
 
-        self._rx_queue.put(ReceivedChunk(stream, bytes(data)))
+        payload = bytes(data)
+        self._record_timing(
+            "ble_notify",
+            generation=generation,
+            stream=stream,
+            bytes=len(payload),
+        )
+        self._rx_queue.put(ReceivedChunk(stream, payload))
 
     def _notify_callback(self, generation: int, stream: str):
         return (
@@ -461,9 +468,30 @@ class BleNusTransport(Transport):
         if client is None or not self._connected.is_set():
             raise TransportError(f"{self.target_name} is disconnected")
 
-        await client.write_gatt_char(
-            self.write_characteristic,
-            data,
+        self._record_timing(
+            "ble_gatt_write_start",
+            bytes=len(data),
+            characteristic=self.write_characteristic,
+            response=False,
+        )
+        try:
+            await client.write_gatt_char(
+                self.write_characteristic,
+                data,
+                response=False,
+            )
+        except Exception as exc:
+            self._record_timing(
+                "ble_gatt_write_error",
+                bytes=len(data),
+                characteristic=self.write_characteristic,
+                error=type(exc).__name__,
+            )
+            raise
+        self._record_timing(
+            "ble_gatt_write_done",
+            bytes=len(data),
+            characteristic=self.write_characteristic,
             response=False,
         )
 

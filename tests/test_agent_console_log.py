@@ -101,11 +101,17 @@ def _wait_until(predicate, timeout=1.0):
     return predicate()
 
 
-def test_agent_runlog_creates_companion_console_file(tmp_path):
+def test_agent_runlog_creates_companion_console_and_deferred_timing_file(tmp_path):
     raw_path = tmp_path / "serialterminal-test.log"
     with RunLog(raw_path) as run_log:
         assert run_log.console_path == tmp_path / "serialterminal-test.console.log"
         assert run_log.console_path.exists()
+        assert run_log.timing_path == tmp_path / "serialterminal-test.fttiming.jsonl"
+        assert not run_log.timing_path.exists()
+        run_log.record_timing("probe", value=1)
+
+    lines = run_log.timing_path.read_text().splitlines()
+    assert any('"event":"probe"' in line for line in lines)
 
 
 def test_agent_ready_metadata_records_both_log_paths(tmp_path):
@@ -125,6 +131,7 @@ def test_agent_ready_metadata_records_both_log_paths(tmp_path):
         "console_log_path": str(tmp_path / "agent.console.log"),
         "event": "ready",
         "log_path": str(raw_path),
+        "timing_log_path": str(tmp_path / "agent.fttiming.jsonl"),
     }
 
 

@@ -130,6 +130,33 @@ def test_name_only_transport_uses_exact_arbitrary_advertised_name(monkeypatch):
         transport.close()
 
 
+def test_ble_transport_timing_marks_gatt_write_and_notifications(monkeypatch):
+    FakeDevice, FakeScanner, FakeClient = _install_fake_ble(monkeypatch)
+    selected = FakeDevice("Controller", "AA:01")
+    FakeScanner.devices = [selected]
+    events = []
+
+    transport = ble_nus.BleNusTransport(
+        BleDeviceIdentity(selected.name, selected.address),
+        scan_timeout=0.05,
+        connect_timeout=0.05,
+    )
+    transport.set_timing_sink(
+        lambda event, **fields: events.append((event, fields))
+    )
+    try:
+        assert transport.connect()
+        FakeClient.last.notify[NUS_TX_UUID](None, bytearray(b"ready\n"))
+        assert transport.read_chunk(512).data == b"ready\n"
+        transport.write(b"hello\n")
+
+        names = [name for name, _fields in events]
+        assert "ble_notify" in names
+        assert names.index("ble_gatt_write_start") < names.index("ble_gatt_write_done")
+    finally:
+        transport.close()
+
+
 def test_ble_transport_defaults_to_standard_nus_main_stream(monkeypatch):
     FakeDevice, FakeScanner, FakeClient = _install_fake_ble(monkeypatch)
     selected = FakeDevice("Controller", "AA:01")

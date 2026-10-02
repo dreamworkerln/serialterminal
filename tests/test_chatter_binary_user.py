@@ -55,6 +55,40 @@ def test_invalid_binary_base64_is_distinguished_from_non_binary_line():
         parse_binary_rx_line("< [-42/7 Q99] [BINARY] !!!!")
 
 
+def test_binary_adapter_timing_marks_submit_write_presentation_and_return():
+    holder = {}
+    events = []
+
+    def timing(event, **fields):
+        events.append((event, fields))
+
+    def send_line(text):
+        if text.startswith("/bin "):
+            holder["adapter"].feed_line("chat", _tx_line(b"payload"))
+        return {"tx_id": 17, "state": "queued"}
+
+    adapter = ChatterBinaryUserAdapter(
+        send_line,
+        wait_tx_outcome=lambda _tx_id, _timeout: "written",
+        timing_sink=timing,
+    )
+    holder["adapter"] = adapter
+    adapter.feed_line("main", "[SYS] current=CHAT")
+
+    receipt = adapter.send_binary(b"payload")
+
+    assert receipt.tx_id == 17
+    names = [name for name, _fields in events]
+    assert names.index("binary_submit") < names.index("binary_tx_queued")
+    assert names.index("binary_tx_queued") < names.index("binary_tx_written")
+    assert names.index("binary_tx_written") < names.index("binary_presentation_match")
+    assert names.index("binary_presentation_match") < names.index("binary_return")
+    presentation = next(
+        fields for name, fields in events if name == "binary_presentation_line"
+    )
+    assert presentation["binary_seq"] == 1
+
+
 def test_binary_adapter_settles_on_exact_local_presentation_without_telemetry():
     holder = {}
     sent = []

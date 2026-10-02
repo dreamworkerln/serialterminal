@@ -6,6 +6,7 @@ from typing import Any, Callable, Protocol, TypeAlias
 
 from ..file_transfer.transport import BinaryUserTransport
 from ..sweep import SweepAdapterFactory
+from ..timing import TimingSink
 
 
 @dataclass(frozen=True)
@@ -118,6 +119,7 @@ class TerminalProfile(Protocol):
         *,
         wait_tx_outcome: BinaryWaitTxOutcome | None = None,
         connection_generation: BinaryConnectionGeneration | None = None,
+        timing_sink: TimingSink | None = None,
     ) -> ProfileBinaryUserAdapter | None:
         ...
 

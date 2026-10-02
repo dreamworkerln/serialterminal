@@ -5,6 +5,7 @@ from dataclasses import dataclass
 from types import MappingProxyType
 
 from ...sweep import SweepAdapterFactory
+from ...timing import TimingSink
 from ...transports.ble_nus import NUS_RX_UUID, NUS_TX_UUID
 from ..base import (
     BinaryConnectionGeneration,
@@ -148,11 +149,13 @@ class ChatterProfile:
         *,
         wait_tx_outcome: BinaryWaitTxOutcome | None = None,
         connection_generation: BinaryConnectionGeneration | None = None,
+        timing_sink: TimingSink | None = None,
     ) -> ProfileBinaryUserAdapter | None:
         return ChatterBinaryUserAdapter(
             send_line,
             wait_tx_outcome=wait_tx_outcome,
             connection_generation=connection_generation,
+            timing_sink=timing_sink,
         )
 
     def recognized_command(self, line: str) -> str | None:

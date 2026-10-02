@@ -55,11 +55,12 @@ sweep_close
 
 The companion human-console record format is shared with the interactive frontend and is specified in `LOGGING.md`. The agent's primary `.log` remains the stronger forensic/API/transport record described below.
 
-Every agent process creates a paired forensic and human-console log unless an explicit forensic path is supplied:
+Every agent process creates forensic, human-console and deferred timing logs unless an explicit forensic path is supplied:
 
 ```text
 logs/serialterminal-YYYYMMDD-HHMMSS-ffffff-pPID.log
 logs/serialterminal-YYYYMMDD-HHMMSS-ffffff-pPID.console.log
+logs/serialterminal-YYYYMMDD-HHMMSS-ffffff-pPID.fttiming.jsonl
 ```
 
 With:
@@ -68,7 +69,7 @@ With:
 python3 serialterminal.py agent --log /tmp/serialterminal-agent.log
 ```
 
-the companion is `/tmp/serialterminal-agent.console.log`.
+the companions are `/tmp/serialterminal-agent.console.log` and `/tmp/serialterminal-agent.fttiming.jsonl`.
 
 The main `.log` is forensic/API/transport evidence and contains chronological records such as:
 
@@ -110,8 +111,21 @@ The companion `.console.log` is presentation/audit convenience:
 
 `[I]` is text accepted through `send_line`. `[O]` is a completed logical line from a human-console stream declared by the selected profile. `send_bytes` is not rendered as ordinary human input. Background streams remain absent from the companion log even though their raw events remain in the forensic log and `observe.result.events`.
 
-Startup `[AGENT]` metadata records both paths.
+Startup `[AGENT]` metadata records all three paths.
 
+The `.fttiming.jsonl` file is intentionally deferred: timing events are collected in
+memory using `time.perf_counter_ns()` and written only when the run closes. This avoids
+adding per-event timing-file I/O to the transfer path being measured. Each JSON line
+contains a monotonic `perf_ns`, wall-clock `timestamp`, a trace `seq`, `event`, and
+small structured fields without BINARY/base64 payload bytes.
+
+The timing trace includes the existing session/FT1 boundaries plus explicit transport
+and Chatter BINARY points such as `transport_write_start`,
+`transport_write_done`, `ble_gatt_write_start`, `ble_gatt_write_done`,
+`ble_notify`, `binary_submit`, `binary_presentation_line`,
+`binary_presentation_match`, `binary_return` and `ft1_event`. It also records
+forensic/console log-write start/done markers in memory so logging overhead can be
+measured without writing the timing trace itself during the run.
 
 Base64 persistence is opt-in:
 

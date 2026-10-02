@@ -2,6 +2,9 @@ from __future__ import annotations
 
 from abc import ABC, abstractmethod
 from dataclasses import dataclass
+from typing import Any
+
+from ..timing import TimingSink
 
 
 class TransportError(Exception):
@@ -42,6 +45,25 @@ class Transport(ABC):
     def identity_label(self) -> str | None:
         """Human-visible peer identity already known from the transport."""
         return None
+
+    def set_timing_sink(self, sink: TimingSink | None) -> None:
+        """Attach a lightweight in-memory timing sink to this transport."""
+        self._timing_sink = sink
+
+    def _record_timing(self, event: str, **fields: Any) -> None:
+        sink = getattr(self, "_timing_sink", None)
+        if sink is None:
+            return
+        try:
+            sink(
+                event,
+                transport=type(self).__name__,
+                device_key=self.device_key,
+                **fields,
+            )
+        except Exception:
+            # Timing instrumentation must never alter transport correctness.
+            pass
 
     @property
     def connect_error(self) -> str | None:

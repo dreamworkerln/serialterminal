@@ -6,8 +6,9 @@ from dataclasses import dataclass, field
 import queue
 import threading
 import time
-from typing import Callable, Iterable
+from typing import Any, Callable, Iterable
 
+from .timing import TimingSink
 from .transports.base import (
     ReceivedChunk,
     Transport,
@@ -128,11 +129,14 @@ class ManagedSession:
         event_limit: int = 4096,
         event_notifier: EventNotifier | None = None,
         line_notifier: LineNotifier | None = None,
+        timing_sink: TimingSink | None = None,
     ):
         if event_limit <= 0:
             raise ValueError("event_limit must be positive")
 
         self.transport = transport
+        self._timing_sink = timing_sink
+        transport.set_timing_sink(timing_sink)
         self.line_ending = line_ending
         self.reconnect_delay = reconnect_delay
         self.connect_preamble = connect_preamble
@@ -169,6 +173,16 @@ class ManagedSession:
     def _current_transport(self) -> Transport:
         with self.transport_lock:
             return self.transport
+
+    def _record_timing(self, event: str, **fields: Any) -> None:
+        sink = self._timing_sink
+        if sink is None:
+            return
+        try:
+            sink(event, **fields)
+        except Exception:
+            # Timing instrumentation must never alter session correctness.
+            pass
 
     def _next_tx(self) -> int:
         with self._tx_condition:
@@ -320,6 +334,15 @@ class ManagedSession:
                 completed_lines = self._assemble_rx_lines_locked(event)
             self._prune_lines_locked()
             self._event_condition.notify_all()
+
+        timing_fields: dict[str, Any] = {"session_event_seq": event.seq}
+        for name in ("state", "stream", "tx_id", "tx_state", "error", "device_key"):
+            value = getattr(event, name)
+            if value is not None:
+                timing_fields[name] = value
+        if event.data is not None:
+            timing_fields["bytes"] = len(event.data)
+        self._record_timing(f"session_{kind}", **timing_fields)
 
         line_notifier = self.line_notifier
         if line_notifier is not None:
@@ -576,6 +599,12 @@ class ManagedSession:
                 chunk = transport.read_chunk(512)
                 if not chunk.data:
                     continue
+                self._record_timing(
+                    "transport_read_chunk",
+                    stream=chunk.stream,
+                    bytes=len(chunk.data),
+                    device_key=transport.device_key,
+                )
                 text = self._decode_event_text(chunk.stream, chunk.data)
                 self._record_event(
                     "rx",
@@ -607,7 +636,19 @@ class ManagedSession:
 
                     try:
                         transport = self._current_transport()
+                        self._record_timing(
+                            "transport_write_start",
+                            tx_id=item.tx_id,
+                            bytes=len(item.data),
+                            device_key=transport.device_key,
+                        )
                         transport.write(item.data)
+                        self._record_timing(
+                            "transport_write_done",
+                            tx_id=item.tx_id,
+                            bytes=len(item.data),
+                            device_key=transport.device_key,
+                        )
                         self._record_event(
                             "tx",
                             tx_id=item.tx_id,
@@ -621,6 +662,12 @@ class ManagedSession:
                         self.on_tx_written(item)
                         break
                     except TransportWriteOutcomeUnknown as exc:
+                        self._record_timing(
+                            "transport_write_unknown",
+                            tx_id=item.tx_id,
+                            bytes=len(item.data),
+                            error=str(exc),
+                        )
                         self._record_event(
                             "tx",
                             tx_id=item.tx_id,
@@ -642,6 +689,12 @@ class ManagedSession:
                         self._disconnect(str(exc))
                         break
                     except (TransportError, OSError) as exc:
+                        self._record_timing(
+                            "transport_write_error",
+                            tx_id=item.tx_id,
+                            bytes=len(item.data),
+                            error=str(exc),
+                        )
                         self._disconnect(str(exc))
                         self._record_event(
                             "error",
