@@ -181,7 +181,7 @@ class ManagedSession:
         try:
             sink(event, **fields)
         except Exception:
-            # Timing instrumentation must never alter session correctness.
+            # Timing-инструментация не должна менять корректность session path.
             pass
 
     def _next_tx(self) -> int:

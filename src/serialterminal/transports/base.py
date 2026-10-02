@@ -62,7 +62,7 @@ class Transport(ABC):
                 **fields,
             )
         except Exception:
-            # Timing instrumentation must never alter transport correctness.
+            # Timing-инструментация не должна менять корректность transport path.
             pass
 
     @property

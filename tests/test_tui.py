@@ -606,6 +606,10 @@ def test_tui_ft1_event_logger_skips_progress_and_records_send_stage():
     class _Session:
         def __init__(self):
             self.records = []
+            self.timings = []
+
+        def record_timing(self, event, **fields):
+            self.timings.append((event, fields))
 
         def _record_primary(self, marker, text):
             self.records.append((marker, text))
@@ -631,6 +635,13 @@ def test_tui_ft1_event_logger_skips_progress_and_records_send_stage():
             "chunk_index": 7,
         }
     )
+
+    assert [event for event, _fields in tui.session.timings] == [
+        "ft1_event",
+        "ft1_event",
+    ]
+    assert tui.session.timings[0][1]["ft1"]["kind"] == "progress"
+    assert tui.session.timings[1][1]["ft1"]["kind"] == "binary_send_start"
 
     assert len(tui.session.records) == 1
     marker, text = tui.session.records[0]

@@ -174,7 +174,7 @@ class ChatterBinaryUserAdapter:
         try:
             sink(event, **fields)
         except Exception:
-            # Timing instrumentation must never alter BINARY/FT1 correctness.
+            # Timing-инструментация не должна менять корректность BINARY/FT1 path.
             pass
 
     def set_receiver(self, receiver: BinaryReceiver | None) -> None:
