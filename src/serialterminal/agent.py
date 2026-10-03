@@ -50,7 +50,7 @@ def run_agent(
             run_log=run_log,
             receive_dir=receive_dir,
         )
-        protocol = AgentProtocol(manager, run_log=run_log)
+        protocol = _core.AgentProtocol(manager, run_log=run_log)
         run_log.record(
             "AGENT",
             {
@@ -60,7 +60,7 @@ def run_agent(
                 "timing_log_path": str(run_log.timing_path),
             },
         )
-        _AgentJsonlRunner(
+        _core._AgentJsonlRunner(
             manager,
             protocol,
             run_log,
