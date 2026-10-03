@@ -6,7 +6,7 @@ import time
 from typing import Any
 
 from . import core
-from .protocol import EndMessage, MetaMessage, ResultMessage
+from .protocol import EndMessage, MetaMessage, ResultMessage, transfer_id_text
 from .resume_source import prepare_source
 from .resume_store import ResumeStateStore
 from .resumable import FileTransferManager as _ResumableFileTransferManager
@@ -49,11 +49,72 @@ class FileTransferManager(_ResumableFileTransferManager):
         return prepare_source(path, record)
 
     def _sender_resume_candidate(self, path: Path) -> dict[str, Any] | None:
-        candidate = super()._sender_resume_candidate(path)
-        if candidate is not None:
+        try:
+            actual_size = path.stat().st_size
+            actual_hash = core._sha256_file(path)
+        except OSError:
+            return None
+
+        for value in self._resume_store.find_outgoing_for_source(path):
+            candidate = self._validated_sender_candidate(
+                path,
+                value,
+                actual_size=actual_size,
+                actual_hash=actual_hash,
+            )
+            if candidate is None:
+                continue
             transfer_id = int(candidate["parsed_transfer_id"])
             with self._lock:
                 self._resume_candidates[transfer_id] = candidate
+            return candidate
+        return None
+
+    def _validated_sender_candidate(
+        self,
+        path: Path,
+        value: dict[str, Any],
+        *,
+        actual_size: int,
+        actual_hash: bytes,
+    ) -> dict[str, Any] | None:
+        try:
+            transfer_text = str(value["transfer_id"])
+            transfer_id = int(transfer_text, 16)
+            original_size = int(value["original_size"])
+            original_hash = bytes.fromhex(str(value["original_sha256"]))
+            wire_size = int(value["wire_size"])
+            wire_hash = bytes.fromhex(str(value["wire_sha256"]))
+            compression = int(value["compression"])
+            chunk_size = int(value["chunk_size"])
+        except (KeyError, TypeError, ValueError):
+            return None
+
+        if (
+            value.get("kind") != "outgoing"
+            or value.get("status") != "active"
+            or transfer_id == 0
+            or transfer_text != transfer_id_text(transfer_id)
+            or value.get("filename") != path.name
+            or original_size < 0
+            or wire_size < 0
+            or len(original_hash) != 32
+            or len(wire_hash) != 32
+            or compression not in {0, 1}
+            or chunk_size <= 0
+            or actual_size != original_size
+            or actual_hash != original_hash
+        ):
+            return None
+
+        canonical = self._resume_store.read_json(
+            self._resume_store.outgoing_manifest(transfer_id)
+        )
+        if canonical != value:
+            return None
+
+        candidate = dict(value)
+        candidate["parsed_transfer_id"] = transfer_id
         return candidate
 
     def _save_sender_journal(self, record, prepared, chunk_size: int) -> None:
