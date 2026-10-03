@@ -132,7 +132,7 @@ Remaining work: align the primary `NODE_OBSERVATION_RECORDING_POLICY.md` and nod
 
 TODO_026 logging-contract investigation is also OPEN and may be scheduled independently when log-format work is selected.
 
-Suggested next work: first close the deterministic local-controller-reset hang in TODO_032 with `/reboot` fault injection; then rerun the broader two-node TODO_029 reconnect/MISSING validation and throughput baseline on the implemented TODO_030/TODO_031 path. Independently finish the HCI boundary isolation in TODO_024; after that continue correctness/evidence boundaries (`TODO_011`, `TODO_013`, `TODO_016`, `TODO_017`, `TODO_021`, remaining `TODO_025` docs), lifecycle/API robustness (`TODO_019`, `TODO_022`, `TODO_023`), and consistency/docs follow-ups (`TODO_012`, `TODO_014`, `TODO_015`, `TODO_020`). Re-evaluate ordering if implementation exposes dependencies.
+Suggested next work: rerun the two-node TODO_029 reconnect/MISSING validation and throughput baseline on the implemented TODO_030/TODO_031 path; independently finish the HCI boundary isolation in TODO_024; after that continue correctness/evidence boundaries (`TODO_011`, `TODO_013`, `TODO_016`, `TODO_017`, `TODO_021`, remaining `TODO_025` docs), lifecycle/API robustness (`TODO_019`, `TODO_022`, `TODO_023`), and consistency/docs follow-ups (`TODO_012`, `TODO_014`, `TODO_015`, `TODO_020`). Re-evaluate ordering if implementation exposes dependencies.
 
 ### TODO_026 — `todos/TODO_026_UNIFIED_LOGGING_CONTRACT.md`
 
@@ -155,7 +155,7 @@ Goal: FT1/BINARY USER file transfer over current Chatter USER+ACK now supports s
 
 Automated implementation checkpoint: `dev_tui@aa2d3cc1fd65cbe228efbee6cdab4dccdbc62ada`; GitHub Actions `36655735769` SUCCESS; 313 tests PASS. The historical temporary `BOTH`/DELIVERY settlement design was superseded by TODO_030: current FT1 never mutates output mode and uses exact local BINARY presentation only as controller-local backpressure. TUI still suppresses ordinary transfer protocol noise while preserving adapter/panel/log consumption and file-progress rendering. META settlement remains shown as `sending`, not false `compressing 0%`. Oversized missing-range sets still terminate with stable `repair_too_large`; a full resend is an explicit new `file_send_start`, so v1 never enters an automatic restart loop.
 
-Key boundary: current radio transport is ordinary Chatter USER + ACK only; no per-chunk file ACK, no MISSING pagination, and no persistent resume after SerialTerminal process death. LoRa SACK is explicitly out of scope. Physical two-node transfer/reconnect validation of the updated checkpoint remains open. A concrete physical sender-side controller-reboot hang discovered on 2026-10-03 is split into focused follow-up TODO_032 and should be closed before treating TODO_029 reconnect validation as complete.
+Key boundary: current radio transport is ordinary Chatter USER + ACK only; no per-chunk file ACK, no MISSING pagination, and no persistent resume after SerialTerminal process death. LoRa SACK is explicitly out of scope. Physical two-node transfer/reconnect validation of the updated checkpoint remains open.
 
 ### TODO_030 — `todos/TODO_030_CHATTER_FT1_NO_TELEMETRY.md`
 
@@ -172,20 +172,6 @@ Status: IMPLEMENTED / PHYSICAL VALIDATION OPEN
 Goal: Serial RX now blocks only for the first byte when idle and then drains already-available bytes up to the caller limit, removing the `read(512)` timeout batching defect without busy-spin or losing full-duplex behavior.
 
 Implementation: `dev_tui@a6581f0655a5c15d538b7511ec6b2a67fc9bb693`; GitHub Actions `36665201283` SUCCESS. Physical throughput regression against the ~4.8 kbit/s baseline remains open.
-
-### TODO_032 — `todos/TODO_032_FT1_LOCAL_CONTROLLER_RESET_RECOVERY.md`
-
-Status: OPEN
-
-Goal: make an active FT1 transfer recover or fail deterministically when its local Chatter controller reboots, instead of remaining indefinitely stuck after BLE reconnect or a USB controller epoch reset.
-
-Physical finding: on 2026-10-03 a sender emitted `[SYS] RADIO FATAL RX_RESTART after TX (-16), rebooting`, BLE disconnected/reconnected, and the active file transfer could remain non-terminal. The exact rare radio trigger is not required for host validation: use Chatter `/reboot` as deterministic fault injection.
-
-Current modeled support is not sufficient closure evidence: the Chatter adapter already recognizes fatal/boot markers and `CHATTER READY`, `FileTransferManager` already treats `local_controller_reset` as a bounded replay candidate, and host tests already simulate the exact fatal/reset/READY sequence. TODO_032 must locate the physical ManagedSession/adapter/FT1/TUI lifecycle gap.
-
-Required contract: explicit `recovering_local_node`-equivalent state; stop issuing later chunks while recovery is unresolved; preserve transfer_id/chunk identity and prepared data; after READY/session usability replay only the current ambiguous idempotent FT1 message; bound controller-ready wait/replay; on exhaustion terminate with a stable failure; keep Ctrl+C responsive; cover both BLE disconnect/reconnect and USB reset-with-port-still-open. No automatic whole-file/new-transfer restart, no generic blind retry, no firmware change, no LoRa SACK.
-
-Finding source checkpoint: `dev_tui@222b951bac2a3a0919c9dd07348ca98f3e4a397b`; immutable hardware RUN for this finding is not yet recorded.
 
 ## Closed
 
