@@ -153,6 +153,27 @@ def test_symlinked_receiver_part_is_not_restored(tmp_path):
         manager.close()
 
 
+def test_dangling_receiver_part_symlink_is_rejected_without_target_creation(tmp_path):
+    transport = _CaptureTransport()
+    receive_dir = tmp_path / "rx"
+    manager = FileTransferManager(transport, receive_dir=receive_dir)
+    meta = _meta(transport, transfer_id=0x4545)
+    part = manager._resume_store.incoming_part(meta.transfer_id)
+    outside = tmp_path / "not-created.bin"
+    part.symlink_to(outside)
+
+    try:
+        manager.feed_binary(encode_message(meta, transport.payload_capacity))
+        result = _wait_result(transport, meta.transfer_id)
+        assert result is not None
+        assert result.ok is False
+        assert result.code == "storage_failed"
+        assert part.is_symlink()
+        assert not outside.exists()
+    finally:
+        manager.close()
+
+
 def test_symlinked_receiver_manifest_is_not_trusted(tmp_path):
     transport = _CaptureTransport()
     receive_dir = tmp_path / "rx"
