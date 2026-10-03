@@ -197,6 +197,17 @@ class FileTransferManager(_ResumableFileTransferManager):
             return None
         return super()._restore_incoming(meta, existing=existing)
 
+    def _start_new_incoming(self, meta: MetaMessage) -> None:
+        part = self._resume_store.incoming_part(meta.transfer_id)
+        if part.is_symlink():
+            self._reject_incoming(
+                meta.transfer_id,
+                "storage_failed",
+                "receiver partial path is a symlink",
+            )
+            return
+        super()._start_new_incoming(meta)
+
     def _checkpoint_incoming(
         self,
         incoming,
