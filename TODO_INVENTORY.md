@@ -132,7 +132,7 @@ Remaining work: align the primary `NODE_OBSERVATION_RECORDING_POLICY.md` and nod
 
 TODO_026 logging-contract investigation is also OPEN and may be scheduled independently when log-format work is selected.
 
-Suggested next work: implement TODO_033 in the documented stages, beginning with generic controller reboot lifecycle resilience and same-process FT1 pause/resume; then rerun the broader TODO_029 two-node reconnect/MISSING validation and throughput baseline on the implemented TODO_030/TODO_031 path. Persistent FT1 process-restart resume remains the later TODO_033 stage. Independently finish the HCI boundary isolation in TODO_024; after that continue correctness/evidence boundaries (`TODO_011`, `TODO_013`, `TODO_016`, `TODO_017`, `TODO_021`, remaining `TODO_025` docs), lifecycle/API robustness (`TODO_019`, `TODO_022`, `TODO_023`), and consistency/docs follow-ups (`TODO_012`, `TODO_014`, `TODO_015`, `TODO_020`). Re-evaluate ordering if implementation exposes dependencies.
+Suggested next work: execute the TODO_033 workstream as explicit children in dependency order: `TODO_034` controller lifecycle recovery -> `TODO_035` same-process FT1 pause/resume -> `TODO_036` persistent receiver state -> `TODO_037` sender journal + META resume handshake. After TODO_035, rerun the broader TODO_029 two-node reconnect/MISSING validation; after TODO_037, run persistent process-restart resume validation. Independently finish the HCI boundary isolation in TODO_024; then continue correctness/evidence boundaries (`TODO_011`, `TODO_013`, `TODO_016`, `TODO_017`, `TODO_021`, remaining `TODO_025` docs), lifecycle/API robustness (`TODO_019`, `TODO_022`, `TODO_023`), and consistency/docs follow-ups (`TODO_012`, `TODO_014`, `TODO_015`, `TODO_020`). Re-evaluate ordering if implementation exposes dependencies.
 
 ### TODO_026 — `todos/TODO_026_UNIFIED_LOGGING_CONTRACT.md`
 
@@ -175,13 +175,53 @@ Implementation: `dev_tui@a6581f0655a5c15d538b7511ec6b2a67fc9bb693`; GitHub Actio
 
 ### TODO_033 — `todos/TODO_033_FT1_RESUMABLE_TRANSFER_AND_CONTROLLER_RECOVERY.md`
 
-Status: OPEN
+Status: OPEN / UMBRELLA
 
-Goal: make controller reboot/reconnect a bounded first-class SerialTerminal lifecycle event, make active FT1 pause/resume safely in the same process, and then add persistent `.part`/receiver-manifest + sender-journal resume across SerialTerminal process restart. The preferred initial persistent handshake is META -> receiver earliest-missing chunk -> sender resumes from that chunk; existing MISSING ranges remain the exact final selective-repair mechanism.
+Goal: architectural umbrella for controller reboot resilience, same-process FT1 recovery and persistent process-restart resume. Mandatory implementation is split into TODO_034 through TODO_037; optional future exact pre-DATA file-chunk SACK remains outside those mandatory child scopes unless separately promoted.
 
 Key boundary: resume is FT1 application behavior above opaque Chatter reliable USER. Firmware RF ACK stays unchanged and never carries file offset/chunk state. Generic ambiguous writes are not blindly replayed; only operation-owned idempotent semantics may recover.
 
 Finding/design checkpoint: `dev_tui@98fc5856cdc816b52629a334f4bd47e34e00c2a1`. Historical `TODO_032` existed briefly and was removed at that checkpoint; its ID is not reused per TODO policy.
+
+### TODO_034 — `todos/TODO_034_CHATTER_CONTROLLER_LIFECYCLE_RECOVERY.md`
+
+Status: OPEN
+
+Parent: TODO_033.
+
+Goal: establish controller epoch/reboot/recovery as a bounded first-class Chatter/SerialTerminal lifecycle distinct from transport generation, covering BLE reconnect and USB reboot-with-port-open while preserving conservative ambiguous-write semantics.
+
+Dependency order: first implementation child of TODO_033; completion unblocks TODO_035.
+
+### TODO_035 — `todos/TODO_035_FT1_SAME_PROCESS_PAUSE_RESUME.md`
+
+Status: OPEN
+
+Parent: TODO_033. Depends on TODO_034.
+
+Goal: make active FT1 pause during local-node reset/reconnect, preserve exact transfer/current-message identity, replay only the current idempotent FT1 message after controller recovery, and continue existing END/MISSING/RESULT repair without creating a new transfer.
+
+Persistent process-restart state is deliberately excluded; that starts in TODO_036.
+
+### TODO_036 — `todos/TODO_036_FT1_PERSISTENT_RECEIVER_RESUME_STATE.md`
+
+Status: OPEN
+
+Parent: TODO_033. Depends on TODO_035.
+
+Goal: persist receiver `.part` identity, META, received-chunk checkpoint and completed-transfer tombstone across SerialTerminal restart with crash-safe manifest updates, suspended-transfer lifecycle and bounded cleanup/resource policy.
+
+Sender journal/resume wire negotiation is deliberately excluded; that is TODO_037.
+
+### TODO_037 — `todos/TODO_037_FT1_PERSISTENT_SENDER_AND_RESUME_HANDSHAKE.md`
+
+Status: OPEN
+
+Parent: TODO_033. Depends on TODO_036.
+
+Goal: persist sender transfer/source identity, revalidate/rebuild identical wire data after restart, and complete META-driven resume using receiver-proven earliest-missing chunk followed by existing END/MISSING/RESULT repair. Completed receiver tombstones must avoid duplicate final publication/full resend after lost RESULT.
+
+Full pre-DATA arbitrary missing-range SACK is optional future optimization, not required for TODO_037 closure.
 
 ## Closed
 
