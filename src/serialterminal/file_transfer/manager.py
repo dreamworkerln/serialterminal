@@ -106,7 +106,8 @@ class FileTransferManager(_ResumableFileTransferManager):
             return False
         if record.state != "failed":
             return False
-        if getattr(record.failure, "code", None) != "remote_sender_timeout":
+        failure = record.failure
+        if not isinstance(failure, dict) or failure.get("code") != "remote_sender_timeout":
             return False
         loaded = self._resume_store.load_incoming(meta.transfer_id)
         if loaded is None:
