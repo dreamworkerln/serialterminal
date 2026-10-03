@@ -39,10 +39,12 @@ class _FakeSession:
         return 12
 
 
-def test_agent_status_exposes_controller_lifecycle_snapshot():
+def _manager_with_session(*, connected=True, controller_state="resetting"):
     manager = SessionManager(selector_factory=lambda *_args: None)
-    adapter = _ControllerAdapter()
+    adapter = _ControllerAdapter(state=controller_state)
     session = _FakeSession()
+    if not connected:
+        session.connected_event.clear()
     file_manager = SimpleNamespace(
         transport=adapter,
         display_snapshot=lambda: None,
@@ -51,12 +53,31 @@ def test_agent_status_exposes_controller_lifecycle_snapshot():
         manager._sessions["s1"] = session
         manager._session_profiles["s1"] = "chatter"
         manager._file_managers["s1"] = file_manager
+    return manager, adapter
+
+
+def test_agent_status_exposes_controller_lifecycle_snapshot():
+    manager, adapter = _manager_with_session()
 
     status = manager.status("s1")
 
     assert status["state"] == "connected"
     assert status["controller"] == adapter.snapshot
     assert status["controller"]["state"] == "resetting"
+    assert status["controller"]["epoch"] == 3
+
+
+def test_agent_distinguishes_transport_reconnect_without_controller_reset():
+    manager, adapter = _manager_with_session(
+        connected=False,
+        controller_state="ready",
+    )
+
+    status = manager.status("s1")
+
+    assert status["state"] == "reconnecting"
+    assert status["controller"] == adapter.snapshot
+    assert status["controller"]["state"] == "ready"
     assert status["controller"]["epoch"] == 3
 
 
