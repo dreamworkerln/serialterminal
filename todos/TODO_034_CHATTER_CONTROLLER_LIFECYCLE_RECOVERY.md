@@ -1,8 +1,24 @@
 # Chatter controller lifecycle recovery TODO
 
 TODO-ID: TODO_034
-Status: OPEN
+Status: IMPLEMENTED / PHYSICAL VALIDATION OPEN
 Parent: `TODO_033_FT1_RESUMABLE_TRANSFER_AND_CONTROLLER_RECOVERY`
+
+## Current implementation status
+
+Automated implementation is complete on the current TODO_033 workstream. The controller lifecycle now has a Chatter-owned controller epoch/state distinct from transport `connection_generation`; reset/fatal evidence invalidates controller-owned state, repeated evidence for one reboot is deduplicated, READY establishes usability, bounded wait/cancel behavior is available to FT1, and agent/TUI surfaces expose controller lifecycle state.
+
+Implementation and hardening are included in the validated checkpoint documented by `FT1_RESUME.md`:
+
+```text
+SerialTerminal: dev_tui@2952d1e09ad550a60b25418dd10bb49e4aa73a4c
+GitHub Actions: 37158286307 SUCCESS
+pytest:         400 passed
+```
+
+Host tests cover reset/READY epoch behavior, repeated markers, cancellation/timeout, reset without transport-generation change, and the negative case where transport reconnecting without reset evidence does not manufacture a new controller epoch.
+
+**Physical validation has NOT been run for this TODO.** In particular, the required real BLE reboot/disconnect/reconnect and USB reboot-with-tty-open cases remain OPEN. Therefore this TODO is not CLOSED.
 
 ## Purpose
 
