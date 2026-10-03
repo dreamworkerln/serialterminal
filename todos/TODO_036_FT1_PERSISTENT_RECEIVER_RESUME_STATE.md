@@ -1,9 +1,29 @@
 # FT1 persistent receiver resume state TODO
 
 TODO-ID: TODO_036
-Status: OPEN
+Status: IMPLEMENTED / PHYSICAL VALIDATION OPEN
 Parent: `TODO_033_FT1_RESUMABLE_TRANSFER_AND_CONTROLLER_RECOVERY`
 Depends on: `TODO_035_FT1_SAME_PROCESS_PAUSE_RESUME`
+
+## Current implementation status
+
+Automated implementation is complete. Receiver durable state now lives under the configured receive directory in `.serialterminal-state/`, with schema-versioned incoming manifests, stable `.part` files, received-range checkpoints, suspended timeout semantics, completed tombstones and bounded cleanup.
+
+Durability follows the safe-lag rule: `.part` bytes are fsynced before a checkpoint advances the durable received map; the manifest uses temporary write + file fsync + atomic replace, and the public durable store fsyncs the containing directory where supported. Restart logic uses the durable received map rather than file size, so sparse/out-of-order state is handled correctly.
+
+Filesystem hardening rejects symlinked manifests, symlinked `.part` files, dangling expected `.part` symlinks, unsafe final/tombstone destinations and corrupt/conflicting state. Completed tombstones prevent duplicate final publication after lost RESULT/restart.
+
+Authoritative current behavior and storage layout are documented in `FT1_RESUME.md`.
+
+Automated checkpoint:
+
+```text
+SerialTerminal: dev_tui@2952d1e09ad550a60b25418dd10bb49e4aa73a4c
+GitHub Actions: 37158286307 SUCCESS
+pytest:         400 passed
+```
+
+**Physical receiver-process restart validation has NOT been run.** Retained partial state across an actual receiver ST restart on real nodes and tombstone behavior on the physical path remain OPEN. Therefore this TODO is not CLOSED.
 
 ## Purpose
 
