@@ -15,6 +15,7 @@ _END_FIXED = struct.Struct(">I32s")
 _MISSING_COUNT = struct.Struct(">B")
 _MISSING_RANGE = struct.Struct(">II")
 _RESULT_FIXED = struct.Struct(">BBB")
+_RESUME_FIXED = struct.Struct(">I")
 
 
 class MessageType(IntEnum):
@@ -23,6 +24,7 @@ class MessageType(IntEnum):
     END = 3
     RESULT = 4
     MISSING = 5
+    RESUME = 6
 
 
 class Compression(IntEnum):
@@ -97,12 +99,26 @@ class ResultMessage:
     reason: str
 
 
+@dataclass(frozen=True)
+class ResumeMessage:
+    """Receiver-proven earliest chunk the sender should transmit.
+
+    RESUME is FT1 application flow control, not a firmware/radio ACK. A value
+    equal to chunk_count means every DATA chunk is already durable and the
+    sender may proceed directly to END.
+    """
+
+    transfer_id: int
+    next_chunk: int
+
+
 FileMessage = (
     MetaMessage
     | DataMessage
     | EndMessage
     | MissingMessage
     | ResultMessage
+    | ResumeMessage
 )
 
 
@@ -321,6 +337,18 @@ def encode_result(message: ResultMessage, capacity: int) -> bytes:
     return payload
 
 
+def encode_resume(message: ResumeMessage, capacity: int) -> bytes:
+    if not 0 <= message.next_chunk <= 0xFFFFFFFF:
+        raise FileProtocolError("RESUME next_chunk is out of uint32 range")
+    payload = (
+        _common(MessageType.RESUME, message.transfer_id)
+        + _RESUME_FIXED.pack(message.next_chunk)
+    )
+    if len(payload) > capacity:
+        raise FileProtocolError("RESUME exceeds binary payload capacity")
+    return payload
+
+
 def encode_message(message: FileMessage, capacity: int) -> bytes:
     if isinstance(message, MetaMessage):
         return encode_meta(message, capacity)
@@ -332,6 +360,8 @@ def encode_message(message: FileMessage, capacity: int) -> bytes:
         return encode_missing(message, capacity)
     if isinstance(message, ResultMessage):
         return encode_result(message, capacity)
+    if isinstance(message, ResumeMessage):
+        return encode_resume(message, capacity)
     raise TypeError(f"unsupported FT1 message: {type(message)!r}")
 
 
@@ -438,6 +468,16 @@ def decode_message(data: bytes) -> FileMessage | None:
         return MissingMessage(
             transfer_id=transfer_id,
             ranges=result,
+        )
+
+    if message_type is MessageType.RESUME:
+        expected = offset + _RESUME_FIXED.size
+        if len(data) != expected:
+            raise FileProtocolError("RESUME length mismatch")
+        (next_chunk,) = _RESUME_FIXED.unpack_from(data, offset)
+        return ResumeMessage(
+            transfer_id=transfer_id,
+            next_chunk=next_chunk,
         )
 
     expected = offset + _RESULT_FIXED.size
