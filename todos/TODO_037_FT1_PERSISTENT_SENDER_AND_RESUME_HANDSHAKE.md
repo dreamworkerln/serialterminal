@@ -1,9 +1,29 @@
 # FT1 persistent sender journal and resume handshake TODO
 
 TODO-ID: TODO_037
-Status: OPEN
+Status: IMPLEMENTED / PHYSICAL VALIDATION OPEN
 Parent: `TODO_033_FT1_RESUMABLE_TRANSFER_AND_CONTROLLER_RECOVERY`
 Depends on: `TODO_036_FT1_PERSISTENT_RECEIVER_RESUME_STATE`
+
+## Current implementation status
+
+Automated end-to-end persistent resume is implemented. `file_send_start(path)` remains the explicit trigger; when exactly one valid unchanged-source sender journal matches, SerialTerminal reuses the same `transfer_id`, rebuilds/verifies identical wire representation, sends META and waits for receiver-proven resume state. Multiple matching journals fail explicitly with `ambiguous_resume_state`; changed source content is never sent under the retained old transfer identity.
+
+FT1 v1 now has a backwards-compatible optional `RESUME` message type 6 carrying `next_chunk:uint32`. NEW returns 0, PARTIAL returns the earliest receiver-proven missing chunk, completed tombstones avoid duplicate final publication, and existing END/MISSING/RESULT remains the exact final repair/completion path. New sender -> old receiver uses a bounded timeout then full pass from 0; old sender ignores the optional RESUME from a new receiver. Firmware ACK is unchanged.
+
+Current exact protocol/operational contract is documented in `FT1_RESUME.md`.
+
+Automated implementation/hardening checkpoint:
+
+```text
+SerialTerminal: dev_tui@2952d1e09ad550a60b25418dd10bb49e4aa73a4c
+GitHub Actions: 37158286307 SUCCESS
+pytest:         400 passed
+```
+
+Automated coverage includes unchanged-source sender restart, receiver restart state, same transfer ID, sparse earliest-missing resume, deterministic gzip rebuild, invalid cursor rejection, old/new host compatibility, completed tombstone replay, source change, corrupt state, multi-journal ambiguity and resume-state symlink hardening.
+
+**Two-node physical persistent-resume validation has NOT been run.** Sender ST restart, receiver ST restart, both-process restart, sparse physical resume, lost RESULT/tombstone replay and source-change operator cases on actual nodes remain OPEN. Therefore this TODO is not CLOSED.
 
 ## Purpose
 
