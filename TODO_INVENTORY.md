@@ -132,7 +132,7 @@ Remaining work: align the primary `NODE_OBSERVATION_RECORDING_POLICY.md` and nod
 
 TODO_026 logging-contract investigation is also OPEN and may be scheduled independently when log-format work is selected.
 
-Suggested next work: execute the TODO_033 workstream as explicit children in dependency order: `TODO_034` controller lifecycle recovery -> `TODO_035` same-process FT1 pause/resume -> `TODO_036` persistent receiver state -> `TODO_037` sender journal + META resume handshake. After TODO_035, rerun the broader TODO_029 two-node reconnect/MISSING validation; after TODO_037, run persistent process-restart resume validation. Independently finish the HCI boundary isolation in TODO_024; then continue correctness/evidence boundaries (`TODO_011`, `TODO_013`, `TODO_016`, `TODO_017`, `TODO_021`, remaining `TODO_025` docs), lifecycle/API robustness (`TODO_019`, `TODO_022`, `TODO_023`), and consistency/docs follow-ups (`TODO_012`, `TODO_014`, `TODO_015`, `TODO_020`). Re-evaluate ordering if implementation exposes dependencies.
+Suggested next work: physically validate the implemented TODO_033 child workstream at the exact current `dev_tui` checkpoint: `TODO_034` BLE/USB controller lifecycle, `TODO_035` same-process FT1 reboot/reconnect recovery, `TODO_036` receiver process-restart durability, and `TODO_037` sender/receiver/both-process persistent resume plus lost-RESULT tombstone behavior. Then rerun the broader TODO_029 two-node reconnect/MISSING validation against the new recovery stack. Independently finish the HCI boundary isolation in TODO_024; then continue correctness/evidence boundaries (`TODO_011`, `TODO_013`, `TODO_016`, `TODO_017`, `TODO_021`, remaining `TODO_025` docs), lifecycle/API robustness (`TODO_019`, `TODO_022`, `TODO_023`), and consistency/docs follow-ups (`TODO_012`, `TODO_014`, `TODO_015`, `TODO_020`). Re-evaluate ordering if physical validation exposes a regression.
 
 ### TODO_026 — `todos/TODO_026_UNIFIED_LOGGING_CONTRACT.md`
 
@@ -146,16 +146,15 @@ Selected contract: both frontends create the same timestamped `.console.log` log
 
 Physical interactive smoke: PASS on 2026-09-22 with `Profile: chatter`; companion timestamps/session/direction/logical-line behavior confirmed. Remaining gate: physical agent smoke and timing-format comparison.
 
-
 ### TODO_029 — `todos/TODO_029_FILE_TRANSFER_RECONNECT_REPAIR.md`
 
 Status: IMPLEMENTED / PHYSICAL VALIDATION OPEN
 
-Goal: FT1/BINARY USER file transfer over current Chatter USER+ACK now supports same-process local reconnect repair with stable chunk IDs, one compact MISSING ranges message, idempotent META/END replay and selective resend when the missing set fits the transport application MTU.
+Goal: FT1/BINARY USER file transfer over current Chatter USER+ACK supports local reconnect repair with stable chunk IDs, compact MISSING ranges, idempotent META/END replay and selective resend when the missing set fits the transport application MTU.
 
-Automated implementation checkpoint: `dev_tui@aa2d3cc1fd65cbe228efbee6cdab4dccdbc62ada`; GitHub Actions `36655735769` SUCCESS; 313 tests PASS. The historical temporary `BOTH`/DELIVERY settlement design was superseded by TODO_030: current FT1 never mutates output mode and uses exact local BINARY presentation only as controller-local backpressure. TUI still suppresses ordinary transfer protocol noise while preserving adapter/panel/log consumption and file-progress rendering. META settlement remains shown as `sending`, not false `compressing 0%`. Oversized missing-range sets still terminate with stable `repair_too_large`; a full resend is an explicit new `file_send_start`, so v1 never enters an automatic restart loop.
+Original implementation checkpoint: `dev_tui@aa2d3cc1fd65cbe228efbee6cdab4dccdbc62ada`; GitHub Actions `36655735769` SUCCESS; 313 tests PASS. The historical temporary `BOTH`/DELIVERY settlement design was superseded by TODO_030: current FT1 never mutates output mode and uses exact local BINARY presentation only as controller-local backpressure. TUI suppresses ordinary transfer protocol noise while preserving adapter/panel/log consumption and file-progress rendering. Oversized missing-range sets still terminate with stable `repair_too_large`; v1 does not silently invent MISSING pagination.
 
-Key boundary: current radio transport is ordinary Chatter USER + ACK only; no per-chunk file ACK, no MISSING pagination, and no persistent resume after SerialTerminal process death. LoRa SACK is explicitly out of scope. Physical two-node transfer/reconnect validation of the updated checkpoint remains open. TODO_033 owns the new controller-lifecycle/pause-resume/persistent-resume extension and must preserve this existing application-level MISSING/RESULT contract.
+Key boundary after TODO_033 implementation: radio transport is still ordinary opaque Chatter USER + ACK only, with no per-chunk file ACK and no firmware file-aware offset. Persistent process-restart resume now exists entirely at the FT1 host layer under TODO_036/037 and is specified by `FT1_RESUME.md`; existing END/MISSING/RESULT remains the exact final repair/completion contract. LoRa SACK remains out of scope. Physical two-node reconnect/MISSING validation of the combined stack remains open.
 
 ### TODO_030 — `todos/TODO_030_CHATTER_FT1_NO_TELEMETRY.md`
 
@@ -163,7 +162,7 @@ Status: IMPLEMENTED / PHYSICAL VALIDATION OPEN
 
 Goal: ordinary FT1 is now independent of Chatter TELEMETRY and emits no transfer-owned output-mode commands. Chatter `send_binary()` settles on exact local BINARY presentation; FT1 MISSING/RESULT remains end-to-end truth.
 
-Implementation: `dev_tui@9ede53de6317774866097d0df8780e62200dc3c7` + `14b9a80044461910e4a19ee63accbf7507183daf`; GitHub Actions `36665521352` SUCCESS; 323 tests PASS. Physical reproduction on 2026-09-30 exposed two host-side recovery gaps: firmware reboot can leave USB connected while invalidating pending local BINARY presentation, and a peer that stops after META can leave RX ownership stale. Follow-up fixes are `28b849e49f97b7787fe180eb5e0fca870ea0ee97`, `a05b885854ec98b7a2ee2a771f96ae223510cf81` and `ab7933ab7c55b0091b823824aed9ea71945d91e5`; physical revalidation remains open.
+Implementation: `dev_tui@9ede53de6317774866097d0df8780e62200dc3c7` + `14b9a80044461910e4a19ee63accbf7507183daf`; GitHub Actions `36665521352` SUCCESS; 323 tests PASS. Physical reproduction on 2026-09-30 exposed two host-side recovery gaps: firmware reboot can leave USB connected while invalidating pending local BINARY presentation, and a peer that stops after META can leave RX ownership stale. Follow-up fixes are `28b849e49f97b7787fe180eb5e0fca870ea0ee97`, `a05b885854ec98b7a2ee2a771f96ae223510cf81` and `ab7933ab7c55b0091b823824aed9ea71945d91e5`; TODO_034–037 now extend that host recovery model, but combined physical revalidation remains open.
 
 ### TODO_031 — `todos/TODO_031_SERIAL_RX_LOW_LATENCY.md`
 
@@ -175,53 +174,55 @@ Implementation: `dev_tui@a6581f0655a5c15d538b7511ec6b2a67fc9bb693`; GitHub Actio
 
 ### TODO_033 — `todos/TODO_033_FT1_RESUMABLE_TRANSFER_AND_CONTROLLER_RECOVERY.md`
 
-Status: OPEN / UMBRELLA
+Status: OPEN / UMBRELLA — MANDATORY HOST IMPLEMENTATION COMPLETE, PHYSICAL VALIDATION OPEN
 
-Goal: architectural umbrella for controller reboot resilience, same-process FT1 recovery and persistent process-restart resume. Mandatory implementation is split into TODO_034 through TODO_037; optional future exact pre-DATA file-chunk SACK remains outside those mandatory child scopes unless separately promoted.
+Goal: architectural umbrella for controller reboot resilience, same-process FT1 recovery and persistent process-restart resume. Mandatory host implementation is split into TODO_034 through TODO_037; optional future exact pre-DATA file-chunk SACK remains outside those mandatory child scopes unless separately promoted.
 
 Key boundary: resume is FT1 application behavior above opaque Chatter reliable USER. Firmware RF ACK stays unchanged and never carries file offset/chunk state. Generic ambiguous writes are not blindly replayed; only operation-owned idempotent semantics may recover.
 
 Finding/design checkpoint: `dev_tui@98fc5856cdc816b52629a334f4bd47e34e00c2a1`. Historical `TODO_032` existed briefly and was removed at that checkpoint; its ID is not reused per TODO policy.
 
+Current recovery/resume contract: `FT1_RESUME.md`. Automated implementation/hardening checkpoint before the final docs-only synchronization: `dev_tui@2952d1e09ad550a60b25418dd10bb49e4aa73a4c`, GitHub Actions `37158286307` SUCCESS, 400 tests PASS. Child closure still requires physical validation.
+
 ### TODO_034 — `todos/TODO_034_CHATTER_CONTROLLER_LIFECYCLE_RECOVERY.md`
 
-Status: OPEN
+Status: IMPLEMENTED / PHYSICAL VALIDATION OPEN
 
 Parent: TODO_033.
 
 Goal: establish controller epoch/reboot/recovery as a bounded first-class Chatter/SerialTerminal lifecycle distinct from transport generation, covering BLE reconnect and USB reboot-with-port-open while preserving conservative ambiguous-write semantics.
 
-Dependency order: first implementation child of TODO_033; completion unblocks TODO_035.
+Automated contract is implemented and validated in the TODO_033 checkpoint above. Required real BLE and USB reboot lifecycle cases remain open.
 
 ### TODO_035 — `todos/TODO_035_FT1_SAME_PROCESS_PAUSE_RESUME.md`
 
-Status: OPEN
+Status: IMPLEMENTED / PHYSICAL VALIDATION OPEN
 
 Parent: TODO_033. Depends on TODO_034.
 
-Goal: make active FT1 pause during local-node reset/reconnect, preserve exact transfer/current-message identity, replay only the current idempotent FT1 message after controller recovery, and continue existing END/MISSING/RESULT repair without creating a new transfer.
+Goal: active FT1 pauses during local-node reset/reconnect, preserves exact transfer/current-message identity, replays only the current idempotent FT1 message after controller recovery, and continues existing END/MISSING/RESULT repair without creating a new transfer.
 
-Persistent process-restart state is deliberately excluded; that starts in TODO_036.
+Automated recovery/cancellation/identity tests pass. Real two-node sender/receiver reboot/reconnect, repair-round reset and bounded-failure cases remain open.
 
 ### TODO_036 — `todos/TODO_036_FT1_PERSISTENT_RECEIVER_RESUME_STATE.md`
 
-Status: OPEN
+Status: IMPLEMENTED / PHYSICAL VALIDATION OPEN
 
 Parent: TODO_033. Depends on TODO_035.
 
-Goal: persist receiver `.part` identity, META, received-chunk checkpoint and completed-transfer tombstone across SerialTerminal restart with crash-safe manifest updates, suspended-transfer lifecycle and bounded cleanup/resource policy.
+Goal: persist receiver `.part` identity, META, durable received-chunk ranges and completed-transfer tombstone across SerialTerminal restart with safe-lag checkpoint ordering, suspended-transfer lifecycle, bounded cleanup and filesystem hardening.
 
-Sender journal/resume wire negotiation is deliberately excluded; that is TODO_037.
+Automated restart/sparse/safe-lag/tombstone/corruption/symlink tests pass. Physical receiver-process restart durability remains open.
 
 ### TODO_037 — `todos/TODO_037_FT1_PERSISTENT_SENDER_AND_RESUME_HANDSHAKE.md`
 
-Status: OPEN
+Status: IMPLEMENTED / PHYSICAL VALIDATION OPEN
 
 Parent: TODO_033. Depends on TODO_036.
 
-Goal: persist sender transfer/source identity, revalidate/rebuild identical wire data after restart, and complete META-driven resume using receiver-proven earliest-missing chunk followed by existing END/MISSING/RESULT repair. Completed receiver tombstones must avoid duplicate final publication/full resend after lost RESULT.
+Goal: persist sender transfer/source identity, revalidate/rebuild identical wire data after restart, and complete META-driven resume using receiver-proven earliest-missing chunk followed by existing END/MISSING/RESULT repair. Completed receiver tombstones prevent duplicate final publication/full resend after lost RESULT.
 
-Full pre-DATA arbitrary missing-range SACK is optional future optimization, not required for TODO_037 closure.
+FT1 v1 uses optional RESUME message type 6 with bounded old/new-host compatibility fallback. Multiple matching sender journals fail as `ambiguous_resume_state`; changed source is never sent under the old transfer identity. Full pre-DATA arbitrary missing-range SACK remains an optional future optimization. Physical sender/receiver/both-process restart and lost-RESULT scenarios remain open.
 
 ## Closed
 
@@ -249,8 +250,6 @@ Implementation: `dev@dd9856bd540f66c8ca601cc92688a9539a1e0002`.
 
 Validated tree: `dev@4792fc2bdc357ce3eaee2755ccfb39fa4144a855`; GitHub Actions `36314768924` SUCCESS; compile/ruff/complexity PASS; **222 tests PASS**. Completed async observation workers now remove themselves from runner bookkeeping; the stress regression exercises 1000 sequential short observations and requires retained worker bookkeeping to return to zero.
 
-
-
 ### TODO_027 — `todos/TODO_027_REDUCE_AGENT_CONTEXT_AMPLIFICATION.md`
 
 Status: CLOSED
@@ -266,7 +265,6 @@ reduction:             86.4% / 7.36x smaller
 ```
 
 Default `observe` now returns logical lines/cursors/timeout state; raw `events/data_b64` require `include_events:true`. Forensic `.log` raw evidence is unchanged. Executor guidance also prohibits accumulated stdout replay and whole-log model-context dumps unless bounded forensics require them.
-
 
 ### TODO_010 — `todos/TODO_010_TERMINAL_VISIBILITY_PREDICATE.md`
 
@@ -412,4 +410,4 @@ post-closure hardware smoke: PASS / physical BLE multi-device / 2026-09-03
 
 ## Current validation posture
 
-Repository CI is the normal per-change clean-environment gate. Physical-node claims remain separate: do not infer current-head hardware validity from older run bundles. The newly recorded static and live findings are OPEN/PARTIAL until their individual implementation and validation gates are completed. For the next build-level validation pass, continue to prefer one long-lived `serialterminal agent` process and a broad scenario matrix over repeated manual operator actions; only UI-specific behavior that the machine API cannot exercise should require a separate human pass.
+Repository CI is the normal per-change clean-environment gate. Physical-node claims remain separate: do not infer current-head hardware validity from older run bundles. TODO_034 through TODO_037 have completed host implementation/automated validation but remain explicitly open for the required physical BLE/USB/two-node process-restart matrix. For the next build-level validation pass, continue to prefer one long-lived `serialterminal agent` process and a broad scenario matrix over repeated manual operator actions; only UI-specific behavior that the machine API cannot exercise should require a separate human pass.
