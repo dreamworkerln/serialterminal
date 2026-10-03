@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import base64
 from collections import deque
+from dataclasses import dataclass
 import re
 import threading
 import time
@@ -48,6 +49,24 @@ _REJECTION_MARKERS = (
 
 class BinaryUserParseError(ValueError):
     pass
+
+
+@dataclass(frozen=True)
+class ControllerLifecycleSnapshot:
+    state: str
+    epoch: int
+    ready: bool
+    connection_generation: int | None
+    reset_generation: int | None
+
+    def as_dict(self) -> dict[str, Any]:
+        return {
+            "state": self.state,
+            "epoch": self.epoch,
+            "ready": self.ready,
+            "connection_generation": self.connection_generation,
+            "reset_generation": self.reset_generation,
+        }
 
 
 def encode_binary_command(data: bytes) -> str:
@@ -123,6 +142,11 @@ class ChatterBinaryUserAdapter:
     DELIVERY telemetry is intentionally not part of the send state machine.
     Exact local > [BINARY] presentation is bounded backpressure after first
     physical TxDone; FT1 RESULT/MISSING owns remote application truth.
+
+    Controller epoch is independent from transport generation. A controller can
+    reboot while a USB tty remains open, while BLE commonly changes transport
+    generation around the same reboot. The adapter therefore owns Chatter boot
+    marker parsing and exposes one bounded lifecycle state to higher layers.
     """
 
     payload_capacity = BINARY_USER_MAX_BYTES
@@ -163,8 +187,9 @@ class ChatterBinaryUserAdapter:
         self._output_mode: str | None = None
         self._output_mode_generation: int | None = None
         self._controller_epoch = 0
-        self._controller_recovering = False
+        self._controller_state = "ready"
         self._controller_ready = True
+        self._controller_reset_generation: int | None = None
         self.last_parse_error: str | None = None
 
     def _timing(self, event: str, **fields: Any) -> None:
@@ -177,6 +202,49 @@ class ChatterBinaryUserAdapter:
             # Timing-инструментация не должна менять корректность BINARY/FT1 path.
             pass
 
+    def _generation(self) -> int | None:
+        reader = self._connection_generation
+        return reader() if reader is not None else None
+
+    def controller_status(self) -> dict[str, Any]:
+        with self._condition:
+            snapshot = ControllerLifecycleSnapshot(
+                state=self._controller_state,
+                epoch=self._controller_epoch,
+                ready=self._controller_ready,
+                connection_generation=self._generation(),
+                reset_generation=self._controller_reset_generation,
+            )
+        return snapshot.as_dict()
+
+    def _mark_controller_reset_locked(self) -> tuple[bool, int, int | None]:
+        is_new_reset = self._controller_state == "ready"
+        if is_new_reset:
+            self._controller_epoch += 1
+            self._controller_reset_generation = self._generation()
+        self._controller_state = "resetting"
+        self._controller_ready = False
+        self._output_mode = None
+        self._output_mode_generation = None
+        self._condition.notify_all()
+        return (
+            is_new_reset,
+            self._controller_epoch,
+            self._controller_reset_generation,
+        )
+
+    def _mark_controller_ready_locked(
+        self,
+        *,
+        reason: str,
+    ) -> tuple[bool, int, int | None, str]:
+        changed = not self._controller_ready or self._controller_state != "ready"
+        self._controller_state = "ready"
+        self._controller_ready = True
+        self._controller_reset_generation = None
+        self._condition.notify_all()
+        return changed, self._controller_epoch, self._generation(), reason
+
     def set_receiver(self, receiver: BinaryReceiver | None) -> None:
         with self._receiver_lock:
             self._receiver = receiver
@@ -185,36 +253,58 @@ class ChatterBinaryUserAdapter:
         del stream
         value = line.rstrip("\r\n")
         mode_match = _OUTPUT_MODE_RE.search(value) or _CURRENT_MODE_RE.search(value)
+        reset_event: tuple[int, int | None] | None = None
+        ready_event: tuple[int, int | None, str] | None = None
         with self._condition:
             if any(marker in value for marker in _CONTROLLER_RESET_MARKERS):
                 # USB-UART может остаться физически подключённым во время reboot ESP.
                 # Поэтому controller epoch живёт отдельно от transport generation.
-                if not self._controller_recovering:
-                    self._controller_epoch += 1
-                self._controller_recovering = True
-                self._controller_ready = False
-                self._output_mode = None
-                self._output_mode_generation = None
+                is_new, epoch, reset_generation = self._mark_controller_reset_locked()
+                if is_new:
+                    reset_event = (epoch, reset_generation)
             elif _CONTROLLER_READY_MARKER in value:
-                self._controller_recovering = False
-                self._controller_ready = True
+                changed, epoch, generation, reason = self._mark_controller_ready_locked(
+                    reason="ready_marker"
+                )
                 # После reboot output mode снова принадлежит новому controller epoch.
                 self._output_mode = None
                 self._output_mode_generation = None
+                if changed:
+                    ready_event = (epoch, generation, reason)
 
             if mode_match is not None:
                 self._output_mode = mode_match.group("mode")
-                generation_reader = self._connection_generation
-                self._output_mode_generation = (
-                    generation_reader()
-                    if generation_reader is not None
-                    else None
-                )
+                self._output_mode_generation = self._generation()
+                # После BLE reconnect boot-time READY может быть пропущен до
+                # resubscribe. Ответ на /help уже является прямым доказательством,
+                # что новый controller epoch принимает команды.
+                if not self._controller_ready:
+                    changed, epoch, generation, reason = self._mark_controller_ready_locked(
+                        reason="controller_response"
+                    )
+                    if changed:
+                        ready_event = (epoch, generation, reason)
             seq = self._next_seq
             self._next_seq += 1
             self._lines.append((seq, line))
             active_binary_timing_seq = self._active_binary_timing_seq
             self._condition.notify_all()
+
+        if reset_event is not None:
+            epoch, generation = reset_event
+            self._timing(
+                "controller_reset_detected",
+                epoch=epoch,
+                generation=generation,
+            )
+        if ready_event is not None:
+            epoch, generation, reason = ready_event
+            self._timing(
+                "controller_ready",
+                epoch=epoch,
+                generation=generation,
+                reason=reason,
+            )
 
         if value.startswith("> [BINARY] "):
             self._timing(
@@ -263,7 +353,6 @@ class ChatterBinaryUserAdapter:
             ),
         )
 
-
     def _wait_tx_written(
         self,
         tx_id: int | None,
@@ -308,50 +397,97 @@ class ChatterBinaryUserAdapter:
         *,
         generation: int | None,
         cancel_event: threading.Event | None,
-    ) -> None:
-        deadline = time.monotonic() + self._controller_ready_timeout_s
-        generation_reader = self._connection_generation
+        allow_reconnect_probe: bool = False,
+        timeout_s: float | None = None,
+    ) -> int | None:
+        timeout = self._controller_ready_timeout_s if timeout_s is None else float(timeout_s)
+        if timeout <= 0:
+            raise ValueError("timeout_s must be positive")
+        deadline = time.monotonic() + timeout
+        reconnect_timing_emitted = False
         while True:
             if cancel_event is not None and cancel_event.is_set():
                 raise BinaryUserCancelled()
+
+            current_generation = self._generation()
             with self._condition:
-                if self._controller_ready and not self._controller_recovering:
-                    return
+                if self._controller_ready and self._controller_state == "ready":
+                    return current_generation
+                reset_generation = self._controller_reset_generation
+                if (
+                    allow_reconnect_probe
+                    and reset_generation is not None
+                    and current_generation is not None
+                    and current_generation != reset_generation
+                ):
+                    self._controller_state = "reconnecting"
+                    epoch = self._controller_epoch
+                    self._condition.notify_all()
+                    if not reconnect_timing_emitted:
+                        reconnect_timing_emitted = True
+                        self._timing(
+                            "controller_reconnecting",
+                            epoch=epoch,
+                            generation=current_generation,
+                            reset_generation=reset_generation,
+                        )
+                    # A generation change is not remote/application success. It
+                    # only permits a read-only /help readiness probe. The probe
+                    # response (or explicit CHATTER READY) marks the controller
+                    # ready in feed_line().
+                    return current_generation
+
                 remaining = deadline - time.monotonic()
                 if remaining <= 0:
                     raise BinaryUserError(
                         "controller_ready_timeout",
                         "Chatter controller did not become ready after reset",
                     )
-                self._condition.wait(timeout=min(0.25, remaining))
-            if (
-                generation_reader is not None
-                and generation is not None
-                and generation_reader() != generation
-            ):
-                raise BinaryUserError(
-                    "local_disconnect",
-                    "local connection changed while waiting for Chatter controller ready",
-                )
+                self._condition.wait(timeout=min(0.1, remaining))
+
+    def wait_controller_ready(
+        self,
+        *,
+        cancel_event: threading.Event | None = None,
+        timeout_s: float | None = None,
+    ) -> dict[str, Any]:
+        """Wait strictly for explicit/response-proven Chatter readiness.
+
+        This public lifecycle primitive deliberately does not issue a command.
+        Higher-level operations can wait without duplicating reset-marker parsing,
+        while operation-specific code remains responsible for any safe readiness
+        probe/replay policy.
+        """
+        generation = self._generation()
+        self._wait_until_controller_ready(
+            generation=generation,
+            cancel_event=cancel_event,
+            allow_reconnect_probe=False,
+            timeout_s=timeout_s,
+        )
+        return self.controller_status()
 
     def _ensure_binary_presentation_available(
         self,
         *,
         generation: int | None,
         cancel_event: threading.Event | None,
-    ) -> None:
-        self._wait_until_controller_ready(
+    ) -> int | None:
+        generation = self._wait_until_controller_ready(
             generation=generation,
             cancel_event=cancel_event,
+            allow_reconnect_probe=True,
         )
         mode = self._known_output_mode_for_generation(generation)
         if mode == "TELEMETRY":
             raise self._presentation_unavailable_error()
         if mode in {"CHAT", "BOTH"}:
-            return
+            return generation
 
         # Firmware не имеет отдельного read-only mode query; /help публикует
-        # [SYS] current=... и не изменяет operator-selected output mode.
+        # [SYS] current=... и не изменяет operator-selected output mode. После
+        # BLE reconnect этот query также служит bounded readiness probe, если
+        # boot-time CHATTER READY был пропущен до resubscribe.
         result = self._send_line("/help")
         tx_id = _tx_id_from_result(result)
         deadline = time.monotonic() + self._mode_query_timeout_s
@@ -367,18 +503,20 @@ class ChatterBinaryUserAdapter:
         while True:
             if cancel_event is not None and cancel_event.is_set():
                 raise BinaryUserCancelled()
-            mode = self._known_output_mode_for_generation(generation)
+            current_generation = self._generation()
+            mode = self._known_output_mode_for_generation(current_generation)
             if mode == "TELEMETRY":
                 raise self._presentation_unavailable_error()
             if mode in {"CHAT", "BOTH"}:
-                return
+                return current_generation
 
             with self._condition:
                 reset_seen = self._controller_epoch != controller_epoch
             if reset_seen:
                 self._wait_until_controller_ready(
-                    generation=generation,
+                    generation=current_generation,
                     cancel_event=cancel_event,
+                    allow_reconnect_probe=True,
                 )
                 raise BinaryUserError(
                     "local_controller_reset",
@@ -388,7 +526,7 @@ class ChatterBinaryUserAdapter:
             if (
                 generation_reader is not None
                 and generation is not None
-                and generation_reader() != generation
+                and current_generation != generation
             ):
                 raise BinaryUserError(
                     "local_disconnect",
@@ -405,7 +543,7 @@ class ChatterBinaryUserAdapter:
                     ),
                 )
             with self._condition:
-                self._condition.wait(timeout=min(0.25, remaining))
+                self._condition.wait(timeout=min(0.1, remaining))
 
     def send_binary(
         self,
@@ -424,14 +562,10 @@ class ChatterBinaryUserAdapter:
             self._next_binary_timing_seq += 1
             tx_id: int | None = None
             generation_reader = self._connection_generation
-            generation = (
-                generation_reader()
-                if generation_reader is not None
-                else None
-            )
+            generation = self._generation()
 
             try:
-                self._ensure_binary_presentation_available(
+                generation = self._ensure_binary_presentation_available(
                     generation=generation,
                     cancel_event=cancel_event,
                 )
@@ -447,6 +581,7 @@ class ChatterBinaryUserAdapter:
                     payload_bytes=len(payload),
                     command_chars=len(command),
                     generation=generation,
+                    controller_epoch=controller_epoch,
                 )
                 result = self._send_line(command)
                 tx_id = _tx_id_from_result(result)
@@ -512,10 +647,13 @@ class ChatterBinaryUserAdapter:
                         reset_seen = self._controller_epoch != controller_epoch
                     if reset_seen:
                         # Старый > [BINARY] уже не может появиться после reboot.
-                        # Дожидаемся READY, чтобы FT1 replay не попал в boot window.
+                        # Для USB ждём READY на том же tty. Для BLE смена
+                        # generation разрешает operation-specific replay; новый
+                        # send_binary сам выполнит /help readiness probe.
                         self._wait_until_controller_ready(
                             generation=generation,
                             cancel_event=cancel_event,
+                            allow_reconnect_probe=True,
                         )
                         raise BinaryUserError(
                             "local_controller_reset",
@@ -538,11 +676,7 @@ class ChatterBinaryUserAdapter:
                             ),
                         )
 
-                    current_generation = (
-                        generation_reader()
-                        if generation_reader is not None
-                        else None
-                    )
+                    current_generation = self._generation()
                     if (
                         self._known_output_mode_for_generation(current_generation)
                         == "TELEMETRY"
@@ -563,7 +697,7 @@ class ChatterBinaryUserAdapter:
                             # feed_line() будит condition сразу. Короткий timeout
                             # ограничивает только cancel/disconnect observation и
                             # не является per-message pacing delay.
-                            self._condition.wait(timeout=min(0.25, remaining))
+                            self._condition.wait(timeout=min(0.1, remaining))
             except BinaryUserError as exc:
                 self._timing(
                     "binary_error",
