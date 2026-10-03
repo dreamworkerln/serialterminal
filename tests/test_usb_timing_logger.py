@@ -1,10 +1,16 @@
 from __future__ import annotations
 
 from datetime import datetime, timezone
+import importlib.util
 from io import StringIO
 from pathlib import Path
 
-import usb_timing_logger as logger
+
+MODULE_PATH = Path(__file__).resolve().parents[1] / "usb_timing_logger.py"
+SPEC = importlib.util.spec_from_file_location("usb_timing_logger", MODULE_PATH)
+assert SPEC is not None and SPEC.loader is not None
+logger = importlib.util.module_from_spec(SPEC)
+SPEC.loader.exec_module(logger)
 
 
 def test_build_log_paths_use_one_st_style_basename() -> None:
