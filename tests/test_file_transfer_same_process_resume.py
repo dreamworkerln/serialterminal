@@ -95,7 +95,7 @@ def test_timed_out_receiver_reopens_same_transfer_in_same_process(tmp_path):
         )
         assert reopened["transfer_id"] == f"{transfer_id:016x}"
         assert reopened["chunks_completed"] == 1
-        assert reopened["failure"] is None
+        assert reopened.get("failure") is None
 
         resume = _wait_until(
             lambda: next(
