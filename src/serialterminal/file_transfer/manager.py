@@ -124,6 +124,16 @@ class FileTransferManager(_ResumableFileTransferManager):
             self._verify_resume_wire(candidate, prepared, chunk_size)
         super()._save_sender_journal(record, prepared, chunk_size)
 
+    def _await_resume(self, record, chunk_count: int):
+        if not getattr(record, "_resuming_persistent", False):
+            record.event(
+                "resume_handshake_skipped",
+                next_chunk=0,
+                reason="new_transfer",
+            )
+            return 0, None
+        return super()._await_resume(record, chunk_count)
+
     @staticmethod
     def _verify_resume_wire(candidate, prepared, chunk_size: int) -> None:
         try:
