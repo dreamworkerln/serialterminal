@@ -1,9 +1,25 @@
 # FT1 same-process pause/resume TODO
 
 TODO-ID: TODO_035
-Status: OPEN
+Status: IMPLEMENTED / PHYSICAL VALIDATION OPEN
 Parent: `TODO_033_FT1_RESUMABLE_TRANSFER_AND_CONTROLLER_RECOVERY`
 Depends on: `TODO_034_CHATTER_CONTROLLER_LIFECYCLE_RECOVERY`
+
+## Current implementation status
+
+Automated implementation is complete. Active FT1 now enters `recovering_local_node` for recoverable local controller/transport outcomes, freezes later application messages, preserves exact current META/DATA/END identity, and replays only that idempotent current message inside one bounded recovery deadline. The old short fixed replay-count behavior is no longer the public recovery policy.
+
+Current recovery defaults are documented in `FT1_RESUME.md`; the automated checkpoint is:
+
+```text
+SerialTerminal: dev_tui@2952d1e09ad550a60b25418dd10bb49e4aa73a4c
+GitHub Actions: 37158286307 SUCCESS
+pytest:         400 passed
+```
+
+Host tests cover repeated transient recovery beyond the old replay count, bounded timeout/cancellation, same transfer/message identity, lifecycle events, same-process receiver timeout/reopen, duplicate/conflicting DATA behavior, and preservation of existing END/MISSING/RESULT semantics.
+
+**Physical validation has NOT been run.** Real sender/receiver reboot cases over BLE and USB, reset during repair, and bounded failure/cancel on actual nodes remain OPEN. Therefore this TODO is not CLOSED.
 
 ## Purpose
 
