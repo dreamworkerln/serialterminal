@@ -9,9 +9,11 @@ description: Работа с machine-facing SerialTerminal JSONL agent API дл�
 
 ## Сначала прочитай API contract
 
-Полный и канонический контракт находится в [AGENT_API.md](../../../AGENT_API.md).
+Полный и канонический общий JSONL contract находится в [AGENT_API.md](../../../AGENT_API.md).
 
-Не переопределяй здесь schema, error codes или transport/session semantics. Если этот skill и `AGENT_API.md` расходятся, источником истины является `AGENT_API.md`.
+Для controller recovery и FT1 persistent resume authoritative current contract находится в [FT1_RESUME.md](../../../FT1_RESUME.md). Он supersedes старые утверждения в длинных file-transfer разделах, где process restart ещё описан как non-resumable.
+
+Не переопределяй здесь schema, error codes или transport/session semantics. Если речь не о FT1 recovery/resume, источником истины остаётся `AGENT_API.md`; для TODO_034–037 recovery/resume используй `FT1_RESUME.md`.
 
 ## Базовый workflow
 
@@ -32,7 +34,7 @@ python3 serialterminal.py agent
 7. для protocol reasoning использовать default `result.lines`; raw `result.events`/`data_b64` запрашивать только через `include_events:true` для конкретной forensic необходимости;
 8. для длинной детерминированной матрицы измерений используй generic `sweep_start` / `sweep_observe` вместо LLM/tool turn на каждый sample;
 9. для передачи файла на profile с binary capability используй `file_send_start` + `file_transfer_observe`, а не ручные `/bin`/base64/chunks;
-10. после terminal file transfer освободи retained state через `file_transfer_close`, когда он больше не нужен;
+10. после terminal file transfer освободи retained runtime state через `file_transfer_close`, когда он больше не нужен; не удаляй durable resume state вручную как recovery action;
 11. после terminal sweep освободи retained job через `sweep_close`;
 12. закрыть sessions через `close`; EOF agent process закроет оставшиеся.
 
@@ -147,10 +149,9 @@ Controller adapter может читать protocol lines, чтобы опред
 
 ## File transfer
 
-Для bundled `chatter` file transfer является profile capability поверх BINARY USER.
-Не реализуй file transfer вручную через `send_line("/bin ...")`.
+Для bundled `chatter` file transfer является profile capability поверх BINARY USER. Не реализуй file transfer вручную через `send_line("/bin ...")`, base64 или собственный chunk loop.
 
-Используй:
+Используй только:
 
 ```text
 file_send_start
@@ -159,56 +160,84 @@ file_transfer_cancel
 file_transfer_close
 ```
 
-`file_send_start` принимает уже открытую session и локальный path, быстро возвращает
-`transfer_id`, затем работа идёт в background. `file_transfer_observe` — pending
-long-poll с собственным cursor и structured progress; он не блокирует обычный
-`status`/session `observe`.
+`file_send_start` принимает уже открытую session и локальный path, быстро возвращает `transfer_id`, затем работа идёт в background. Это же operation является явным trigger для persistent resume: если существует ровно один валидный journal того же неизменившегося source, manager переиспользует тот же `transfer_id`, а initial result может содержать `resumed:true`. SerialTerminal **не** запускает старые transfer автоматически при старте процесса.
 
-Не считай `percentage=100` или `completed` по последнему отправленному DATA.
-Sender completed только после remote verified `RESULT OK`. Receiver completed только
-после проверки stream/original SHA и atomic final save.
+Если matching sender journals несколько, операция должна вернуть `ambiguous_resume_state`. Не выбирай journal сам и не удаляй `.serialterminal-state`/`.part`, чтобы "починить" ситуацию. Если source изменился, old transfer_id не должен использоваться для новых bytes; manager начинает новую identity по текущему contract.
 
-Во время active transfer session mutation-owned: не делай на ней параллельный
-`send_line`, `send_bytes`, `close` или sweep start. Read-only status/observe
-допустимы.
+`file_transfer_observe` — pending long-poll с собственным cursor и structured progress; он не блокирует обычный `status`/session `observe`. `status` Chatter session также может содержать structured `controller` lifecycle snapshot.
 
-Для `chatter` file transfer не использует TELEMETRY как control plane и вообще не
-меняет human-console mode. Не жди `DELIVERY ACK` на каждый DATA: локальный
-`send_binary()` использует exact `> [BINARY]` как controller backpressure, а remote
-truth принадлежит FT1 MISSING/RESULT. В TELEMETRY-only режиме без BINARY presentation
-transfer должен явно завершиться capability error, а не переключать `/both`.
-Если mode ещё неизвестен, Chatter profile сам делает read-only `/help` preflight.
-Controller reboot без physical disconnect считается отдельной epoch: replay допустим
-только после нового `CHATTER READY`.
+Не считай `percentage=100` или последний DATA доказательством completion. Sender completed только после remote verified `RESULT OK`. Receiver completed только после проверки wire/original SHA и atomic final publication.
 
-FT1 v1 умеет in-process repair после временного local USB/BLE/SPP reconnect. Receiver
-сохраняет transfer state в памяти, после END может выдать один structured MISSING с
-диапазонами, sender досылает только указанные DATA и повторяет END. Следи за состояниями `waiting_result`, `repair_requested`, `repairing` и при
-необходимости за событиями `missing_detected`, `repair_requested`,
-`repair_round_sent`, `control_replay`.
+Во время active transfer session mutation-owned: не делай на ней параллельный `send_line`, `send_bytes`, `close` или sweep start. Read-only status/observe допустимы.
 
-Для быстрого file transfer **не пытайся сопровождать каждый DATA chunk отдельным
-model/tool turn** и не вычитывай `file_transfer_observe.events` окно за окном в темпе
-передачи. Такой orchestration не успевает за потоком, может получить
-`file_cursor_expired` и на практике резко снижает полезную скорость сценария.
-Обычный progress контролируй coarse-grained snapshot-ами `status` примерно раз в
-2–5 секунд: `state`, `chunks_completed`, `bytes_completed`, `percentage` и
-`failure`. `file_transfer_observe` используй для bounded long-poll/редких lifecycle
-или fault events, когда они действительно нужны, а не как обязательный per-chunk
-control loop. Детальную последовательность chunk/send-stage событий после прогона
-бери targeted search из finalized forensic log; не загружай весь chunk backlog в
-контекст модели во время активной передачи.
+FT1 не использует TELEMETRY как control plane и не меняет human-console output mode. Не жди `DELIVERY ACK` на каждый DATA: local `send_binary()` использует exact `> [BINARY]` как controller-local backpressure, а remote truth принадлежит FT1 RESUME/MISSING/RESULT. В TELEMETRY-only режиме без BINARY presentation transfer завершается capability error; он не переключает `/both`. Если mode ещё неизвестен, Chatter profile делает read-only `/help` preflight.
 
-Generic `tx_state=unknown` по-прежнему нельзя blind-retry через обычный
-`send_line`. File layer сам может повторить тот же idempotent FT1 message. Если
-получен `repair_too_large`, текущий transfer terminal-failed: для полной повторной
-передачи явно запускай новый `file_send_start`, не делай MISSING pagination и не
-создавай бесконечный restart loop.
+### Controller reboot / same-process recovery
 
-Если incoming transfer больше 120 секунд не получает META/DATA/END, он завершается
-`remote_sender_timeout` и освобождает session. После restart самого SerialTerminal
-persistent resume нет: начинай новый transfer.
-LoRa SACK в этот contract не входит.
+Controller lifetime отделён от transport generation. USB tty может остаться открытым во время reboot. Chatter adapter распознаёт controller reset/READY и не превращает обычный transport reconnect без reset evidence в фиктивный reboot.
+
+Для active FT1 recoverable local outcomes (`local_tx_unknown`, `local_disconnect`, `local_controller_reset`) приводят transfer в `recovering_local_node`. File layer сохраняет exact current idempotent META/DATA/END, не выпускает следующие chunks и после восстановления controller повторяет только текущий message. Recovery bounded общим deadline; endless replay/hang недопустим.
+
+Generic `tx_state=unknown` по-прежнему нельзя blind-retry через обычный `send_line`; recovery authority здесь существует только потому, что FT1 message identity/idempotence определены приложением.
+
+### Persistent receiver state
+
+Receiver durable state хранится под configured receive directory:
+
+```text
+<receive_dir>/.serialterminal-state/
+```
+
+Receiver timeout может оставить durable suspended partial и освободить runtime ownership. Не интерпретируй `remote_sender_timeout` как обязательное удаление partial state. Durable received ranges, а не размер `.part`, являются доказательством того, какие chunks можно пропустить после restart.
+
+Не удаляй `.part`/manifest вручную во время recovery. Completed tombstone позволяет повторно подтвердить уже опубликованный transfer после потерянного RESULT без создания duplicate final file.
+
+### Persistent sender / RESUME
+
+При restart sender journal revalidated по content identity; deterministic gzip rebuild дополнительно проверяется по wire identity. Sender после META получает FT1 `RESUME_FROM` (wire message type 6) с earliest receiver-proven missing chunk. Только этот receiver-proven cursor разрешает пропустить prefix.
+
+Нормальный persistent flow:
+
+```text
+file_send_start(path)
+-> same transfer_id if valid journal matches
+-> META
+<- RESUME_FROM N
+-> DATA N...
+-> END
+<- MISSING ranges, если остались точечные holes
+-> selective DATA repair + END
+<- RESULT OK
+```
+
+`RESUME_FROM` — coarse earliest-missing cursor, а существующий `MISSING` остаётся exact final selective repair. Это не firmware ACK и не LoRa SACK. Per-DATA FT1 ACK нет.
+
+New sender совместим со старым receiver через bounded wait/fallback to chunk 0; old sender может проигнорировать optional RESUME нового receiver. Invalid resume cursor за `chunk_count` считается protocol failure.
+
+Следи за состояниями/событиями вроде:
+
+```text
+recovering_local_node
+resuming
+sender_resume_journal_restored
+remote_resume
+resume_started
+resume_handshake_fallback
+resume_state_restored
+transfer_suspended
+local_recovery_started
+local_recovery_resumed
+```
+
+### Monitoring
+
+Для быстрого file transfer **не пытайся сопровождать каждый DATA chunk отдельным model/tool turn** и не вычитывай `file_transfer_observe.events` окно за окном в темпе передачи. Такой orchestration не успевает за потоком, может получить `file_cursor_expired` и резко снижает полезную скорость сценария.
+
+Обычный progress контролируй coarse-grained snapshot-ами `status` примерно раз в 2–5 секунд: `state`, `chunks_completed`, `bytes_completed`, `percentage`, `failure`, а при Chatter recovery — также controller state. `file_transfer_observe` используй для bounded lifecycle/fault observation, не как обязательный per-chunk control loop. Детальную последовательность после прогона бери targeted search из finalized forensic log.
+
+Если получен `repair_too_large`, текущий transfer terminal-failed; не изобретай MISSING pagination или бесконечный restart loop. Persistent resume после process restart теперь поддерживается по `FT1_RESUME.md`, поэтому не начинай безусловно новый transfer с нуля и не меняй transfer_id вручную.
+
+Полный current recovery/resume contract, durability guarantees и physical-validation boundary — в `FT1_RESUME.md`. LoRa SACK в этот contract не входит.
 
 ## Два уровня receive evidence
 
@@ -277,9 +306,6 @@ Permission errors Bluetooth/D-Bus/sandbox не означают отсутств
 
 Firmware-specific команды, RSSI/SNR/Q, radio collision rules, reboot/cancel semantics и acceptance criteria остаются в project-specific skill, а не здесь.
 
-
 ## Exclusive serial ownership
 
-Не открывай один и тот же tty одновременно из двух процессов SerialTerminal. На POSIX
-transport запрашивает exclusive ownership; второй процесс остаётся reconnecting и
-получает `connect-failed` с `serial device busy: <path>` до освобождения порта.
+Не открывай один и тот же tty одновременно из двух процессов SerialTerminal. На POSIX transport запрашивает exclusive ownership; второй процесс остаётся reconnecting и получает `connect-failed` с `serial device busy: <path>` до освобождения порта.
