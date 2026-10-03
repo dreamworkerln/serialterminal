@@ -1,9 +1,9 @@
 from .core import (
     FileTransferError,
-    FileTransferManager,
     default_receive_dir,
     safe_received_filename,
 )
+from .resumable import FileTransferManager
 from .protocol import (
     Compression,
     DataMessage,
@@ -12,6 +12,7 @@ from .protocol import (
     MetaMessage,
     MissingMessage,
     MissingRange,
+    ResumeMessage,
     ResultMessage,
     canonical_missing_ranges,
     data_payload_capacity,
@@ -43,6 +44,7 @@ __all__ = [
     "MetaMessage",
     "MissingMessage",
     "MissingRange",
+    "ResumeMessage",
     "ResultMessage",
     "canonical_missing_ranges",
     "data_payload_capacity",
