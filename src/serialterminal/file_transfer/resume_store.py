@@ -34,16 +34,11 @@ class ResumeStateStore:
         self.completed_dir = root / "completed"
         self.ttl_s = float(ttl_s)
         self.max_part_bytes = int(max_part_bytes)
-        for directory in (
-            self.incoming_dir,
-            self.outgoing_dir,
-            self.completed_dir,
-        ):
-            directory.mkdir(parents=True, exist_ok=True)
         self.cleanup()
 
     @staticmethod
     def atomic_json(path: Path, payload: dict[str, Any]) -> None:
+        path.parent.mkdir(parents=True, exist_ok=True)
         temporary = path.with_name(
             f".{path.name}.{os.getpid()}.{threading.get_ident()}.tmp"
         )
