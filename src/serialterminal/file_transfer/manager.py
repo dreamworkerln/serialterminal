@@ -5,6 +5,7 @@ import time
 from typing import Any
 
 from . import core
+from .protocol import MetaMessage, ResultMessage
 from .resume_source import prepare_source
 from .resumable import FileTransferManager as _ResumableFileTransferManager
 
@@ -80,6 +81,54 @@ class FileTransferManager(_ResumableFileTransferManager):
             if state in {"completed", "cancelled"}:
                 with self._lock:
                     self._resume_candidates.pop(record.transfer_id, None)
+
+    def _handle_meta(self, meta: MetaMessage) -> None:
+        """Re-open a durable RX transfer that timed out in this same process."""
+        with self._lock:
+            existing = self._records.get(meta.transfer_id)
+        if self._can_revive_timed_out_receiver(existing, meta):
+            self._revive_record(existing)
+            restored = self._restore_incoming(meta, existing=existing)
+            if restored == "completed":
+                self._send_result_async(
+                    existing,
+                    ResultMessage(meta.transfer_id, True, "ok", ""),
+                )
+                return
+            if restored is not None:
+                existing.event("same_process_resume_reopened")
+                self._send_resume(restored)
+                return
+        super()._handle_meta(meta)
+
+    def _can_revive_timed_out_receiver(self, record, meta: MetaMessage) -> bool:
+        if record is None or record.direction != "RX" or record.rx_meta != meta:
+            return False
+        if record.state != "failed":
+            return False
+        if getattr(record.failure, "code", None) != "remote_sender_timeout":
+            return False
+        loaded = self._resume_store.load_incoming(meta.transfer_id)
+        if loaded is None:
+            return False
+        payload, stored_meta = loaded
+        if stored_meta != meta:
+            return False
+        if self._load_received(meta, payload) is None:
+            return False
+        return self._resume_store.incoming_part(meta.transfer_id).is_file()
+
+    def _revive_record(self, record) -> None:
+        with self._lock:
+            while record.transfer_id in self._terminal_order:
+                self._terminal_order.remove(record.transfer_id)
+        with record._condition:
+            record.failure = None
+            record.final_path = None
+            record.ended_monotonic = None
+            record.cancel_event.clear()
+            record.state = "receiving"
+            record._condition.notify_all()
 
     def _expire_stale_incoming(self) -> None:
         """Keep historical runtime failure while retaining durable RX state."""
