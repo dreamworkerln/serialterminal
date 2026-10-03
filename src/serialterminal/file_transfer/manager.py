@@ -1,11 +1,12 @@
 from __future__ import annotations
 
+import os
 from pathlib import Path
 import time
 from typing import Any
 
 from . import core
-from .protocol import MetaMessage, ResultMessage
+from .protocol import EndMessage, MetaMessage, ResultMessage
 from .resume_source import prepare_source
 from .resumable import FileTransferManager as _ResumableFileTransferManager
 
@@ -73,6 +74,95 @@ class FileTransferManager(_ResumableFileTransferManager):
                     "actual_chunk_size": chunk_size,
                 },
             )
+
+    def _checkpoint_incoming(
+        self,
+        incoming,
+        *,
+        status: str | None = None,
+        force: bool = False,
+        end: EndMessage | None = None,
+        destination: Path | None = None,
+    ) -> None:
+        """Persist wire bytes before advancing the durable received map."""
+        now = time.monotonic()
+        previous_count = int(getattr(incoming, "_checkpoint_count", 0))
+        previous_time = float(getattr(incoming, "_checkpoint_time", 0.0))
+        if not force:
+            chunk_due = (
+                len(incoming.received) - previous_count
+                >= self.resume_checkpoint_chunks
+            )
+            time_due = now - previous_time >= self.resume_checkpoint_s
+            if not chunk_due and not time_due:
+                return
+
+        try:
+            with incoming.wire_path.open("rb") as handle:
+                os.fsync(handle.fileno())
+        except OSError as exc:
+            raise core.FileTransferError(
+                "storage_failed",
+                f"could not persist receiver partial before checkpoint: {exc}",
+                phase="receiving",
+            ) from exc
+
+        super()._checkpoint_incoming(
+            incoming,
+            status=status,
+            force=True,
+            end=end,
+            destination=destination,
+        )
+
+    def _path_is_direct_receive_file(self, path: Path) -> bool:
+        try:
+            if path.is_symlink():
+                return False
+            receive_root = self.receive_dir.resolve()
+            return path.parent.resolve() == receive_root
+        except OSError:
+            return False
+
+    def _reconcile_published(self, meta: MetaMessage, payload: dict[str, Any]) -> bool:
+        destination = payload.get("destination")
+        if not isinstance(destination, str):
+            return False
+        if not self._path_is_direct_receive_file(Path(destination)):
+            return False
+        return super()._reconcile_published(meta, payload)
+
+    def _completed_matches_meta(self, meta: MetaMessage) -> bool:
+        value = self._resume_store.load_completed(meta.transfer_id)
+        if value is None:
+            return False
+        final_path = value.get("final_path")
+        if not isinstance(final_path, str):
+            return False
+        if not self._path_is_direct_receive_file(Path(final_path)):
+            return False
+        return super()._completed_matches_meta(meta)
+
+    def _replay_completed_end(self, message: EndMessage) -> bool:
+        value = self._resume_store.load_completed(message.transfer_id)
+        if value is None:
+            return False
+        meta = self._resume_store.meta_from_json(
+            value.get("meta"), message.transfer_id
+        )
+        stored_end = self._resume_store.end_from_json(
+            value.get("end"), message.transfer_id
+        )
+        if (
+            meta is None
+            or stored_end != message
+            or not self._completed_matches_meta(meta)
+        ):
+            return False
+        self._send_result_async(
+            None, ResultMessage(message.transfer_id, True, "ok", "")
+        )
+        return True
 
     def _terminal_record(self, record, state: str, **kwargs: Any) -> None:
         try:
