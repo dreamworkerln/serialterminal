@@ -16,6 +16,8 @@ DEFAULT_MAX_INCOMING = 32
 DEFAULT_MAX_OUTGOING = 32
 DEFAULT_MAX_COMPLETED = 64
 DEFAULT_MAX_PART_BYTES = 1024 * 1024 * 1024
+_PART_PREFIX = ".serialterminal-"
+_PART_SUFFIX = ".part"
 
 
 class ResumeStateStore:
@@ -34,6 +36,10 @@ class ResumeStateStore:
         self.completed_dir = root / "completed"
         self.ttl_s = float(ttl_s)
         self.max_part_bytes = int(max_part_bytes)
+        # Keep the public receive directory available while creating the hidden
+        # durable-state tree only when a manifest is actually persisted. This
+        # preserves the old "invalid META leaves receive_dir empty" contract.
+        self.root.parent.mkdir(parents=True, exist_ok=True)
         self.cleanup()
 
     @staticmethod
@@ -69,7 +75,11 @@ class ResumeStateStore:
         return self.incoming_dir / f"{transfer_id_text(transfer_id)}.json"
 
     def incoming_part(self, transfer_id: int) -> Path:
-        return self.incoming_dir / f"{transfer_id_text(transfer_id)}.part"
+        # Keep .part in the established receive_dir surface. The manifest is
+        # hidden under .serialterminal-state and points at this stable identity.
+        return self.root.parent / (
+            f"{_PART_PREFIX}{transfer_id_text(transfer_id)}{_PART_SUFFIX}"
+        )
 
     def outgoing_manifest(self, transfer_id: int) -> Path:
         return self.outgoing_dir / f"{transfer_id_text(transfer_id)}.json"
@@ -194,6 +204,7 @@ class ResumeStateStore:
             "status": status,
             "meta": self.meta_json(meta),
             "received_ranges": self.ranges_from_received(received),
+            "part_path": str(self.incoming_part(meta.transfer_id)),
             "updated": time.time(),
         }
         if end is not None:
@@ -210,6 +221,9 @@ class ResumeStateStore:
         if payload is None or payload.get("schema") != STATE_SCHEMA:
             return None
         if payload.get("transfer_id") != transfer_id_text(transfer_id):
+            return None
+        expected_part = str(self.incoming_part(transfer_id))
+        if payload.get("part_path") not in (None, expected_part):
             return None
         meta = self.meta_from_json(payload.get("meta"), transfer_id)
         return None if meta is None else (payload, meta)
@@ -296,13 +310,23 @@ class ResumeStateStore:
                 continue
             path.unlink(missing_ok=True)
             if with_parts:
-                path.with_suffix(".part").unlink(missing_ok=True)
+                try:
+                    transfer_id = int(path.stem, 16)
+                except ValueError:
+                    continue
+                self.incoming_part(transfer_id).unlink(missing_ok=True)
 
     def _cleanup_part_budget(self) -> None:
-        parts: list[tuple[float, Path, int]] = []
+        parts: list[tuple[float, Path, int, Path]] = []
         total = 0
-        for part in self.incoming_dir.glob("*.part"):
-            manifest = part.with_suffix(".json")
+        pattern = f"{_PART_PREFIX}*{_PART_SUFFIX}"
+        for part in self.root.parent.glob(pattern):
+            transfer_text = part.name[len(_PART_PREFIX) : -len(_PART_SUFFIX)]
+            try:
+                transfer_id = int(transfer_text, 16)
+            except ValueError:
+                continue
+            manifest = self.incoming_manifest(transfer_id)
             if not manifest.exists():
                 part.unlink(missing_ok=True)
                 continue
@@ -310,14 +334,14 @@ class ResumeStateStore:
                 stat = part.stat()
             except OSError:
                 continue
-            parts.append((stat.st_mtime, part, stat.st_size))
+            parts.append((stat.st_mtime, part, stat.st_size, manifest))
             total += stat.st_size
         if total <= self.max_part_bytes:
             return
         parts.sort()
-        for _mtime, part, size in parts:
+        for _mtime, part, size, manifest in parts:
             if total <= self.max_part_bytes:
                 break
             part.unlink(missing_ok=True)
-            part.with_suffix(".json").unlink(missing_ok=True)
+            manifest.unlink(missing_ok=True)
             total -= size
