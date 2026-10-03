@@ -3,7 +3,7 @@ from .core import (
     default_receive_dir,
     safe_received_filename,
 )
-from .resumable import FileTransferManager
+from .manager import FileTransferManager
 from .protocol import (
     Compression,
     DataMessage,
