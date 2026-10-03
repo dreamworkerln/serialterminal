@@ -1,5 +1,5 @@
 import hashlib
-from pathlib import Path
+import time
 from types import SimpleNamespace
 
 from serialterminal.file_transfer import (
@@ -48,6 +48,13 @@ def _messages(transport):
     return [decode_message(raw) for raw in transport.sent]
 
 
+def _wait_for_messages(transport, timeout=1.0):
+    deadline = time.monotonic() + timeout
+    while time.monotonic() < deadline and not transport.sent:
+        time.sleep(0.01)
+    return _messages(transport)
+
+
 def test_receiver_checkpoint_fsyncs_part_before_manifest(monkeypatch, tmp_path):
     transport = _CaptureTransport()
     manager = FileTransferManager(transport, receive_dir=tmp_path)
@@ -94,13 +101,7 @@ def test_completed_tombstone_outside_receive_dir_is_not_trusted(tmp_path):
 
     try:
         manager.feed_binary(encode_message(meta, transport.payload_capacity))
-        manager._rx_queue.join if False else None
-        import time
-
-        deadline = time.monotonic() + 1.0
-        while time.monotonic() < deadline and not transport.sent:
-            time.sleep(0.01)
-        messages = _messages(transport)
+        messages = _wait_for_messages(transport)
         assert not any(
             isinstance(item, ResultMessage) and item.ok for item in messages
         )
@@ -130,12 +131,7 @@ def test_publishing_manifest_outside_receive_dir_is_not_reconciled(tmp_path):
 
     try:
         manager.feed_binary(encode_message(meta, transport.payload_capacity))
-        import time
-
-        deadline = time.monotonic() + 1.0
-        while time.monotonic() < deadline and not transport.sent:
-            time.sleep(0.01)
-        messages = _messages(transport)
+        messages = _wait_for_messages(transport)
         assert not any(
             isinstance(item, ResultMessage) and item.ok for item in messages
         )
@@ -161,12 +157,7 @@ def test_completed_tombstone_symlink_is_not_trusted(tmp_path):
 
     try:
         manager.feed_binary(encode_message(meta, transport.payload_capacity))
-        import time
-
-        deadline = time.monotonic() + 1.0
-        while time.monotonic() < deadline and not transport.sent:
-            time.sleep(0.01)
-        messages = _messages(transport)
+        messages = _wait_for_messages(transport)
         assert not any(
             isinstance(item, ResultMessage) and item.ok for item in messages
         )
