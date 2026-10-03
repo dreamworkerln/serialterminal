@@ -61,6 +61,7 @@ class FileTransferManager(_ResumableFileTransferManager):
         except OSError:
             return None
 
+        candidates: list[dict[str, Any]] = []
         for value in self._resume_store.find_outgoing_for_source(path):
             candidate = self._validated_sender_candidate(
                 path,
@@ -68,13 +69,28 @@ class FileTransferManager(_ResumableFileTransferManager):
                 actual_size=actual_size,
                 actual_hash=actual_hash,
             )
-            if candidate is None:
-                continue
-            transfer_id = int(candidate["parsed_transfer_id"])
-            with self._lock:
-                self._resume_candidates[transfer_id] = candidate
-            return candidate
-        return None
+            if candidate is not None:
+                candidates.append(candidate)
+
+        if not candidates:
+            return None
+        if len(candidates) > 1:
+            transfer_ids = sorted(
+                transfer_id_text(int(item["parsed_transfer_id"]))
+                for item in candidates
+            )
+            raise core.FileTransferError(
+                "ambiguous_resume_state",
+                "multiple resumable sender journals match the same source",
+                phase="preparing",
+                details={"transfer_ids": transfer_ids},
+            )
+
+        candidate = candidates[0]
+        transfer_id = int(candidate["parsed_transfer_id"])
+        with self._lock:
+            self._resume_candidates[transfer_id] = candidate
+        return candidate
 
     def _validated_sender_candidate(
         self,
@@ -191,6 +207,12 @@ class FileTransferManager(_ResumableFileTransferManager):
             if not chunk_due and not time_due:
                 return
 
+        if incoming.wire_path.is_symlink():
+            raise core.FileTransferError(
+                "storage_failed",
+                "receiver partial path became a symlink",
+                phase="receiving",
+            )
         try:
             with incoming.wire_path.open("rb") as handle:
                 os.fsync(handle.fileno())
@@ -301,7 +323,8 @@ class FileTransferManager(_ResumableFileTransferManager):
             return False
         if self._load_received(meta, payload) is None:
             return False
-        return self._resume_store.incoming_part(meta.transfer_id).is_file()
+        part = self._resume_store.incoming_part(meta.transfer_id)
+        return not part.is_symlink() and part.is_file()
 
     def _revive_record(self, record) -> None:
         with self._lock:
