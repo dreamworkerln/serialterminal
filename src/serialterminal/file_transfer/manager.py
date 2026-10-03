@@ -12,6 +12,9 @@ from .resume_store import ResumeStateStore
 from .resumable import FileTransferManager as _ResumableFileTransferManager
 
 
+_PUBLIC_RESUME_HANDSHAKE_TIMEOUT_S = 1.0
+
+
 class _DurableResumeStateStore(ResumeStateStore):
     """Resume store with a durable manifest rename on POSIX filesystems."""
 
@@ -40,6 +43,9 @@ class FileTransferManager(_ResumableFileTransferManager):
 
     def __init__(self, *args: Any, **kwargs: Any) -> None:
         self._resume_candidates: dict[int, dict[str, Any]] = {}
+        kwargs.setdefault(
+            "resume_handshake_timeout_s", _PUBLIC_RESUME_HANDSHAKE_TIMEOUT_S
+        )
         super().__init__(*args, **kwargs)
         self._resume_store = _DurableResumeStateStore(
             self.receive_dir / ".serialterminal-state"
@@ -123,16 +129,6 @@ class FileTransferManager(_ResumableFileTransferManager):
         if candidate is not None:
             self._verify_resume_wire(candidate, prepared, chunk_size)
         super()._save_sender_journal(record, prepared, chunk_size)
-
-    def _await_resume(self, record, chunk_count: int):
-        if not getattr(record, "_resuming_persistent", False):
-            record.event(
-                "resume_handshake_skipped",
-                next_chunk=0,
-                reason="new_transfer",
-            )
-            return 0, None
-        return super()._await_resume(record, chunk_count)
 
     @staticmethod
     def _verify_resume_wire(candidate, prepared, chunk_size: int) -> None:
