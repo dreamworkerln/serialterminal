@@ -129,9 +129,11 @@ When a change touches discovery, profiles, transport construction, session lifec
 
 ## Agent interface documentation
 
-[AGENT_API.md](AGENT_API.md) is the canonical repository documentation for the machine-facing SerialTerminal JSONL interface. It owns the API schema, operations, request/response semantics, errors, session/cursor behavior, concurrency guarantees, logging contract, and CLI invocation.
+[AGENT_API.md](AGENT_API.md) is the canonical repository documentation for the general machine-facing SerialTerminal JSONL interface. It owns the API schema, operations, request/response semantics, errors, session/cursor behavior, concurrency guarantees, logging contract, and CLI invocation.
 
-The active generic SerialTerminal source/runtime skill is [.agents/skills/serialterminal-agent/SKILL.md](.agents/skills/serialterminal-agent/SKILL.md). Keep it concise and consistent with AGENT_API.md; AGENT_API.md remains the generic API source of truth.
+For the controller-recovery and FT1 persistent-resume semantics implemented by TODO_034 through TODO_037, [FT1_RESUME.md](FT1_RESUME.md) is the current authoritative contract. It supersedes older file-transfer prose that describes SerialTerminal process restart as non-resumable. Keep future edits to `AGENT_API.md`, `FILE_TRANSFER.md`, the repo-local agent skill and `FT1_RESUME.md` consistent with that contract.
+
+The active generic SerialTerminal source/runtime skill is [.agents/skills/serialterminal-agent/SKILL.md](.agents/skills/serialterminal-agent/SKILL.md). Keep it concise and consistent with AGENT_API.md; AGENT_API.md remains the generic API source of truth, while `FT1_RESUME.md` owns the current TODO_034–037 recovery/resume semantics until the long-form file-transfer sections are fully consolidated.
 
 Physical LoRa-Chatter execution no longer bootstraps from this source workspace. Its lightweight executor instructions, evidence policy and project-specific hardware skill live on branch node_observations in the independent sibling clone serialterminal-observations.
 
@@ -168,7 +170,7 @@ When preparing a hardware prompt:
 * do not authorize firmware source/docs inspection, source/docs/tests/TODO/CI edits or flashing unless the operator explicitly starts a separate source-development task outside the hardware run;
 * require factual PASS | FAIL | BLOCKED | INCONCLUSIVE outcomes and evidence-boundary behavior.
 
-The full generic API remains here in AGENT_API.md and should be read by the hardware executor only when the lightweight hardware skill cannot resolve a direct JSONL/API semantic question or structured API error.
+The full generic API remains here in AGENT_API.md and should be read by the hardware executor only when the lightweight hardware skill cannot resolve a direct JSONL/API semantic question or structured API error. For file-transfer recovery/resume behavior, pass or reference the `FT1_RESUME.md` contract rather than relying on obsolete restart-from-zero guidance.
 
 For every SerialTerminal source-code change, explicitly review both AGENT_API.md and .agents/skills/serialterminal-agent/SKILL.md for consistency with changed generic behavior.
 
