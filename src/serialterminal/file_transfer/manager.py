@@ -16,7 +16,7 @@ _PUBLIC_RESUME_HANDSHAKE_TIMEOUT_S = 1.0
 
 
 class _DurableResumeStateStore(ResumeStateStore):
-    """Resume store with a durable manifest rename on POSIX filesystems."""
+    """Resume store with durable writes and no symlinked manifest reads."""
 
     @staticmethod
     def _fsync_directory(directory: Path) -> None:
@@ -36,6 +36,12 @@ class _DurableResumeStateStore(ResumeStateStore):
     def atomic_json(path: Path, payload: dict[str, Any]) -> None:
         ResumeStateStore.atomic_json(path, payload)
         _DurableResumeStateStore._fsync_directory(path.parent)
+
+    @staticmethod
+    def read_json(path: Path) -> dict[str, Any] | None:
+        if path.is_symlink():
+            return None
+        return ResumeStateStore.read_json(path)
 
 
 class FileTransferManager(_ResumableFileTransferManager):
@@ -184,6 +190,12 @@ class FileTransferManager(_ResumableFileTransferManager):
                     "actual_chunk_size": chunk_size,
                 },
             )
+
+    def _restore_incoming(self, meta: MetaMessage, *, existing=None):
+        part = self._resume_store.incoming_part(meta.transfer_id)
+        if part.is_symlink():
+            return None
+        return super()._restore_incoming(meta, existing=existing)
 
     def _checkpoint_incoming(
         self,
