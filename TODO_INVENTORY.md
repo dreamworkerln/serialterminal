@@ -132,7 +132,7 @@ Remaining work: align the primary `NODE_OBSERVATION_RECORDING_POLICY.md` and nod
 
 TODO_026 logging-contract investigation is also OPEN and may be scheduled independently when log-format work is selected.
 
-Suggested next work: rerun the two-node TODO_029 reconnect/MISSING validation and throughput baseline on the implemented TODO_030/TODO_031 path; independently finish the HCI boundary isolation in TODO_024; after that continue correctness/evidence boundaries (`TODO_011`, `TODO_013`, `TODO_016`, `TODO_017`, `TODO_021`, remaining `TODO_025` docs), lifecycle/API robustness (`TODO_019`, `TODO_022`, `TODO_023`), and consistency/docs follow-ups (`TODO_012`, `TODO_014`, `TODO_015`, `TODO_020`). Re-evaluate ordering if implementation exposes dependencies.
+Suggested next work: implement TODO_033 in the documented stages, beginning with generic controller reboot lifecycle resilience and same-process FT1 pause/resume; then rerun the broader TODO_029 two-node reconnect/MISSING validation and throughput baseline on the implemented TODO_030/TODO_031 path. Persistent FT1 process-restart resume remains the later TODO_033 stage. Independently finish the HCI boundary isolation in TODO_024; after that continue correctness/evidence boundaries (`TODO_011`, `TODO_013`, `TODO_016`, `TODO_017`, `TODO_021`, remaining `TODO_025` docs), lifecycle/API robustness (`TODO_019`, `TODO_022`, `TODO_023`), and consistency/docs follow-ups (`TODO_012`, `TODO_014`, `TODO_015`, `TODO_020`). Re-evaluate ordering if implementation exposes dependencies.
 
 ### TODO_026 — `todos/TODO_026_UNIFIED_LOGGING_CONTRACT.md`
 
@@ -155,7 +155,7 @@ Goal: FT1/BINARY USER file transfer over current Chatter USER+ACK now supports s
 
 Automated implementation checkpoint: `dev_tui@aa2d3cc1fd65cbe228efbee6cdab4dccdbc62ada`; GitHub Actions `36655735769` SUCCESS; 313 tests PASS. The historical temporary `BOTH`/DELIVERY settlement design was superseded by TODO_030: current FT1 never mutates output mode and uses exact local BINARY presentation only as controller-local backpressure. TUI still suppresses ordinary transfer protocol noise while preserving adapter/panel/log consumption and file-progress rendering. META settlement remains shown as `sending`, not false `compressing 0%`. Oversized missing-range sets still terminate with stable `repair_too_large`; a full resend is an explicit new `file_send_start`, so v1 never enters an automatic restart loop.
 
-Key boundary: current radio transport is ordinary Chatter USER + ACK only; no per-chunk file ACK, no MISSING pagination, and no persistent resume after SerialTerminal process death. LoRa SACK is explicitly out of scope. Physical two-node transfer/reconnect validation of the updated checkpoint remains open.
+Key boundary: current radio transport is ordinary Chatter USER + ACK only; no per-chunk file ACK, no MISSING pagination, and no persistent resume after SerialTerminal process death. LoRa SACK is explicitly out of scope. Physical two-node transfer/reconnect validation of the updated checkpoint remains open. TODO_033 owns the new controller-lifecycle/pause-resume/persistent-resume extension and must preserve this existing application-level MISSING/RESULT contract.
 
 ### TODO_030 — `todos/TODO_030_CHATTER_FT1_NO_TELEMETRY.md`
 
@@ -172,6 +172,16 @@ Status: IMPLEMENTED / PHYSICAL VALIDATION OPEN
 Goal: Serial RX now blocks only for the first byte when idle and then drains already-available bytes up to the caller limit, removing the `read(512)` timeout batching defect without busy-spin or losing full-duplex behavior.
 
 Implementation: `dev_tui@a6581f0655a5c15d538b7511ec6b2a67fc9bb693`; GitHub Actions `36665201283` SUCCESS. Physical throughput regression against the ~4.8 kbit/s baseline remains open.
+
+### TODO_033 — `todos/TODO_033_FT1_RESUMABLE_TRANSFER_AND_CONTROLLER_RECOVERY.md`
+
+Status: OPEN
+
+Goal: make controller reboot/reconnect a bounded first-class SerialTerminal lifecycle event, make active FT1 pause/resume safely in the same process, and then add persistent `.part`/receiver-manifest + sender-journal resume across SerialTerminal process restart. The preferred initial persistent handshake is META -> receiver earliest-missing chunk -> sender resumes from that chunk; existing MISSING ranges remain the exact final selective-repair mechanism.
+
+Key boundary: resume is FT1 application behavior above opaque Chatter reliable USER. Firmware RF ACK stays unchanged and never carries file offset/chunk state. Generic ambiguous writes are not blindly replayed; only operation-owned idempotent semantics may recover.
+
+Finding/design checkpoint: `dev_tui@98fc5856cdc816b52629a334f4bd47e34e00c2a1`. Historical `TODO_032` existed briefly and was removed at that checkpoint; its ID is not reused per TODO policy.
 
 ## Closed
 
