@@ -1,7 +1,6 @@
 from __future__ import annotations
 
 from collections import deque
-import hashlib
 import math
 from pathlib import Path
 import threading
@@ -14,10 +13,8 @@ from .protocol import (
     EndMessage,
     FileProtocolError,
     MetaMessage,
-    MissingMessage,
     ResultMessage,
     ResumeMessage,
-    canonical_missing_ranges,
     data_payload_capacity,
     decode_message,
     encode_message,
