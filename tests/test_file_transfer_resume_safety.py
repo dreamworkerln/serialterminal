@@ -55,6 +55,24 @@ def _wait_for_messages(transport, timeout=1.0):
     return _messages(transport)
 
 
+def test_manifest_rename_fsyncs_parent_directory(monkeypatch, tmp_path):
+    transport = _CaptureTransport()
+    manager = FileTransferManager(transport, receive_dir=tmp_path)
+    calls = []
+    monkeypatch.setattr(
+        "serialterminal.file_transfer.manager.os.fsync",
+        lambda fd: calls.append(fd),
+    )
+    path = manager._resume_store.incoming_manifest(0xF00D)
+
+    try:
+        manager._resume_store.atomic_json(path, {"schema": 1})
+        assert len(calls) == 2
+        assert path.is_file()
+    finally:
+        manager.close()
+
+
 def test_receiver_checkpoint_fsyncs_part_before_manifest(monkeypatch, tmp_path):
     transport = _CaptureTransport()
     manager = FileTransferManager(transport, receive_dir=tmp_path)
