@@ -8,7 +8,31 @@ from typing import Any
 from . import core
 from .protocol import EndMessage, MetaMessage, ResultMessage
 from .resume_source import prepare_source
+from .resume_store import ResumeStateStore
 from .resumable import FileTransferManager as _ResumableFileTransferManager
+
+
+class _DurableResumeStateStore(ResumeStateStore):
+    """Resume store with a durable manifest rename on POSIX filesystems."""
+
+    @staticmethod
+    def _fsync_directory(directory: Path) -> None:
+        flags = os.O_RDONLY | getattr(os, "O_DIRECTORY", 0)
+        try:
+            descriptor = os.open(directory, flags)
+        except OSError:
+            # Some non-POSIX filesystems do not permit opening directories.
+            # The manifest file itself is still fsynced by the base store.
+            return
+        try:
+            os.fsync(descriptor)
+        finally:
+            os.close(descriptor)
+
+    @staticmethod
+    def atomic_json(path: Path, payload: dict[str, Any]) -> None:
+        ResumeStateStore.atomic_json(path, payload)
+        _DurableResumeStateStore._fsync_directory(path.parent)
 
 
 class FileTransferManager(_ResumableFileTransferManager):
@@ -17,6 +41,9 @@ class FileTransferManager(_ResumableFileTransferManager):
     def __init__(self, *args: Any, **kwargs: Any) -> None:
         self._resume_candidates: dict[int, dict[str, Any]] = {}
         super().__init__(*args, **kwargs)
+        self._resume_store = _DurableResumeStateStore(
+            self.receive_dir / ".serialterminal-state"
+        )
 
     def _prepare_source(self, path: Path, record) -> core._PreparedSource:
         return prepare_source(path, record)
