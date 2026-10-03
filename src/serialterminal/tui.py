@@ -12,7 +12,7 @@ class TerminalTui(_core.TerminalTui):
     """TUI with an explicit controller recovery status row."""
 
     def _controller_status_line(self) -> str | None:
-        adapter = self._binary_adapter
+        adapter = getattr(self, "_binary_adapter", None)
         reader = getattr(adapter, "controller_status", None)
         if not callable(reader):
             return None
