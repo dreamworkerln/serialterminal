@@ -132,7 +132,7 @@ Remaining work: align the primary `NODE_OBSERVATION_RECORDING_POLICY.md` and nod
 
 TODO_026 logging-contract investigation is also OPEN and may be scheduled independently when log-format work is selected.
 
-Suggested next work: physically validate the implemented TODO_033 child workstream at the exact current `dev_tui` checkpoint: `TODO_034` BLE/USB controller lifecycle, `TODO_035` same-process FT1 reboot/reconnect recovery, `TODO_036` receiver process-restart durability, and `TODO_037` sender/receiver/both-process persistent resume plus lost-RESULT tombstone behavior. Then rerun the broader TODO_029 two-node reconnect/MISSING validation against the new recovery stack. Independently finish the HCI boundary isolation in TODO_024; then continue correctness/evidence boundaries (`TODO_011`, `TODO_013`, `TODO_016`, `TODO_017`, `TODO_021`, remaining `TODO_025` docs), lifecycle/API robustness (`TODO_019`, `TODO_022`, `TODO_023`), and consistency/docs follow-ups (`TODO_012`, `TODO_014`, `TODO_015`, `TODO_020`). Re-evaluate ordering if physical validation exposes a regression.
+Suggested next work: first finish the current firmware/BlueZ throughput characterization without enabling TODO_038, so the pre-progress-checkpoint baseline remains clean. Then physically validate the implemented TODO_033 child workstream at the exact current `dev_tui` checkpoint: `TODO_034` BLE/USB controller lifecycle, `TODO_035` same-process FT1 reboot/reconnect recovery, `TODO_036` receiver process-restart durability, and `TODO_037` sender/receiver/both-process persistent resume plus lost-RESULT tombstone behavior. After that, implement/validate `TODO_038` as the rare FT1 ST-to-ST remote application-progress watchdog, measuring its overhead against the preserved baseline. Then rerun the broader TODO_029 two-node reconnect/MISSING validation against the recovery stack. Independently finish the HCI boundary isolation in TODO_024; then continue correctness/evidence boundaries (`TODO_011`, `TODO_013`, `TODO_016`, `TODO_017`, `TODO_021`, remaining `TODO_025` docs), lifecycle/API robustness (`TODO_019`, `TODO_022`, `TODO_023`), and consistency/docs follow-ups (`TODO_012`, `TODO_014`, `TODO_015`, `TODO_020`). Re-evaluate ordering if physical validation exposes a regression.
 
 ### TODO_026 — `todos/TODO_026_UNIFIED_LOGGING_CONTRACT.md`
 
@@ -223,6 +223,18 @@ Parent: TODO_033. Depends on TODO_036.
 Goal: persist sender transfer/source identity, revalidate/rebuild identical wire data after restart, and complete META-driven resume using receiver-proven earliest-missing chunk followed by existing END/MISSING/RESULT repair. Completed receiver tombstones prevent duplicate final publication/full resend after lost RESULT.
 
 FT1 v1 uses optional RESUME message type 6 with bounded old/new-host compatibility fallback. Multiple matching sender journals fail as `ambiguous_resume_state`; changed source is never sent under the old transfer identity. Full pre-DATA arbitrary missing-range SACK remains an optional future optimization. Physical sender/receiver/both-process restart and lost-RESULT scenarios remain open.
+
+### TODO_038 — `todos/TODO_038_FT1_REMOTE_PROGRESS_WATCHDOG.md`
+
+Status: OPEN / DEFERRED UNTIL CURRENT BLE/BLUEZ THROUGHPUT CHARACTERIZATION COMPLETES
+
+Depends on: TODO_037.
+
+Goal: add a rare, rate-limited FT1 ST-to-ST application-progress checkpoint so sender can detect a silent remote receiver/ST stall before streaming an arbitrarily large remainder, while keeping firmware reliable USER ACK unchanged and avoiding per-chunk FT1 acknowledgement.
+
+Selected design direction: firmware ACK remains the frequent firmware-to-firmware transport acknowledgement. FT1 progress is a separate rare host application exchange, initially targeting roughly one checkpoint per 10 seconds of active DATA subject to post-baseline tuning. Receiver replies with receiver-proven durable earliest-missing/next-chunk state, not merely an `alive` bit. Timeout/retry is bounded; a detected stall retains resumable sender identity/state and integrates with TODO_036/037 recovery. Existing END/MISSING/RESULT remains final correctness/completion authority.
+
+Implementation is intentionally deferred until the current firmware/BlueZ speed investigation establishes an uncontaminated throughput baseline. Physical acceptance must measure checkpoint overhead against that baseline.
 
 ## Closed
 
@@ -375,7 +387,7 @@ Future hardware evidence continues under `NODE_OBSERVATION_RECORDING_POLICY.md` 
 
 Status: CLOSED
 
-Goal: reduce accidental complexity in agent receive/wait orchestration, JSON dispatch, and JSONL runner lifecycle without changing the documented machine API.
+Goal: reduce accidental complexity in agent receive/wait orchestration, JSON dispatch, JSONL runner lifecycle without changing the documented machine API.
 
 ```text
 accepted checkpoint: dev@a74b46585b3f2c0e032b6b444b2d1089b4fde1e9
@@ -410,4 +422,4 @@ post-closure hardware smoke: PASS / physical BLE multi-device / 2026-09-03
 
 ## Current validation posture
 
-Repository CI is the normal per-change clean-environment gate. Physical-node claims remain separate: do not infer current-head hardware validity from older run bundles. TODO_034 through TODO_037 have completed host implementation/automated validation but remain explicitly open for the required physical BLE/USB/two-node process-restart matrix. For the next build-level validation pass, continue to prefer one long-lived `serialterminal agent` process and a broad scenario matrix over repeated manual operator actions; only UI-specific behavior that the machine API cannot exercise should require a separate human pass.
+Repository CI is the normal per-change clean-environment gate. Physical-node claims remain separate: do not infer current-head hardware validity from older run bundles. TODO_034 through TODO_037 have completed host implementation/automated validation but remain explicitly open for the required physical BLE/USB/two-node process-restart matrix. TODO_038 is intentionally deferred until the current firmware/BlueZ throughput characterization establishes a stable pre-checkpoint baseline; its later acceptance must include measured overhead and real silent-remote-ST stall/recovery validation. For the next build-level validation pass, continue to prefer one long-lived `serialterminal agent` process and a broad scenario matrix over repeated manual operator actions; only UI-specific behavior that the machine API cannot exercise should require a separate human pass.
