@@ -9,7 +9,22 @@ for _name, _value in vars(_core).items():
 
 
 class TerminalTui(_core.TerminalTui):
-    """TUI with an explicit controller recovery status row."""
+    """TUI with controller recovery status and terminal-owned mouse by default."""
+
+    def __init__(self, *args, **kwargs) -> None:
+        super().__init__(*args, **kwargs)
+        # Обычный terminal selection/RMB должен работать сразу после запуска.
+        # Первый startup-вызов base run() пытается включить curses mouse capture;
+        # подавляем только его. F8 после старта остаётся обычным toggle и может
+        # включить внутренние wheel/scrollbar события при необходимости.
+        self.mouse_capture = False
+        self._startup_mouse_mode_pending = True
+
+    def _set_mouse_capture(self, enabled: bool) -> None:
+        if self._startup_mouse_mode_pending:
+            self._startup_mouse_mode_pending = False
+            enabled = False
+        super()._set_mouse_capture(enabled)
 
     def _controller_status_line(self) -> str | None:
         adapter = getattr(self, "_binary_adapter", None)
