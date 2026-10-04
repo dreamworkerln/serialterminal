@@ -387,7 +387,7 @@ Future hardware evidence continues under `NODE_OBSERVATION_RECORDING_POLICY.md` 
 
 Status: CLOSED
 
-Goal: reduce accidental complexity in agent receive/wait orchestration, JSON dispatch, JSONL runner lifecycle without changing the documented machine API.
+Goal: reduce accidental complexity in agent receive/wait orchestration, JSON dispatch, or JSONL runner lifecycle without changing the documented machine API.
 
 ```text
 accepted checkpoint: dev@a74b46585b3f2c0e032b6b444b2d1089b4fde1e9
