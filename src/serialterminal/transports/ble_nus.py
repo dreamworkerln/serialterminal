@@ -17,13 +17,19 @@ from .base import (
 NUS_RX_UUID = "6e400002-b5a3-f393-e0a9-e50e24dcca9e"  # стандартный NUS: host -> peripheral
 NUS_TX_UUID = "6e400003-b5a3-f393-e0a9-e50e24dcca9e"  # стандартный NUS: peripheral -> host
 
-# Bleak documents that max_write_without_response_size can transiently report
-# the ATT default (20) after connect before the backend publishes the negotiated
-# value. Resolve it once per connection generation, but keep 20 as the bounded
-# safe fallback for devices/backends where the value never increases.
+# BlueZ can keep Bleak's characteristic max_write_without_response_size at the
+# ATT default (20) even after a larger ATT MTU is negotiated. On BlueZ, probe
+# the current client's negotiated MTU through Bleak's backend helper first.
+# Other backends, and BlueZ versions where that private helper is unavailable,
+# retain the bounded characteristic-property resolver as a secondary source.
 BLE_WRITE_SIZE_SAFE_DEFAULT_BYTES = 20
 BLE_WRITE_SIZE_RESOLVE_INTERVAL_S = 0.05
 BLE_WRITE_SIZE_RESOLVE_TIMEOUT_S = 0.75
+BLE_BLUEZ_MTU_RESOLVE_TIMEOUT_S = 1.0
+BLE_ATT_MTU_MIN_BYTES = 23
+BLE_ATT_MTU_MAX_BYTES = 517
+BLE_WRITE_COMMAND_OVERHEAD_BYTES = 3
+BLE_GATT_ATTRIBUTE_VALUE_MAX_BYTES = 512
 
 try:
     from bleak import BleakClient, BleakScanner
@@ -356,6 +362,96 @@ class BleNusTransport(Transport):
             size = 0
         return size if size > 0 else 0
 
+    def _bluez_backend(self, client: Any) -> Any | None:
+        backend = getattr(client, "_backend", None)
+        if backend is None:
+            return None
+        backend_module = type(backend).__module__
+        if backend_module == "bleak.backends.bluezdbus.client":
+            return backend
+        if backend_module.startswith("bleak.backends.bluezdbus."):
+            return backend
+        return None
+
+    @staticmethod
+    def _write_size_from_att_mtu(mtu: int) -> int | None:
+        if mtu < BLE_ATT_MTU_MIN_BYTES or mtu > BLE_ATT_MTU_MAX_BYTES:
+            return None
+        payload_bytes = mtu - BLE_WRITE_COMMAND_OVERHEAD_BYTES
+        return max(
+            BLE_WRITE_SIZE_SAFE_DEFAULT_BYTES,
+            min(payload_bytes, BLE_GATT_ATTRIBUTE_VALUE_MAX_BYTES),
+        )
+
+    async def _bluez_negotiated_mtu(
+        self,
+        client: Any,
+        generation: int,
+    ) -> tuple[int | None, str | None]:
+        """Get the current BlueZ connection's negotiated ATT MTU, if possible.
+
+        Bleak's BlueZ backend has no public negotiated-MTU API. Its own MTU
+        example uses ``client._backend._acquire_mtu()``: BlueZ returns the MTU
+        from AcquireWrite/AcquireNotify, Bleak immediately closes that acquired
+        fd, and normal writes still use ``write_gatt_char(response=False)``.
+        Keep this private/backend-specific dependency isolated and optional.
+        """
+        backend = self._bluez_backend(client)
+        if backend is None:
+            return None, None
+
+        acquire_mtu = getattr(backend, "_acquire_mtu", None)
+        if not callable(acquire_mtu):
+            return None, "bluez_acquire_mtu_unavailable"
+        if not self._connection_is_current(client, generation):
+            return None, "connection_changed"
+
+        try:
+            await asyncio.wait_for(
+                acquire_mtu(),
+                timeout=BLE_BLUEZ_MTU_RESOLVE_TIMEOUT_S,
+            )
+        except asyncio.TimeoutError:
+            return None, "bluez_acquire_mtu_timeout"
+        except Exception as exc:
+            return None, f"bluez_acquire_mtu_{type(exc).__name__}"
+
+        if not self._connection_is_current(client, generation):
+            return None, "connection_changed"
+
+        try:
+            mtu = int(getattr(client, "mtu_size"))
+        except Exception as exc:
+            return None, f"bluez_mtu_read_{type(exc).__name__}"
+
+        if self._write_size_from_att_mtu(mtu) is None:
+            return None, "bluez_mtu_invalid"
+        return mtu, None
+
+    def _record_write_size_aborted(
+        self,
+        *,
+        generation: int,
+        initial_size: int,
+        last_size: int,
+        rechecks: int,
+        started: float,
+        loop: asyncio.AbstractEventLoop,
+        reason: str,
+        source: str,
+    ) -> None:
+        self._record_timing(
+            "ble_write_size_resolution_aborted",
+            generation=generation,
+            source=source,
+            initial_size=initial_size,
+            initial_characteristic_size=initial_size,
+            last_size=last_size,
+            rechecks=rechecks,
+            wait_ms=round((loop.time() - started) * 1000.0, 3),
+            reason=reason,
+        )
+
     def _publish_write_size_resolution(
         self,
         client: Any,
@@ -377,7 +473,6 @@ class BleNusTransport(Transport):
     async def _resolve_write_size_async(self, client: Any, generation: int) -> bool:
         loop = asyncio.get_running_loop()
         started = loop.time()
-        deadline = started + BLE_WRITE_SIZE_RESOLVE_TIMEOUT_S
         rechecks = 0
 
         if not self._connection_is_current(client, generation):
@@ -385,71 +480,111 @@ class BleNusTransport(Transport):
 
         initial_size = self._reported_max_write_without_response_size(client)
         current_size = initial_size
+        mtu = None
+        source = "characteristic_property"
+        resolution_reason = ""
 
-        while current_size <= BLE_WRITE_SIZE_SAFE_DEFAULT_BYTES:
-            if not self._connection_is_current(client, generation):
-                self._record_timing(
-                    "ble_write_size_resolution_aborted",
-                    generation=generation,
-                    initial_size=initial_size,
-                    last_size=current_size,
-                    rechecks=rechecks,
-                    wait_ms=round((loop.time() - started) * 1000.0, 3),
-                    reason="connection_changed",
-                )
-                return False
-
-            remaining = deadline - loop.time()
-            if remaining <= 0:
-                break
-
-            await asyncio.sleep(
-                min(BLE_WRITE_SIZE_RESOLVE_INTERVAL_S, remaining)
+        mtu, backend_reason = await self._bluez_negotiated_mtu(client, generation)
+        if backend_reason == "connection_changed":
+            self._record_write_size_aborted(
+                generation=generation,
+                initial_size=initial_size,
+                last_size=current_size,
+                rechecks=rechecks,
+                started=started,
+                loop=loop,
+                reason="connection_changed",
+                source="bluez_mtu",
             )
-            if not self._connection_is_current(client, generation):
-                self._record_timing(
-                    "ble_write_size_resolution_aborted",
-                    generation=generation,
-                    initial_size=initial_size,
-                    last_size=current_size,
-                    rechecks=rechecks,
-                    wait_ms=round((loop.time() - started) * 1000.0, 3),
-                    reason="connection_changed",
-                )
-                return False
+            return False
 
-            rechecks += 1
-            current_size = self._reported_max_write_without_response_size(client)
-
-        final_size = (
-            current_size
-            if current_size > BLE_WRITE_SIZE_SAFE_DEFAULT_BYTES
-            else BLE_WRITE_SIZE_SAFE_DEFAULT_BYTES
+        mtu_write_size = (
+            self._write_size_from_att_mtu(mtu)
+            if mtu is not None
+            else None
         )
+        if mtu_write_size is not None:
+            final_size = mtu_write_size
+            source = "bluez_mtu"
+        else:
+            resolution_reason = backend_reason or ""
+            deadline = loop.time() + BLE_WRITE_SIZE_RESOLVE_TIMEOUT_S
+            while current_size <= BLE_WRITE_SIZE_SAFE_DEFAULT_BYTES:
+                if not self._connection_is_current(client, generation):
+                    self._record_write_size_aborted(
+                        generation=generation,
+                        initial_size=initial_size,
+                        last_size=current_size,
+                        rechecks=rechecks,
+                        started=started,
+                        loop=loop,
+                        reason="connection_changed",
+                        source="characteristic_property",
+                    )
+                    return False
+
+                remaining = deadline - loop.time()
+                if remaining <= 0:
+                    break
+
+                await asyncio.sleep(
+                    min(BLE_WRITE_SIZE_RESOLVE_INTERVAL_S, remaining)
+                )
+                if not self._connection_is_current(client, generation):
+                    self._record_write_size_aborted(
+                        generation=generation,
+                        initial_size=initial_size,
+                        last_size=current_size,
+                        rechecks=rechecks,
+                        started=started,
+                        loop=loop,
+                        reason="connection_changed",
+                        source="characteristic_property",
+                    )
+                    return False
+
+                rechecks += 1
+                current_size = self._reported_max_write_without_response_size(client)
+
+            if current_size > BLE_WRITE_SIZE_SAFE_DEFAULT_BYTES:
+                final_size = current_size
+                source = "characteristic_property"
+            else:
+                final_size = BLE_WRITE_SIZE_SAFE_DEFAULT_BYTES
+                source = "fallback"
+                if not resolution_reason:
+                    resolution_reason = "characteristic_default_after_deadline"
+
         if not self._publish_write_size_resolution(
             client,
             generation,
             final_size,
         ):
-            self._record_timing(
-                "ble_write_size_resolution_aborted",
+            self._record_write_size_aborted(
                 generation=generation,
                 initial_size=initial_size,
                 last_size=current_size,
                 rechecks=rechecks,
-                wait_ms=round((loop.time() - started) * 1000.0, 3),
+                started=started,
+                loop=loop,
                 reason="stale_completion",
+                source=source,
             )
             return False
 
         self._record_timing(
             "ble_write_size_resolved",
             generation=generation,
+            source=source,
+            mtu=mtu,
             initial_size=initial_size,
+            initial_characteristic_size=initial_size,
+            final_characteristic_size=current_size,
             final_size=final_size,
             rechecks=rechecks,
             wait_ms=round((loop.time() - started) * 1000.0, 3),
-            fallback=(final_size == BLE_WRITE_SIZE_SAFE_DEFAULT_BYTES),
+            fallback=(source == "fallback"),
+            reason=resolution_reason,
         )
         return True
 
@@ -521,9 +656,8 @@ class BleNusTransport(Transport):
         if available_streams is None:
             return await self._fail_connection_async(client, generation)
 
-        # Subscribe first so resolving a transient 20-byte default cannot make
-        # us miss early controller notifications after reconnect. The transport
-        # is not published connected until the current-generation size is final.
+        # Subscribe before the BlueZ MTU probe so controller READY/reset output
+        # cannot be lost while resolving the current generation's write size.
         if not await self._resolve_write_size_async(client, generation):
             return await self._fail_connection_async(client, generation)
 
