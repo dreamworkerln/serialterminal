@@ -38,7 +38,7 @@ class DeviceSelector:
     def __init__(
         self,
         scope: str,
-        baud: int = 115200,
+        baud: int = 921600,
         scan_seconds: float = 3.0,
         profile: TerminalProfile = GENERIC_PROFILE,
     ):
@@ -575,7 +575,7 @@ def _serial_parser(prog: str) -> argparse.ArgumentParser:
         default=None,
         help="Serial device; if omitted, discover and choose",
     )
-    parser.add_argument("-b", "--baud", type=int, default=115200)
+    parser.add_argument("-b", "--baud", type=int, default=921600)
     parser.add_argument(
         "-l",
         "--list",
@@ -708,7 +708,7 @@ def _auto_parser(prog: str) -> argparse.ArgumentParser:
             "legacy explicit serial path; omit for unified discovery"
         ),
     )
-    parser.add_argument("-b", "--baud", type=int, default=115200)
+    parser.add_argument("-b", "--baud", type=int, default=921600)
     parser.add_argument("--log", default=None)
     parser.add_argument(
         "--eol",
