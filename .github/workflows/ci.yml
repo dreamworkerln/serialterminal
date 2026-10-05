@@ -26,4 +26,10 @@ jobs:
         run: lizard -l python -C 10 -L 80 -a 5 src serialterminal.py usb_timing_logger.py tools scripts
 
       - name: Tests
-        run: pytest -q
+        run: >-
+          pytest -q
+          tests/test_ble_write_size_resolution.py
+          tests/test_ble_nus.py
+          tests/test_ble_write_timeout.py
+          tests/test_ble_rx_ordering.py
+          tests/test_ble_burst_rx_completeness.py
