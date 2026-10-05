@@ -17,6 +17,14 @@ from .base import (
 NUS_RX_UUID = "6e400002-b5a3-f393-e0a9-e50e24dcca9e"  # стандартный NUS: host -> peripheral
 NUS_TX_UUID = "6e400003-b5a3-f393-e0a9-e50e24dcca9e"  # стандартный NUS: peripheral -> host
 
+# Bleak documents that max_write_without_response_size can transiently report
+# the ATT default (20) after connect before the backend publishes the negotiated
+# value. Resolve it once per connection generation, but keep 20 as the bounded
+# safe fallback for devices/backends where the value never increases.
+BLE_WRITE_SIZE_SAFE_DEFAULT_BYTES = 20
+BLE_WRITE_SIZE_RESOLVE_INTERVAL_S = 0.05
+BLE_WRITE_SIZE_RESOLVE_TIMEOUT_S = 0.75
+
 try:
     from bleak import BleakClient, BleakScanner
 except ImportError:  # Serial-only imports must still work before BLE is requested.
@@ -112,6 +120,8 @@ class BleNusTransport(Transport):
         # new session even if the backend invokes them again later.
         self._connection_generation = 0
         self._active_generation: int | None = None
+        self._write_size_generation: int | None = None
+        self._write_size_bytes: int | None = None
 
         self._rx_queue: queue.Queue[ReceivedChunk] = queue.Queue()
         self._rx_pending: ReceivedChunk | None = None
@@ -179,6 +189,10 @@ class BleNusTransport(Transport):
             raise TransportError("BLE event loop is not running")
         return asyncio.run_coroutine_threadsafe(coroutine, loop)
 
+    def _clear_write_size_state_locked(self) -> None:
+        self._write_size_generation = None
+        self._write_size_bytes = None
+
     def _on_disconnect(self, client, generation: int) -> None:
         # A delayed disconnect callback from an older BleakClient must not tear
         # down a newer connection. Keep the old client reference until normal
@@ -187,6 +201,7 @@ class BleNusTransport(Transport):
             if self._client is not client or self._active_generation != generation:
                 return
             self._active_generation = None
+            self._clear_write_size_state_locked()
             self._connected.clear()
             self._available_streams.clear()
 
@@ -271,6 +286,7 @@ class BleNusTransport(Transport):
             self._connection_generation += 1
             generation = self._connection_generation
             self._active_generation = generation
+            self._clear_write_size_state_locked()
 
         client = BleakClient(
             device,
@@ -309,6 +325,134 @@ class BleNusTransport(Transport):
                 available.add(receive_stream.stream)
         return available
 
+    def _connection_is_current(self, client: Any, generation: int) -> bool:
+        with self._state_lock:
+            if self._client is not client or self._active_generation != generation:
+                return False
+            try:
+                return bool(getattr(client, "is_connected", True))
+            except Exception:
+                return False
+
+    def _reported_max_write_without_response_size(self, client: Any) -> int:
+        services = getattr(client, "services", None)
+        getter = getattr(services, "get_characteristic", None)
+        characteristic = None
+        if callable(getter):
+            try:
+                characteristic = getter(self.write_characteristic)
+            except Exception:
+                characteristic = None
+
+        try:
+            size = int(
+                getattr(
+                    characteristic,
+                    "max_write_without_response_size",
+                    0,
+                )
+            )
+        except (TypeError, ValueError):
+            size = 0
+        return size if size > 0 else 0
+
+    def _publish_write_size_resolution(
+        self,
+        client: Any,
+        generation: int,
+        size: int,
+    ) -> bool:
+        with self._state_lock:
+            if self._client is not client or self._active_generation != generation:
+                return False
+            try:
+                if not bool(getattr(client, "is_connected", True)):
+                    return False
+            except Exception:
+                return False
+            self._write_size_generation = generation
+            self._write_size_bytes = size
+            return True
+
+    async def _resolve_write_size_async(self, client: Any, generation: int) -> bool:
+        loop = asyncio.get_running_loop()
+        started = loop.time()
+        deadline = started + BLE_WRITE_SIZE_RESOLVE_TIMEOUT_S
+        rechecks = 0
+
+        if not self._connection_is_current(client, generation):
+            return False
+
+        initial_size = self._reported_max_write_without_response_size(client)
+        current_size = initial_size
+
+        while current_size <= BLE_WRITE_SIZE_SAFE_DEFAULT_BYTES:
+            if not self._connection_is_current(client, generation):
+                self._record_timing(
+                    "ble_write_size_resolution_aborted",
+                    generation=generation,
+                    initial_size=initial_size,
+                    last_size=current_size,
+                    rechecks=rechecks,
+                    wait_ms=round((loop.time() - started) * 1000.0, 3),
+                    reason="connection_changed",
+                )
+                return False
+
+            remaining = deadline - loop.time()
+            if remaining <= 0:
+                break
+
+            await asyncio.sleep(
+                min(BLE_WRITE_SIZE_RESOLVE_INTERVAL_S, remaining)
+            )
+            if not self._connection_is_current(client, generation):
+                self._record_timing(
+                    "ble_write_size_resolution_aborted",
+                    generation=generation,
+                    initial_size=initial_size,
+                    last_size=current_size,
+                    rechecks=rechecks,
+                    wait_ms=round((loop.time() - started) * 1000.0, 3),
+                    reason="connection_changed",
+                )
+                return False
+
+            rechecks += 1
+            current_size = self._reported_max_write_without_response_size(client)
+
+        final_size = (
+            current_size
+            if current_size > BLE_WRITE_SIZE_SAFE_DEFAULT_BYTES
+            else BLE_WRITE_SIZE_SAFE_DEFAULT_BYTES
+        )
+        if not self._publish_write_size_resolution(
+            client,
+            generation,
+            final_size,
+        ):
+            self._record_timing(
+                "ble_write_size_resolution_aborted",
+                generation=generation,
+                initial_size=initial_size,
+                last_size=current_size,
+                rechecks=rechecks,
+                wait_ms=round((loop.time() - started) * 1000.0, 3),
+                reason="stale_completion",
+            )
+            return False
+
+        self._record_timing(
+            "ble_write_size_resolved",
+            generation=generation,
+            initial_size=initial_size,
+            final_size=final_size,
+            rechecks=rechecks,
+            wait_ms=round((loop.time() - started) * 1000.0, 3),
+            fallback=(final_size == BLE_WRITE_SIZE_SAFE_DEFAULT_BYTES),
+        )
+        return True
+
     def _publish_connected_state(
         self,
         device: Any,
@@ -320,6 +464,10 @@ class BleNusTransport(Transport):
             if self._client is not client:
                 return False
             if self._active_generation != generation:
+                return False
+            if self._write_size_generation != generation:
+                return False
+            if self._write_size_bytes is None:
                 return False
             if not bool(getattr(client, "is_connected", True)):
                 return False
@@ -343,6 +491,8 @@ class BleNusTransport(Transport):
                 self._client = None
             if self._active_generation == generation:
                 self._active_generation = None
+            if current:
+                self._clear_write_size_state_locked()
 
         if current:
             self._connected.clear()
@@ -369,6 +519,12 @@ class BleNusTransport(Transport):
             generation,
         )
         if available_streams is None:
+            return await self._fail_connection_async(client, generation)
+
+        # Subscribe first so resolving a transient 20-byte default cannot make
+        # us miss early controller notifications after reconnect. The transport
+        # is not published connected until the current-generation size is final.
+        if not await self._resolve_write_size_async(client, generation):
             return await self._fail_connection_async(client, generation)
 
         if not self._publish_connected_state(
@@ -402,6 +558,7 @@ class BleNusTransport(Transport):
             client = self._client
             self._client = None
             self._active_generation = None
+            self._clear_write_size_state_locked()
 
         self._connected.clear()
         self._available_streams.clear()
@@ -416,6 +573,7 @@ class BleNusTransport(Transport):
             with self._state_lock:
                 self._client = None
                 self._active_generation = None
+                self._clear_write_size_state_locked()
             return
 
         try:
@@ -427,6 +585,7 @@ class BleNusTransport(Transport):
             with self._state_lock:
                 self._client = None
                 self._active_generation = None
+                self._clear_write_size_state_locked()
 
     def close(self) -> None:
         self.disconnect()
@@ -461,45 +620,41 @@ class BleNusTransport(Transport):
     def read(self, size: int = 512) -> bytes:
         return self.read_chunk(size).data
 
-    def _max_write_without_response_size(self, client: Any) -> int:
-        services = getattr(client, "services", None)
-        getter = getattr(services, "get_characteristic", None)
-        characteristic = None
-        if callable(getter):
-            try:
-                characteristic = getter(self.write_characteristic)
-            except Exception:
-                characteristic = None
-
-        try:
-            size = int(
-                getattr(
-                    characteristic,
-                    "max_write_without_response_size",
-                    0,
-                )
-            )
-        except (TypeError, ValueError):
-            size = 0
-
-        # max_write_without_response_size — authoritative bound для response=False.
-        # Старые Bleak/BlueZ могут не expose его; 20 байт — безопасный ATT default.
-        return size if size > 0 else 20
-
     async def _write_async(self, data: bytes) -> None:
         with self._state_lock:
             client = self._client
+            generation = self._active_generation
+            max_chunk_bytes = (
+                self._write_size_bytes
+                if self._write_size_generation == generation
+                else None
+            )
 
-        if client is None or not self._connected.is_set():
+        if (
+            client is None
+            or generation is None
+            or not self._connected.is_set()
+        ):
             raise TransportError(f"{self.target_name} is disconnected")
 
-        max_chunk_bytes = self._max_write_without_response_size(client)
+        if max_chunk_bytes is None:
+            # Defensive invariant fallback. Normal connected state is published
+            # only after current-generation resolution has completed.
+            max_chunk_bytes = BLE_WRITE_SIZE_SAFE_DEFAULT_BYTES
+            self._record_timing(
+                "ble_write_size_unresolved_fallback",
+                generation=generation,
+                final_size=max_chunk_bytes,
+                fallback=True,
+            )
+
         chunk_count = max(
             1,
             (len(data) + max_chunk_bytes - 1) // max_chunk_bytes,
         )
         self._record_timing(
             "ble_gatt_write_start",
+            generation=generation,
             bytes=len(data),
             characteristic=self.write_characteristic,
             response=False,
@@ -518,6 +673,7 @@ class BleNusTransport(Transport):
                 )
                 self._record_timing(
                     "ble_gatt_write_chunk_start",
+                    generation=generation,
                     bytes=len(chunk),
                     logical_bytes=len(data),
                     chunk_index=chunk_index,
@@ -534,6 +690,7 @@ class BleNusTransport(Transport):
                 completed_chunks += 1
                 self._record_timing(
                     "ble_gatt_write_chunk_done",
+                    generation=generation,
                     bytes=len(chunk),
                     logical_bytes=len(data),
                     chunk_index=chunk_index,
@@ -545,6 +702,7 @@ class BleNusTransport(Transport):
         except Exception as exc:
             self._record_timing(
                 "ble_gatt_write_error",
+                generation=generation,
                 bytes=len(data),
                 characteristic=self.write_characteristic,
                 error=type(exc).__name__,
@@ -562,6 +720,7 @@ class BleNusTransport(Transport):
 
         self._record_timing(
             "ble_gatt_write_done",
+            generation=generation,
             bytes=len(data),
             characteristic=self.write_characteristic,
             response=False,
