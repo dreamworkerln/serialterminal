@@ -2,11 +2,7 @@ import asyncio
 import time
 
 from serialterminal.transports import ble_nus
-from serialterminal.transports.ble_nus import (
-    BleDeviceIdentity,
-    NUS_RX_UUID,
-    NUS_TX_UUID,
-)
+from serialterminal.transports.ble_nus import BleDeviceIdentity, NUS_RX_UUID
 
 
 def _install_fake_ble(monkeypatch, size_sequences):
@@ -143,7 +139,6 @@ def test_write_size_244_immediately_resolves_without_recheck(monkeypatch):
         assert resolution["final_size"] == 244
         assert resolution["rechecks"] == 0
         assert resolution["fallback"] is False
-        assert FakeClient.last if hasattr(FakeClient, "last") else True
         assert FakeClient.instances[0]._write_size_reads == 1
     finally:
         transport.close()
@@ -235,7 +230,11 @@ def test_reconnect_resolves_write_size_again_for_new_generation(monkeypatch):
         assert transport.connect()
 
         resolutions = _resolved_events(events)
-        assert [(item["generation"], item["initial_size"], item["final_size"]) for item in resolutions] == [
+        resolved_sizes = [
+            (item["generation"], item["initial_size"], item["final_size"])
+            for item in resolutions
+        ]
+        assert resolved_sizes == [
             (1, 244, 244),
             (2, 20, 244),
         ]
