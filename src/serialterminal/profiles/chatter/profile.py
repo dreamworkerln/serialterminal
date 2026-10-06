@@ -91,13 +91,14 @@ _BLE_CONFIG = BleProfileConfig(
     write_characteristic=NUS_RX_UUID,
     receive_streams=(
         ReceiveCharacteristic(NUS_TX_UUID, "chat"),
-        # 0004 опционален: отсутствие telemetry characteristic не должно
-        # ронять connection; human console остаётся на standard NUS TX.
-        ReceiveCharacteristic(
-            CHATTER_TELEMETRY_TX_UUID,
-            "telemetry",
-            required=False,
-        ),
+        # ВРЕМЕННО: подписка на BLE 0004 отключена только для A/B throughput
+        # измерения. После теста вернуть optional telemetry characteristic ниже;
+        # FT1/BINARY не использует 0004 как control plane.
+        # ReceiveCharacteristic(
+        #     CHATTER_TELEMETRY_TX_UUID,
+        #     "telemetry",
+        #     required=False,
+        # ),
     ),
 )
 

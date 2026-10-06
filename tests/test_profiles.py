@@ -77,7 +77,7 @@ def test_chatter_raw_hotkey_actions_do_not_append_configured_eol(tmp_path):
         session.log_file.close()
 
 
-def test_chatter_profile_describes_existing_ble_layout():
+def test_chatter_profile_temporarily_disables_telemetry_for_ab_probe():
     config = CHATTER_PROFILE.ble_config()
     assert config is not None
     assert config.write_characteristic == NUS_RX_UUID
@@ -86,7 +86,11 @@ def test_chatter_profile_describes_existing_ble_layout():
         for item in config.receive_streams
     ) == (
         (NUS_TX_UUID, "chat", True),
-        (CHATTER_TELEMETRY_TX_UUID, "telemetry", False),
+    )
+    # UUID сохраняется в profile: после A/B измерения optional 0004 подписку
+    # нужно вернуть, а не удалять сам Chatter telemetry contract.
+    assert CHATTER_TELEMETRY_TX_UUID == (
+        "6e400004-b5a3-f393-e0a9-e50e24dcca9e"
     )
 
 
