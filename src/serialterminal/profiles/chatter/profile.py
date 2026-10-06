@@ -20,8 +20,8 @@ from ..base import (
     ProfileBinaryUserAdapter,
     TuiProfilePanel,
 )
+from .binary_pipeline import PipelinedChatterBinaryUserAdapter
 from .binary_user import (
-    ChatterBinaryUserAdapter,
     is_binary_presentation_line,
     redact_binary_human_text,
 )
@@ -151,7 +151,7 @@ class ChatterProfile:
         connection_generation: BinaryConnectionGeneration | None = None,
         timing_sink: TimingSink | None = None,
     ) -> ProfileBinaryUserAdapter | None:
-        return ChatterBinaryUserAdapter(
+        return PipelinedChatterBinaryUserAdapter(
             send_line,
             wait_tx_outcome=wait_tx_outcome,
             connection_generation=connection_generation,
