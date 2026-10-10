@@ -708,7 +708,8 @@ the temporary state and releases the one-transfer session lease.
 For each DATA:
 
 1. validate that `chunk_index` is within the META-derived chunk count;
-2. validate the exact expected length for that index;
+2. validate the exact expected length for that index; discard wrong-length DATA
+   with a `chunk_rejected` event, preserving the partial file and valid chunks;
 3. seek to the chunk offset;
 4. write bytes to the temporary wire file;
 5. record that index as present.

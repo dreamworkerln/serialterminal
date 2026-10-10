@@ -1284,14 +1284,17 @@ class FileTransferManager:
                 message.chunk_index,
             )
             if len(message.payload) != expected_length:
-                raise FileTransferError(
-                    "invalid_chunk",
-                    (
-                        f"chunk {message.chunk_index} length {len(message.payload)} "
-                        f"does not match expected {expected_length}"
-                    ),
-                    phase="receiving",
+                # Повреждённый DATA не должен уничтожать уже собранные чанки.
+                # Не отмечаем его полученным: END/MISSING запросит исходный блок.
+                # Если корректная копия уже сохранена, сохраняем и её bitmap bit.
+                incoming.record.event(
+                    "chunk_rejected",
+                    chunk_index=message.chunk_index,
+                    reason="length_mismatch",
+                    actual_length=len(message.payload),
+                    expected_length=expected_length,
                 )
+                return
             offset = message.chunk_index * incoming.meta.chunk_size
             if message.chunk_index in incoming.received:
                 with incoming.wire_path.open("rb") as file:

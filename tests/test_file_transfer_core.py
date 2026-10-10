@@ -4,6 +4,8 @@ import random
 import threading
 import time
 
+import pytest
+
 from serialterminal.file_transfer import (
     BinarySendReceipt,
     BinaryUserError,
@@ -1024,6 +1026,131 @@ def test_file_transfer_event_sink_records_message_stages_without_payload(tmp_pat
         rendered = repr(events)
         assert "payload" not in rendered
         assert "base64" not in rendered
+    finally:
+        tx.close()
+        rx.close()
+
+
+class _DamagingPairBinaryTransport(_PairBinaryTransport):
+    payload_capacity = 243
+
+    def __init__(self, chunk_index, length_delta, damage_count, *, duplicate=False):
+        super().__init__()
+        self.chunk_index = chunk_index
+        self.length_delta = length_delta
+        self.damage_count = damage_count
+        self.duplicate = duplicate
+
+    def send_binary(self, data, *, cancel_event=None):
+        if cancel_event is not None and cancel_event.is_set():
+            from serialterminal.file_transfer import BinaryUserCancelled
+
+            raise BinaryUserCancelled()
+        payload = bytes(data)
+        self.sent.append(payload)
+        message = decode_message(payload)
+        if (
+            isinstance(message, DataMessage)
+            and message.chunk_index == self.chunk_index
+            and self.damage_count > 0
+        ):
+            self.damage_count -= 1
+            if self.duplicate:
+                self.peer.receiver(payload)
+            changed = (
+                message.payload[:self.length_delta]
+                if self.length_delta < 0
+                else message.payload + b"!" * self.length_delta
+            )
+            payload = encode_message(
+                DataMessage(message.transfer_id, message.chunk_index, changed),
+                self.payload_capacity,
+            )
+        self.peer.receiver(payload)
+        return BinarySendReceipt(tx_id=len(self.sent))
+
+
+@pytest.mark.parametrize(
+    "chunk_index,length_delta,damage_count,duplicate",
+    [
+        (1, -48, 1, False),
+        (1, -48, 2, False),
+        (6, -7, 1, False),
+        (6, 1, 1, False),
+        (1, -48, 1, True),
+    ],
+)
+def test_bad_length_chunk_is_selectively_repaired_without_losing_good_chunks(
+    tmp_path, chunk_index, length_delta, damage_count, duplicate
+):
+    source = tmp_path / "damaged.bin"
+    source.write_bytes(random.Random(834).randbytes(227 * 6 + 53))
+    left = _DamagingPairBinaryTransport(
+        chunk_index, length_delta, damage_count, duplicate=duplicate
+    )
+    right = _PairBinaryTransport()
+    right.payload_capacity = 243
+    left.peer = right
+    right.peer = left
+    tx = FileTransferManager(
+        left, receive_dir=tmp_path / "sender", result_timeout_s=2.0
+    )
+    rx = FileTransferManager(
+        right, receive_dir=tmp_path / "receiver", result_timeout_s=2.0
+    )
+    try:
+        started = tx.start_send(source)
+        done = _wait_until(
+            lambda: snapshot
+            if (snapshot := tx.display_snapshot())
+            and snapshot["state"] in {"completed", "failed"}
+            else None
+        )
+        assert done["state"] == "completed"
+        received = _wait_until(
+            lambda: snapshot
+            if (snapshot := rx.display_snapshot())
+            and snapshot["state"] == "completed"
+            else None
+        )
+        final = Path(received["final_path"])
+        assert final.read_bytes() == source.read_bytes()
+        assert received["chunks_completed"] == received["chunks_total"] == 7
+        assert received["percentage"] == 100.0
+        sent_data = [
+            message
+            for raw in left.sent
+            if isinstance((message := decode_message(raw)), DataMessage)
+        ]
+        for index in range(7):
+            expected_count = (
+                1 + damage_count if index == chunk_index and not duplicate else 1
+            )
+            assert sum(m.chunk_index == index for m in sent_data) == expected_count
+        missing = [
+            message
+            for raw in right.sent
+            if isinstance((message := decode_message(raw)), MissingMessage)
+        ]
+        assert len(missing) == (0 if duplicate else damage_count)
+        assert all(
+            [(r.start_chunk, r.count) for r in message.ranges] == [(chunk_index, 1)]
+            for message in missing
+        )
+        observed = rx.observe(
+            started["transfer_id"], cursor=0, window=100, timeout_ms=0
+        )
+        rejected = [e for e in observed["events"] if e["kind"] == "chunk_rejected"]
+        assert len(rejected) == damage_count
+        expected_length = 53 if chunk_index == 6 else 227
+        assert all(
+            e["chunk_index"] == chunk_index
+            and e["reason"] == "length_mismatch"
+            and e["actual_length"] == expected_length + length_delta
+            and e["expected_length"] == expected_length
+            for e in rejected
+        )
+        assert not list((tmp_path / "receiver").glob("*.part"))
     finally:
         tx.close()
         rx.close()

@@ -229,6 +229,12 @@ local_recovery_started
 local_recovery_resumed
 ```
 
+DATA неверной длины даёт `chunk_rejected` (`chunk_index`, `reason=length_mismatch`,
+`actual_length`, `expected_length`), сохраняя partial file и корректные чанки.
+Не отменяй transfer из-за этого события: после END существующий MISSING/repair
+запросит отсутствующий блок. Повреждённый дубликат не удаляет сохранённую копию.
+Финальная проверка SHA-256 обязательна; `chunk_rejected` не означает delivery PASS.
+
 ### Monitoring
 
 Для быстрого file transfer **не пытайся сопровождать каждый DATA chunk отдельным model/tool turn** и не вычитывай `file_transfer_observe.events` окно за окном в темпе передачи. Такой orchestration не успевает за потоком, может получить `file_cursor_expired` и резко снижает полезную скорость сценария.

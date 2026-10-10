@@ -147,7 +147,9 @@ bar for both TX and incoming RX transfers. While a Chatter transfer is active, t
 TUI session-output sink is muted so protocol/controller lines do not flood scrollback,
 but file progress/status remains live. FT1 does not change CHAT/TELEMETRY/BOTH and does
 not require DELIVERY telemetry; Chatter local backpressure uses exact `> [BINARY]`
-presentation, while remote completion remains MISSING/RESULT based. Same-process
+presentation, while remote completion remains MISSING/RESULT based. DATA chunks
+with an incorrect length are discarded without losing the partial file; END/MISSING
+selectively repairs the missing indexes before final SHA-256 verification. Same-process
 temporary local reconnects can repair missing FT1 chunks
 selectively through one compact MISSING range message; persistent resume after
 SerialTerminal process restart is intentionally not provided.

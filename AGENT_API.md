@@ -487,6 +487,11 @@ Exactly `100.0` means `state=completed`. A sender that has delivered every DATA
 chunk but is still waiting for the receiver's final verified RESULT remains below
 100%.
 
+DATA with an incorrect META-derived length is discarded with `chunk_rejected`
+(`chunk_index`, `reason=length_mismatch`, `actual_length`, `expected_length`). RX
+keeps its partial file and valid chunks; END/MISSING selectively requests any
+remaining hole. A malformed duplicate does not erase an already stored valid copy.
+
 Reconnect-repair states include `waiting_result`, `repair_requested` and
 `repairing`. Transfer events may include `missing_detected`, `repair_requested`,
 `repair_round_sent` and `control_replay`; these are structured application events

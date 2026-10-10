@@ -270,6 +270,12 @@ Only receiver-proven durable state may advance the restart cursor. Sender memory
 
 The existing END/MISSING/RESULT contract remains authoritative for exact completion.
 
+Wrong-length DATA is discarded with `chunk_rejected` while the partial file and
+valid chunk bitmap remain intact. Such a DATA does not advance a durable resume
+cursor. END/MISSING requests that index if it is still absent. A wrong-length
+replay of an already stored chunk does not erase the stored copy. Final wire and
+original SHA-256 verification remains mandatory.
+
 Earliest-missing resume may retransmit already-durable chunks after the first hole.
 That is acceptable. After END, the existing MISSING range mechanism requests exact
 remaining holes and the sender selectively repairs them.
