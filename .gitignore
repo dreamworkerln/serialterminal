@@ -13,3 +13,6 @@ dist/
 *.log
 /files/
 /logs/
+
+# Local gdi settings, verified cache and CI state
+.gdi/
