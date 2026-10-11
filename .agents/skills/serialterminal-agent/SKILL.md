@@ -264,6 +264,16 @@ transport/chunk forensics     -> result.events / data_b64
 
 `tx_state=unknown` означает, что transport side effect неоднозначен. Для BLE это включает GATT write timeout и failure fragmented write после того, как хотя бы один write-without-response ATT chunk уже завершился: backend/peripheral side effect нельзя безопасно считать отсутствующим. SerialTerminal **не** выполняет automatic retry такого TX, чтобы не создавать потенциальный duplicate side effect.
 
+Для serial partial/invalid write, backend write exception и flush error после
+записи также дают `unknown`. Только явно возвращённые ноль bytes доказывают отсутствие
+записи и допускают generic retry. При остановке session ещё не начатый TX получает
+`cancelled`; оставшийся in-flight TX — `unknown`. `worker-failed` прекращает admission
+и завершает pending TX; `notifier-failed` сообщает отказ callback без повторной записи.
+
+FT1 освобождает ownership после учёта собственных host writes. При
+`local_tx_drain_timeout` ownership сохраняется: закрой session перед новой работой.
+Этот drain не доказывает завершение firmware queue или RF delivery.
+
 При `unknown` не делай blind resend. Используй последующие RX/application-level данные, чтобы определить результат; если доказательства недостаточны, outcome сценария должен быть `INCONCLUSIVE`/ambiguous согласно consuming skill, а не выдуманный PASS/FAIL доставки.
 
 Ordinary definite transport failures могут быть retry после reconnect самим session layer; порядок очереди сохраняется.

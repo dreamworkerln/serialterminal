@@ -8,6 +8,7 @@ from ...sweep import SweepAdapterFactory
 from ...timing import TimingSink
 from ...transports.ble_nus import NUS_RX_UUID, NUS_TX_UUID
 from ..base import (
+    BinaryCancelTx,
     BinaryConnectionGeneration,
     BinarySendLine,
     BinaryWaitTxOutcome,
@@ -148,12 +149,14 @@ class ChatterProfile:
         send_line: BinarySendLine,
         *,
         wait_tx_outcome: BinaryWaitTxOutcome | None = None,
+        cancel_tx: BinaryCancelTx | None = None,
         connection_generation: BinaryConnectionGeneration | None = None,
         timing_sink: TimingSink | None = None,
     ) -> ProfileBinaryUserAdapter | None:
         return PipelinedChatterBinaryUserAdapter(
             send_line,
             wait_tx_outcome=wait_tx_outcome,
+            cancel_tx=cancel_tx,
             connection_generation=connection_generation,
             timing_sink=timing_sink,
         )

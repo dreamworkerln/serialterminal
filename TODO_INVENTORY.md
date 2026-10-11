@@ -450,3 +450,14 @@ post-closure hardware smoke: PASS / physical BLE multi-device / 2026-09-03
 ## Current validation posture
 
 Repository CI is the normal per-change clean-environment gate. Physical-node claims remain separate: do not infer current-head hardware validity from older run bundles. TODO_034 through TODO_037 have completed host implementation/automated validation but remain explicitly open for the required physical BLE/USB/two-node process-restart matrix. TODO_038 is intentionally deferred until the current firmware/BlueZ throughput characterization establishes a stable pre-checkpoint baseline; its later acceptance must include measured overhead and real silent-remote-ST stall/recovery validation. TODO_039 and TODO_040 are coupled UI/config-policy follow-ups: they must begin from the final accepted baud-rate state after the current firmware/speed work, and the F9/runtime baud work must consume the centralized single-source settings policy rather than introducing another copy of the same defaults. For the next build-level validation pass, continue to prefer one long-lived `serialterminal agent` process and a broad scenario matrix over repeated manual operator actions; only UI-specific behavior that the machine API cannot exercise should require a separate human pass.
+
+## Experimental architecture-repair series
+
+Demarcation baseline: SerialTerminal `b7f58f8`, Chatter `2d8723ca`.
+Execution order: `lora-sack/chatter/ARCHITECTURE_REPAIR_EXECUTION_PLAN_2026-10-11.md`.
+TODO_041 stages 1–3 passed local validation (477 pytest tests with an isolated
+device cache): transport/session lifecycle, owned host write drain, visible RX
+worker failures, shared monotonic deadlines, partial retention/quarantine and
+negative RESULT stop, immutable wire snapshots, checkpoint-before-RESUME and
+publication/tombstone-before-OK. Same-ID revival and later stages remain open. This
+does not close TODO_041 or physical gates. FLOW/CAPS/QUERY remains deferred for this series.

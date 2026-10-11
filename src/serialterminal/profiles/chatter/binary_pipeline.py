@@ -60,8 +60,9 @@ class PipelinedChatterBinaryUserAdapter(ChatterBinaryUserAdapter):
     ) -> ChatterBinarySubmission:
         payload = bytes(data)
         command = encode_binary_command(payload)
+        deadline = time.monotonic() + self._presentation_timeout_s
 
-        with self._pipeline_submit_lock:
+        with self._bounded_lock(self._pipeline_submit_lock, deadline):
             if cancel_event is not None and cancel_event.is_set():
                 raise BinaryUserCancelled()
 
@@ -82,6 +83,7 @@ class PipelinedChatterBinaryUserAdapter(ChatterBinaryUserAdapter):
                 generation = self._ensure_binary_presentation_available(
                     generation=generation,
                     cancel_event=cancel_event,
+                    deadline=deadline,
                 )
 
                 with self._condition:
@@ -97,7 +99,7 @@ class PipelinedChatterBinaryUserAdapter(ChatterBinaryUserAdapter):
                     controller_epoch=controller_epoch,
                     pipelined=True,
                 )
-                result = self._send_line(command)
+                result = self._submit_line(command, deadline=deadline)
                 tx_id = _tx_id_from_result(result)
                 self._timing(
                     "binary_tx_queued",
@@ -105,7 +107,6 @@ class PipelinedChatterBinaryUserAdapter(ChatterBinaryUserAdapter):
                     tx_id=tx_id,
                     pipelined=True,
                 )
-                deadline = time.monotonic() + self._presentation_timeout_s
                 self._wait_tx_written(
                     tx_id,
                     deadline,
@@ -167,7 +168,7 @@ class PipelinedChatterBinaryUserAdapter(ChatterBinaryUserAdapter):
                 if cancel_event is not None and cancel_event.is_set():
                     if not cancel_sent:
                         try:
-                            self._send_line("/cancel all")
+                            self._submit_line("/cancel all")
                         except Exception:
                             pass
                         cancel_sent = True
@@ -226,6 +227,7 @@ class PipelinedChatterBinaryUserAdapter(ChatterBinaryUserAdapter):
                         generation=submission.generation,
                         cancel_event=cancel_event,
                         allow_reconnect_probe=True,
+                        deadline=submission.deadline,
                     )
                     raise BinaryUserError(
                         "local_controller_reset",
@@ -279,8 +281,9 @@ class PipelinedChatterBinaryUserAdapter(ChatterBinaryUserAdapter):
             raise
 
     def discard_binary_pipeline(self) -> None:
-        # После ошибки DATA replay принадлежит FT1. Adapter только забывает
-        # локальную correlation state, чтобы новый bounded pass начал с чистого окна.
+        # После ошибки DATA replay принадлежит FT1. До очистки correlation
+        # учитываем собственные host writes; firmware queue этим не отменяется.
+        self.drain_binary(self._presentation_timeout_s)
         with self._condition:
             cursor = self._next_seq - 1
         with self._pipeline_state_lock:

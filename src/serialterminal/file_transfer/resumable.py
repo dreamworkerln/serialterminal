@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 from collections import deque
+import os
 import math
 from pathlib import Path
 import threading
@@ -79,8 +80,19 @@ class FileTransferManager(core.FileTransferManager):
         attempts = 0
         previous_state = None
         while True:
+            self._check_remote_failure(record)
             try:
-                self.transport.send_binary(payload, cancel_event=cancel_event)
+                if deadline is not None and time.monotonic() >= deadline:
+                    raise core.FileTransferError(
+                        "local_recovery_timeout",
+                        "local controller did not recover before FT1 recovery deadline",
+                        phase="recovering_local_node",
+                    )
+                send_until = getattr(self.transport, "send_binary_until", None)
+                if deadline is not None and callable(send_until):
+                    send_until(payload, deadline=deadline, cancel_event=cancel_event)
+                else:
+                    self.transport.send_binary(payload, cancel_event=cancel_event)
             except BinaryUserCancelled as exc:
                 raise core.FileTransferCancelled(str(exc)) from exc
             except BinaryUserError as exc:
@@ -120,7 +132,7 @@ class FileTransferManager(core.FileTransferManager):
                         reason=exc.code,
                         attempt=attempts,
                     )
-                self._recovery_pause(cancel_event, deadline)
+                self._recovery_pause(cancel_event, deadline, record=record)
                 continue
 
             if record is not None:
@@ -150,9 +162,17 @@ class FileTransferManager(core.FileTransferManager):
             details={"binary_error": exc.code, "local_replays": attempts},
         ) from exc
 
-    def _recovery_pause(self, cancel_event, deadline: float) -> None:
+    def _recovery_pause(self, cancel_event, deadline: float, *, record=None) -> None:
         wait_s = min(self.local_recovery_retry_s, max(0.0, deadline - time.monotonic()))
-        if cancel_event is not None:
+        if record is not None:
+            self._check_remote_failure(record)
+            with record._condition:
+                if cancel_event is not None and cancel_event.is_set():
+                    raise core.FileTransferCancelled()
+                if not record.remote_failure_event.is_set():
+                    record._condition.wait(timeout=wait_s)
+            self._check_remote_failure(record)
+        elif cancel_event is not None:
             if cancel_event.wait(timeout=wait_s):
                 raise core.FileTransferCancelled()
         else:
@@ -180,6 +200,9 @@ class FileTransferManager(core.FileTransferManager):
         persistent_status = status or getattr(
             incoming, "_persistent_status", "receiving"
         )
+        if persistent_status == "publishing":
+            end = end or getattr(incoming, "_publishing_end", None)
+            destination = destination or getattr(incoming, "_publishing_destination", None)
         self._resume_store.save_incoming(
             meta=incoming.meta,
             received=incoming.received,
@@ -262,15 +285,25 @@ class FileTransferManager(core.FileTransferManager):
         incoming._checkpoint_count = len(received)
         incoming._checkpoint_time = time.monotonic()
         incoming._persistent_status = "receiving"
+        destination_text = payload.get("destination")
+        if payload.get("status") == "publishing" and isinstance(destination_text, str):
+            destination = Path(destination_text)
+            if self._valid_publishing_destination(destination):
+                incoming._publishing_destination = destination
+                incoming._publishing_end = self._resume_store.end_from_json(payload.get("end"), meta.transfer_id)
+                incoming._persistent_status = "publishing"
         with self._lock:
             self._incoming = incoming
-        self._checkpoint_incoming(incoming, status="receiving", force=True)
+        self._checkpoint_incoming(incoming, force=True)
         record.event(
             "resume_state_restored",
             chunks=len(received),
             next_chunk=self._earliest_missing(incoming),
         )
         return incoming
+
+    def _valid_publishing_destination(self, destination: Path) -> bool:
+        return not destination.is_symlink() and destination.parent.resolve() == self.receive_dir.resolve()
 
     def _reconcile_published(self, meta: MetaMessage, payload: dict[str, Any]) -> bool:
         destination_text = payload.get("destination")
@@ -287,6 +320,9 @@ class FileTransferManager(core.FileTransferManager):
                 return False
         except OSError:
             return False
+        with destination.open("rb") as handle:
+            os.fsync(handle.fileno())
+        self._fsync_directory(destination.parent)
         self._resume_store.save_completed(
             meta=meta,
             end=end,
@@ -306,15 +342,33 @@ class FileTransferManager(core.FileTransferManager):
             return False
         path = Path(path_text)
         try:
-            return (
+            valid = (
                 path.is_file()
                 and path.stat().st_size == meta.original_size
                 and core._sha256_file(path) == meta.original_sha256
             )
+            end = self._resume_store.end_from_json(value.get("end"), meta.transfer_id)
+            if not valid or end is None:
+                return False
         except OSError:
             return False
+        try:
+            # После ошибки fsync файл/journal может быть виден только в cache.
+            # Replay OK повторно закрепляет commit, не публикуя новый destination.
+            with path.open("rb") as handle:
+                os.fsync(handle.fileno())
+            self._fsync_directory(path.parent)
+            self._resume_store.save_completed(meta=meta, end=end, final_path=path)
+            return True
+        except OSError as exc:
+            raise core.FileTransferError(
+                "storage_failed", f"could not persist completed replay: {exc}", phase="publishing",
+            ) from exc
 
     def _send_resume(self, incoming) -> None:
+        # RESUME утверждает durable progress, а не только наличие bytes в RAM.
+        # Отказ checkpoint не должен выпустить неподтверждённый cursor.
+        self._checkpoint_incoming(incoming, force=True)
         next_chunk = self._earliest_missing(incoming)
         incoming.record.event("resume_requested", next_chunk=next_chunk)
         try:
@@ -326,6 +380,12 @@ class FileTransferManager(core.FileTransferManager):
             incoming.record.event("resume_delivery_failed", error=str(exc))
 
     def _handle_meta(self, meta: MetaMessage) -> None:
+        retained = self._resume_store.load_incoming(meta.transfer_id)
+        if retained is not None and retained[0].get("status") == "quarantined":
+            self._reject_incoming(
+                meta.transfer_id, "invalid_chunk", "retained transfer is quarantined"
+            )
+            return
         with self._lock:
             existing = self._records.get(meta.transfer_id)
             active = self._active_id
@@ -361,7 +421,12 @@ class FileTransferManager(core.FileTransferManager):
             )
             return
 
-        if self._completed_matches_meta(meta):
+        try:
+            completed = self._completed_matches_meta(meta)
+        except core.FileTransferError as exc:
+            self._reject_incoming(meta.transfer_id, exc.code, exc.message)
+            return
+        if completed:
             self._send_result_async(
                 None, ResultMessage(meta.transfer_id, True, "ok", "")
             )
@@ -383,6 +448,7 @@ class FileTransferManager(core.FileTransferManager):
 
     def _start_new_incoming(self, meta: MetaMessage) -> None:
         part = self._resume_store.incoming_part(meta.transfer_id)
+        created = False
         try:
             filename = core.safe_received_filename(meta.filename)
             if not 1 <= meta.chunk_size <= data_payload_capacity(self.transport.payload_capacity):
@@ -399,15 +465,18 @@ class FileTransferManager(core.FileTransferManager):
                 )
             with part.open("xb"):
                 pass
+            created = True
             record = self._reserve_record(
                 meta.transfer_id, direction="RX", filename=filename
             )
         except core.FileTransferError as exc:
-            part.unlink(missing_ok=True)
+            if created:
+                part.unlink(missing_ok=True)
             self._reject_incoming(meta.transfer_id, exc.code, exc.message)
             return
         except OSError as exc:
-            part.unlink(missing_ok=True)
+            if created:
+                part.unlink(missing_ok=True)
             self._reject_incoming(meta.transfer_id, "storage_failed", str(exc))
             return
 
@@ -462,9 +531,31 @@ class FileTransferManager(core.FileTransferManager):
             self._suspend_incoming(incoming, reason="remote_sender_timeout")
 
     def _fail_incoming(self, incoming, failure, *, terminal_state="failed") -> None:
-        self._resume_store.delete_incoming(
-            incoming.record.transfer_id, delete_part=False
-        )
+        if getattr(incoming, "_publication_committed", False):
+            # Потеря локального RESULT после durable commit не отменяет файл.
+            # META/END replay получит OK из tombstone без второй публикации.
+            incoming.record.event("result_delivery_failed", code=failure.code, error=str(failure))
+            incoming.record.rx_end = incoming._publishing_end
+            with self._lock:
+                if self._incoming is incoming:
+                    self._incoming = None
+            self._terminal_record(incoming.record, "completed", final_path=incoming._publishing_destination)
+            self._cleanup_published(incoming)
+            return
+        if terminal_state == "cancelled":
+            self._resume_store.delete_incoming(
+                incoming.record.transfer_id, delete_part=False
+            )
+        elif getattr(incoming, "_publishing_destination", None) is None:
+            if failure.code in {
+                "wire_hash_mismatch", "original_hash_mismatch", "decompression_failed"
+            }:
+                incoming._quarantined = True
+            status = "quarantined" if getattr(incoming, "_quarantined", False) else "suspended"
+            try:
+                self._checkpoint_incoming(incoming, status=status, force=True)
+            except Exception as exc:
+                incoming.record.event("checkpoint_failed", error=str(exc), reason=failure.code)
         super()._fail_incoming(
             incoming, failure, terminal_state=terminal_state
         )
@@ -477,35 +568,45 @@ class FileTransferManager(core.FileTransferManager):
             super()._handle_end(message)
             return
 
+        if message.chunk_count != incoming.record.chunks_total:
+            super()._handle_end(message)
+            return
         if self._missing_indexes(incoming):
             super()._handle_end(message)
             if self._incoming_for(message.transfer_id) is not None:
                 self._checkpoint_incoming(incoming, force=True)
             return
 
-        destination = core._unique_destination(
-            self.receive_dir, incoming.record.filename
-        )
-        self._checkpoint_incoming(
-            incoming,
-            status="publishing",
-            force=True,
-            end=message,
-            destination=destination,
-        )
         super()._handle_end(message)
-        snapshot = incoming.record.snapshot()
-        if snapshot["state"] != "completed" or incoming.record.rx_end != message:
-            return
-        final_path = Path(snapshot["final_path"])
-        self._resume_store.save_completed(
-            meta=incoming.meta,
-            end=message,
-            final_path=final_path,
+
+    def _publish_verified(self, incoming, end: EndMessage, final_temp: Path) -> Path:
+        with final_temp.open("rb") as handle:
+            os.fsync(handle.fileno())
+        destination = getattr(incoming, "_publishing_destination", None)
+        if destination is None:
+            destination = core._unique_destination(self.receive_dir, incoming.record.filename)
+        # Один destination связывает intent, rename и tombstone. После intent
+        # не выбираем другое имя даже при прерывании попытки.
+        incoming._publishing_destination = destination
+        incoming._publishing_end = end
+        self._checkpoint_incoming(
+            incoming, status="publishing", force=True, end=end, destination=destination,
         )
-        self._resume_store.delete_incoming(
-            message.transfer_id, delete_part=True
-        )
+        if destination.exists() or destination.is_symlink():
+            raise core.FileTransferError(
+                "storage_failed", "publishing destination is already occupied", phase="publishing",
+            )
+        os.replace(final_temp, destination)
+        self._fsync_directory(destination.parent)
+        self._resume_store.save_completed(meta=incoming.meta, end=end, final_path=destination)
+        incoming._publication_committed = True
+        return destination
+
+    def _cleanup_published(self, incoming) -> None:
+        try:
+            self._resume_store.delete_incoming(incoming.meta.transfer_id, delete_part=True)
+        except OSError as exc:
+            incoming.record.event("publication_cleanup_failed", error=str(exc))
 
     @staticmethod
     def _missing_indexes(incoming) -> list[int]:

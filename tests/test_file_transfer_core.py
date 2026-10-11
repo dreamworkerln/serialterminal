@@ -434,7 +434,10 @@ def test_receiver_sha_mismatch_fails_without_final_file(tmp_path):
         )
         assert failed["failure"]["code"] == "original_hash_mismatch"
         assert not (receive_dir / "badsha.bin").exists()
-        assert not list(receive_dir.glob("*.part"))
+        part = manager._resume_store.incoming_part(202)
+        assert part.read_bytes() == payload
+        manifest, _ = manager._resume_store.load_incoming(202)
+        assert manifest["status"] == "quarantined"
     finally:
         manager.close()
 
@@ -1154,3 +1157,38 @@ def test_bad_length_chunk_is_selectively_repaired_without_losing_good_chunks(
     finally:
         tx.close()
         rx.close()
+
+
+def test_terminal_record_drains_host_writes_before_releasing_lease(tmp_path):
+    from serialterminal.file_transfer.core import FileTransferManager as CoreManager
+    order = []
+    class DrainTransport(_PairBinaryTransport):
+        def drain_binary(self, timeout_s):
+            assert 0 < timeout_s <= 10.0
+            order.append("drain")
+            return {42: "cancelled"}
+    manager = CoreManager(DrainTransport(), receive_dir=tmp_path, release_transfer=lambda *_: order.append("release"))
+    try:
+        record = manager._reserve_record(17, direction="TX", filename="x")
+        manager._terminal_record(record, "failed")
+        assert order == ["drain", "release"]
+        assert manager._active_id is None
+    finally:
+        manager.close()
+
+
+def test_drain_timeout_retains_lease_and_reports_failure(tmp_path):
+    from serialterminal.file_transfer.core import FileTransferManager as CoreManager
+    released = []
+    class DrainTransport(_PairBinaryTransport):
+        def drain_binary(self, timeout_s):
+            raise BinaryUserError("local_tx_drain_timeout", "write still active")
+    manager = CoreManager(DrainTransport(), receive_dir=tmp_path, release_transfer=lambda *_: released.append(True))
+    try:
+        record = manager._reserve_record(17, direction="TX", filename="x")
+        manager._terminal_record(record, "failed")
+        assert record.failure["code"] == "local_tx_drain_timeout"
+        assert manager._active_id == 17
+        assert released == []
+    finally:
+        manager.close()

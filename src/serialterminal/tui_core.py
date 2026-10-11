@@ -343,6 +343,7 @@ class TerminalTui:
                 "state": "queued",
             },
             wait_tx_outcome=session.wait_tx_outcome,
+            cancel_tx=session.cancel_tx,
             connection_generation=session.connection_generation,
             timing_sink=session.record_timing,
         )

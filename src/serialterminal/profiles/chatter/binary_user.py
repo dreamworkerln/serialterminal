@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import base64
 from collections import deque
+from contextlib import contextmanager
 from dataclasses import dataclass
 import re
 import threading
@@ -160,6 +161,7 @@ class ChatterBinaryUserAdapter:
         controller_ready_timeout_s: float = CONTROLLER_READY_TIMEOUT_S,
         line_retention: int = 4096,
         wait_tx_outcome: Callable[[int, float], str | None] | None = None,
+        cancel_tx: Callable[[int], bool] | None = None,
         connection_generation: Callable[[], int] | None = None,
         timing_sink: TimingSink | None = None,
     ) -> None:
@@ -174,6 +176,8 @@ class ChatterBinaryUserAdapter:
         self._mode_query_timeout_s = float(mode_query_timeout_s)
         self._controller_ready_timeout_s = float(controller_ready_timeout_s)
         self._wait_tx_outcome = wait_tx_outcome
+        self._cancel_tx = cancel_tx
+        self._owned_tx_ids: set[int] = set()
         self._connection_generation = connection_generation
         self._timing_sink = timing_sink
         self._next_binary_timing_seq = 1
@@ -191,6 +195,49 @@ class ChatterBinaryUserAdapter:
         self._controller_ready = True
         self._controller_reset_generation: int | None = None
         self.last_parse_error: str | None = None
+
+    @staticmethod
+    @contextmanager
+    def _bounded_lock(lock, deadline: float):
+        if not lock.acquire(timeout=max(0.0, deadline - time.monotonic())):
+            raise BinaryUserError("local_tx_timeout", "BINARY scheduling deadline expired")
+        try:
+            if time.monotonic() >= deadline:
+                raise BinaryUserError("local_tx_timeout", "BINARY scheduling deadline expired")
+            yield
+        finally:
+            lock.release()
+
+    def _submit_line(self, text: str, *, deadline: float | None = None) -> Any:
+        if deadline is not None and time.monotonic() >= deadline:
+            raise BinaryUserError("local_tx_timeout", "local submission deadline expired")
+        result = self._send_line(text)
+        tx_id = _tx_id_from_result(result)
+        if tx_id is not None and self._wait_tx_outcome is not None:
+            with self._condition:
+                self._owned_tx_ids.add(tx_id)
+        return result
+
+    def drain_binary(self, timeout_s: float) -> dict[int, str]:
+        """Account for owned host writes; this is not a firmware/RF fence."""
+        deadline = time.monotonic() + max(0.0, timeout_s)
+        with self._condition:
+            tx_ids = sorted(self._owned_tx_ids)
+        result = {}
+        for tx_id in tx_ids:
+            cancel = self._cancel_tx
+            if cancel is not None:
+                cancel(tx_id)
+            waiter = self._wait_tx_outcome
+            state = waiter(tx_id, max(0.0, deadline - time.monotonic()))
+            if state is None:
+                raise BinaryUserError(
+                    "local_tx_drain_timeout", "owned host write has not settled"
+                )
+            result[tx_id] = state
+            with self._condition:
+                self._owned_tx_ids.discard(tx_id)
+        return result
 
     def _timing(self, event: str, **fields: Any) -> None:
         sink = self._timing_sink
@@ -380,6 +427,8 @@ class ChatterBinaryUserAdapter:
             local_outcome = waiter(tx_id, min(0.1, remaining))
             if local_outcome is None:
                 continue
+            with self._condition:
+                self._owned_tx_ids.discard(tx_id)
             if local_outcome in {"unknown", "expired"}:
                 raise BinaryUserError(
                     "local_tx_unknown",
@@ -399,11 +448,13 @@ class ChatterBinaryUserAdapter:
         cancel_event: threading.Event | None,
         allow_reconnect_probe: bool = False,
         timeout_s: float | None = None,
+        deadline: float | None = None,
     ) -> int | None:
         timeout = self._controller_ready_timeout_s if timeout_s is None else float(timeout_s)
         if timeout <= 0:
             raise ValueError("timeout_s must be positive")
-        deadline = time.monotonic() + timeout
+        local_deadline = time.monotonic() + timeout
+        deadline = local_deadline if deadline is None else min(deadline, local_deadline)
         reconnect_timing_emitted = False
         while True:
             if cancel_event is not None and cancel_event.is_set():
@@ -472,11 +523,13 @@ class ChatterBinaryUserAdapter:
         *,
         generation: int | None,
         cancel_event: threading.Event | None,
+        deadline: float | None = None,
     ) -> int | None:
         generation = self._wait_until_controller_ready(
             generation=generation,
             cancel_event=cancel_event,
             allow_reconnect_probe=True,
+            deadline=deadline,
         )
         mode = self._known_output_mode_for_generation(generation)
         if mode == "TELEMETRY":
@@ -488,9 +541,10 @@ class ChatterBinaryUserAdapter:
         # [SYS] current=... и не изменяет operator-selected output mode. После
         # BLE reconnect этот query также служит bounded readiness probe, если
         # boot-time CHATTER READY был пропущен до resubscribe.
-        result = self._send_line("/help")
+        local_deadline = time.monotonic() + self._mode_query_timeout_s
+        deadline = local_deadline if deadline is None else min(deadline, local_deadline)
+        result = self._submit_line("/help", deadline=deadline)
         tx_id = _tx_id_from_result(result)
-        deadline = time.monotonic() + self._mode_query_timeout_s
         self._wait_tx_written(
             tx_id,
             deadline,
@@ -517,6 +571,7 @@ class ChatterBinaryUserAdapter:
                     generation=current_generation,
                     cancel_event=cancel_event,
                     allow_reconnect_probe=True,
+                    deadline=deadline,
                 )
                 raise BinaryUserError(
                     "local_controller_reset",
@@ -551,10 +606,24 @@ class ChatterBinaryUserAdapter:
         *,
         cancel_event: threading.Event | None = None,
     ) -> BinarySendReceipt:
+        return self.send_binary_until(
+            data,
+            deadline=time.monotonic() + self._presentation_timeout_s,
+            cancel_event=cancel_event,
+        )
+
+    def send_binary_until(
+        self,
+        data: bytes,
+        *,
+        deadline: float,
+        cancel_event: threading.Event | None = None,
+    ) -> BinarySendReceipt:
+        deadline = min(deadline, time.monotonic() + self._presentation_timeout_s)
         payload = bytes(data)
         command = encode_binary_command(payload)
 
-        with self._send_lock:
+        with self._bounded_lock(self._send_lock, deadline):
             if cancel_event is not None and cancel_event.is_set():
                 raise BinaryUserCancelled()
 
@@ -568,6 +637,7 @@ class ChatterBinaryUserAdapter:
                 generation = self._ensure_binary_presentation_available(
                     generation=generation,
                     cancel_event=cancel_event,
+                    deadline=deadline,
                 )
 
                 with self._condition:
@@ -583,14 +653,13 @@ class ChatterBinaryUserAdapter:
                     generation=generation,
                     controller_epoch=controller_epoch,
                 )
-                result = self._send_line(command)
+                result = self._submit_line(command, deadline=deadline)
                 tx_id = _tx_id_from_result(result)
                 self._timing(
                     "binary_tx_queued",
                     binary_seq=binary_seq,
                     tx_id=tx_id,
                 )
-                deadline = time.monotonic() + self._presentation_timeout_s
                 self._wait_tx_written(
                     tx_id,
                     deadline,
@@ -607,7 +676,7 @@ class ChatterBinaryUserAdapter:
                     if cancel_event is not None and cancel_event.is_set():
                         if not cancel_sent:
                             try:
-                                self._send_line("/cancel all")
+                                self._submit_line("/cancel all")
                             except Exception:
                                 pass
                             cancel_sent = True
@@ -654,6 +723,7 @@ class ChatterBinaryUserAdapter:
                             generation=generation,
                             cancel_event=cancel_event,
                             allow_reconnect_probe=True,
+                            deadline=deadline,
                         )
                         raise BinaryUserError(
                             "local_controller_reset",

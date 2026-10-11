@@ -26,6 +26,8 @@ class _DurableResumeStateStore(ResumeStateStore):
         except OSError:
             # Some non-POSIX filesystems do not permit opening directories.
             # The manifest file itself is still fsynced by the base store.
+            if os.name == "posix":
+                raise
             return
         try:
             os.fsync(descriptor)
@@ -35,7 +37,10 @@ class _DurableResumeStateStore(ResumeStateStore):
     @staticmethod
     def atomic_json(path: Path, payload: dict[str, Any]) -> None:
         ResumeStateStore.atomic_json(path, payload)
-        _DurableResumeStateStore._fsync_directory(path.parent)
+        # Новые каталоги state тоже должны пережить crash: fsync leaf manifest
+        # недостаточен, если запись о самом каталоге ещё не сохранена.
+        for directory in (path.parent, path.parent.parent, path.parent.parent.parent):
+            _DurableResumeStateStore._fsync_directory(directory)
 
     @staticmethod
     def read_json(path: Path) -> dict[str, Any] | None:

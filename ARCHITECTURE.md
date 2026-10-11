@@ -107,6 +107,20 @@ Transport code may accept generic configuration such as BLE write UUID and recei
 
 A logical `BleNusTransport.write()` remains one byte stream, but `response=False` GATT output is segmented to the selected characteristic's `max_write_without_response_size`. Segmentation inserts neither delimiters nor pacing sleeps. If a later fragment fails after one or more earlier fragments completed, the logical TX outcome is ambiguous and must surface as `tx_state=unknown` rather than allowing the generic session queue to replay the whole payload blindly.
 
+Generic session additionally owns addressable cancellation of a TX whose backend
+write is not in flight, and bounded drain of an explicit set of caller-owned TX IDs.
+Shutdown or unexpected worker exit settles accepted TX as cancelled before write or
+unknown while a write remains in flight. Controller-specific queues stay outside
+this fence. Serial nonzero short writes, invalid backend results and write/flush
+exceptions are ambiguous and are never blindly replayed by the generic session.
+
+The profile binary factory receives an optional generic `cancel_tx` hook alongside
+`wait_tx_outcome`. The profile adapter tracks its own accepted host writes and exposes
+an optional bounded `drain_binary` capability to FT1; unrelated writes are preserved.
+Adapter controller readiness, output-mode query, host write and presentation waits
+share an absolute monotonic deadline. FT1 recovery passes its remaining deadline
+through the optional `send_binary_until` capability.
+
 ### File transfer layering
 
 File transfer is an application layer above an opaque BINARY application transport
@@ -308,3 +322,13 @@ tty. Two cooperating SerialTerminal processes must not read the same physical se
 stream concurrently: the second process remains disconnected and reports
 `serial device busy: <path>`. This ownership is transport-level and independent of
 controller profile, FT1, or session mutation ownership.
+
+### FT1 source and publication ownership
+
+FT1 preparation owns a temporary immutable wire snapshot for the current attempt,
+including uncompressed data. Resume recreates and verifies that representation
+against the durable sender journal. The receiver checkpoints bytes before advertising
+RESUME progress and owns one destination from publishing intent through completed
+tombstone. RESULT OK follows the durable commit; generic transport/session code
+does not interpret this file-storage evidence. [FT1_RESUME.md](FT1_RESUME.md) owns
+the ordering, filesystem limitations and restart contract.

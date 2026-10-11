@@ -10,7 +10,7 @@ import serial
 from serial import SerialException
 from serial.tools import list_ports
 
-from .base import Transport, TransportError
+from .base import Transport, TransportError, TransportWriteOutcomeUnknown
 
 
 @dataclass(frozen=True)
@@ -448,7 +448,7 @@ class SerialTransport(Transport):
                         break
                     data.extend(chunk)
                 return bytes(data)
-            except (SerialException, OSError) as exc:
+            except Exception as exc:
                 raise TransportError(str(exc)) from exc
             finally:
                 self._end_io(is_read=True)
@@ -458,9 +458,25 @@ class SerialTransport(Transport):
         with self._write_lock:
             ser = self._begin_io(is_read=False)
             try:
-                ser.write(data)
-                ser.flush()
-            except (SerialException, OSError) as exc:
-                raise TransportError(str(exc)) from exc
+                try:
+                    written = ser.write(data)
+                except Exception as exc:
+                    # Backend мог передать часть bytes до исключения; отсутствие
+                    # return value не доказывает отсутствие transport side effect.
+                    raise TransportWriteOutcomeUnknown(str(exc)) from exc
+                if isinstance(written, int) and not isinstance(written, bool) and written == 0 and data:
+                    raise TransportError("serial write returned zero bytes")
+                if (
+                    isinstance(written, bool)
+                    or not isinstance(written, int)
+                    or written != len(data)
+                ):
+                    raise TransportWriteOutcomeUnknown(
+                        f"serial short/invalid write: {written!r} of {len(data)} bytes"
+                    )
+                try:
+                    ser.flush()
+                except Exception as exc:
+                    raise TransportWriteOutcomeUnknown(str(exc)) from exc
             finally:
                 self._end_io(is_read=False)

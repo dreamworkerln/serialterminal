@@ -58,6 +58,43 @@ A transport disconnect without reset evidence remains distinguishable from a pro
 controller reboot; transport reconnect alone does not manufacture a new controller
 epoch.
 
+## Experimental transport lifecycle hardening
+
+The architecture-repair series starts after SerialTerminal checkpoint `b7f58f8` and
+paired Chatter checkpoint `2d8723ca`. Its overall execution plan lives in Chatter:
+`chatter/ARCHITECTURE_REPAIR_EXECUTION_PLAN_2026-10-11.md`.
+
+Serial short/invalid writes and backend write/flush exceptions produce an unknown
+host outcome instead of blind generic replay. FT1 accounts for owned host writes
+before releasing its mutation lease; a drain timeout reports a terminal failure and
+retains ownership until session close. The local drain budget is at most 10 seconds
+(and no longer than the configured RESULT wait); it is independent of the hour-long
+default remote RESULT timeout. This does not fence legacy firmware/RF queues.
+
+Chatter adapter waits share the caller's absolute monotonic deadline, including
+scheduling lock acquisition, controller readiness and output-mode queries. Recovery
+uses `send_binary_until` when the opaque adapter offers it; adapters with only the
+legacy synchronous send contract cannot be promised a hard bound inside their own
+backend call.
+
+An unexpected RX handler or idle-sweep exception is visible as `rx_worker_error` and
+ends the affected attempt while retaining its partial/manifest. The shared RX worker
+remains available. Invalid DATA index/length and END chunk count reject only that
+message. Conflicting duplicates and hash/decompression failures retain the partial
+in quarantine, which cannot automatically resume. MISSING delivery failure and
+range overflow retain a suspended manifest; explicit cancellation removes it.
+Legacy MISSING still carries the full set in one message, at most 28 ranges at
+payload capacity 243; overflow reports `repair_too_large` without pagination.
+
+An observed negative RESULT wakes recovery waits and stops new DATA submissions
+in original, pipeline and repair paths. It does not set operator cancellation or
+issue `/cancel all`. RESULT decoding rejects contradictory status/code pairs.
+Already issued firmware/RF operations are outside the legacy host drain guarantee.
+
+Local automated checkpoint for stages 1–3: 477 tests passed with an isolated device
+cache. Same-ID revival and scheduling changes remain open; physical validation has
+not been performed for these changes.
+
 ## Same-process FT1 recovery
 
 An active FT1 sender treats these BINARY failures as recoverable local-node lifecycle
@@ -130,6 +167,10 @@ write DATA bytes
 -> atomically replace/fsync manifest with advanced received ranges
 ```
 
+An active-META RESUME first forces a successful checkpoint, so its cursor cannot
+advance beyond persisted bytes and ranges. A checkpoint failure prevents that cursor
+from being sent.
+
 If a crash happens after bytes are written but before the manifest advances, the sender
 may retransmit those bytes. That is safe because duplicate DATA for the same
 transfer/chunk must be identical and is idempotent.
@@ -144,8 +185,29 @@ directory.
 
 ## Completed tombstones
 
-After verification and final publication, the receiver stores a completed tombstone
-for the transfer identity.
+The receiver uses one chosen destination throughout publication:
+
+```text
+verify wire and original hashes/sizes
+-> fsync final bytes
+-> durable publishing intent with chosen destination
+-> rename final bytes to that destination
+-> fsync destination directory
+-> durable completed tombstone
+-> RESULT OK
+-> partial/manifest cleanup
+```
+
+A restart reconciles an existing verified destination or reuses the retained intent
+when publication has not happened. It never chooses a second destination for an
+accepted intent. A failure to submit RESULT after the durable commit leaves local
+completion intact. Completed replay verifies and persists that same commit again;
+it does not publish a second copy. Cleanup failure does not revoke the commit.
+
+On POSIX, file/directory fsync errors stop advancement. The durability model assumes
+atomic rename and a filesystem/storage stack honoring fsync; automated fault
+injection is not a physical power-loss test. Non-POSIX platforms retain the existing
+best-effort directory fallback and do not claim the same power-loss guarantee.
 
 This covers the case:
 
@@ -196,6 +258,13 @@ and reports the candidate transfer IDs.
 Symlinked journal manifests are not trusted.
 
 ## Deterministic compression
+
+Preparation reads the source once into independent raw and gzip temporary files,
+then selects the smaller representation. DATA and repair read only the selected
+snapshot, including Compression.NONE; editing the user file afterwards cannot
+change the prepared bytes. Temporary snapshots are removed after the attempt.
+Restart still requires an unchanged source, reconstructs a new snapshot and verifies
+its wire size/hash/compression/chunk size against the retained journal before reuse.
 
 When gzip is selected, the resumable path creates a deterministic wire stream using a
 stable gzip header (`mtime=0`, empty embedded filename). On restart it rebuilds the

@@ -279,6 +279,25 @@ and an associated error event with:
 
 `tx_state:"unknown"` is terminal for that queued item: SerialTerminal does **not** automatically resend it after reconnect because doing so could create a duplicate side effect. A machine scenario must decide success/failure from later application/protocol evidence or classify the case as ambiguous/inconclusive. Do not reinterpret `unknown` as either `written` or definitely-not-written.
 
+Serial writes now use the same conservative outcome boundary: a nonzero short or
+invalid backend write return, any exception from backend write, and any flush failure
+after writing produce `unknown`. An explicit zero-byte return is a definite failure
+and remains reconnect/retry eligible. Unexpected backend exceptions cannot silently
+end a TX worker with an accepted item left pending.
+
+Session shutdown settles writes that never started as `tx_state:"cancelled"` and
+writes still in flight as `unknown`. A failed session worker emits an error with
+`state:"worker-failed"`, stops new admission and settles dependent pending TX.
+Notifier failures emit `state:"notifier-failed"`; they do not replay a completed TX.
+These are host transport outcomes, not controller or RF queue settlement.
+
+The internal profile lifecycle hooks include addressable `cancel_tx(tx_id)` and an
+owned-TX drain. They affect only the caller's accepted writes; no new JSONL cancel
+operation or firmware command is introduced. FT1 accounts for its host writes before
+releasing ownership. If that drain times out, the transfer reports
+`local_tx_drain_timeout` and retains ownership until the session is closed.
+
+
 ## Send raw bytes
 
 ```json

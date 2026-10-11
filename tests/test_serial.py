@@ -1,6 +1,9 @@
 import errno
 import threading
 import time
+import termios
+
+import pytest
 
 from serial import SerialException
 
@@ -467,3 +470,67 @@ def test_serial_connect_reports_exclusive_port_busy(monkeypatch):
 
     assert transport.connect() is False
     assert transport.connect_error == "serial device busy: /dev/fake"
+
+
+class WriteOutcomeSerial:
+    is_open = True
+
+    def __init__(self, result, *, write_error=None, flush_error=None):
+        self.result = result
+        self.write_error = write_error
+        self.flush_error = flush_error
+        self.flush_calls = 0
+
+    def write(self, data):
+        if self.write_error is not None:
+            raise self.write_error
+        return self.result
+
+    def flush(self):
+        self.flush_calls += 1
+        if self.flush_error is not None:
+            raise self.flush_error
+
+
+@pytest.mark.parametrize("result", [1, 3, None, True, False])
+def test_serial_short_or_invalid_write_is_unknown(result):
+    from serialterminal.transports.base import TransportWriteOutcomeUnknown
+    transport = SerialTransport(device="/dev/fake")
+    backend = WriteOutcomeSerial(result)
+    _install_fake_serial(transport, backend)
+    with pytest.raises(TransportWriteOutcomeUnknown):
+        transport.write(b"ab")
+    assert backend.flush_calls == 0
+    assert transport._active_writes == 0
+
+
+@pytest.mark.parametrize("error", [OSError("write"), termios.error(5, "write"), RuntimeError("backend")])
+def test_serial_backend_write_exception_is_unknown(error):
+    from serialterminal.transports.base import TransportWriteOutcomeUnknown
+    transport = SerialTransport(device="/dev/fake")
+    backend = WriteOutcomeSerial(2, write_error=error)
+    _install_fake_serial(transport, backend)
+    with pytest.raises(TransportWriteOutcomeUnknown):
+        transport.write(b"ab")
+    assert transport._active_writes == 0
+
+
+def test_serial_flush_error_after_complete_write_is_unknown():
+    from serialterminal.transports.base import TransportWriteOutcomeUnknown
+    transport = SerialTransport(device="/dev/fake")
+    backend = WriteOutcomeSerial(2, flush_error=termios.error(5, "flush"))
+    _install_fake_serial(transport, backend)
+    with pytest.raises(TransportWriteOutcomeUnknown):
+        transport.write(b"ab")
+    assert backend.flush_calls == 1
+
+
+def test_serial_zero_write_is_definitely_not_written():
+    from serialterminal.transports.base import TransportError, TransportWriteOutcomeUnknown
+    transport = SerialTransport(device="/dev/fake")
+    backend = WriteOutcomeSerial(0)
+    _install_fake_serial(transport, backend)
+    with pytest.raises(TransportError) as caught:
+        transport.write(b"ab")
+    assert not isinstance(caught.value, TransportWriteOutcomeUnknown)
+    assert backend.flush_calls == 0

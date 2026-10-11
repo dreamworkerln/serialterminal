@@ -5,6 +5,34 @@ Status: PARTIAL / REMAINING IMPLEMENTATION OPEN / PHYSICAL VALIDATION OPEN
 Created: 2026-10-10
 Finding checkpoint: `dev_tui@b838ecbc5fa27039455480e2c7c5dfbdbe462371` + локальный незакоммиченный фикс wrong-length DATA.
 
+## Architecture-repair execution checkpoint
+
+Experimental series baseline: SerialTerminal `b7f58f8`, Chatter `2d8723ca`.
+The cross-project order is recorded in Chatter's
+`chatter/ARCHITECTURE_REPAIR_EXECUTION_PLAN_2026-10-11.md`.
+
+Stage 1 implements conservative serial write outcomes, accepted-TX settlement on
+worker/session stop, addressable cancellation and owned host drain, visible RX
+worker/idle-sweep failures, and shared adapter/recovery deadlines. Firmware queue
+settlement remains outside the legacy host fence.
+
+Stage 2 implements partial retention/quarantine, non-destructive rejection of bad
+DATA/END, creation-owned cleanup, negative RESULT stop in original/pipeline/repair
+and contradictory RESULT decoding checks.
+
+Stage 3 implements immutable raw/gzip snapshots, checkpoint-before-RESUME and one
+destination from durable publishing intent through completed tombstone before OK.
+Fault injection covers bytes, intent, rename, directory, tombstone and RESULT delivery
+for compressed/uncompressed streams. Local stages 1–3 checkpoint: 477 pytest tests
+passed with an isolated device cache. Same-ID revival and later scheduling/machine
+contract work remain open; no physical or power-loss PASS is claimed.
+
+The current implementation series retains FT1 v1 and the existing radio USER/ACK.
+FLOW/CAPS/QUERY, checked DATA and remote-progress watchdog extensions below remain
+deferred design material; their presence is not an instruction to implement them in
+this series. Historical findings below are retained and must be checked against the
+actual source before each fix.
+
 ## Purpose
 
 Устранить остановки FT1, при которых повреждение одного сообщения или потеря

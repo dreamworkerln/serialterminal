@@ -42,6 +42,7 @@ FILE_EVENT_RETENTION = 1024
 FILE_MAX_WINDOW = 100
 FILE_MAX_RETAINED_TERMINAL = 16
 FILE_RESULT_TIMEOUT_S = 3600.0
+FILE_LOCAL_TX_DRAIN_TIMEOUT_S = 10.0
 FILE_CONTROL_REPLAY_INTERVAL_S = 30.0
 FILE_MAX_CONTROL_REPLAYS = 3
 FILE_MAX_REPAIR_ROUNDS = 8
@@ -199,6 +200,7 @@ class _TransferRecord:
         self.final_path: str | None = None
         self.cancel_event = threading.Event()
         self.remote_result: ResultMessage | None = None
+        self.remote_failure_event = threading.Event()
         self.remote_missing: deque[MissingMessage] = deque()
         self.rx_meta: MetaMessage | None = None
         self.rx_end: EndMessage | None = None
@@ -340,7 +342,11 @@ class _TransferRecord:
 
     def set_remote_result(self, result: ResultMessage) -> None:
         with self._condition:
+            if self.remote_result is not None:
+                return
             self.remote_result = result
+            if not result.ok:
+                self.remote_failure_event.set()
             self._condition.notify_all()
         self.event(
             "remote_result",
@@ -586,6 +592,21 @@ class FileTransferManager:
         failure: FileTransferError | None = None,
         final_path: Path | None = None,
     ) -> None:
+        drain = getattr(self.transport, "drain_binary", None)
+        if callable(drain):
+            try:
+                outcomes = drain(min(FILE_LOCAL_TX_DRAIN_TIMEOUT_S, self.result_timeout_s))
+                if outcomes:
+                    record.event("local_tx_drained", outcomes=outcomes)
+            except BinaryUserError as exc:
+                # Пока host write живёт, lease остаётся занятой. Закрытие session
+                # завершает этот путь; неизвестный исход не является отменой bytes.
+                record.event("local_tx_drain_failed", code=exc.code, error=str(exc))
+                record.terminal(
+                    "failed",
+                    failure=FileTransferError(exc.code, str(exc), phase="settling"),
+                )
+                return
         record.terminal(state, failure=failure, final_path=final_path)
         try:
             self._release(record.transfer_id, record.direction)
@@ -604,74 +625,9 @@ class FileTransferManager:
         path: Path,
         record: _TransferRecord,
     ) -> _PreparedSource:
-        original_size = path.stat().st_size
-        record.original_bytes = original_size
-        record.set_state("compressing")
-        original_hash = hashlib.sha256()
+        from .resume_source import prepare_source
 
-        temporary = tempfile.NamedTemporaryFile(
-            prefix="serialterminal-send-",
-            suffix=".gz",
-            delete=False,
-        )
-        temporary_path = Path(temporary.name)
-        processed = 0
-        try:
-            with path.open("rb") as source, temporary:
-                with gzip.GzipFile(
-                    fileobj=temporary,
-                    mode="wb",
-                    mtime=0,
-                ) as compressed:
-                    while True:
-                        if record.cancel_event.is_set():
-                            raise FileTransferCancelled()
-                        block = source.read(_IO_CHUNK)
-                        if not block:
-                            break
-                        original_hash.update(block)
-                        compressed.write(block)
-                        processed += len(block)
-                        record.set_progress(
-                            bytes_completed=processed,
-                            chunks_completed=0,
-                        )
-            compressed_size = temporary_path.stat().st_size
-            original_sha256 = original_hash.digest()
-
-            if compressed_size < original_size:
-                wire_hash = _sha256_file(
-                    temporary_path,
-                    record.cancel_event,
-                )
-                return _PreparedSource(
-                    source_path=path,
-                    wire_path=temporary_path,
-                    remove_wire_path=True,
-                    filename=path.name,
-                    original_size=original_size,
-                    wire_size=compressed_size,
-                    compression=Compression.GZIP,
-                    original_sha256=original_sha256,
-                    wire_sha256=wire_hash,
-                )
-
-            temporary_path.unlink(missing_ok=True)
-            return _PreparedSource(
-                source_path=path,
-                wire_path=path,
-                remove_wire_path=False,
-                filename=path.name,
-                original_size=original_size,
-                wire_size=original_size,
-                compression=Compression.NONE,
-                original_sha256=original_sha256,
-                wire_sha256=original_sha256,
-            )
-        except Exception:
-            temporary.close()
-            temporary_path.unlink(missing_ok=True)
-            raise
+        return prepare_source(path, record)
 
     @staticmethod
     def _message_event_fields(message: FileMessage) -> dict[str, Any]:
@@ -682,6 +638,20 @@ class FileTransferManager:
             fields["ranges"] = len(message.ranges)
             fields["chunks"] = sum(item.count for item in message.ranges)
         return fields
+
+    @staticmethod
+    def _check_remote_failure(record: _TransferRecord | None) -> None:
+        if record is None or record.direction != "TX":
+            return
+        with record._condition:
+            result = record.remote_result
+        if result is not None and not result.ok:
+            raise FileTransferError(
+                "remote_failed",
+                result.reason or result.code,
+                phase=record.state,
+                details={"remote_code": result.code},
+            )
 
     def _send_message(
         self,
@@ -698,6 +668,7 @@ class FileTransferManager:
 
         replay = 0
         while True:
+            self._check_remote_failure(record)
             try:
                 self.transport.send_binary(
                     payload,
@@ -1054,7 +1025,10 @@ class FileTransferManager:
             try:
                 item = self._rx_queue.get(timeout=FILE_RX_IDLE_SWEEP_S)
             except queue.Empty:
-                self._expire_stale_incoming()
+                try:
+                    self._expire_stale_incoming()
+                except Exception as exc:
+                    self._rx_worker_error(exc)
                 continue
             if item is None:
                 return
@@ -1067,10 +1041,25 @@ class FileTransferManager:
                     self._handle_data(item)
                 elif isinstance(item, EndMessage):
                     self._handle_end(item)
-            except Exception:
-                # Receiver protocol failures are converted to terminal transfer
-                # state inside the handlers. Never kill the shared RX worker.
-                continue
+            except Exception as exc:
+                # Неожиданный отказ callback/storage видим и завершает попытку;
+                # общий RX worker продолжает работу, retained bytes не удаляются.
+                self._rx_worker_error(exc)
+
+    def _rx_worker_error(self, exc: Exception) -> None:
+        with self._lock:
+            incoming = self._incoming
+            self._incoming = None
+        if incoming is None:
+            self.last_rx_worker_error = str(exc)
+            return
+        record = incoming.record
+        record.event("rx_worker_error", error=str(exc), partial_retained=True)
+        self._terminal_record(
+            record,
+            "failed",
+            failure=FileTransferError("receiver_failed", str(exc), phase="receiving"),
+        )
 
     def _touch_incoming(self, incoming: _IncomingState) -> None:
         incoming.last_activity_monotonic = time.monotonic()
@@ -1270,7 +1259,6 @@ class FileTransferManager:
         incoming = self._incoming_for(message.transfer_id)
         if incoming is None:
             return
-        self._touch_incoming(incoming)
         if incoming.record.cancel_event.is_set():
             self._fail_incoming(
                 incoming,
@@ -1279,10 +1267,16 @@ class FileTransferManager:
             )
             return
         try:
-            expected_length = self._expected_chunk_length(
-                incoming,
-                message.chunk_index,
-            )
+            try:
+                expected_length = self._expected_chunk_length(
+                    incoming,
+                    message.chunk_index,
+                )
+            except FileTransferError as exc:
+                incoming.record.event(
+                    "chunk_rejected", chunk_index=message.chunk_index, reason=exc.code
+                )
+                return
             if len(message.payload) != expected_length:
                 # Повреждённый DATA не должен уничтожать уже собранные чанки.
                 # Не отмечаем его полученным: END/MISSING запросит исходный блок.
@@ -1295,12 +1289,14 @@ class FileTransferManager:
                     expected_length=expected_length,
                 )
                 return
+            self._touch_incoming(incoming)
             offset = message.chunk_index * incoming.meta.chunk_size
             if message.chunk_index in incoming.received:
                 with incoming.wire_path.open("rb") as file:
                     file.seek(offset)
                     existing = file.read(expected_length)
                 if existing != message.payload:
+                    incoming._quarantined = True
                     raise FileTransferError(
                         "invalid_chunk",
                         f"duplicate chunk {message.chunk_index} has different bytes",
@@ -1357,7 +1353,6 @@ class FileTransferManager:
                     "conflicting END for completed transfer_id",
                 )
             return
-        self._touch_incoming(incoming)
         if incoming.record.cancel_event.is_set():
             self._fail_incoming(
                 incoming,
@@ -1366,16 +1361,16 @@ class FileTransferManager:
             )
             return
         record = incoming.record
+        final_temp = None
         try:
             if message.chunk_count != record.chunks_total:
-                raise FileTransferError(
-                    "missing_chunks",
-                    (
-                        f"END chunk_count={message.chunk_count} does not match "
-                        f"expected {record.chunks_total}"
-                    ),
-                    phase="verifying",
+                record.event(
+                    "end_rejected", reason="chunk_count_mismatch",
+                    actual_chunk_count=message.chunk_count,
+                    expected_chunk_count=record.chunks_total,
                 )
+                return
+            self._touch_incoming(incoming)
             missing = [
                 index
                 for index in range(record.chunks_total)
@@ -1453,7 +1448,8 @@ class FileTransferManager:
                 incoming
             )
             if original_size != incoming.meta.original_size:
-                final_temp.unlink(missing_ok=True)
+                if final_temp != incoming.wire_path:
+                    final_temp.unlink(missing_ok=True)
                 raise FileTransferError(
                     "original_hash_mismatch",
                     (
@@ -1463,21 +1459,16 @@ class FileTransferManager:
                     phase="verifying",
                 )
             if original_hash != incoming.meta.original_sha256:
-                final_temp.unlink(missing_ok=True)
+                if final_temp != incoming.wire_path:
+                    final_temp.unlink(missing_ok=True)
                 raise FileTransferError(
                     "original_hash_mismatch",
                     "original file SHA-256 mismatch",
                     phase="verifying",
                 )
 
-            destination = _unique_destination(
-                self.receive_dir,
-                incoming.record.filename,
-            )
-            os.replace(final_temp, destination)
+            destination = self._publish_verified(incoming, message, final_temp)
             record.rx_end = message
-            if final_temp != incoming.wire_path:
-                incoming.wire_path.unlink(missing_ok=True)
 
             # Держим session transfer lease до controller-local BINARY
             # presentation RESULT. RF delivery здесь не доказывается: если
@@ -1500,6 +1491,7 @@ class FileTransferManager:
                 "completed",
                 final_path=destination,
             )
+            self._cleanup_published(incoming)
         except FileTransferCancelled as exc:
             self._fail_incoming(
                 incoming,
@@ -1517,6 +1509,41 @@ class FileTransferManager:
                     phase=record.state,
                 ),
             )
+        finally:
+            if final_temp is not None and final_temp != incoming.wire_path:
+                try:
+                    final_temp.unlink(missing_ok=True)
+                except OSError as exc:
+                    record.event("publication_cleanup_failed", error=str(exc))
+
+    @staticmethod
+    def _fsync_directory(directory: Path) -> None:
+        try:
+            descriptor = os.open(directory, os.O_RDONLY | getattr(os, "O_DIRECTORY", 0))
+        except OSError:
+            # Без POSIX directory fsync сохраняется совместимость, но строгая
+            # гарантия пережить power loss для rename не заявляется.
+            if os.name == "posix":
+                raise
+            return
+        try:
+            os.fsync(descriptor)
+        finally:
+            os.close(descriptor)
+
+    def _publish_verified(self, incoming, end: EndMessage, final_temp: Path) -> Path:
+        with final_temp.open("rb") as handle:
+            os.fsync(handle.fileno())
+        destination = _unique_destination(self.receive_dir, incoming.record.filename)
+        os.replace(final_temp, destination)
+        self._fsync_directory(destination.parent)
+        return destination
+
+    def _cleanup_published(self, incoming) -> None:
+        try:
+            incoming.wire_path.unlink(missing_ok=True)
+        except OSError as exc:
+            incoming.record.event("publication_cleanup_failed", error=str(exc))
 
     def _materialize_original(
         self,
@@ -1581,7 +1608,13 @@ class FileTransferManager:
         *,
         terminal_state: str = "failed",
     ) -> None:
-        incoming.wire_path.unlink(missing_ok=True)
+        if terminal_state == "cancelled":
+            incoming.wire_path.unlink(missing_ok=True)
+        else:
+            incoming.record.event(
+                "partial_retained", reason=failure.code,
+                quarantined=getattr(incoming, "_quarantined", False),
+            )
         with self._lock:
             if self._incoming is incoming:
                 self._incoming = None

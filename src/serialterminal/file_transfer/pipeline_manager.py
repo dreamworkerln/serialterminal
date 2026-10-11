@@ -102,7 +102,17 @@ class FileTransferManager(_FileTransferManager):
         with prepared.wire_path.open("rb") as source:
             source.seek(start * chunk_size)
             while next_index < record.chunks_total or pending:
+                try:
+                    self._check_remote_failure(record)
+                except core.FileTransferError:
+                    self._discard_data_pipeline()
+                    raise
                 while next_index < record.chunks_total and len(pending) < window:
+                    try:
+                        self._check_remote_failure(record)
+                    except core.FileTransferError:
+                        self._discard_data_pipeline()
+                        raise
                     if record.cancel_event.is_set():
                         self._discard_data_pipeline()
                         raise core.FileTransferCancelled()

@@ -40,6 +40,7 @@ class ProfileBinaryUserAdapter(BinaryUserTransport, Protocol):
         ...
 
 
+BinaryCancelTx: TypeAlias = Callable[[int], bool]
 BinarySendLine: TypeAlias = Callable[[str], Any]
 BinaryWaitTxOutcome: TypeAlias = Callable[[int, float], str | None]
 BinaryConnectionGeneration: TypeAlias = Callable[[], int]
@@ -118,6 +119,7 @@ class TerminalProfile(Protocol):
         send_line: BinarySendLine,
         *,
         wait_tx_outcome: BinaryWaitTxOutcome | None = None,
+        cancel_tx: BinaryCancelTx | None = None,
         connection_generation: BinaryConnectionGeneration | None = None,
         timing_sink: TimingSink | None = None,
     ) -> ProfileBinaryUserAdapter | None:
