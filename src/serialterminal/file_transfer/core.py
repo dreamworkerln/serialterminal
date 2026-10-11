@@ -537,49 +537,81 @@ class FileTransferManager:
         if callback is not None:
             callback(transfer_id, direction)
 
+    def _restart_record(self, record: _TransferRecord, state: str) -> None:
+        # История и cursor сохраняются, terminal outcome относится к попытке.
+        # Новая попытка не наследует RESULT/cancel/repair предыдущей.
+        with record._condition:
+            record.failure = None
+            record.final_path = None
+            record.ended_monotonic = None
+            record.started_monotonic = time.monotonic()
+            record.cancel_event.clear()
+            record.remote_result = None
+            record.remote_failure_event.clear()
+            record.remote_missing.clear()
+            record.remote_resume = None
+            record.state = state
+            record._condition.notify_all()
+
     def _reserve_record(
         self,
         transfer_id: int,
         *,
         direction: str,
         filename: str,
+        resume_existing: _TransferRecord | None = None,
     ) -> _TransferRecord:
         with self._lock:
+            if self._stopping.is_set():
+                raise FileTransferError("local_shutdown", "file transfer manager is closed")
             if self._active_id is not None:
                 raise FileTransferError(
                     "file_transfer_busy",
                     "another file transfer is active on this session",
-                    details={
-                        "active_transfer_id": transfer_id_text(self._active_id),
-                    },
+                    details={"active_transfer_id": transfer_id_text(self._active_id)},
                 )
-            if transfer_id in self._records:
-                raise FileTransferError(
-                    "duplicate_transfer_id",
-                    "transfer id already exists",
-                )
-            record = _TransferRecord(
+            existing = self._records.get(transfer_id)
+            if existing is not None:
+                if existing is not resume_existing or existing.direction != "TX" or existing.state != "failed":
+                    raise FileTransferError("duplicate_transfer_id", "transfer id already exists")
+                if existing._thread is not None and existing._thread.is_alive():
+                    raise FileTransferError("file_transfer_busy", "previous sender attempt is still settling")
+            record = existing or _TransferRecord(
                 transfer_id,
                 direction=direction,
                 filename=filename,
                 event_retention=self.event_retention,
                 event_sink=self.event_sink,
             )
-            self._records[transfer_id] = record
+            # Резервируем admission, но failed record не оживает до claim.
             self._active_id = transfer_id
         claimed = False
         try:
             self._claim(transfer_id, direction)
             claimed = True
+            with self._lock:
+                if self._stopping.is_set():
+                    raise FileTransferError("local_shutdown", "manager closed during transfer claim")
+                if existing is not None:
+                    self._restart_record(record, "preparing")
+                    while transfer_id in self._terminal_order:
+                        self._terminal_order.remove(transfer_id)
+                self._records[transfer_id] = record
         except Exception:
-            try:
-                if claimed:
+            if claimed:
+                try:
                     self._release(transfer_id, direction)
-            finally:
-                with self._lock:
-                    if self._active_id == transfer_id:
-                        self._active_id = None
-                    self._records.pop(transfer_id, None)
+                except Exception as exc:
+                    with self._lock:
+                        self._records[transfer_id] = record
+                    failure = FileTransferError("local_ownership_unsettled", str(exc), phase="preparing")
+                    record.event("resume_rollback_failed", error=str(exc))
+                    if existing is None:
+                        record.terminal("failed", failure=failure)
+                    raise failure from exc
+            with self._lock:
+                if self._active_id == transfer_id:
+                    self._active_id = None
             raise
         record.event("transfer_started", progress=record.snapshot())
         return record
@@ -653,11 +685,19 @@ class FileTransferManager:
                 details={"remote_code": result.code},
             )
 
+    @staticmethod
+    def _check_send_deadline(deadline: float | None) -> None:
+        if deadline is not None and time.monotonic() >= deadline:
+            raise FileTransferError(
+                "remote_result_timeout", "remote completion deadline expired", phase="waiting_result",
+            )
+
     def _send_message(
         self,
         message: FileMessage,
         *,
         cancel_event: threading.Event | None,
+        deadline: float | None = None,
     ) -> None:
         payload = encode_message(message, self.transport.payload_capacity)
         fields = self._message_event_fields(message)
@@ -669,11 +709,13 @@ class FileTransferManager:
         replay = 0
         while True:
             self._check_remote_failure(record)
+            self._check_send_deadline(deadline)
             try:
-                self.transport.send_binary(
-                    payload,
-                    cancel_event=cancel_event,
-                )
+                send_until = getattr(self.transport, "send_binary_until", None)
+                if deadline is not None and callable(send_until):
+                    send_until(payload, deadline=deadline, cancel_event=cancel_event)
+                else:
+                    self.transport.send_binary(payload, cancel_event=cancel_event)
                 if record is not None:
                     record.event(
                         "binary_send_settled",
@@ -684,6 +726,7 @@ class FileTransferManager:
             except BinaryUserCancelled as exc:
                 raise FileTransferCancelled(str(exc)) from exc
             except BinaryUserError as exc:
+                self._check_send_deadline(deadline)
                 if (
                     exc.code in {
                         "local_tx_unknown",
@@ -862,6 +905,7 @@ class FileTransferManager:
         message: MissingMessage,
         *,
         chunk_size: int,
+        deadline: float | None = None,
     ) -> None:
         try:
             validate_missing_ranges(
@@ -905,6 +949,7 @@ class FileTransferManager:
                             payload=block,
                         ),
                         cancel_event=record.cancel_event,
+                        deadline=deadline,
                     )
         record.event(
             "repair_round_sent",
@@ -979,8 +1024,9 @@ class FileTransferManager:
                     prepared,
                     outcome,
                     chunk_size=chunk_size,
+                    deadline=overall_deadline,
                 )
-                self._send_message(end, cancel_event=record.cancel_event)
+                self._send_message(end, cancel_event=record.cancel_event, deadline=overall_deadline)
                 continue
 
             if control_replays >= self.max_control_replays:
@@ -999,8 +1045,8 @@ class FileTransferManager:
             # META and END are deliberately idempotent. Replaying both lets a
             # receiver that missed either local notification reconstruct state
             # and answer with MISSING or the final RESULT.
-            self._send_message(meta, cancel_event=record.cancel_event)
-            self._send_message(end, cancel_event=record.cancel_event)
+            self._send_message(meta, cancel_event=record.cancel_event, deadline=overall_deadline)
+            self._send_message(end, cancel_event=record.cancel_event, deadline=overall_deadline)
 
     def feed_binary(self, payload: bytes) -> None:
         try:

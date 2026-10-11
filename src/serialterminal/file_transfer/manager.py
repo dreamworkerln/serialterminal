@@ -317,13 +317,21 @@ class FileTransferManager(_ResumableFileTransferManager):
                     self._resume_candidates.pop(record.transfer_id, None)
 
     def _handle_meta(self, meta: MetaMessage) -> None:
-        """Re-open a durable RX transfer that timed out in this same process."""
+        """Re-open a failed RX attempt only from matching usable durable state."""
         with self._lock:
             existing = self._records.get(meta.transfer_id)
         if self._can_revive_timed_out_receiver(existing, meta):
-            self._revive_record(existing)
-            restored = self._restore_incoming(meta, existing=existing)
+            try:
+                restored = self._restore_incoming(meta, existing=existing)
+            except Exception as exc:
+                existing.event("resume_restore_failed", error=str(exc))
+                self._reject_incoming(meta.transfer_id, "storage_failed", str(exc))
+                return
             if restored == "completed":
+                value = self._resume_store.load_completed(meta.transfer_id)
+                self._restart_record(existing, "receiving")
+                existing.rx_end = self._resume_store.end_from_json(value.get("end"), meta.transfer_id)
+                existing.terminal("completed", final_path=Path(value["final_path"]))
                 self._send_result_async(
                     existing,
                     ResultMessage(meta.transfer_id, True, "ok", ""),
@@ -340,31 +348,21 @@ class FileTransferManager(_ResumableFileTransferManager):
             return False
         if record.state != "failed":
             return False
-        failure = record.failure
-        if not isinstance(failure, dict) or failure.get("code") != "remote_sender_timeout":
-            return False
+        with self._lock:
+            if self._active_id is not None:
+                return False
         loaded = self._resume_store.load_incoming(meta.transfer_id)
         if loaded is None:
             return False
         payload, stored_meta = loaded
-        if stored_meta != meta:
+        if stored_meta != meta or payload.get("status") not in {"receiving", "suspended", "publishing"}:
             return False
+        if payload.get("status") == "publishing":
+            return True
         if self._load_received(meta, payload) is None:
             return False
         part = self._resume_store.incoming_part(meta.transfer_id)
         return not part.is_symlink() and part.is_file()
-
-    def _revive_record(self, record) -> None:
-        with self._lock:
-            while record.transfer_id in self._terminal_order:
-                self._terminal_order.remove(record.transfer_id)
-        with record._condition:
-            record.failure = None
-            record.final_path = None
-            record.ended_monotonic = None
-            record.cancel_event.clear()
-            record.state = "receiving"
-            record._condition.notify_all()
 
     def _expire_stale_incoming(self) -> None:
         """Keep historical runtime failure while retaining durable RX state."""

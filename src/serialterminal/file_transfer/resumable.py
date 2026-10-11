@@ -68,7 +68,7 @@ class FileTransferManager(core.FileTransferManager):
 
     # TODO_035: same-process local controller recovery -----------------
 
-    def _send_message(self, message, *, cancel_event) -> None:
+    def _send_message(self, message, *, cancel_event, deadline=None) -> None:
         payload = encode_message(message, self.transport.payload_capacity)
         fields = self._message_event_fields(message)
         with self._lock:
@@ -76,11 +76,16 @@ class FileTransferManager(core.FileTransferManager):
         if record is not None:
             record.event("binary_send_start", **fields)
 
-        deadline = None
+        caller_deadline = deadline
+        recovery_deadline = None
         attempts = 0
         previous_state = None
         while True:
             self._check_remote_failure(record)
+            self._check_send_deadline(caller_deadline)
+            deadline = recovery_deadline
+            if caller_deadline is not None:
+                deadline = caller_deadline if deadline is None else min(deadline, caller_deadline)
             try:
                 if deadline is not None and time.monotonic() >= deadline:
                     raise core.FileTransferError(
@@ -96,11 +101,12 @@ class FileTransferManager(core.FileTransferManager):
             except BinaryUserCancelled as exc:
                 raise core.FileTransferCancelled(str(exc)) from exc
             except BinaryUserError as exc:
+                self._check_send_deadline(caller_deadline)
                 if exc.code not in _RECOVERABLE_BINARY_ERRORS:
                     self._raise_binary_failure(record, fields, exc, attempts)
                 now = time.monotonic()
-                if deadline is None:
-                    deadline = now + self.local_recovery_timeout_s
+                if recovery_deadline is None:
+                    recovery_deadline = now + self.local_recovery_timeout_s
                     if record is not None:
                         previous_state = record.snapshot()["state"]
                         record.set_state("recovering_local_node")
@@ -110,6 +116,7 @@ class FileTransferManager(core.FileTransferManager):
                             reason=exc.code,
                             timeout_s=self.local_recovery_timeout_s,
                         )
+                deadline = recovery_deadline if caller_deadline is None else min(recovery_deadline, caller_deadline)
                 if now >= deadline:
                     if record is not None:
                         record.event(
@@ -136,7 +143,7 @@ class FileTransferManager(core.FileTransferManager):
                 continue
 
             if record is not None:
-                if deadline is not None:
+                if recovery_deadline is not None:
                     record.event(
                         "local_recovery_resumed", **fields, attempts=attempts
                     )
@@ -238,7 +245,7 @@ class FileTransferManager(core.FileTransferManager):
         if loaded is None:
             return None
         payload, stored_meta = loaded
-        if stored_meta != meta:
+        if stored_meta != meta or payload.get("status") not in {"receiving", "suspended", "publishing"}:
             return None
 
         if payload.get("status") == "publishing":
@@ -250,51 +257,76 @@ class FileTransferManager(core.FileTransferManager):
         if received is None or not part.is_file():
             return None
 
-        record = existing or self._reserve_record(
-            meta.transfer_id,
-            direction="RX",
-            filename=core.safe_received_filename(meta.filename),
-        )
-        if existing is not None:
-            with self._lock:
-                if self._active_id not in (None, record.transfer_id):
-                    return None
-                self._active_id = record.transfer_id
-            self._claim(record.transfer_id, record.direction)
-            try:
-                self._suspended_ids.remove(record.transfer_id)
-            except ValueError:
-                pass
-
-        record.rx_meta = meta
-        record.original_bytes = meta.original_size
-        record.wire_bytes = meta.wire_size
-        record.chunks_total = self._chunk_count(meta)
-        record.set_progress(
-            bytes_completed=sum(received.values()),
-            chunks_completed=len(received),
-        )
-        record.set_state("receiving")
-        incoming = core._IncomingState(
-            meta=meta,
-            record=record,
-            wire_path=part,
-            received=received,
-            last_activity_monotonic=time.monotonic(),
-        )
-        incoming._checkpoint_count = len(received)
-        incoming._checkpoint_time = time.monotonic()
-        incoming._persistent_status = "receiving"
-        destination_text = payload.get("destination")
-        if payload.get("status") == "publishing" and isinstance(destination_text, str):
-            destination = Path(destination_text)
-            if self._valid_publishing_destination(destination):
-                incoming._publishing_destination = destination
-                incoming._publishing_end = self._resume_store.end_from_json(payload.get("end"), meta.transfer_id)
-                incoming._persistent_status = "publishing"
         with self._lock:
-            self._incoming = incoming
-        self._checkpoint_incoming(incoming, force=True)
+            if self._active_id is not None or self._stopping.is_set():
+                return None
+            if self._records.get(meta.transfer_id) is not existing:
+                return None
+            record = existing or core._TransferRecord(
+                meta.transfer_id, direction="RX", filename=core.safe_received_filename(meta.filename),
+                event_retention=self.event_retention, event_sink=self.event_sink,
+            )
+            self._active_id = meta.transfer_id
+        claimed = False
+        try:
+            incoming = core._IncomingState(
+                meta=meta, record=record, wire_path=part, received=received,
+                last_activity_monotonic=time.monotonic(),
+            )
+            incoming._persistent_status = "receiving"
+            destination_text = payload.get("destination")
+            if payload.get("status") == "publishing" and isinstance(destination_text, str):
+                destination = Path(destination_text)
+                if self._valid_publishing_destination(destination):
+                    incoming._publishing_destination = destination
+                    incoming._publishing_end = self._resume_store.end_from_json(payload.get("end"), meta.transfer_id)
+                    incoming._persistent_status = "publishing"
+            self._claim(record.transfer_id, record.direction)
+            claimed = True
+            if self._stopping.is_set():
+                raise core.FileTransferError("local_shutdown", "manager closed during RX restore")
+            self._checkpoint_incoming(incoming, force=True)
+            if self._stopping.is_set():
+                raise core.FileTransferError("local_shutdown", "manager closed during RX checkpoint")
+            # Только успешные claim и checkpoint публикуют новое runtime state.
+            with self._lock:
+                if self._stopping.is_set():
+                    raise core.FileTransferError("local_shutdown", "manager closed during RX restore")
+                self._restart_record(record, "receiving")
+                with record._condition:
+                    record.rx_meta = meta
+                    record.original_bytes = meta.original_size
+                    record.wire_bytes = meta.wire_size
+                    record.chunks_total = self._chunk_count(meta)
+                    record.bytes_completed = sum(received.values())
+                    record.chunks_completed = len(received)
+                self._records[meta.transfer_id] = record
+                self._incoming = incoming
+                while meta.transfer_id in self._terminal_order:
+                    self._terminal_order.remove(meta.transfer_id)
+                try:
+                    self._suspended_ids.remove(meta.transfer_id)
+                except ValueError:
+                    pass
+        except Exception:
+            try:
+                if claimed:
+                    self._release(record.transfer_id, record.direction)
+            except Exception as exc:
+                # Не выдаём admission заново, если rollback lease не подтверждён.
+                with self._lock:
+                    self._records[meta.transfer_id] = record
+                failure = core.FileTransferError(
+                    "local_ownership_unsettled", str(exc), phase="resuming",
+                )
+                record.event("resume_rollback_failed", error=str(exc))
+                if existing is None:
+                    record.terminal("failed", failure=failure)
+                raise failure from exc
+            with self._lock:
+                if self._active_id == meta.transfer_id:
+                    self._active_id = None
+            raise
         record.event(
             "resume_state_restored",
             chunks=len(received),
@@ -667,11 +699,13 @@ class FileTransferManager(core.FileTransferManager):
                 if candidate is not None
                 else self._new_transfer_id_locked()
             )
-            if transfer_id in self._records:
+            existing = self._records.get(transfer_id)
+            if existing is not None and (candidate is None or existing.direction != "TX" or existing.state != "failed"):
                 candidate = None
+                existing = None
                 transfer_id = self._new_transfer_id_locked()
         record = self._reserve_record(
-            transfer_id, direction="TX", filename=path.name
+            transfer_id, direction="TX", filename=path.name, resume_existing=existing,
         )
         record._resuming_persistent = candidate is not None
         if candidate is not None:
@@ -683,7 +717,14 @@ class FileTransferManager(core.FileTransferManager):
             daemon=True,
         )
         record._thread = thread
-        thread.start()
+        try:
+            thread.start()
+        except Exception as exc:
+            if not thread.is_alive():
+                record._thread = None
+            failure = core.FileTransferError("local_failure", str(exc), phase="preparing")
+            self._terminal_record(record, "failed", failure=failure)
+            raise failure from exc
         result = record.snapshot()
         result["events"] = {
             "cursor": 0,

@@ -79,7 +79,10 @@ class PipelinedChatterBinaryUserAdapter(ChatterBinaryUserAdapter):
 
             tx_id: int | None = None
             generation = self._generation()
+            submitted = False
+            controller_epoch = None
             try:
+                self._check_binary_admission()
                 generation = self._ensure_binary_presentation_available(
                     generation=generation,
                     cancel_event=cancel_event,
@@ -99,6 +102,7 @@ class PipelinedChatterBinaryUserAdapter(ChatterBinaryUserAdapter):
                     controller_epoch=controller_epoch,
                     pipelined=True,
                 )
+                submitted = True
                 result = self._submit_line(command, deadline=deadline)
                 tx_id = _tx_id_from_result(result)
                 self._timing(
@@ -132,6 +136,8 @@ class PipelinedChatterBinaryUserAdapter(ChatterBinaryUserAdapter):
                     self._pipeline_pending.append(submission)
                 return submission
             except BinaryUserError as exc:
+                if submitted and exc.code not in {"send_rejected", "local_tx_failed"}:
+                    self._mark_binary_unsettled(controller_epoch)
                 self._timing(
                     "binary_error",
                     binary_seq=binary_seq,
@@ -283,6 +289,12 @@ class PipelinedChatterBinaryUserAdapter(ChatterBinaryUserAdapter):
     def discard_binary_pipeline(self) -> None:
         # После ошибки DATA replay принадлежит FT1. До очистки correlation
         # учитываем собственные host writes; firmware queue этим не отменяется.
+        # Даже при отказе host drain сохраняем запрет нового BINARY; очистка
+        # tickets без epoch evidence не является отменой старых submissions.
+        with self._pipeline_state_lock:
+            epochs = [item.controller_epoch for item in self._pipeline_pending]
+        for epoch in epochs:
+            self._mark_binary_unsettled(epoch)
         self.drain_binary(self._presentation_timeout_s)
         with self._condition:
             cursor = self._next_seq - 1

@@ -67,9 +67,9 @@ class FileTransferManager(_FileTransferManager):
             next_chunk=replay_index,
             outstanding=outstanding,
         )
-        # DATA имеет stable (transfer_id, chunk_index), поэтому после ambiguous
-        # local outcome безопаснее повторить earliest outstanding chunk, чем
-        # угадывать, какой из двух controller уже принял. Receiver дедуплицирует.
+        # DATA сохраняет stable (transfer_id, chunk_index), но дедупликация не
+        # доказывает завершение старой firmware queue. Adapter обязан учитывать
+        # старые submissions; unresolved legacy epoch запрещает этот replay.
         super()._send_chunks_from(
             record,
             prepared,

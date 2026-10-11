@@ -178,6 +178,7 @@ class ChatterBinaryUserAdapter:
         self._wait_tx_outcome = wait_tx_outcome
         self._cancel_tx = cancel_tx
         self._owned_tx_ids: set[int] = set()
+        self._unsettled_binary_epoch: int | None = None
         self._connection_generation = connection_generation
         self._timing_sink = timing_sink
         self._next_binary_timing_seq = 1
@@ -207,6 +208,22 @@ class ChatterBinaryUserAdapter:
             yield
         finally:
             lock.release()
+
+    def _check_binary_admission(self) -> None:
+        with self._condition:
+            if self._unsettled_binary_epoch == self._controller_epoch:
+                raise BinaryUserError(
+                    "local_tx_unsettled",
+                    "previous BINARY outcome is unresolved; controller reset evidence is required",
+                )
+            self._unsettled_binary_epoch = None
+
+    def _mark_binary_unsettled(self, epoch: int) -> None:
+        # Host drain и reconnect не доказывают исчезновение firmware queue.
+        # Не выдаём новые BINARY до наблюдаемой смены controller epoch.
+        with self._condition:
+            if epoch == self._controller_epoch:
+                self._unsettled_binary_epoch = epoch
 
     def _submit_line(self, text: str, *, deadline: float | None = None) -> Any:
         if deadline is not None and time.monotonic() >= deadline:
@@ -632,8 +649,11 @@ class ChatterBinaryUserAdapter:
             tx_id: int | None = None
             generation_reader = self._connection_generation
             generation = self._generation()
+            submitted = False
+            controller_epoch = None
 
             try:
+                self._check_binary_admission()
                 generation = self._ensure_binary_presentation_available(
                     generation=generation,
                     cancel_event=cancel_event,
@@ -653,6 +673,7 @@ class ChatterBinaryUserAdapter:
                     generation=generation,
                     controller_epoch=controller_epoch,
                 )
+                submitted = True
                 result = self._submit_line(command, deadline=deadline)
                 tx_id = _tx_id_from_result(result)
                 self._timing(
@@ -769,6 +790,8 @@ class ChatterBinaryUserAdapter:
                             # не является per-message pacing delay.
                             self._condition.wait(timeout=min(0.1, remaining))
             except BinaryUserError as exc:
+                if submitted and exc.code not in {"send_rejected", "local_tx_failed"}:
+                    self._mark_binary_unsettled(controller_epoch)
                 self._timing(
                     "binary_error",
                     binary_seq=binary_seq,
