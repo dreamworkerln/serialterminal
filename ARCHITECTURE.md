@@ -139,25 +139,30 @@ profile-owned binary adapter
 ManagedSession / Transport
 ```
 
-`BinaryUserTransport` exposes raw binary payload capacity, binary receive delivery
-and controller-local `send_binary()` settlement. A successful send means the local
-transport write is known and the profile-specific controller has exposed its bounded
-submission/first-transmit signal; it is explicitly not peer delivery proof. The
-transport does not expose filenames, compression, filesystem state or file progress.
+`BinaryUserTransport` exposes raw payload capacity, receive delivery and profile-owned
+`send_binary()` settlement. The profile defines its precise local/link proof; neither
+successful host write nor a node ACK proves remote host durability. It does not expose
+filenames, compression, filesystem state or file progress.
 
 Human Chatter USER presentation state is also profile-owned. Sent-but-unresolved
 human payloads are released when a controller reset/boot/READY boundary is observed,
 even if the USB-UART transport never disconnected; unsent session-queue entries are
 preserved for the existing TX path.
 
-The bundled `chatter` profile owns the local `/bin <BASE64>` command/presentation
-adapter. It settles a send on the exact matching local `> [BINARY] <BASE64>`
-presentation emitted after first physical TxDone. `DELIVERY WAIT_ACK/ACK/FAILED`
-telemetry is diagnostic only and is not part of FT1 progression, backpressure,
-correctness or reconnect recovery. Base64 is local textual encapsulation only; the
-LoRa BINARY USER payload remains raw bytes. FT1 never changes CHAT/TELEMETRY/BOTH
-mode on behalf of a transfer. Unknown Chatter mode is discovered through the
-profile-owned read-only `/help` status response before BINARY submission.
+The bundled Chatter profile composes `ChatterMachineClient` with an explicit legacy
+adapter. The protected `/m1` codec, CRC, epoch/request correlation, two-slot window,
+cached QUERY and LINK_OK settlement follow `CHATTER_MACHINE_PROTOCOL_V1.md`.
+Machine RX/outcomes remain independent of human output mode. Explicit old-firmware
+rejection selects `/bin` compatibility, whose first-TxDone presentation is a weaker
+local proof and whose TELEMETRY-only limitation remains. Silence never selects legacy.
+Human DELIVERY telemetry remains diagnostic; no metadata is added to radio USER.
+
+FT1 has one coordinator instance with recovery, durable-storage and pipeline policies.
+A bounded outbox serializes transport operations and terminal drain; the RX worker
+queues control output without waiting for serial/BLE. RX/control overflow fails visibly
+while preserving usable partial state. Unique DATA updates use incremental byte counts.
+Close discards unstarted sends, records unresolved terminal work and retains ownership
+until settling; no discarded terminal job can silently leave a published file verifying.
 
 Chatter controller lifetime is tracked separately from generic transport connection
 generation. A firmware reset may leave USB-UART physically connected, so a pending
@@ -273,7 +278,7 @@ For the bundled `chatter` profile, controller-specific ownership currently inclu
 - command classification helpers and Chatter presentation state;
 - the `chatter.reliable_user` sweep adapter, including Chatter quiet-state preparation through existing commands, command/config application and reliable-USER operational settlement;
 - host-side Chatter sweep isolation semantics: profile preparation plus generic SerialTerminal session ownership; no firmware `/sweep` command or wire-level sweep identity is part of this contract;
-- Chatter BINARY USER local base64 framing and exact local BINARY-presentation settlement used to implement the generic `BinaryUserTransport` capability; DELIVERY telemetry remains diagnostic only.
+- Chatter local machine codec/correlation/link settlement and explicit legacy BINARY-presentation compatibility, implementing generic `BinaryUserTransport`; human DELIVERY telemetry remains diagnostic only.
 
 The following remain generic and must not depend on Chatter naming:
 

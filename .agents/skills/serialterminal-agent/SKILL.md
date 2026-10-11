@@ -149,6 +149,14 @@ Controller adapter может читать protocol lines, чтобы опред
 
 ## File transfer
 
+Chatter profile сам согласует защищённый `/m1` interface: CRC, epoch/request, window=2,
+LINK_OK по existing RF ACK. ACCEPTED/TX_DONE не означают delivery. Это profile-owned
+деталь, агент продолжает использовать только high-level file API. Machine path не
+зависит от human output mode; legacy `/bin` выбирается только после явного отказа
+старой прошивки. Silence/UNKNOWN не разрешают fallback или blind replay. Для forensic
+capture машинных bytes запускай ST с `--log-base64`; default logs их редактируют.
+
+
 Для bundled `chatter` file transfer является profile capability поверх BINARY USER. Не реализуй file transfer вручную через `send_line("/bin ...")`, base64 или собственный chunk loop.
 
 Используй только:
@@ -160,7 +168,7 @@ file_transfer_cancel
 file_transfer_close
 ```
 
-`file_send_start` принимает уже открытую session и локальный path, быстро возвращает `transfer_id`, затем работа идёт в background. Это же operation является явным trigger для persistent resume: если существует ровно один валидный journal того же неизменившегося source, manager переиспользует тот же `transfer_id`, а initial result может содержать `resumed:true`. SerialTerminal **не** запускает старые transfer автоматически при старте процесса.
+`file_send_start` принимает уже открытую session и локальный path, быстро возвращает `transfer_id`, затем работа идёт в background. Это же operation является явным trigger для same-process и persistent resume после failed attempt (прежний worker должен закончить settling): если существует ровно один валидный journal того же неизменившегося source, manager переиспользует тот же `transfer_id`, а initial result может содержать `resumed:true`. SerialTerminal **не** запускает старые transfer автоматически при старте процесса.
 
 Если matching sender journals несколько, операция должна вернуть `ambiguous_resume_state`. Не выбирай journal сам и не удаляй `.serialterminal-state`/`.part`, чтобы "починить" ситуацию. Если source изменился, old transfer_id не должен использоваться для новых bytes; manager начинает новую identity по текущему contract.
 
@@ -176,7 +184,7 @@ FT1 не использует TELEMETRY как control plane и не меняе�
 
 Controller lifetime отделён от transport generation. USB tty может остаться открытым во время reboot. Chatter adapter распознаёт controller reset/READY и не превращает обычный transport reconnect без reset evidence в фиктивный reboot.
 
-Для active FT1 recoverable local outcomes (`local_tx_unknown`, `local_disconnect`, `local_controller_reset`) приводят transfer в `recovering_local_node`. File layer сохраняет exact current idempotent META/DATA/END, не выпускает следующие chunks и после восстановления controller повторяет только текущий message. Recovery bounded общим deadline; endless replay/hang недопустим.
+Для active FT1 recoverable local outcomes (`local_tx_unknown`, `local_disconnect`, `local_controller_reset`) приводят transfer в `recovering_local_node`. File layer сохраняет exact current idempotent META/DATA/END, не выпускает следующие chunks и после восстановления controller может повторить только текущий message при учтённом исходе прежней submission. Lost echo или unresolved pipeline tickets дают `local_tx_unsettled`: reconnect/host drain недостаточны, нужен наблюдаемый controller reset. Recovery bounded общим deadline; endless replay/hang недопустим.
 
 Generic `tx_state=unknown` по-прежнему нельзя blind-retry через обычный `send_line`; recovery authority здесь существует только потому, что FT1 message identity/idempotence определены приложением.
 
@@ -187,6 +195,8 @@ Receiver durable state хранится под configured receive directory:
 ```text
 <receive_dir>/.serialterminal-state/
 ```
+
+EOF agent закрывает FT manager через suspension и сохраняет partial/journal для same-transfer resume; это не `file_transfer_cancel`. Явный cancel удаляет receiver partial state. При проверке сохранения нужны и manifest, и существующий `.part`.
 
 Receiver timeout может оставить durable suspended partial и освободить runtime ownership. Не интерпретируй `remote_sender_timeout` как обязательное удаление partial state. Durable received ranges, а не размер `.part`, являются доказательством того, какие chunks можно пропустить после restart.
 

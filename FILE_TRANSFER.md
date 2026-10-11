@@ -9,6 +9,26 @@ It explains both sides of the boundary:
   chunk retransmission interact;
 - how to use the firmware BINARY USER API without depending on TELEMETRY.
 
+## Current protected local interface and legacy scope
+
+The experimental Chatter profile now uses CRC-protected `/m1` framing, local node
+`epoch/request`, two real outstanding machine slots and typed LINK_OK on the existing
+matching radio ACK. The exact local contract is
+[CHATTER_MACHINE_PROTOCOL_V1.md](CHATTER_MACHINE_PROTOCOL_V1.md); its codec/client
+live in `profiles/chatter/machine_codec.py` and `machine_client.py`.
+An idle receiver restores this channel after reconnect without a new file-send command.
+Pending old tickets are never reported successful by a new epoch; the old host writes
+must settle, and reset/new WELCOME epoch proof permits FT1's idempotent recovery.
+No controller reboot or RF SUBMIT replay is performed merely to obtain that proof.
+
+The `/bin`, human BINARY-presentation and TELEMETRY-only limitations described below
+apply to **explicit legacy compatibility** after old-firmware rejection. They do not
+define protected machine settlement. Machine mode works independently of human output
+mode and waits for typed LINK_OK, never DELIVERY telemetry. Final file completion still
+requires verified remote RESULT, durable publication and the completed tombstone.
+FT1 encoding, capacities and END/MISSING repair below remain unchanged; midstream
+repair and the FT1 FLOW/CAPS/QUERY extension remain deferred. Machine QUERY is local.
+
 The current implementation lives on `serialterminal/dev_tui`. The authoritative firmware
 transport contract is maintained in:
 
@@ -25,13 +45,18 @@ Exact FT1 byte encoding is implemented in:
 src/serialterminal/file_transfer/protocol.py
 ```
 
-Exact FT1 state/recovery behavior is implemented in:
+FT1 state has one coordinator and explicit core/recovery/storage/pipeline policies:
 
 ```text
+src/serialterminal/file_transfer/coordinator.py
 src/serialterminal/file_transfer/core.py
+src/serialterminal/file_transfer/resumable.py
+src/serialterminal/file_transfer/manager.py
+src/serialterminal/file_transfer/pipeline_manager.py
+src/serialterminal/file_transfer/outbox.py
 ```
 
-The Chatter local `/bin` adapter is implemented in:
+The explicit legacy Chatter local `/bin` adapter is implemented in:
 
 ```text
 src/serialterminal/profiles/chatter/binary_user.py
@@ -1383,17 +1408,13 @@ transfer_id + chunk_index
 
 and idempotent replay.
 
-It does **not** provide persistent resume after SerialTerminal process death/restart.
-
-After process restart:
-
-```text
-start a fresh transfer
-new transfer_id
-send from the beginning
-```
-
-Do not claim persistent resume.
+Persistent resume after process restart is implemented with retained receiver
+manifests and sender journals. `file_send_start` explicitly revalidates an unchanged
+source and reuses the matching old transfer_id; ambiguous journals fail rather than
+being guessed. Receiver partials survive timeout/failure; completed tombstones replay
+RESULT without a second publication. Automatic background restart is not performed.
+See [FT1_RESUME.md](FT1_RESUME.md) for authoritative storage/recovery details and
+separate physical acceptance limits.
 
 ---
 
@@ -1418,7 +1439,7 @@ FT1 overall remote-result timeout        3600 s
 FT1 MISSING max disjoint ranges          28 at 243-byte capacity
 simultaneous active FT1 transfers/session 1
 MISSING pagination                       none
-persistent process-restart resume        none
+persistent process-restart resume        explicit file_send_start + journals/manifests
 LoRa SACK dependency                     none
 ```
 
@@ -1518,7 +1539,7 @@ Before accepting a file-transfer implementation, verify all of the following:
 - [ ] compressed wire stream is used only when smaller;
 - [ ] wire SHA-256 and final original SHA-256 are both verified;
 - [ ] final file publication is atomic;
-- [ ] process restart is not presented as resume;
+- [ ] process restart revalidates source and durable state before explicit same-ID resume;
 - [ ] no new per-DATA application ACK was added.
 
 ---

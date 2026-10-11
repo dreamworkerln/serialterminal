@@ -24,14 +24,40 @@ Stage 3 implements immutable raw/gzip snapshots, checkpoint-before-RESUME and on
 destination from durable publishing intent through completed tombstone before OK.
 Fault injection covers bytes, intent, rename, directory, tombstone and RESULT delivery
 for compressed/uncompressed streams. Local stages 1–3 checkpoint: 477 pytest tests
-passed with an isolated device cache. Same-ID revival and later scheduling/machine
-contract work remain open; no physical or power-loss PASS is claimed.
+passed with an isolated device cache. Stage 4 is preserved at `f9c8a8f`: same-ID
+revival, atomic lease/rollback and bounded control/recovery deadlines (494 tests).
+The experimental working tree adds the shared local machine contract, one FT1
+coordinator, bounded RX/control/outbox queues and protected Chatter machine client.
+Current full host suite: 543 PASS with isolated cache. Physical baseline small-file
+BLE→BLE and USB→USB passed; process-restart BLE discovery was BLOCKED by a stale
+host connection after SIGKILL, not accepted as RF failure. Four-transport machine,
+restart/reset and performance acceptance remain open. No power-loss PASS is claimed.
 
 The current implementation series retains FT1 v1 and the existing radio USER/ACK.
 FLOW/CAPS/QUERY, checked DATA and remote-progress watchdog extensions below remain
 deferred design material; their presence is not an instruction to implement them in
 this series. Historical findings below are retained and must be checked against the
 actual source before each fix.
+
+## Manual-reset EOF finding, 2026-10-11
+
+Physical frozen v5 USB tests: sender1B44 reset during DATA completed the same
+30 KiB transfer `7f7e90780e92f035` in 20.017 s with exact SHA256 and one publication.
+Reverse receiver1B44 reset caused bounded sender `LINK_FAIL` at 72/136 chunks;
+receiver had 73/136. Normal agent EOF then left a suspended manifest without `.part`.
+Evidence: journal `ЭТАП8_РУЧНОЙ_RESET_20261011T173207Z` and separate
+`20261011T173720Z_receiver_reset_LINK_FAIL` / `20261011T173720Z_shutdown_manifest_without_part`.
+
+Root cause of EOF deletion: `_AgentJsonlRunner._shutdown()` invoked destructive
+`cancel_file_transfers()` before the resumable manager close/suspension path. The
+RX cancellation deleted bytes; close could concurrently checkpoint the same incoming
+object, leaving a dangling manifest. Local fix removes implicit FT user-cancel on
+EOF; explicit cancellation remains unchanged. Regression reproduces absent bytes
+before the fix and passes both EOF-retain/resume and explicit-cancel cases after it.
+Full updated isolated-cache pytest: 545 PASS/48.56s; compileall/diff-check PASS.
+Frozen v6 manifest is recorded in artifacts/HOST_MANIFEST_v6.json. Physical
+EOF/retention/same-ID resume gate pending; no closure claimed.
+Sender LINK_FAIL during peer downtime is separate from this deletion finding.
 
 ## Purpose
 

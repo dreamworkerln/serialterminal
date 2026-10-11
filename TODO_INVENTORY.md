@@ -447,6 +447,25 @@ GitHub Actions:               33764159009 SUCCESS
 post-closure hardware smoke: PASS / physical BLE multi-device / 2026-09-03
 ```
 
+## Deferred final-repair follow-up
+
+### TODO_042 — [todos/TODO_042_FT1_BATCHED_FINAL_REPAIR.md](todos/TODO_042_FT1_BATCHED_FINAL_REPAIR.md)
+
+Status: DEFERRED / IMPLEMENTATION OPEN / VALIDATION OPEN
+
+Goal: remove the full-set MISSING limit using sequential capacity-bounded portions
+in END → MISSING → repair DATA → END cycles, preserving FT1 v1 uint32 ranges,
+opaque firmware and verified single publication. Revise the eight-round budget
+with finite no-progress/deadline limits; validate loss, duplicates and old/new peers.
+This is final repair only; midstream repair/FLOW/CAPS/watchdog remain separate.
+
+Docs-only design checkpoint: 2026-10-11, `dev_tui@f9c8a8f0798db362f6c04b7df12de7f53256975a`
+plus the existing experimental working tree. No implementation/tests/hardware PASS
+is claimed. Scheduling: this TODO does not change the current next-action order;
+select it separately after the active architecture-repair physical/performance
+gates when planning the later LoRa-SACK work, before attempting large sparse-gap
+acceptance beyond the legacy limit.
+
 ## Current validation posture
 
 Repository CI is the normal per-change clean-environment gate. Physical-node claims remain separate: do not infer current-head hardware validity from older run bundles. TODO_034 through TODO_037 have completed host implementation/automated validation but remain explicitly open for the required physical BLE/USB/two-node process-restart matrix. TODO_038 is intentionally deferred until the current firmware/BlueZ throughput characterization establishes a stable pre-checkpoint baseline; its later acceptance must include measured overhead and real silent-remote-ST stall/recovery validation. TODO_039 and TODO_040 are coupled UI/config-policy follow-ups: they must begin from the final accepted baud-rate state after the current firmware/speed work, and the F9/runtime baud work must consume the centralized single-source settings policy rather than introducing another copy of the same defaults. For the next build-level validation pass, continue to prefer one long-lived `serialterminal agent` process and a broad scenario matrix over repeated manual operator actions; only UI-specific behavior that the machine API cannot exercise should require a separate human pass.
@@ -461,3 +480,17 @@ worker failures, shared monotonic deadlines, partial retention/quarantine and
 negative RESULT stop, immutable wire snapshots, checkpoint-before-RESUME and
 publication/tombstone-before-OK. Same-ID revival and later stages remain open. This
 does not close TODO_041 or physical gates. FLOW/CAPS/QUERY remains deferred for this series.
+
+Architecture repair experimental checkpoint (2026-10-11): stage 4 `f9c8a8f`
+revalidated; machine contract, bounded outbox/RX/control and composed FT1 coordinator
+implemented in the working tree, full isolated-cache pytest 543 PASS. This is local
+software evidence; restart/reset, four-transport and performance gates remain open.
+Local QUERY belongs only to `/m1`, not the deferred FT1 FLOW/CAPS/QUERY extension.
+
+Manual-reset finding (2026-10-11): forward USB sender reset completed a verified
+30 KiB same-ID transfer; reverse receiver reset gave bounded LINK_FAIL. Agent EOF
+then removed the receiver .part through implicit user cancellation. Local shutdown
+fix preserves the existing suspension path; regression reproduces the deletion on
+v5 and passes EOF-retain/resume plus explicit-cancel on the fix. Updated isolated-cache full suite 545 PASS/48.56s; compileall/diff-check PASS.
+Hardware retention/resume gate pending. Details/evidence in TODO_041; this does
+not implement the deferred TODO_042 batched repair or close architecture stage 8.

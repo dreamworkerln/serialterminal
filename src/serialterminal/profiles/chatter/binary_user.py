@@ -108,7 +108,7 @@ def parse_binary_rx_line(line: str) -> bytes | None:
 
 def is_binary_presentation_line(line: str) -> bool:
     value = line.rstrip("\r\n")
-    return value.startswith("> [BINARY] ") or (
+    return value.startswith("/m1 ") or value.startswith("> [BINARY] ") or (
         value.startswith("< [") and _BINARY_MARKER in value
     )
 

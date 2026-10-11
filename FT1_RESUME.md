@@ -91,9 +91,20 @@ in original, pipeline and repair paths. It does not set operator cancellation or
 issue `/cancel all`. RESULT decoding rejects contradictory status/code pairs.
 Already issued firmware/RF operations are outside the legacy host drain guarantee.
 
-Local automated checkpoint for stages 1–3: 477 tests passed with an isolated device
-cache. Same-ID revival and scheduling changes remain open; physical validation has
-not been performed for these changes.
+Local automated checkpoint for stages 1–4: 494 tests passed with an isolated device
+cache. Stage 4 source is retained at `f9c8a8f`. Physical validation remains separate.
+Same-process retry reuses the failed record and event cursor after its worker settles;
+claim/checkpoint failure preserves the old terminal history. Lease rollback failure
+retains admission instead of allowing another transfer. Old RESULT/MISSING/cancel
+state is cleared only after the new attempt is admitted. FT1 v1 has no attempt epoch;
+a delayed negative RESULT can therefore safely fail a later same-ID attempt.
+
+Lost local echo after real delivery and discarded unresolved pipeline tickets block
+new legacy BINARY submissions with `local_tx_unsettled`. A connection generation or
+READY line alone does not settle the old firmware queue; observed controller reset
+is required. This condition is intentionally not added to the automatic recoverable
+set. RESULT/control/repair work shares one absolute completion deadline, including
+nested local recovery; blocking third-party legacy adapters retain their own limits.
 
 ## Same-process FT1 recovery
 
@@ -174,6 +185,11 @@ from being sent.
 If a crash happens after bytes are written but before the manifest advances, the sender
 may retransmit those bytes. That is safe because duplicate DATA for the same
 transfer/chunk must be identical and is idempotent.
+
+Agent EOF also uses the manager suspension path, preserving receiver partial bytes
+and the sender journal. It must not first invoke explicit cancellation, which discards
+receiver partial state. The same distinction applies when checking shutdown evidence: a
+retained manifest must reference existing bytes.
 
 Receiver idle timeout releases current runtime ownership and records suspended durable
 state rather than deleting the partial transfer. Runtime history may still surface
@@ -464,3 +480,31 @@ receiver completes/publishes -> sender misses RESULT/restarts -> tombstone compl
 
 Record exact SerialTerminal SHA, firmware SHA, node identities, transport, transfer ID,
 resume cursor, final hash and result for those runs.
+
+## Protected local machine and outbox continuation — 2026-10-11
+
+The experimental working tree composes one FT1 coordinator with bounded outbox,
+RX and control queues. The full isolated-cache host suite passed 543 tests.
+Protected local framing is defined in `CHATTER_MACHINE_PROTOCOL_V1.md` and negotiated
+by the Chatter profile. LINK_OK proves the existing peer-node ACK, not remote storage.
+Physical four-path/reconnect/reset/resume/performance gates remain separate.
+
+On reconnect an idle receiver reopens its machine RX automatically. Outstanding old
+requests remain guarded: same-epoch reconnect cannot erase unresolved tickets. Owned
+host writes must settle; an observed controller reset or new protected WELCOME epoch
+can invalidate the old node slots and permit explicit idempotent FT1 recovery. This
+never completes the old ticket as successful and never issues a blind adapter SUBMIT.
+A local-only HELLO/QUERY may recover evidence; absent proof fails visibly. Legacy
+compatibility retains the weaker echo/firmware-queue limitations documented above.
+Close finalizes discarded terminal jobs visibly while preserving published bytes and
+completed tombstones; unresolved ownership is retained rather than falsely released.
+
+The BLE-sender physical matrix exposed a missing local outcome with a 29-second
+wait before QUERY. The client now queries the same epoch/request after an addressed
+full-credit STATUS and 100 ms grace; credit alone never completes a ticket. This
+is local cache recovery, not midstream RF repair.
+
+A repeated WELCOME with the same live USB node epoch preserves the monotonically
+increasing request counter. Only a fresh epoch resets it; the node outcome cache
+is still authoritative after same-epoch reconnect. Regression was reproduced on
+frozen v4 and fixed before v5 validation.

@@ -266,8 +266,11 @@ def test_lost_control_is_bounded_and_explicit_retry_keeps_identity(tmp_path, mes
     payload = random.Random(15).randbytes(227 * 3)
     source.write_bytes(payload)
     left, right = CaptureTransport(), CaptureTransport()
+    # Outbox и durable publication асинхронны: 20 ms replay interval расходовал
+    # два повтора раньше fsync/RESULT (~140 ms в полном прогоне). Общий deadline,
+    # число повторов и внешняя граница <1 s остаются проверяемыми ограничениями.
     tx = FileTransferManager(left, receive_dir=tmp_path / "tx", id_factory=lambda: 171,
-                             result_timeout_s=0.3, control_replay_interval_s=0.02,
+                             result_timeout_s=0.3, control_replay_interval_s=0.08,
                              max_control_replays=2, resume_handshake_timeout_s=0.02)
     rx = FileTransferManager(right, receive_dir=tmp_path / "rx")
     dropped_data = [False]
@@ -300,9 +303,9 @@ def test_lost_control_is_bounded_and_explicit_retry_keeps_identity(tmp_path, mes
             loss_enabled[0] = False
             second = tx.start_send(source)
             assert second["transfer_id"] == first["transfer_id"] and second["resumed"]
-            assert wait_until(lambda: tx._records[171].state == "completed")
+            assert wait_until(lambda: tx._records[171].state == "completed"), tx._records[171].snapshot()
         else:
-            assert tx._records[171].state == "completed"
+            assert tx._records[171].state == "completed", tx._records[171].snapshot()
         assert Path(rx._records[171].final_path).read_bytes() == payload
         assert len(list((tmp_path / "rx").glob("control*.bin"))) == 1
     finally:

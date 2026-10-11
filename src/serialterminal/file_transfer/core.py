@@ -14,6 +14,8 @@ import threading
 import time
 from typing import Any, Callable
 
+from .outbox import Outbox, OutboxError
+
 from .protocol import (
     Compression,
     DataMessage,
@@ -49,6 +51,8 @@ FILE_MAX_REPAIR_ROUNDS = 8
 FILE_MAX_LOCAL_MESSAGE_REPLAYS = 4
 FILE_INCOMING_IDLE_TIMEOUT_S = 120.0
 FILE_RX_IDLE_SWEEP_S = 1.0
+FILE_RX_QUEUE_CAPACITY = 256
+FILE_CONTROL_QUEUE_CAPACITY = 16
 _IO_CHUNK = 256 * 1024
 
 _TERMINAL_STATES = frozenset({"completed", "failed", "cancelled"})
@@ -100,6 +104,12 @@ class _IncomingState:
 @dataclass(frozen=True)
 class _CancelIncoming:
     transfer_id: int
+
+
+@dataclass(frozen=True)
+class _OutboundFailure:
+    transfer_id: int
+    error: Exception
 
 
 def default_receive_dir() -> Path:
@@ -357,6 +367,12 @@ class _TransferRecord:
 
     def set_remote_missing(self, message: MissingMessage) -> None:
         with self._condition:
+            if len(self.remote_missing) >= FILE_CONTROL_QUEUE_CAPACITY:
+                self.control_overflow = True
+                self.remote_failure_event.set()
+                self._condition.notify_all()
+                self.event("control_queue_overflow")
+                return
             self.remote_missing.append(message)
             self._condition.notify_all()
         self.event(
@@ -466,6 +482,7 @@ class FileTransferManager:
         max_local_message_replays: int = FILE_MAX_LOCAL_MESSAGE_REPLAYS,
         incoming_idle_timeout_s: float = FILE_INCOMING_IDLE_TIMEOUT_S,
         event_sink: Callable[[dict[str, Any]], None] | None = None,
+        _defer_start: bool = False,
     ) -> None:
         self.transport = transport
         self.receive_dir = (
@@ -503,15 +520,31 @@ class FileTransferManager:
         self._terminal_order: deque[int] = deque()
         self._active_id: int | None = None
         self._incoming: _IncomingState | None = None
-        self._rx_queue: queue.Queue[FileMessage | _CancelIncoming | None] = queue.Queue()
+        self._rx_queue: queue.Queue = queue.Queue(maxsize=FILE_RX_QUEUE_CAPACITY)
+        self._rx_overflow = threading.Event()
+        self._outbox = Outbox()
         self._stopping = threading.Event()
         self._rx_thread = threading.Thread(
             target=self._rx_loop,
             name=f"serialterminal-file-rx-{id(self):x}",
             daemon=True,
         )
+        self._runtime_started = False
+        if not _defer_start:
+            self._start_workers()
+
+    def _start_workers(self) -> None:
+        # Receiver может синхронно доставить META при регистрации: все storage
+        # policies должны быть готовы до callback и запуска RX/controller worker.
+        with self._lock:
+            if self._runtime_started:
+                return
+            self._runtime_started = True
         self.transport.set_receiver(self.feed_binary)
         self._rx_thread.start()
+        initialize = getattr(self.transport, "start", None)
+        if callable(initialize):
+            initialize()
 
     @property
     def payload_capacity(self) -> int:
@@ -549,6 +582,7 @@ class FileTransferManager:
             record.remote_result = None
             record.remote_failure_event.clear()
             record.remote_missing.clear()
+            record.control_overflow = False
             record.remote_resume = None
             record.state = state
             record._condition.notify_all()
@@ -624,6 +658,22 @@ class FileTransferManager:
         failure: FileTransferError | None = None,
         final_path: Path | None = None,
     ) -> None:
+        action = lambda: self._terminal_record_settled(record, state, failure=failure, final_path=final_path)
+        try:
+            if threading.current_thread() is self._rx_thread:
+                self._outbox.submit(action, on_error=lambda exc: self._terminal_outbox_failed(record, exc, final_path))
+            else:
+                self._outbox.call(action)
+        except OutboxError as exc:
+            record.event("outbox_overflow", error=str(exc))
+            record.terminal("failed", failure=FileTransferError("local_ownership_unsettled", str(exc), phase="settling"))
+
+    def _terminal_outbox_failed(self, record, exc, final_path) -> None:
+        # Durable publication не отменяется, но lease без drain не освобождается.
+        record.event("terminal_outbox_failed", error=str(exc))
+        record.terminal("failed", failure=FileTransferError("local_ownership_unsettled", str(exc), phase="settling"), final_path=final_path)
+
+    def _terminal_record_settled(self, record, state, *, failure=None, final_path=None) -> None:
         drain = getattr(self.transport, "drain_binary", None)
         if callable(drain):
             try:
@@ -675,6 +725,8 @@ class FileTransferManager:
     def _check_remote_failure(record: _TransferRecord | None) -> None:
         if record is None or record.direction != "TX":
             return
+        if getattr(record, "control_overflow", False):
+            raise FileTransferError("control_queue_overflow", "bounded FT1 control queue overflow", phase="waiting_result")
         with record._condition:
             result = record.remote_result
         if result is not None and not result.ok:
@@ -692,7 +744,38 @@ class FileTransferManager:
                 "remote_result_timeout", "remote completion deadline expired", phase="waiting_result",
             )
 
-    def _send_message(
+    def _send_message(self, message, *, cancel_event, deadline=None) -> None:
+        action = lambda: self._send_message_direct(message, cancel_event=cancel_event, deadline=deadline)
+        try:
+            if threading.current_thread() is self._rx_thread:
+                self._outbox.submit(action, on_error=lambda exc: self._outbound_error(message.transfer_id, exc))
+            else:
+                self._outbox.call(action, deadline=deadline)
+        except OutboxError as exc:
+            self._check_send_deadline(deadline)
+            raise FileTransferError("local_outbox_unsettled", str(exc), phase="sending") from exc
+
+    def _outbound_error(self, transfer_id: int, exc: Exception) -> None:
+        with self._lock:
+            record = self._records.get(transfer_id)
+        if record is not None:
+            record.event("control_delivery_failed", error=str(exc))
+        self._enqueue_rx(_OutboundFailure(transfer_id, exc))
+
+    def _enqueue_rx(self, item) -> None:
+        if self._stopping.is_set():
+            return
+        try:
+            self._rx_queue.put_nowait(item)
+        except queue.Full:
+            self.last_rx_worker_error = "bounded FT1 RX queue overflow"
+            self._rx_overflow.set()
+            with self._lock:
+                record = self._records.get(getattr(item, "transfer_id", None))
+            if record is not None:
+                record.event("rx_queue_overflow", partial_retained=True)
+
+    def _send_message_direct(
         self,
         message: FileMessage,
         *,
@@ -708,6 +791,8 @@ class FileTransferManager:
 
         replay = 0
         while True:
+            if self._stopping.is_set():
+                raise FileTransferError("local_shutdown", "file manager is closing")
             self._check_remote_failure(record)
             self._check_send_deadline(deadline)
             try:
@@ -1064,10 +1149,16 @@ class FileTransferManager:
                 else:
                     record.set_remote_missing(message)
             return
-        self._rx_queue.put(message)
+        self._enqueue_rx(message)
 
     def _rx_loop(self) -> None:
         while not self._stopping.is_set():
+            if self._rx_overflow.is_set():
+                self._rx_overflow.clear()
+                with self._lock:
+                    incoming = self._incoming
+                if incoming is not None:
+                    self._fail_incoming(incoming, FileTransferError("receiver_overflow", "bounded FT1 RX queue overflow", phase="receiving"))
             try:
                 item = self._rx_queue.get(timeout=FILE_RX_IDLE_SWEEP_S)
             except queue.Empty:
@@ -1079,7 +1170,11 @@ class FileTransferManager:
             if item is None:
                 return
             try:
-                if isinstance(item, _CancelIncoming):
+                if isinstance(item, _OutboundFailure):
+                    incoming = self._incoming_for(item.transfer_id)
+                    if incoming is not None:
+                        self._fail_incoming(incoming, FileTransferError("binary_send_failed", str(item.error), phase="receiving"))
+                elif isinstance(item, _CancelIncoming):
                     self._cancel_incoming(item.transfer_id)
                 elif isinstance(item, MetaMessage):
                     self._handle_meta(item)
@@ -1154,12 +1249,16 @@ class FileTransferManager:
         record: _TransferRecord | None,
         result: ResultMessage,
     ) -> None:
-        threading.Thread(
-            target=self._send_result,
-            args=(record, result),
-            name=f"serialterminal-file-result-{transfer_id_text(result.transfer_id)}",
-            daemon=True,
-        ).start()
+        try:
+            action = lambda: self._send_result(record, result)
+            if threading.current_thread() is self._rx_thread:
+                self._outbox.submit(action)
+            else:
+                self._outbox.call(action)
+        except OutboxError as exc:
+            self.last_rx_worker_error = str(exc)
+            if record is not None:
+                record.event("result_delivery_failed", error=str(exc))
 
     def _reject_incoming(
         self,
@@ -1359,7 +1458,7 @@ class FileTransferManager:
                 file.write(message.payload)
                 file.flush()
             incoming.received[message.chunk_index] = len(message.payload)
-            bytes_completed = sum(incoming.received.values())
+            bytes_completed = incoming.record.bytes_completed + len(message.payload)
             incoming.record.set_progress(
                 bytes_completed=bytes_completed,
                 chunks_completed=len(incoming.received),
@@ -1755,7 +1854,7 @@ class FileTransferManager:
         record.cancel_event.set()
         record.event("cancel_requested")
         if record.direction == "RX":
-            self._rx_queue.put(_CancelIncoming(parsed))
+            self._enqueue_rx(_CancelIncoming(parsed))
         return record.snapshot()
 
     def close_transfer(self, transfer_id: str | int) -> dict[str, Any]:
@@ -1822,8 +1921,12 @@ class FileTransferManager:
         self.join_all(1.0)
         self._stopping.set()
         self.transport.set_receiver(None)
-        self._rx_queue.put(None)
+        try:
+            self._rx_queue.put_nowait(None)
+        except queue.Full:
+            pass
         self._rx_thread.join(timeout=1.0)
+        self._outbox.close(1.0)
         with self._lock:
             incoming = self._incoming
             self._incoming = None

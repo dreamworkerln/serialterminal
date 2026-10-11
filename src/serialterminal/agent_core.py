@@ -1664,10 +1664,11 @@ class _AgentJsonlRunner:
 
     def _shutdown(self) -> None:
         # EOF не должен ждать user long-poll или многоминутный PHY deadline.
-        # Сначала просим waits/jobs завершиться кооперативно, затем force-close
+        # Сначала просим waits/sweeps завершиться кооперативно, затем force-close
         # sessions разрывает оставшиеся adapter waits до закрытия RunLog.
+        # FT закрывается через manager.close(): EOF сохраняет durable partial и
+        # sender journal; explicit cancel отдельно от shutdown удаляет RX state.
         self.manager.cancel_observes()
-        self.manager.cancel_file_transfers()
         self.manager.cancel_sweeps()
         self.manager.join_file_transfers(1.0)
         self.manager.join_sweeps(1.0)
