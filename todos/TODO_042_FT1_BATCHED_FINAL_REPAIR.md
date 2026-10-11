@@ -1,195 +1,349 @@
-# FT1: итоговый repair порциями пропусков
+# FT1: рекурсивная передача списков пропусков служебными файлами
 
 TODO-ID: TODO_042
-Status: DEFERRED
+Status: OPEN
+Priority: CRITICAL
 Created: 2026-10-11
-Design checkpoint: `dev_tui@f9c8a8f0798db362f6c04b7df12de7f53256975a` + экспериментальное рабочее дерево реархитектуры; документационный запрос оператора 2026-10-11.
+Design updated: 2026-10-12, обсуждение и согласование с оператором.
 Implementation: OPEN / NOT STARTED
 Validation: OPEN / NOT RUN
+Branch: `dev_tui_exp_recursive_missing`
+Base checkpoint: `dev_tui@fd94bdeb1fd878e072b0f852b3e8f461d928e3cd` (`point 8 done`).
+Docs checkpoint: та же revision + незакоммиченные изменения документации в feature branch.
+
+Descriptive suffix BATCHED_FINAL_REPAIR сохранён как историческое имя файла;
+актуальный design — recursive missing, TODO-ID не меняется.
 
 ## Purpose
 
-Снять ограничение, при котором больше 28 разрозненных диапазонов пропусков после
-END нельзя исправить, хотя все накопленные чанки пригодны для докачки. Запрашивать
-пропуски последовательными порциями в существующем END/MISSING/RESULT обмене,
-сохраняя формат FT1 v1 и итоговую проверку файла.
+Убрать ограничение полного списка пропусков одним FT1 MISSING. При capacity243
+текущий пакет содержит максимум28 диапазонов. Для файла примерно1 МиБ /227 bytes
+=4620 чанков даже30 разрозненных дырок, около0.65%, дают repair_too_large.
 
-Работа отложена до отдельного выбора этой задачи оператором после текущих
-аппаратных gates реархитектуры и при планировании дальнейших работ LoRa-SACK.
-Создание этого TODO не включает реализацию в текущий пункт 8.
+Для прототипа оператор выбрал переиспользование файлового механизма ST:
+полный список дырок передаётся обратно служебным файлом FT1. Если дырки есть
+в самом служебном файле, список его дырок тоже передаётся файлом в обратную
+сторону. Вложенность ограничена; после доставки нижнего списка чинится его
+родитель, затем последовательно возвращаемся к исходному файлу.
+
+Это будущая реализация. Текущий runtime остаётся FT1 v1: рекурсивных сессий,
+нового missing_total и процентного gate пока нет. Source constants не менялись.
 
 ## Related documents
 
-- [TODO policy](../TODO_MANAGEMENT_POLICY.md) — правила ведения задачи.
-- [Inventory](../TODO_INVENTORY.md) — текущий статус и порядок работ.
-- [FILE_TRANSFER.md](../FILE_TRANSFER.md) — FT1 и итоговый repair.
+- [TODO policy](../TODO_MANAGEMENT_POLICY.md).
+- [Inventory](../TODO_INVENTORY.md).
+- [FILE_TRANSFER.md](../FILE_TRANSFER.md) — текущий FT1 contract.
 - [FT1_RESUME.md](../FT1_RESUME.md) — identity, durable state и resume.
-- [TODO_029](TODO_029_FILE_TRANSFER_RECONNECT_REPAIR.md) — исходный final repair.
+- [TODO_029](TODO_029_FILE_TRANSFER_RECONNECT_REPAIR.md) — final repair.
 - [TODO_035](TODO_035_FT1_SAME_PROCESS_PAUSE_RESUME.md),
   [TODO_036](TODO_036_FT1_PERSISTENT_RECEIVER_RESUME_STATE.md),
-  [TODO_037](TODO_037_FT1_PERSISTENT_SENDER_AND_RESUME_HANDSHAKE.md) — recovery/resume.
-- [TODO_041](TODO_041_FT1_FAILURE_RECOVERY_AND_RX_OBSERVABILITY.md) — сохранение
-  partial при ошибках; его FLOW/CAPS и midstream repair остаются отдельным design.
-- [TODO_038](TODO_038_FT1_REMOTE_PROGRESS_WATCHDOG.md) — отдельный будущий watchdog.
+  [TODO_037](TODO_037_FT1_PERSISTENT_SENDER_AND_RESUME_HANDSHAKE.md) — recovery.
+- [TODO_041](TODO_041_FT1_FAILURE_RECOVERY_AND_RX_OBSERVABILITY.md) — failure,
+  partial и отдельный future FLOW/midstream scope.
+- [TODO_038](TODO_038_FT1_REMOTE_PROGRESS_WATCHDOG.md) — отдельный watchdog.
+- [TODO_040](TODO_040_CENTRALIZED_SETTINGS_SINGLE_SOURCE.md) — future config layer.
 
-## Current behavior
+## Current behavior and layer boundary
 
-Проверено чтением исходников на указанном checkpoint с рабочими изменениями:
+- FT1 v1 header:12 bytes, >2sBBQ, transfer_id:uint64. MISSING:type5, затем
+  range_count:uint8 и пары start_chunk:uint32/count:uint32, big-endian.
+- Индексы с нуля; count обозначает непрерывную длину. Capacity243 даёт28
+  диапазонов, не28 чанков. encode_missing требует поместить весь набор;
+  receiver после END иначе получает repair_too_large.
+- Receiver ST знает число чанков из META и учитывает записанные чанки в
+  incoming.received. После корректного END вычисляет отсутствующие индексы.
+  MISSING формирует ST, а не прошивка. Полный набор чанков с неверным хэшем
+  означает hash failure, а не список отсутствующих чанков.
+- Прошивка не знает файлов, FT1, chunk indexes, END или MISSING. Она перевозит
+  непрозрачные BINARY USER; CRC/ACK/retry/dedup относятся к радиотранспорту.
+- CRC-error USER не передаётся принимающему ST и не подтверждается ACK.
+  Передающая прошивка при включённом retry повторяет USER; исчерпание попыток
+  сообщает LINK_FAIL и вызывает ошибку ST. Это не обычное успешное завершение
+  файла с молча оставленной радио-дыркой.
+- LINK_OK подтверждает приём кадра peer firmware. Последующая доставка через
+  USB/BLE в ST, обработка и хранение остаются отдельными границами. В прежних
+  экспериментах были пропуски после LINK_OK; их точный источник не установлен.
+- Sender сейчас выполняет MISSING → DATA → END с max_repair_rounds=8.
+  FT defaults: result_timeout3600s, control replay interval30s/max3,
+  receiver idle120s; resume handshake3s и local BINARY timeout30s.
+  Эти ST defaults не адаптируются к PHY. Радиотайминги прошивки учитывают ToA.
+- RESULT(ok=false) уже может остановить sender до END при обнаруженной ошибке
+  receiver, например storage failure/cancel. Успех только после полной проверки
+  и публикации файла. Потерянный RESULT не гарантирует немедленную остановку.
 
-- `protocol.py`: общий header 12 bytes (`>2sBBQ`), количество диапазонов uint8,
-  каждый диапазон — `start_chunk:uint32` + `count:uint32`, big-endian (`>II`).
-- При BINARY payload capacity 243 один MISSING вмещает
-  `floor((243 - 12 - 1) / 8) = 28` диапазонов. Это предел диапазонов, а не общего
-  числа чанков: один непрерывный пропуск может содержать много чанков.
-- `encode_missing()` требует, чтобы весь переданный набор диапазонов помещался
-  в один пакет. Receiver `_handle_end()` строит полный набор; при превышении
-  capacity завершает попытку с `repair_too_large`. Пригодный partial сохраняется
-  действующим failure/recovery контрактом.
-- Sender `_await_remote_completion()` уже обрабатывает цикл MISSING → запрошенные
-  DATA → END, но каждый MISSING расходует общий `max_repair_rounds`, по умолчанию 8.
-  Есть общий deadline ожидания результата. Пагинация пропусков не реализована.
+## Agreed target
 
-28 одиночных несмежных пропусков помещаются. 29 таких пропусков уже превышают
-текущий предел. Восемь раундов не дают сейчас возможность запросить 224 разных
-диапазона: receiver сначала должен закодировать полный список в одном MISSING.
+### Полный список — служебный файл FT1
 
-## Target behavior
+Первоначальная передача ROOT идёт A → B. После END, если остаются допустимые
+пропуски, B создаёт полный список дырок ROOT и передаёт его как внутренний файл
+LIST1 в направлении B → A. ROOT ожидает, его partial и контекст сохраняются.
 
-Выбранное решение: сохранить uint32 и запрашивать пропуски частями. Это снимает
-предел полного списка пропусков в одном пакете и не уменьшает допустимый размер
-файла переходом на uint16; существующие ограничения FT1 uint32 остаются.
-Формат пакетов сохраняется. Это будущая доработка, сейчас её в runtime нет.
+Если LIST1 дошёл полностью и прошёл проверку, A разбирает список, досылает
+запрошенные ROOT DATA и END. B снова проверяет ROOT. При новых/оставшихся дырках
+создаётся новый служебный файл списка; при полном приёме ROOT проверяется и
+публикуется существующим файловым механизмом.
 
-Состояние принятых чанков у получателя уже есть. Новые поля в пакете не нужны:
-изменить нужно выбор диапазонов и учёт бюджета repair.
-
-После END receiver сообщает одну ограниченную порцию актуальных пропусков.
-Sender исправляет её и снова отправляет END. Receiver пересчитывает missing set
-и сообщает следующую порцию либо проверяет файл и отвечает RESULT OK.
-
-Пример: 80 одиночных разрозненных пропусков, все repair DATA доставлены:
+Если LIST1 неполон, A создаёт LIST2 — список дырок LIST1 — и отправляет A → B.
+После полного LIST2 B досылает LIST1. После полного LIST1 A досылает ROOT.
 
 ```text
-END → MISSING(28 ranges) → repair DATA → END
-    → MISSING(28 ranges) → repair DATA → END
-    → MISSING(24 ranges) → repair DATA → END
-    → проверка хешей / публикация → RESULT OK
+ROOT:  A → B, неполон
+LIST1: B → A, дырки ROOT, неполон
+LIST2: A → B, дырки LIST1, получен полностью
+       B → A, досылка LIST1 + END, LIST1 проверен
+       A → B, досылка ROOT + END, ROOT проверен
+       B → A, RESULT OK для ROOT
 ```
 
-Если часть repair DATA опять потеряна, она остаётся в актуальном missing set и
-попадает в следующие порции. Сам факт отправки порции не доказывает её приём.
+Использовать существующие FT1 codec/file DATA, подготовку immutable wire,
+проверку хэшей, partial/resume и pipeline. Новый слой оркестрирует связи файлов
+и возврат к родителю. Передавать дырки каждого неполного родителя этим способом;
+порционные MISSING и отдельная сборка страниц MISSING больше не являются target.
 
-## Scope and non-goals
+Список должен содержать всю актуальную missing set родителя, а не порцию28.
+Сохраняются uint32 start_chunk/count и полный missing_total:uint32 для диагностики
+sender. missing_total равен сумме count полного canonical списка; это число
+чанков, не диапазонов. Размер списка не ограничивается одним BINARY USER.
 
-Scope: host-side FT1 receiver/sender, final repair после END, связанные тесты,
-диагностика, документация и политика конечных лимитов.
+Разбирать диапазоны только после полного приёма и проверки служебного файла.
+Проверять связь с родителем, границы chunks_total, sorted/non-overlapping/
+non-adjacent ranges, длину/count и соответствие missing_total сумме диапазонов.
+При нуле дырок проверяется сам родитель; успех не следует только из нулевого
+счётчика. Ошибка хэша не позволяет угадывать отсутствующие индексы.
 
-Не входят: midstream repair, остановка original DATA ради раннего repair,
-FLOW/CAPS/FT1 QUERY, remote-progress watchdog, новые wire message types,
-одновременная рассылка нескольких MISSING с reassembly, изменение radio ACK,
-firmware, payload capacity или замена uint32 на uint16.
+Точные служебные metadata/layout, marker типа файла и version handling закрепить
+перед codec implementation. Прежний предложенный layout одного MISSING v2 с
+missing_total не является новой спецификацией рекурсивной схемы.
 
-## Invariants
+### Identity, повторы и родительские сессии
 
-- Сохраняются FT1 v1 bytes, uint32 start/count, stable transfer_id, chunk indices,
-  META identity и prepared wire SHA-256; firmware остаётся opaque transport.
-- Каждый MISSING самостоятельно декодируется, содержит отсортированные,
-  несмежные и непересекающиеся корректные диапазоны в пределах chunks_total.
-- Размер порции вычисляется из фактической payload capacity, а не hardcoded 28.
-- RESULT OK разрешён только после полного приёма, wire/original SHA-256,
-  необходимой распаковки и атомарной публикации; tombstone предотвращает повторную
-  публикацию после lost RESULT.
-- При timeout, лимите, disconnect или cancel пригодные partial/journal сохраняются
-  согласно действующему recovery контракту. Cancel/close остаются отзывчивыми.
-- Все очереди, число повторов, время работы и размер диагностик ограничены.
-  Старая/дублированная MISSING не даёт бесконечно продлевать deadline.
+- У каждого нового служебного файла отдельный transfer_id:uint64 и явная связь
+  с непосредственным родителем. Повтор передачи того же списка сохраняет его ID.
+- Новый цикл починки создаёт новый служебный файл с новым ID, даже если список
+  байт-в-байт совпал с предыдущим. Не спутать это с автоматическим same-file resume.
+- ST учитывает обработанные ID списков в контексте операции. Повторно доставленный
+  уже обработанный список не запускает досылку и не считается новым циклом.
+- Списки и досылки выполняются последовательно. Проверять ожидаемого родителя и
+  текущую дочернюю сессию; чужой/старый список не меняет текущий residual progress.
+- Отдельную новую систему sequence tokens/PHY RTT/freshness для обычных пакетов
+  MISSING не проектируем. Unique child IDs, parent linkage и обработанные ID —
+  техническая часть оркестрации, не новый вопрос выбора схемы для оператора.
+- Нынешний manager допускает одну активную файловую передачу. Простого вложенного
+  start_send недостаточно: parent runtime нужно приостановить, сохранить и дать
+  transport ownership дочерней сессии, затем восстановить parent.
+- При смене ролей settled tickets/queues не теряются. Ожидания дочернего обмена
+  не считаются обычным отсутствием активности родителя и не запускают его старый
+  META/END replay параллельно дочерней передаче. Не создавать второй конкурентный
+  owner радио/transport или независимый pipeline для каждого уровня.
+- Служебные файлы остаются внутренними: не публикуются как обычные пользовательские
+  downloads и не выдают успешное завершение ROOT. ROOT завершается единожды.
 
-## Design
+### Глубина рекурсии: максимум8
 
-Receiver после каждого корректного END строит canonical missing ranges и выбирает
-первую порцию, помещающуюся в один MISSING. Остальные пропуски остаются в bitmap;
-хранить многопакетный список или собирать страницы по сети не требуется. Новая
-порция определяется заново после следующего END, с учётом реально принятых DATA.
-Полный приём запускает существующую finalization.
+ROOT имеет depth0. LIST1 имеет depth1; разрешены служебные уровни1..8.
+Если для неполного файла depth8 понадобился бы новый список depth9, вся ROOT
+операция завершается file transfer fail с явной причиной recursion_depth_limit.
+Пригодный partial ROOT сохраняется по действующему failure/resume contract.
+Успешное разворачивание стека возвращает depth к родителю.
 
-Sender сохраняет существующий один repair loop и DATA pipeline. Получив порцию,
-валидирует transfer_id/ranges, отправляет только запрошенные чанки и повторяет END.
-Не запускать новый sender worker и не возобновлять original stream с нулевого чанка.
+Глубина не ограничивает число циклов одного родителя. Последовательно доставленные
+новые списки ROOT каждый раз имеют depth1, а не возрастающую глубину.
 
-Пересмотреть `max_repair_rounds=8`: число успешно обслуженных порций большого
-missing set не должно само по себе исчерпывать лимит восстановления. Разделить
-бюджет нормальных порций и бюджет повторов без подтверждённого прогресса; оставить
-конечный общий deadline/объём работы. Точные пределы и способ доказательства
-прогресса определить и закрепить тестами перед реализацией. Local LINK_OK и
-уменьшение произвольной порции не являются доказательством уменьшения всего
-missing set. В legacy wire нет sequence/page token: delayed/duplicate MISSING
-могут приводить к безопасной повторной передаче, но не к ложному прогрессу или
-неограниченному циклу. Повторно теряемая первая порция должна завершаться bounded
-failure, а не навсегда блокировать остальные пропуски.
+### Процентный gate: ROOT30%, служебные файлы без процентного gate
 
-Wire compatibility не означает одинаковые возможности peers: старый sender всё
-ещё ограничен восемью раундами, старый receiver требует full-set MISSING. New/new
-должен поддерживать много порций; new/old и old/new должны сохранять ограниченное,
-наблюдаемое поведение и partial. Не обещать снятие лимита 28 для старого receiver
-или гарантированное завершение >8 порций со старым sender. Если потребуется
-negotiation для более сильных гарантий, это отдельное согласование scope.
+Согласован будущий configurable default max_missing_percent=30 для исходного
+пользовательского файла. Source constant пока не добавляется.
+Метрика:100*missing_total/chunks_total по чанкам wire-потока; при compression
+деноминатор относится к сжатому потоку. Сравнивать без округления процента.
 
-uint16 не выбран: замена обоих полей дала бы 57 диапазонов при capacity 243,
-но меняет wire encoding и ограничивает представимые индексы/длины. Порции решают
-ограничение количества диапазонов с сохранением нынешнего пространства uint32.
+После END ROOT: больше30% → отрицательный RESULT, failed attempt и пригодный
+partial; ровно30% допускает repair. Например300/1000 допустимо,301/1000 — отказ.
+Если приехало только2% ROOT, отсутствует98%: repair по default не начинается.
+Ещё не переданные чанки до END не считаются потерянными. Empty file обрабатывается
+без деления на ноль. Следующие END используют актуальный остаток.
 
-## Implementation
+Оператор отдельно принял: служебные файлы списков не имеют процентного gate,
+их разрешено чинить при любой доле пропусков в пределах остальных ограничений.
+Иначе маленький список мог бы прекратить рекурсию из-за потери одного чанка.
+Exemption определяется внутренним типом/контекстом, а не произвольным именем файла.
 
-- [ ] Зафиксировать лимиты порций, повторов без прогресса, общий deadline и
-  правила обработки stale/duplicate MISSING без новых wire fields.
-- [ ] Выбирать bounded canonical portion на receiver после END без отказа только
-  из-за большого полного missing set; сохранять остальные bitmap gaps.
-- [ ] Адаптировать sender repair budget и diagnostics, сохранив один loop,
-  deadline, pipeline, cancel и отрицательный RESULT.
-- [ ] Сверить normal repair, same-transfer resume, process/controller recovery,
-  late DATA, duplicate END и completed tombstones с FT1_RESUME.
-- [ ] Обновить FILE_TRANSFER, FT1_RESUME, AGENT_API и agent skill по реально
-  реализованной семантике; синхронизировать TODO_029/041 и inventory.
+FT defaults сейчас находятся в file_transfer/core.py; централизованный config
+слой относится к TODO_040. При реализации сделать одну authoritative ST настройку
+и привязку к manager; не дублировать default в firmware/UI/sender/receiver.
+Поддержка off/дробных процентов/формат override ещё относится к деталям config
+implementation; выбран default30 и exemption служебных файлов.
 
-## Validation
+### Нет прогресса: три завершённых цикла подряд
 
-- [ ] Автоматически проверить 0/1/28/29/80 isolated ranges, >224 ranges и
-  contiguous bursts; capacity-dependent границы и uint32 boundary values.
-- [ ] Проверить потери DATA во время repair, lost MISSING/END/RESULT,
-  duplicate/reordered/delayed control и повторный запрос той же порции.
-- [ ] Проверить bounded no-progress failure, общий deadline, отрицательный RESULT
-  и responsive cancel без удаления пригодных partial/journal.
-- [ ] Проверить restart sender/receiver/both между порциями, controller recovery,
-  same transfer identity, точный итоговый hash и единственную публикацию.
-- [ ] Проверить new/new, new/old и old/new, включая старый лимит восьми раундов;
-  existing codec vectors остаются byte-for-byte совместимыми.
-- [ ] Выполнить relevant regression и полный pytest на точном implementation
-  checkpoint; отдельно записать commit/CI результаты, если выполнялись.
-- [ ] На двух нодах проверить >28 isolated ranges управляемой host-side инъекцией
-  (явно пометить её), repair-on-repair и итоговый SHA-256; четыре топологии и оба
-  направления. Не выдавать обычный удачный RF прогон за проверку >28 ranges.
-- [ ] Измерить elapsed time, useful throughput, число порций/повторов и overhead
-  относительно того же PHY/transport/размера файла без пропусков.
+Оператор принял: каждый ROOT или служебный файл имеет свой счётчик no_progress.
+Первый полный проверенный список задаёт исходный остаток и сам не расходует цикл.
+Цикл состоит из доставки списка, досылки его родителя и нового END с последующей
+сверкой остатка. Во время вложенной починки списка parent cycle ещё не завершён.
 
-## Findings and known limitations
+```text
+Начальный остаток100.
+После досылки100 → no_progress1
+После досылки100 → no_progress2
+После досылки 97 → no_progress0
+После досылки 97 → no_progress1
+```
 
-Это последовательная обработка порций, а не несколько пакетов одного составного
-MISSING и не midstream repair. Потеря большого количества DATA до END всё ещё
-обнаруживается в final repair; задача не доказывает живость remote ST во время
-original stream. Конечные бюджеты означают, что постоянные потери могут завершить
-попытку с ошибкой и сохранённым resumable state.
+Любое уменьшение числа отсутствующих чанков сбрасывает счётчик. Три завершённых
+цикла подряд без уменьшения → вся операция failed, причина repair_no_progress,
+пригодный partial ROOT сохраняется. Не обнулять parent счётчик из-за успешной
+доставки дочернего списка. Duplicate/replayed список не завершает новый цикл.
 
-TODO_041 уже описывает будущий более широкий early repair. Этот TODO выделяет
-самостоятельную доработку legacy final repair; при будущей реализации early repair
-нужно переиспользовать согласованную политику порций/лимитов и не создавать
-конкурирующие repair loops. Наличие обоих документов не включает early repair.
+Receiver считает реально сохранённые уникальные чанки. Sender отражает проверенный
+полный список; local LINK_OK и число отправленных DATA не являются этим прогрессом.
+Увеличение остатка требует диагностики receiver-state regression/restart, не
+считается успешным прогрессом и не сбрасывает счётчик. Проверить отдельный recovery
+переход, чтобы старый список не подменял новое состояние.
+
+Порог не зависит от чанков/сек или времени цикла. Медленное продвижение допускается;
+минимальная скорость, производная по времени, общий DATA budget3*M0 и фиксированный
+лимит8 всех циклов не выбраны. В частности, один новый сохранённый чанк за цикл
+сбрасывает no_progress: это согласованная политика прототипа, не обещание верхней
+границы общего времени успешной починки.
+
+### Таймауты, радио и отказ
+
+Фиксированный часовой repair deadline не выбран как новый критерий этой схемы.
+Старые ST defaults документированы выше, но не выдаются за адаптивную модель.
+Не добавлять расчёт LoRa ToA/RTT, новый радио-ACK, собственные RF retries,
+обязательные паузы между циклами или отдельную систему доставки запросов в ST.
+Радиодоставка остаётся прошивке; дальнейший LoRa-SACK — отдельная firmware работа.
+
+Существующие ошибки транспорта, отключение, ограниченные локальные ожидания и
+cancel сохраняют значение. Если USB/BLE отвалился, ST может не получить даже END
+и не сформировать список: это failure/recovery, а не завершённый no-progress cycle.
+При реализации определить корректную фазовую привязку существующих deadlines к
+parent/child; не оставлять старый восьмираундовый/часовой budget скрытым пределом
+всей рекурсивной операции. Не ослаблять local ownership settlement и queue bounds.
+
+Отрицательный RESULT остаётся способом сообщения ошибки FT1. Доставленный отказ
+останавливает новые DATA; уже находящиеся в обработке tickets учитываются до
+release. Failure дочерней передачи/исчерпание лимитов завершают ROOT с указанием
+parent/depth/cause. Explicit cancel отменяет всю операцию с сохранением действующего
+cancel contract; не обещать resumable bytes после разрушительного receiver cancel.
+
+Не добавлять постоянный negative tombstone, запрещающий последующий same-ID ROOT
+resume. Старый cached RESULT не должен завершать новую попытку. Проверить existing
+failure/recovery semantics; отдельный attempt-token protocol не согласован и не
+требуется этим docs-only шагом. Hash-invalid bytes остаются quarantine по contract.
+
+## Scope, invariants and implementation details
+
+- Host-side orchestration, service-file metadata/list codec, final repair после END,
+  sender-visible остаток, depth8/no_progress3/ROOT30%, tests и документация.
+- uint32 индексы/длины; stable ROOT identity, immutable prepared wire и source/META
+  checks сохраняются. Обратная совместимость со старым FT1 не требуется; оба ST
+  обновляются вместе. Version/layout и reject mismatch явно специфицировать.
+- Firmware source/радиопротокол не меняются, flashing не требуется для этого scope.
+- ROOT успех только после полного набора, wire/original SHA256, decompression при
+  необходимости, atomic publication и durable completion. Успех LIST не равен ROOT OK.
+- Точные encoding metadata, организация контекста и обработанных ID, внутреннее
+  хранение/cleanup, API/UI представление являются деталями реализации.
+- Recovery после restart должен быть безопасным: специфицировать сохранение связи
+  parent/child либо bounded остановку внутренних сессий с явным ROOT resume по
+  durable partial. Нельзя обещать уже реализованный persistent recursive stack.
+- Midstream repair, FLOW/CAPS/FT1 QUERY, application watchdog, LoRa-SACK, расширение
+  BINARY capacity и порционные MISSING остаются вне выбранного scope.
+
+## Branch, merge and evidence workflow
+
+1. По отдельному поручению оператора создана dev_tui_exp_recursive_missing от
+   fd94bdeb1fd878e072b0f852b3e8f461d928e3cd. Текущие незакоммиченные документы
+   перенесены при switch. Этот шаг правит только TODO/inventory, не runtime.
+2. Implementation/validation вести в этой branch. Сохранить точные ST checkpoints
+   и firmware digest перед аппаратными прогонами. Код запускать по отдельному
+   старту implementation; этот docs task не запускает tests на радио/commit/push.
+3. После принятия software/hardware gates выполнить обычный merge в dev_tui по
+   поручению оператора, проверить resulting source и required regression/CI.
+4. Сырые ST/HCI логи остаются вне Git в
+   `/home/dream/coding/журнал экспериментов/TODO_042/`; путь пока планируемый.
+   Старые stage8 bundles/hashes не редактировать и не выдавать за новую validation.
+   Repo хранит code/tests/harness/parser/TODO и ссылки на evidence с digests.
+5. Для run фиксировать UTC, branch/commit/dirty diff digest, source/runtime freeze,
+   FW digest, file/compression/PHY/topology, fault injection, ROOT/child IDs и parents,
+   depth, missing_total trajectory, no_progress, outcome, все три finalized ST logs.
+   Каждый glitch имеет отдельную папку с описанием, логами, fixture и manifest.
+6. Python high-level harness и streaming parser подготовить до matrix. Журналы
+   не переключаются с веткой; многомегабайтные raw logs в Git не добавляются.
+7. feat/ft1-batched-final-repair оставлена по указанию оператора; разработка там
+   не ведётся. Промежуточное имя dev_tui_exp_multi_missing заменено до создания.
+
+## Implementation checklist
+
+- [ ] Закрепить service metadata/list format, version handling и parent association.
+- [ ] Переиспользовать FT1 file engine для полного списка без предела28 ranges;
+  explicit new child IDs, stable replay IDs, validated missing_total и uint32 ranges.
+- [ ] Реализовать последовательный stack parent/child, suspend/restore и ownership;
+  не запускать конкурирующие parent replay/worker/pipeline.
+- [ ] Реализовать depth0..8 и propagation recursion_depth_limit до ROOT.
+- [ ] Реализовать no_progress3 отдельно для каждого файла с reset на уменьшение;
+  не считать duplicate и вложенную доставку списка новым parent cycle.
+- [ ] Подключить будущий ROOT default30% и exemption внутренних service files.
+- [ ] Отображать ROOT и repair остаток; внутренние файлы не публиковать пользователю.
+- [ ] Проверить cancel, negative RESULT, LINK_FAIL, local disconnect/settlement,
+  hash failure/quarantine и safe resume; определить restart semantics стека.
+- [ ] Обновить FILE_TRANSFER/FT1_RESUME/AGENT_API/agent skill по реально
+  реализованным semantics; сохранять generic profile segregation.
+- [ ] Подготовить воспроизводимые harness/parser перед hardware validation.
+
+## Validation checklist
+
+- [ ] Полный список0/1/28/29/80 и >224 ranges, bursts, uint32 boundaries;
+  malformed count/total/parent/type/version, hash failure и payload capacity.
+- [ ] ROOT→LIST1 без дырок; ROOT→LIST1→LIST2 с обратным разворачиванием;
+  depth8 допустим, необходимость depth9 даёт bounded ROOT failure.
+- [ ] Повтор файла списка с тем же ID не запускает repair дважды; новый список
+  с теми же bytes и новым ID учитывается как новый завершённый cycle.
+- [ ] No-progress последовательности100→100→100→100 fail,100→100→97 reset;
+  parent counter не меняется от child progress; child failure завершает ROOT.
+- [ ] Прогресс по одному чанку допускается без минимальной скорости; разные
+  PHY меняют elapsed, но не правила depth/no_progress.
+- [ ] ROOT ниже/ровно/выше30%, empty/compressed stream; service file с >30%
+  gaps допускает recursive repair. Fixtures >28 ranges соблюдают ROOT gate.
+- [ ] ACK-repaired CRC loss не выдаётся за FT1 gap; host-side injected gap
+  явно маркируется. LINK_FAIL/USB hub loss дают соответствующий failure/recovery.
+- [ ] Cancel/negative RESULT в initial DATA/repair/child/waiting, late tickets,
+  потеря RESULT, same-ID ROOT resume; отсутствие двойной публикации и deadlock.
+- [ ] Sender/receiver/both restart на выбранных границах, сохранение пригодного
+  ROOT partial и документированный recovery вместо ложного завершения.
+- [ ] Relevant regression и полный pytest на exact implementation checkpoint;
+  commit/push/CI evidence только если действительно выполнены.
+- [ ] На двух нодах >28 isolated ROOT gaps, missing service file, depth/no-progress
+  failures и ROOT30% gate; четыре topology, оба направления, SHA256 exact.
+- [ ] Измерить clean-file throughput, repair elapsed, service bytes, число циклов,
+  depth и control overhead. PHY/files/checkpoints фиксированы; RF retries отдельно.
+- [ ] После принятого merge resulting source/regression/required CI checkpoint.
+
+## History and limitations
+
+2026-10-11: TODO начат как DEFERRED wire-preserving batched final repair на
+f9c8a8f + working tree. Затем повышен до CRITICAL; обсуждались missing_total:uint32,
+порции MISSING, default30% и отказ от backward compatibility.
+
+2026-10-12: оператор выбрал рекурсивную передачу полных списков служебными файлами
+FT1 для прототипа вместо порционных MISSING. Глубина максимум8. Предложения
+строить в ST новую PHY/RTT/retry систему и универсальный часовой deadline отвергнуты.
+Старые portions/v2-layout/time/work-budget checklists заменены текущим design.
+
+После сохранения документов в dev_tui оператор отдельно разрешил создание branch
+и её docs edits. Создана dev_tui_exp_recursive_missing. Позднее явно согласованы
+exemption service files от ROOT30% gate и три consecutive no-progress cycles,
+с отдельным счётчиком каждого файла и reset при любом уменьшении остатка.
+
+Схема ограничивает глубину и циклы без прогресса, но разрешает долгое успешное
+продвижение. Точное место post-LINK_OK gaps и LoRa-SACK остаются отдельными работами.
+Это docs checkpoint, не implementation и не validation рекурсивного FT1.
 
 ## Result
 
-Status: DEFERRED
-Implemented: отсутствует.
-Validated: runtime tests и hardware validation этой функции не выполнялись.
-Docs-only checkpoint: 2026-10-11, новый TODO и запись в inventory поверх указанного
-HEAD с существующим dirty tree; отдельный commit/push/CI не выполнялись.
-Next action: после завершения текущих gates отдельно выбрать TODO_042 для
-реализации и сначала утвердить конечные budgets/compatibility contract.
+Status: OPEN / CRITICAL
+Implemented: отсутствует; source/runtime/config/firmware не изменены.
+Validated: документационный review/link/diff checks; runtime/hardware gates NOT RUN.
+Next action: закрепить технический codec/ownership/recovery contract в feature
+branch и начать source implementation по отдельному поручению оператора.

@@ -701,3 +701,12 @@ Commit/push/CI для этих локальных изменений не вып
 выбранную по запросу оператора архитектуру early repair/flow control; она ещё не
 реализована и не протестирована. Создание и дополнение TODO меняют только
 документы задачи и inventory; новые runtime changes отсутствуют.
+
+Final experimental checkpoint 2026-10-11: v6 EOF-retain/same-ID resume physically
+PASS; frozen-v5 normal transport matrix 16/16 application PASS; v6 USB/BLE
+META/END resets, repeated reset and recovery cancel PASS; four-topology recovery
+coverage and current HCI interval7.5ms/MTU247/DLE251/244+117 writes recorded.
+Full software suite remains 545 PASS/48.56s. Results and evidence boundaries:
+`/home/dream/coding/журнал экспериментов/ИТОГИ_ПУНКТОВ_1-8_2026-10-11.md`.
+TODO_041 broader FLOW/midstream scope remains OPEN; TODO_042 remains DEFERRED.
+No new commit/push/current-head CI. Work stopped at experimental stage8.

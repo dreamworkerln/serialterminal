@@ -132,7 +132,7 @@ Remaining work: align the primary `NODE_OBSERVATION_RECORDING_POLICY.md` and nod
 
 TODO_026 logging-contract investigation is also OPEN and may be scheduled independently when log-format work is selected.
 
-Suggested next work: first address TODO_041's observed FT1 failure/recovery and RX observability gaps, retaining the existing throughput evidence and without enabling TODO_038. Then finish the current firmware/BlueZ throughput characterization without enabling TODO_038, so the pre-progress-checkpoint baseline remains clean. Then physically validate the implemented TODO_033 child workstream at the exact current `dev_tui` checkpoint: `TODO_034` BLE/USB controller lifecycle, `TODO_035` same-process FT1 reboot/reconnect recovery, `TODO_036` receiver process-restart durability, and `TODO_037` sender/receiver/both-process persistent resume plus lost-RESULT tombstone behavior. After the current firmware/baud work settles, implement TODO_040's centralized settings/single-source foundation together with TODO_039's discoverable F9 menu and profile-aware/runtime baud policy, so the UI does not introduce another independent set of defaults. After that, implement/validate `TODO_038` as the rare FT1 ST-to-ST remote application-progress watchdog, measuring its overhead against the preserved baseline. Then rerun the broader TODO_029 two-node reconnect/MISSING validation against the recovery stack. Independently finish the HCI boundary isolation in TODO_024; then continue correctness/evidence boundaries (`TODO_011`, `TODO_013`, `TODO_016`, `TODO_017`, `TODO_021`, remaining `TODO_025` docs), lifecycle/API robustness (`TODO_019`, `TODO_022`, `TODO_023`), and consistency/docs follow-ups (`TODO_012`, `TODO_014`, `TODO_015`, `TODO_020`). Re-evaluate ordering if physical validation exposes a regression.
+Suggested next work: implement and validate critical TODO_042 recursive missing-list files in dev_tui_exp_recursive_missing after operator starts source implementation: depth8, ROOT missing-percent default30% with service-file exemption, and three consecutive no-progress cycles per file with reset on any decrease. This checkpoint updates documents only in the created feature branch; preserve stage8 evidence and merge into dev_tui only after acceptance and operator instruction. Then address TODO_041's remaining FT1 failure/recovery and RX observability scope, retaining the existing throughput evidence and without enabling TODO_038. Then finish the current firmware/BlueZ throughput characterization without enabling TODO_038, so the pre-progress-checkpoint baseline remains clean. Then physically validate the implemented TODO_033 child workstream at the exact current `dev_tui` checkpoint: `TODO_034` BLE/USB controller lifecycle, `TODO_035` same-process FT1 reboot/reconnect recovery, `TODO_036` receiver process-restart durability, and `TODO_037` sender/receiver/both-process persistent resume plus lost-RESULT tombstone behavior. After the current firmware/baud work settles, implement TODO_040's centralized settings/single-source foundation together with TODO_039's discoverable F9 menu and profile-aware/runtime baud policy, so the UI does not introduce another independent set of defaults. After that, implement/validate `TODO_038` as the rare FT1 ST-to-ST remote application-progress watchdog, measuring its overhead against the preserved baseline. Then rerun the broader TODO_029 two-node reconnect/MISSING validation against the recovery stack. Independently finish the HCI boundary isolation in TODO_024; then continue correctness/evidence boundaries (`TODO_011`, `TODO_013`, `TODO_016`, `TODO_017`, `TODO_021`, remaining `TODO_025` docs), lifecycle/API robustness (`TODO_019`, `TODO_022`, `TODO_023`), and consistency/docs follow-ups (`TODO_012`, `TODO_014`, `TODO_015`, `TODO_020`). Re-evaluate ordering if physical validation exposes a regression.
 
 ### TODO_026 — `todos/TODO_026_UNIFIED_LOGGING_CONTRACT.md`
 
@@ -447,24 +447,36 @@ GitHub Actions:               33764159009 SUCCESS
 post-closure hardware smoke: PASS / physical BLE multi-device / 2026-09-03
 ```
 
-## Deferred final-repair follow-up
+## Critical final-repair follow-up
 
 ### TODO_042 — [todos/TODO_042_FT1_BATCHED_FINAL_REPAIR.md](todos/TODO_042_FT1_BATCHED_FINAL_REPAIR.md)
 
-Status: DEFERRED / IMPLEMENTATION OPEN / VALIDATION OPEN
+Status: OPEN / CRITICAL / IMPLEMENTATION NOT STARTED / VALIDATION OPEN
 
-Goal: remove the full-set MISSING limit using sequential capacity-bounded portions
-in END → MISSING → repair DATA → END cycles, preserving FT1 v1 uint32 ranges,
-opaque firmware and verified single publication. Revise the eight-round budget
-with finite no-progress/deadline limits; validate loss, duplicates and old/new peers.
-This is final repair only; midstream repair/FLOW/CAPS/watchdog remain separate.
+Selected design: transmit the full missing list as an internal FT1 file in the
+reverse direction; recursively repair that file with another missing-list file
+when needed. Reuse the ST file engine and unwind parent/child sessions sequentially.
+ROOT depth0, service depths1..8; attempting depth9 fails the ROOT operation.
+uint32 ranges/missing_total and unique child IDs preserve full-list diagnostics
+and suppress repeated processing. Firmware remains opaque BINARY transport.
 
-Docs-only design checkpoint: 2026-10-11, `dev_tui@f9c8a8f0798db362f6c04b7df12de7f53256975a`
-plus the existing experimental working tree. No implementation/tests/hardware PASS
-is claimed. Scheduling: this TODO does not change the current next-action order;
-select it separately after the active architecture-repair physical/performance
-gates when planning the later LoRa-SACK work, before attempting large sparse-gap
-acceptance beyond the legacy limit.
+Agreed policy: future configurable ROOT missing-percent default30%; service files
+are exempt from that percent gate. Three consecutive completed repair cycles with
+no decrease in missing count fail the operation, with a separate counter for each
+file and reset on any decrease. Slow progress is permitted. No new ST PHY/RTT/radio
+retry layer, mandatory pacing or fixed one-hour repair budget is selected.
+Current v1 source/runtime/constants are unchanged; backward compatibility is not
+required. Prior portion-based MISSING design is superseded by this recursive design.
+
+Docs checkpoint: 2026-10-12, `dev_tui_exp_recursive_missing@fd94bdeb1fd878e072b0f852b3e8f461d928e3cd`
++ current documentation edits, branched from dev_tui by operator instruction.
+Next priority: TODO_042. Specify technical codec/ownership/recovery details and
+implement/test in this branch after a separate source start, then merge into
+dev_tui after acceptance and operator instruction. This step changes documents
+only. Raw evidence stays outside Git in
+`/home/dream/coding/журнал экспериментов/TODO_042/`; preserve old stage8 bundles
+and link new evidence by exact revisions/SHA256. Midstream/FLOW/CAPS/watchdog/
+LoRa-SACK stay separate. Detailed contracts/checklists live in TODO.
 
 ## Current validation posture
 
@@ -494,3 +506,14 @@ fix preserves the existing suspension path; regression reproduces the deletion o
 v5 and passes EOF-retain/resume plus explicit-cancel on the fix. Updated isolated-cache full suite 545 PASS/48.56s; compileall/diff-check PASS.
 Hardware retention/resume gate pending. Details/evidence in TODO_041; this does
 not implement the deferred TODO_042 batched repair or close architecture stage 8.
+
+Final experimental checkpoint 2026-10-11: v6 EOF-retain/same-ID resume physically
+PASS; frozen-v5 normal transport matrix 16/16 application PASS; v6 USB/BLE
+META/END resets, repeated reset and recovery cancel PASS; four-topology recovery
+coverage and current HCI interval7.5ms/MTU247/DLE251/244+117 writes recorded.
+Full software suite remains 545 PASS/48.56s. Results and evidence boundaries:
+`/home/dream/coding/журнал экспериментов/ИТОГИ_ПУНКТОВ_1-8_2026-10-11.md`.
+TODO_041 broader FLOW/midstream scope remains OPEN. TODO_042 was DEFERRED at
+that experimental checkpoint and is now OPEN / CRITICAL under the updated design
+above; new runtime implementation has not started.
+No new commit/push/current-head CI. Work stopped at experimental stage8.
