@@ -706,4 +706,3 @@ RADIO_UNAVAILABLE остаётся отдельной задачей; host-only 
 Current implementation: early FLOW/repair не реализован.
 Current automated evidence in this review: 125 baseline PASS + listed fault injections.
 Current physical validation: не выполнялась; требуемая матрица остаётся OPEN.
-
