@@ -1,5 +1,27 @@
 # FT1 recovery and persistent resume
 
+## Current recursive coordinator extension
+
+The experimental branch dev_tui_exp_recursive_missing uses FT1 v2. Both endpoints
+must run it; v1 interoperability is not required. FILE_TRANSFER.md sections9..16
+specify expanded META/END and the hash-verified full missing-list service files.
+DATA and RESUME cursor shapes remain unchanged. Durable ROOT storage, source/wire
+identity validation, atomic publication, quarantine and explicit resume below remain
+applicable. Older stage checkpoints and v1 compatibility paragraphs are historical.
+
+ROOT holds the external lease through its child stack. Parent control/idle waits pause
+during children. ROOT threshold30%, service exemption, depths1..8 and per-file three
+no-progress cycles are implemented by recursive.py. No overall one-hour deadline is
+applied to recursive repair; unanswered control and transport recovery remain bounded.
+
+A process restart suspends usable ROOT partial state; it does not restore an active
+recursive stack. Explicit ROOT file_send_start revalidates the journal and same ID,
+uses receiver-proven RESUME, then builds fresh service contexts after END. Internal
+service files are not published as downloads. They do not prove ROOT completion.
+New snapshots can contain repair progress. Physical checks for this extension are
+pending and are separate from the historical stage8 evidence below.
+
+
 This document is the authoritative contract for the controller-recovery and FT1
 resume work implemented by TODO_034 through TODO_037 on `dev_tui`.
 
@@ -67,15 +89,18 @@ paired Chatter checkpoint `2d8723ca`. Its overall execution plan lives in Chatte
 Serial short/invalid writes and backend write/flush exceptions produce an unknown
 host outcome instead of blind generic replay. FT1 accounts for owned host writes
 before releasing its mutation lease; a drain timeout reports a terminal failure and
-retains ownership until session close. The local drain budget is at most 10 seconds
-(and no longer than the configured RESULT wait); it is independent of the hour-long
-default remote RESULT timeout. This does not fence legacy firmware/RF queues.
+retains ownership until session close. Chatter drain uses remaining admitted
+machine-ticket deadlines plus the local guard; it is not clipped to 10 seconds or
+an overall file deadline. There is no default hour-long RESULT wait. A secondary
+cleanup error is recorded without hiding the primary failure. This does not prove
+settlement of unobserved firmware/RF queues.
 
 Chatter adapter waits share the caller's absolute monotonic deadline, including
 scheduling lock acquisition, controller readiness and output-mode queries. Recovery
-uses `send_binary_until` when the opaque adapter offers it; adapters with only the
-legacy synchronous send contract cannot be promised a hard bound inside their own
-backend call.
+uses optional `prepare_binary(deadline, cancel_event)` to bound host reconnect and
+controller preparation separately from the radio send budget. Without that capability,
+`send_binary_until` carries the caller deadline when supported. A synchronous opaque
+backend without deadline support cannot be promised a hard bound inside its call.
 
 An unexpected RX handler or idle-sweep exception is visible as `rx_worker_error` and
 ends the affected attempt while retaining its partial/manifest. The shared RX worker
@@ -292,11 +317,12 @@ identity.
 
 ## RESUME wire extension
 
-FT1 remains protocol version 1 and uses a backwards-compatible optional message type:
+The original TODO_037 baseline used version1 with an optional RESUME message.
+The current recursive coordinator uses version2 with the same RESUME payload:
 
 ```text
 MAGIC   = b"FT"
-VERSION = 1
+VERSION = 2
 RESUME  = message type 6
 ```
 
@@ -338,7 +364,7 @@ sender
 -> END
 
 receiver
--> exact MISSING ranges if holes remain
+-> full missing-list service file if holes remain
 
 sender
 -> selective repair DATA
@@ -353,7 +379,8 @@ Only receiver-proven durable state may advance the restart cursor. Sender memory
 
 ## MISSING remains final exact repair
 
-The existing END/MISSING/RESULT contract remains authoritative for exact completion.
+END/full-list/RESULT is the current final exact repair contract. A verified full
+list drives selective parent repair; the list itself may require recursive repair.
 
 Wrong-length DATA is discarded with `chunk_rejected` while the partial file and
 valid chunk bitmap remain intact. Such a DATA does not advance a durable resume
@@ -370,31 +397,23 @@ There is still no per-DATA FT1 ACK and no firmware file-aware ACK.
 Full pre-DATA arbitrary missing-range SACK/pagination is an optional future
 optimization, not part of TODO_034–037 closure.
 
-## Compatibility
+During local controller boot, control/idle deadlines can use the last verified
+PHY without a new command. This prevents an idle sweep from converting expected
+boot into receiver_failed. Actual RF admission still requires READY and fresh
+readback; unknown PHY or a changed config cannot reuse an old estimate.
 
-RESUME is an optional FT1 v1 extension with bounded fallback.
+## Current peer contract
 
-New sender -> legacy receiver:
+Both endpoints use the current recursive FT1 protocol. Old peers are not an acceptance
+target for this two-node experimental project. A missing RESUME still has a bounded
+wait and falls back to a complete pass from chunk 0; this handles lost control on
+current peers. The public manager derives the RESUME roundtrip budget from its opaque
+transport timing capability instead of a fixed one-second radio wait.
 
-```text
-META
-legacy peer sends no RESUME
-bounded resume wait expires
-sender falls back to full pass from chunk 0
-```
-
-The public manager currently uses a 1 second resume-handshake timeout by default.
-
-Legacy sender -> new receiver:
-
-```text
-new receiver may emit RESUME
-legacy sender ignores the unknown optional control message
-legacy sender continues ordinary META/DATA/END
-```
-
-Compatibility is therefore intentional host-host behavior; no firmware change is
-required.
+ROOT and service-file control waits are independent. After failure, explicit retry
+should start after both peers have settled the previous operation. Retrying the same
+ROOT ID while the remote child is still active can collide with that child's late
+negative RESULT; the current protocol has no separate ROOT attempt identity.
 
 Invalid `RESUME_FROM` outside the declared chunk count is rejected with
 `invalid_resume_request`.

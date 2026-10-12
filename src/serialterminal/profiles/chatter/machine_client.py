@@ -23,6 +23,7 @@ class Ticket:
     outcome: Kind | None = None
     rejection: int | None = None
     credit_returned_at: float | None = None
+    later_terminal_at: float | None = None
 
 
 class ChatterMachineClient:
@@ -84,7 +85,7 @@ class ChatterMachineClient:
                 continue
             try:
                 with self.operation_lock:
-                    self._ready(time.monotonic()+5.0,self.closed)
+                    self._ready(time.monotonic()+self.legacy._controller_ready_budget_s()+self.legacy._mode_query_timeout_s,self.closed)
             except BinaryUserError as exc:
                 with self.condition:
                     self.error=exc; self.mode="failed"; self.condition.notify_all()
@@ -161,6 +162,25 @@ class ChatterMachineClient:
             if self.error is not None: raise self.error
             if self.closed.is_set(): raise BinaryUserCancelled()
 
+    def prepare_binary(self, *, deadline: float, cancel_event=None) -> None:
+        # Recovery deadline ограничивает восстановление local controller, а не
+        # последующий RF ACK transaction. Здесь не отправляется USER DATA.
+        with self.legacy._bounded_lock(self.operation_lock, deadline):
+            self._ready(deadline, cancel_event)
+            if self.legacy._radio_timing is not None:
+                self.legacy._radio_timing.get(deadline=deadline, cancel_event=cancel_event)
+
+    def timing_budget_s(self, purpose: str, *, payload_bytes: int = 243) -> float:
+        if purpose == "drain":
+            with self.condition:
+                remaining = max((ticket.deadline - time.monotonic() for ticket in self.pending.values()), default=0.0)
+                if self.error is not None and self.error.code == "local_controller_reset":
+                    remaining = 0.0
+            # Deadline уже учитывает PHY и slots при admission. Drain не продлевает
+            # RF произвольным новым бюджетом и не требует readback мёртвой ноды.
+            return max(0.0, remaining) + self.legacy._mode_query_timeout_s
+        return self.legacy.timing_budget_s(purpose, payload_bytes=payload_bytes)
+
     def set_receiver(self, receiver) -> None:
         with self.condition: self.receiver=receiver
         self.legacy.set_receiver(receiver)
@@ -195,11 +215,12 @@ class ChatterMachineClient:
                     receiver=self.receiver
                 elif frame.kind == Kind.STATUS and len(frame.payload)==10:
                     self.status={"credit":frame.payload[0],"drops":int.from_bytes(frame.payload[1:5],"little"),"corrupt":int.from_bytes(frame.payload[5:9],"little"),"high_water":frame.payload[9]}
-                    if frame.payload[0] == self.pipeline_capacity:
+                    if frame.payload[0] == self.pipeline_capacity and frame.request in self.pending:
                         for ticket in self.pending.values():
-                            if ticket.request <= frame.request and ticket.outcome is not None and ticket.credit_returned_at is None:
+                            if ticket.request <= frame.request and ticket.credit_returned_at is None:
                                 # STATUS более поздней обработанной request тоже относится
-                                # к ранним slots. Новые requests и HELLO без ACCEPTED не входят.
+                                # к ранним slots. Identity должна принадлежать pending SUBMIT;
+                                # ACCEPTED/TX_DONE могли потеряться вместе с terminal outcome.
                                 # Пустая queue не доказывает LINK_OK: узнаем cache через QUERY.
                                 ticket.credit_returned_at=time.monotonic()
                     self.condition.notify_all()
@@ -211,6 +232,13 @@ class ChatterMachineClient:
                     if ticket.outcome in {Kind.LINK_OK,Kind.LINK_FAIL,Kind.REJECTED,Kind.UNKNOWN,Kind.UNAVAILABLE}: return
                     if frame.kind in {Kind.ACCEPTED,Kind.TX_DONE,Kind.LINK_OK,Kind.LINK_FAIL,Kind.UNKNOWN,Kind.UNAVAILABLE} and not frame.payload:
                         ticket.outcome=frame.kind
+                        if frame.kind in {Kind.LINK_OK,Kind.LINK_FAIL}:
+                            # Поздний ticket уже завершился, но результат раннего мог
+                            # потеряться вместе с full-credit STATUS. Это повод QUERY
+                            # cache раннего request, не доказательство его успеха.
+                            for earlier in self.pending.values():
+                                if earlier.request < ticket.request and earlier.later_terminal_at is None:
+                                    earlier.later_terminal_at=time.monotonic()
                     elif frame.kind == Kind.REJECTED and len(frame.payload)==1:
                         ticket.outcome=frame.kind; ticket.rejection=frame.payload[0]
                     self.condition.notify_all()
@@ -229,7 +257,7 @@ class ChatterMachineClient:
                 self.mode="failed"; self.condition.notify_all()
 
     def submit_binary(self, data: bytes, *, cancel_event=None) -> Ticket:
-        return self._submit_until(data,time.monotonic()+self.legacy._presentation_timeout_s,cancel_event)
+        return self._submit_until(data,time.monotonic()+self.legacy._binary_budget_s(len(data), cancel_event=cancel_event),cancel_event)
 
     def _submit_until(self, data, deadline, cancel_event):
         payload=bytes(data)
@@ -285,8 +313,9 @@ class ChatterMachineClient:
                 if remaining <= 0: raise BinaryUserError("local_tx_unsettled","machine outcome deadline expired")
                 if self.closed.is_set(): raise BinaryUserCancelled()
                 if cancel_event is not None and cancel_event.is_set(): raise BinaryUserCancelled()
-                deadline_query=not queried and remaining <= min(1.0,self.legacy._presentation_timeout_s/2)
-                credit_query=not credit_queried and ticket.credit_returned_at is not None and time.monotonic()-ticket.credit_returned_at >= 0.1
+                deadline_query=not queried and remaining <= 1.0
+                hints=[at for at in (ticket.credit_returned_at,ticket.later_terminal_at) if at is not None]
+                credit_query=not credit_queried and bool(hints) and time.monotonic()-min(hints) >= 0.1
                 should_query=deadline_query or credit_query
                 if not should_query: self.condition.wait(min(remaining,0.1))
             if should_query:
@@ -295,7 +324,7 @@ class ChatterMachineClient:
                 self._write(Frame(Kind.QUERY,ticket.epoch,ticket.request),ticket.deadline,cancel_event)
 
     def send_binary(self,data,*,cancel_event=None):
-        return self.send_binary_until(data,deadline=time.monotonic()+self.legacy._presentation_timeout_s,cancel_event=cancel_event)
+        return self.send_binary_until(data,deadline=time.monotonic()+self.legacy._binary_budget_s(len(data), cancel_event=cancel_event),cancel_event=cancel_event)
 
     def send_binary_until(self,data,*,deadline,cancel_event=None):
         with self.legacy._bounded_lock(self.operation_lock,deadline):
@@ -313,10 +342,10 @@ class ChatterMachineClient:
                 self.pending.clear(); self.order.clear()
         elif self.mode == "machine" and self.negotiated_generation != self.legacy._generation():
             try:
-                self._ready(time.monotonic()+self.legacy._controller_ready_timeout_s)
+                self._ready(time.monotonic()+self.legacy._controller_ready_budget_s())
             except BinaryUserError as exc:
                 if exc.code != "local_controller_reset": raise
-        self.drain_binary(1.0)
+        self.drain_binary(self.timing_budget_s("drain"))
         with self.condition:
             if self.pending: raise BinaryUserError("local_tx_unsettled","machine submissions remain unresolved")
 

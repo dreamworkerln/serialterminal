@@ -6,6 +6,8 @@ import re
 import time
 from typing import Any
 
+from .radio_timing import RadioTiming
+
 from ...sweep import (
     SweepAdapterContext,
     SweepCancelled,
@@ -69,11 +71,7 @@ _REQUIRED_FIELDS = frozenset(
         "direction",
     }
 )
-_MAX_ATTEMPTS = 5
-_FRAME_HEADER_BYTES = 12
-_ACK_FRAME_BYTES = 14
 _CONTROL_FAILURE_MARKERS = (" REJECTED", " NOT SAVED", " BUSY")
-_CANCEL_SETTLEMENT_TIMEOUT_S = 5.0
 
 
 def _is_control_failure(line: str) -> bool:
@@ -103,15 +101,7 @@ def _lora_toa_s(
     bandwidth_hz: int,
     frame_bytes: int,
 ) -> float:
-    symbol_s = (2**sf) / float(bandwidth_hz)
-    low_data_rate_opt = 1 if symbol_s >= 0.016 else 0
-    numerator = 8 * frame_bytes - 4 * sf + 28 + 16
-    denominator = 4 * (sf - 2 * low_data_rate_opt)
-    payload_symbols = 8 + max(
-        math.ceil(numerator / denominator) * 5,
-        0,
-    )
-    return (8 + 4.25 + payload_symbols) * symbol_s
+    return RadioTiming(sf, bandwidth_hz).toa_s(frame_bytes)
 
 
 def _possible_values(
@@ -273,7 +263,9 @@ class ChatterReliableUserSweepAdapter:
         coordinate: Mapping[str, Any] | None,
     ) -> float:
         if phase == "prepare":
-            return 90.0
+            # До первого CFG исходный PHY неизвестен: старый TX при CANCEL
+            # ограничиваем самым медленным legal PHY, а не сроком для SF7.
+            return 90.0 + RadioTiming(12, 7800, coding_rate=8).budget_s("cancel")
         if phase == "apply":
             return 45.0
         if phase == "verify":
@@ -281,35 +273,19 @@ class ChatterReliableUserSweepAdapter:
         if phase == "sample_start":
             return 10.0
         if phase == "cleanup":
-            return 30.0
+            radio = self._verified_radio or self._pending_radio
+            phy = RadioTiming(radio[3], radio[2]) if radio is not None else RadioTiming(12, 7800, coding_rate=8)
+            return 30.0 + phy.budget_s("cancel")
         if phase == "sample_settlement":
             if coordinate is None:
-                return 60.0
+                raise RuntimeError("sample settlement requires a PHY coordinate")
             sf = int(coordinate["sf"])
             bw = int(coordinate["bandwidth_hz"])
             payload = int(coordinate["payload_bytes"])
-            user_toa = _lora_toa_s(
-                sf,
-                bw,
-                _FRAME_HEADER_BYTES + payload,
-            )
-            ack_toa = _lora_toa_s(
-                sf,
-                bw,
-                _ACK_FRAME_BYTES,
-            )
             # Firmware допускает до пяти attempts и airtime-derived retry
             # windows. Bound зависит от фактического PHY, чтобы быстрый BW500
             # не наследовал многоминутный timeout медленного legal PHY.
-            return min(
-                3600.0,
-                max(
-                    15.0,
-                    10.0
-                    + 25.0 * user_toa
-                    + _MAX_ATTEMPTS * ack_toa,
-                ),
-            )
+            return RadioTiming(sf, bw).budget_s("binary", payload)
         raise RuntimeError(
             f"unknown chatter sweep phase: {phase}"
         )
@@ -696,7 +672,7 @@ class ChatterReliableUserSweepAdapter:
                 cancel_sent = True
                 cancel_deadline = (
                     time.monotonic()
-                    + _CANCEL_SETTLEMENT_TIMEOUT_S
+                    + RadioTiming(int(coordinate["sf"]), int(coordinate["bandwidth_hz"])).budget_s("cancel", int(coordinate["payload_bytes"]))
                 )
 
             for line in self._observe_lines(

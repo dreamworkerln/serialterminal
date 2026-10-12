@@ -158,7 +158,8 @@ class ChatterBinaryUserAdapter:
         *,
         presentation_timeout_s: float = BINARY_PRESENTATION_TIMEOUT_S,
         mode_query_timeout_s: float = BINARY_MODE_QUERY_TIMEOUT_S,
-        controller_ready_timeout_s: float = CONTROLLER_READY_TIMEOUT_S,
+        controller_ready_timeout_s: float | None = None,
+        radio_timing: bool = False,
         line_retention: int = 4096,
         wait_tx_outcome: Callable[[int, float], str | None] | None = None,
         cancel_tx: Callable[[int], bool] | None = None,
@@ -169,12 +170,13 @@ class ChatterBinaryUserAdapter:
             raise ValueError("presentation_timeout_s must be positive")
         if mode_query_timeout_s <= 0:
             raise ValueError("mode_query_timeout_s must be positive")
-        if controller_ready_timeout_s <= 0:
+        if controller_ready_timeout_s is not None and controller_ready_timeout_s <= 0:
             raise ValueError("controller_ready_timeout_s must be positive")
         self._send_line = send_line
         self._presentation_timeout_s = float(presentation_timeout_s)
         self._mode_query_timeout_s = float(mode_query_timeout_s)
-        self._controller_ready_timeout_s = float(controller_ready_timeout_s)
+        self._controller_ready_timeout_s = float(CONTROLLER_READY_TIMEOUT_S if controller_ready_timeout_s is None else controller_ready_timeout_s)
+        self._controller_ready_explicit = controller_ready_timeout_s is not None
         self._wait_tx_outcome = wait_tx_outcome
         self._cancel_tx = cancel_tx
         self._owned_tx_ids: set[int] = set()
@@ -196,6 +198,43 @@ class ChatterBinaryUserAdapter:
         self._controller_ready = True
         self._controller_reset_generation: int | None = None
         self.last_parse_error: str | None = None
+        from .radio_timing import RadioTimingReader
+        self._radio_timing = RadioTimingReader(self) if radio_timing else None
+
+    def _controller_ready_budget_s(self) -> float:
+        if self._radio_timing is None or self._controller_ready_explicit:
+            return self._controller_ready_timeout_s
+        from .radio_timing import RadioTiming, TX_TIMEOUT_TOA_FACTOR, ACK_RESPONSE_GUARD_S
+        # Boot self-test перед READY передаёт один byte. После reset используем
+        # последний readback; до первого чтения — самый медленный legal PHY.
+        phy = self._radio_timing.last_snapshot or RadioTiming(12, 7800, coding_rate=8)
+        return self._controller_ready_timeout_s + TX_TIMEOUT_TOA_FACTOR * phy.toa_s(1) + ACK_RESPONSE_GUARD_S
+
+    def timing_budget_s(self, purpose: str, *, payload_bytes: int = BINARY_USER_MAX_BYTES) -> float:
+        if self._radio_timing is None:
+            # Прямые compatibility adapters без ChatterProfile сохраняют явно
+            # задаваемую host policy; production profile всегда читает PHY.
+            return {"binary": self._presentation_timeout_s, "drain": self._presentation_timeout_s,
+                    "control": 30.0, "resume": 1.0}[purpose]
+        try:
+            phy = self._radio_timing.get()
+        except BinaryUserError as exc:
+            if purpose not in {"control", "resume"} or exc.code != "local_controller_reset":
+                raise
+            with self._radio_timing.condition:
+                phy = self._radio_timing.last_snapshot
+            if phy is None:
+                raise
+            # Idle/control deadline уже принятого файла можно оценить во время
+            # boot. Это не RF admission: _binary_budget_s требует свежий readback.
+            self._timing("radio_timing_estimate", purpose=purpose, reason=exc.code,
+                         sf=phy.sf, bandwidth_hz=phy.bandwidth_hz)
+        return phy.budget_s(purpose, payload_bytes)
+
+    def _binary_budget_s(self, payload_bytes: int, *, cancel_event=None, deadline=None) -> float:
+        if self._radio_timing is None:
+            return self._presentation_timeout_s
+        return self._radio_timing.get(cancel_event=cancel_event, deadline=deadline).budget_s("binary", self.payload_capacity)
 
     @staticmethod
     @contextmanager
@@ -316,6 +355,8 @@ class ChatterBinaryUserAdapter:
     def feed_line(self, stream: str, line: str) -> None:
         del stream
         value = line.rstrip("\r\n")
+        if self._radio_timing is not None:
+            self._radio_timing.feed_line(value)
         mode_match = _OUTPUT_MODE_RE.search(value) or _CURRENT_MODE_RE.search(value)
         reset_event: tuple[int, int | None] | None = None
         ready_event: tuple[int, int | None, str] | None = None
@@ -467,7 +508,7 @@ class ChatterBinaryUserAdapter:
         timeout_s: float | None = None,
         deadline: float | None = None,
     ) -> int | None:
-        timeout = self._controller_ready_timeout_s if timeout_s is None else float(timeout_s)
+        timeout = self._controller_ready_budget_s() if timeout_s is None else float(timeout_s)
         if timeout <= 0:
             raise ValueError("timeout_s must be positive")
         local_deadline = time.monotonic() + timeout
@@ -625,7 +666,7 @@ class ChatterBinaryUserAdapter:
     ) -> BinarySendReceipt:
         return self.send_binary_until(
             data,
-            deadline=time.monotonic() + self._presentation_timeout_s,
+            deadline=time.monotonic() + self._binary_budget_s(len(data), cancel_event=cancel_event),
             cancel_event=cancel_event,
         )
 
@@ -636,7 +677,7 @@ class ChatterBinaryUserAdapter:
         deadline: float,
         cancel_event: threading.Event | None = None,
     ) -> BinarySendReceipt:
-        deadline = min(deadline, time.monotonic() + self._presentation_timeout_s)
+        deadline = min(deadline, time.monotonic() + self._binary_budget_s(len(data), cancel_event=cancel_event, deadline=deadline))
         payload = bytes(data)
         command = encode_binary_command(payload)
 

@@ -50,17 +50,30 @@ def test_outbox_callback_exception_is_visible_and_worker_survives():
     assert box.call(lambda:7)==7;box.close()
 
 
-def test_control_overflow_stops_sender_without_faking_remote_result(tmp_path):
-    from serialterminal.file_transfer import MissingMessage,MissingRange
-    manager=FileTransferManager(CaptureTransport(),receive_dir=tmp_path)
-    record=manager._reserve_record(100,direction="TX",filename="x")
+def test_completed_service_meta_replay_does_not_enqueue_old_repair(tmp_path):
+    import hashlib
+    from serialterminal.file_transfer import MetaMessage, Compression, ResultMessage
+    from serialterminal.file_transfer.recursive import _Frame
+    transport = CaptureTransport()
+    manager = FileTransferManager(transport, receive_dir=tmp_path)
+    record = manager._reserve_record(100, direction="TX", filename="x")
+    meta = MetaMessage(101, "missing.bin", 28, 28, Compression.NONE, 227,
+                       hashlib.sha256(b"list").digest(), parent_transfer_id=100, depth=1)
+    frame = _Frame(record, processed={101: meta})
+    manager._recursive_frames[100] = frame
     try:
-        for n in range(core.FILE_CONTROL_QUEUE_CAPACITY+1): record.set_remote_missing(MissingMessage(100,(MissingRange(n,1),)))
-        assert len(record.remote_missing)==core.FILE_CONTROL_QUEUE_CAPACITY
-        assert record.remote_result is None and record.remote_failure_event.is_set()
-        with pytest.raises(core.FileTransferError) as caught: manager._check_remote_failure(record)
-        assert caught.value.code=="control_queue_overflow"
-    finally: manager.close()
+        for _ in range(core.FILE_CONTROL_QUEUE_CAPACITY + 1):
+            manager._handle_meta(meta)
+            assert manager._outbox.wait_idle(1)
+        assert not frame.requests and frame.child_id is None
+        assert manager._incoming is None
+        assert record.remote_result is None
+        assert not record.remote_failure_event.is_set()
+        replies = transport.sent
+        assert len(replies) == core.FILE_CONTROL_QUEUE_CAPACITY + 1
+        assert all(isinstance(reply, ResultMessage) and reply.transfer_id == 101 and reply.ok for reply in replies)
+    finally:
+        manager.close()
 
 
 def test_rx_overflow_retains_partial_and_worker_survives(tmp_path,monkeypatch):

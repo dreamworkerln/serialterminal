@@ -55,7 +55,7 @@ sweep_close
 
 The companion human-console record format is shared with the interactive frontend and is specified in `LOGGING.md`. The agent's primary `.log` remains the stronger forensic/API/transport record described below.
 
-Every agent process creates forensic, human-console and deferred timing logs unless an explicit forensic path is supplied:
+Every agent process creates forensic, human-console and buffered timing logs unless an explicit forensic path is supplied:
 
 ```text
 logs/serialterminal-YYYYMMDD-HHMMSS-ffffff-pPID.log
@@ -113,9 +113,14 @@ The companion `.console.log` is presentation/audit convenience:
 
 Startup `[AGENT]` metadata records all three paths.
 
-The `.fttiming.jsonl` file is intentionally deferred: timing events are collected in
-memory using `time.perf_counter_ns()` and written only when the run closes. This avoids
-adding per-event timing-file I/O to the transfer path being measured. Each JSON line
+The `.fttiming.jsonl` file is incremental: events use `time.perf_counter_ns()` and
+accumulate in batches of256. A dedicated writer writes/flushes each complete batch;
+close appends the final partial batch and joins the writer. At most8 queued batches
+plus the current producer/writer batches are retained. If the writer falls behind,
+producers apply backpressure rather than silently dropping events. There is no
+per-batch fsync: flush hands data to the OS cache. SIGKILL may lose the current/queued
+tail, but does not erase previously flushed batches. Writer failure is reported in
+the application log and marks the timing trace incomplete. Each JSON line
 contains a monotonic `perf_ns`, wall-clock `timestamp`, a trace `seq`, `event`, and
 small structured fields without BINARY/base64 payload bytes.
 
@@ -124,7 +129,7 @@ and Chatter BINARY points such as `transport_write_start`,
 `transport_write_done`, `ble_gatt_write_start`, `ble_gatt_write_done`,
 `ble_notify`, `binary_submit`, `binary_presentation_line`,
 `binary_presentation_match`, `binary_return` and `ft1_event`. It also records
-forensic/console log-write start/done markers in memory so logging overhead can be
+forensic/console log-write start/done markers in the timing buffer so logging overhead can be
 measured without writing the timing trace itself during the run.
 
 Base64 persistence is opt-in:
@@ -454,8 +459,16 @@ The [shared contract](CHATTER_MACHINE_PROTOCOL_V1.md) defines CRC, epoch/request
 identity, two outstanding slots and the cached local QUERY recovery path.
 ACCEPTED and TX_DONE do not settle a machine send: LINK_OK requires the existing
 matching radio ACK. It still does not prove remote ST storage. Human DELIVERY
-telemetry never drives FT1. UNKNOWN/unsettled outcomes block new submissions;
-LINK_FAIL and UNAVAILABLE fail visibly without hidden RF replay or reboot.
+telemetry never drives FT1. UNKNOWN/unsettled outcomes block new submissions.
+A terminal DATA LINK_FAIL records `binary_send_link_failed` and continues the
+file stream to END; this applies to ROOT, missing-list DATA and requested repair
+DATA. M1 releases that request, so other admitted pipeline slots remain valid.
+ST does not immediately replay the failed DATA: the receiver requests actual
+holes through recursive final repair. DATA may also have arrived despite a lost
+ACK. Only verified FT1 RESULT OK completes the file. Progress counts the serviced
+DATA stream, including these known link failures; it is not proof of storage.
+LINK_FAIL of META/END/control, REJECTED and UNAVAILABLE remain fatal. UNKNOWN
+and unresolved ownership still block new submissions; no hidden RF replay or reboot.
 
 File transfer never sends `/both`, `/chat` or `/tele`, including reconnect and
 terminal cleanup. Machine mode works independently of that human output mode.
@@ -466,8 +479,23 @@ Machine frames are hidden on the human screen and redacted in default logs;
 Remote completion remains FT1-level: stable transfer/chunk identity, MISSING repair and
 final `RESULT OK`. A controller reboot may occur without transport disconnect. The
 profile waits for a new `CHATTER READY` and FT1 can replay the same idempotent message.
-Abandoned incoming transfers fail after 120 seconds of META/DATA/END inactivity with
-`remote_sender_timeout`, releasing session mutation ownership.
+The Chatter profile reads `/config` and actual `/radio read config` before deriving
+radio-dependent deadlines; cached PHY belongs to the controller epoch and connection
+generation. During a local reboot, the last verified PHY may estimate existing
+control/idle waits; it never authorizes a new RF send. SAVED/repair clears that
+estimate, and after READY the profile reads fresh PHY. Missing, mismatched or stale
+readback for RF admission fails with `radio_timing_unavailable`
+(or `local_controller_reset`) before RF submission. Deadlines cover LoRa ToA, firmware
+ACK/retry/backoff and both machine slots. They add no pacing or host RF retransmission.
+The full timing inventory and formulas are in [TIMING_AUDIT.md](TIMING_AUDIT.md).
+
+Abandoned incoming transfers fail with `remote_sender_timeout` after a derived
+inactivity budget: `(max_control_replays + 1) * control_budget + drain_budget`.
+An active recursive child pauses its parent's idle check. Control and RESUME waits
+use the profile roundtrip budget; there is no implicit one-hour file deadline.
+Observe `timeout_ms` remains only the caller's long-poll bound. Terminal cleanup uses
+remaining admitted machine-ticket deadlines plus a local guard, preserving ownership
+if settlement cannot be proved and preserving the primary error in diagnostics.
 
 ### Observe
 
@@ -545,19 +573,31 @@ Base64 exists only on the local controller boundary. The LoRa BINARY USER and FT
 transport payload are raw bytes up to the profile-advertised capacity (currently 243
 bytes for Chatter).
 
-FT1 v1 supports temporary local transport reconnect repair while the same
-SerialTerminal process remains alive. Receiver state is indexed by
-`transfer_id + chunk_index`; after END it can send one compact MISSING range message
-and the sender retransmits only those DATA chunks before repeating END. Repeated
-identical META/END are idempotent and bounded META+END control replay can recover a
-missed control/result boundary.
+The experimental coordinator uses FT1 v2 and requires both host endpoints updated.
+DATA remains transfer_id + uint32 chunk_index, with227 payload bytes at capacity243.
+After END, the receiver sends the full missing list back as an internal FT1 file;
+that service file can itself be repaired recursively. META carries parent_transfer_id
+and depth; END carries repair_id, the child-list identity for that selective pass.
+ROOT retains the external lease, with one active leaf and one transport/outbox.
+Parent control/idle waits pause during children. Services are not public downloads.
 
-There is no per-DATA file ACK, no MISSING pagination and no LoRa SACK dependency.
-A full missing set that exceeds one payload reports `repair_too_large` and retains
-usable partial state. Explicit `file_send_start` with the unchanged source reuses a
-matching journal and the same transfer ID, both in the same process and after restart.
-An old sender worker must have finished settling before same-process retry can start.
-See `FT1_RESUME.md` for durable state, ambiguity and immutable wire checks.
+ROOT missing threshold defaults to30% (strictly greater fails); service files are
+exempt. Depth1..8 is permitted, needing9 fails. Three consecutive completed repair
+cycles without decreased missing count fail; any decrease resets that file's counter.
+Snapshots optionally include repair={missing_total,depth,no_progress}; no_progress is
+receiver-owned. The sender learns missing_total from each hash-verified full list.
+A nested negative RESULT preserves its original remote code in the ROOT sender
+failure.details.remote_code; the sender failure.code remains remote_failed.
+There is no overall3600 s deadline or fixed8-cycle repair cap in this coordinator.
+Unanswered idle control remains bounded by interval/max_control_replays. No per-DATA
+FT1 ACK, midstream watchdog, PHY retries or LoRa SACK is implemented.
+
+Explicit file_send_start with unchanged source reuses a matching ROOT journal/ID.
+Restart does not restore a nested stack: durable ROOT resume builds a fresh context.
+Drain ambiguity retains ownership; close the session before new work. No new JSONL
+configuration operation is introduced. Constructor policy defaults and exact wire
+layout are documented in FILE_TRANSFER.md; FT1_RESUME.md owns durable-state guarantees.
+Full physical recursive repair validation is pending; old stage8 evidence covers v1 only.
 
 A generic `tx_state=unknown` is never blindly resent by `ManagedSession`. FT1 replay
 also requires accounting for the previous controller operation. Legacy lost echo or
@@ -918,6 +958,82 @@ include the owning session id. This logging is diagnostic only and does not chan
 file-transfer state.
 
 
+### BLE target absent: operator-authorized recovery through USB
+
+A target missing from BLE discovery is not proof of a failed node or a LoRa radio
+failure. A connected peripheral may stop advertising. On Linux, check both the
+local SerialTerminal processes and BlueZ's connection state for the target:
+
+```bash
+pgrep -af 'serialterminal.py'
+bluetoothctl info <target-BLE-address>
+busctl --system list --no-pager
+```
+
+Inspect matching command lines/PIDs rather than killing by name. No live ST
+process does not prove that the node is free: another client may own it, or a
+connection may remain after ST exits. `Connected: yes` does not identify the
+application that originally opened it. Do not kill unrelated clients, restart
+BlueZ or reset the adapter as automatic recovery.
+
+When the operator authorizes USB access and a node reboot, use this procedure:
+
+1. Start one persistent interactive ST agent with a fresh unique `--log` path;
+   retain its PID. Keep stdin open through discovery, access and cleanup.
+2. Discover serial devices in that process, using the node's known runtime baud:
+
+   ```json
+   {"id":1,"op":"discover","scope":"serial","baud":921600}
+   ```
+
+   `921600` is the tested Chatter runtime baud, not a universal serial default.
+   Open the exact returned USB `device_key` with `profile:"generic"`. This sends
+   no controller preamble and leaves BLE ownership untouched.
+
+   ```json
+   {"id":2,"op":"open","device_key":"<returned-USB-device-key>","profile":"generic"}
+   ```
+
+3. Save the returned session and `latest_seq`. Send `/id`, then observe from that
+   cursor and require the intended node's identity before rebooting. `/config`
+   can record the existing radio/link state. These are Chatter-specific commands;
+   the generic API does not supply or interpret a reboot command for arbitrary
+   devices. Use the returned session instead of assuming it is `s1`.
+4. With reboot authorization and no active work that must be preserved, send one
+   `/reboot` through the USB session:
+
+   ```json
+   {"id":3,"op":"send_line","session":"s1","text":"/reboot"}
+   ```
+
+   Observe incrementally with the actual returned cursors. A queued/written
+   response is not reboot confirmation: require `[SYS] REBOOTING`, subsequent
+   `[SYS] CHATTER READY`, and a fresh `/id` response. Boot-time serial bytes may
+   be undecodable at the runtime baud; preserve them in the forensic log without
+   treating them alone as a failed boot. If confirmation is absent, report the
+   boundary instead of sending repeated reboots blindly.
+5. Run BLE discovery in the same ST process after the node is ready:
+
+   ```json
+   {"id":4,"op":"discover","scope":"ble","scan_seconds":5}
+   ```
+
+   Require the intended target in the returned candidates. USB responsiveness
+   and restored BLE visibility are separate results; neither proves successful
+   LoRa delivery or fixes the unknown cause of the previous connection.
+6. Close the USB session, consume the close response, then end agent stdin
+   normally and verify that the retained PID exited. Preserve all three logs:
+   `.log`, `.console.log`, and `.fttiming.jsonl`. The timing companion is finalized
+   during graceful shutdown; a crash may prevent its completion. Record the
+   pre-reboot state, authorization, identity, reboot evidence and post-reboot
+   discovery in the experiment description.
+
+This procedure was verified on a Chatter node that was absent from ST BLE discovery
+while BlueZ reported `Connected: yes` and no live ST process was found. USB `/id`
+responded, the authorized `/reboot` reached READY, and subsequent BLE discovery
+returned the node. The original connection owner/cause was not established.
+
+
 ### Busy serial target
 
 POSIX serial sessions request exclusive tty ownership. If another cooperating
@@ -927,12 +1043,33 @@ state and emits one deduplicated raw `error` event for that failure epoch with
 after the other owner releases the port; no second SerialTerminal reader is allowed
 to consume the same serial byte stream concurrently.
 
-Protected Chatter recovery: if the addressed STATUS reports both node credits
-returned but its terminal outcome is missing after 100 ms, the client issues one
-cached local QUERY. STATUS is not success evidence; RF SUBMIT is not repeated.
-The original bounded deadline fallback remains if this diagnostic query cannot
-recover a terminal result.
+Protected Chatter recovery: an addressed full-credit STATUS for a pending SUBMIT,
+or LINK_OK/LINK_FAIL for a later pending SUBMIT in the same epoch, schedules one
+cached local QUERY for an earlier missing terminal outcome after 100 ms. Lost
+ACCEPTED/TX_DONE do not disable this recovery. Unowned request/old-epoch frames
+cannot schedule it. These hints are not success evidence: each ticket settles
+only from its own correlated outcome, and RF SUBMIT is not repeated. UNKNOWN
+remains unresolved and blocks new submissions. The original bounded deadline
+fallback remains if this diagnostic query cannot recover a terminal result.
 
 Same-epoch WELCOME after reconnect preserves the Chatter request counter; fresh
 epoch starts a new counter. This prevents new payloads from reusing retained cache
 identities after a live USB controller reconnect.
+
+
+## Application error log and interactive errors
+
+Each CLI process also creates `logs/serialterminal-application-<timestamp>-p<pid>.log`
+in the working directory, independently of session `--log`. It records start/stop, TUI cancel/manager-close/session-replacement phases and
+application errors with full Python traceback. Error records are immediately flushed
+and fsynced; they do not wait for process close or the timing writer. Unhandled thread
+exceptions and caught session/FT1 worker failures use this same log. A logger I/O
+failure is reported briefly to stderr; successful persistence is not claimed.
+
+TUI action errors keep the screen open and light a white-on-red `ERROR` badge in the
+upper-right corner. Status contains a short error and application log path; an action
+that failed is not automatically repeated. Ctrl+C remains an ordinary quit, without
+printing a traceback. Cleanup attempts all resources independently; cleanup failures
+are logged as errors. A fatal CLI/frontend error outside a recoverable TUI action
+returns1 with a short log-path notice, without traceback text on stderr. Ctrl+C at the
+CLI boundary returns130. Neither Python catch nor cleanup can run after SIGKILL.

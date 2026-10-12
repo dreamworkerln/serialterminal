@@ -267,6 +267,8 @@ class ManagedSession:
             if not self.stop_event.is_set():
                 raise RuntimeError(f"{worker} worker exited unexpectedly")
         except Exception as exc:
+            from .application_log import report_exception
+            report_exception(exc, f"session worker:{worker}")
             self._record_event("error", state="worker-failed", error=f"{worker}: {exc}")
             self.stop_event.set()
             self.connected_event.clear()

@@ -17,7 +17,6 @@ SWEEP_MAX_RETAINED_TERMINAL = 16
 SWEEP_MAX_PLAN_BYTES = 64 * 1024
 SWEEP_MAX_AXES = 16
 SWEEP_MAX_TOTAL_SAMPLES = 100_000
-SWEEP_MAX_PHASE_TIMEOUT_S = 3600.0
 SWEEP_SESSION_FENCE_TIMEOUT_S = 10.0
 
 
@@ -385,7 +384,6 @@ class SweepJob:
             or not isinstance(timeout, (int, float))
             or not math.isfinite(float(timeout))
             or timeout <= 0
-            or timeout > SWEEP_MAX_PHASE_TIMEOUT_S
         ):
             raise RuntimeError(
                 f"adapter returned invalid timeout for {phase}: {timeout!r}"

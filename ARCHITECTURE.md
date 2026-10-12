@@ -119,7 +119,8 @@ The profile binary factory receives an optional generic `cancel_tx` hook alongsi
 an optional bounded `drain_binary` capability to FT1; unrelated writes are preserved.
 Adapter controller readiness, output-mode query, host write and presentation waits
 share an absolute monotonic deadline. FT1 recovery passes its remaining deadline
-through the optional `send_binary_until` capability.
+through optional `prepare_binary` for local readiness, then allows the RF send its
+profile-derived budget; `send_binary_until` remains an explicit caller bound.
 
 ### File transfer layering
 
@@ -143,6 +144,15 @@ ManagedSession / Transport
 `send_binary()` settlement. The profile defines its precise local/link proof; neither
 successful host write nor a node ACK proves remote host durability. It does not expose
 filenames, compression, filesystem state or file progress.
+
+An optional `timing_budget_s(purpose)` capability supplies positive finite deadlines
+for control, resume and drain. Generic FT1 consumes these opaque budgets; concrete
+LoRa ToA, frame sizes, ACK/retry policy, config commands and SPI readback remain in
+the Chatter profile. The profile caches verified PHY by controller epoch, transport
+generation and configuration revision. During local boot, existing control/idle
+waits may use the last verified PHY estimate; this does not grant RF admission.
+Config changes clear that estimate. Invalid readback prevents RF submission.
+There is no implicit overall hour deadline and no timing-based DATA pacing.
 
 Human Chatter USER presentation state is also profile-owned. Sent-but-unresolved
 human payloads are released when a controller reset/boot/READY boundary is observed,
@@ -318,6 +328,16 @@ application ownership. Device/profile preemption creates a fresh ManagedSession 
 reconnect-safe TX queued for the old physical target cannot migrate to a newly selected
 target. Ctrl+C retains its ordinary process-quit meaning and is not repurposed as a
 file-transfer control.
+
+Before shutdown checkpoints, the file manager detaches incoming binary admission and
+joins its RX worker; explicit cancellation is not converted into durable suspension.
+An already ending/published RX frame is not restored from a stale recursive pointer.
+The TUI keeps the profile adapter attached to completed incoming lines during manager
+drain/CLOSE, and detaches it only after manager close returns.
+TUI catches action errors, logs the traceback in the process application log and marks
+an ERROR badge; cleanup failure does not skip the remaining resource cleanup.
+The process log is separate from session evidence. Timing uses a bounded batch writer,
+while application error records flush/fsync immediately.
 
 
 ### Serial physical-port ownership

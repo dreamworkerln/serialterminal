@@ -304,7 +304,10 @@ def test_protocol_rejects_removed_auto_id_field(tmp_path):
 
 
 
-def test_observe_one_session_defaults_to_lines_and_can_include_raw_events():
+def test_observe_one_session_defaults_to_lines_and_can_include_raw_events(monkeypatch):
+    # Здесь проверяем console observe, а не асинхронную machine negotiation.
+    # Её отдельный TX event может законно разбудить observe до console RX.
+    monkeypatch.setattr("serialterminal.profiles.chatter.machine_client.ChatterMachineClient.start", lambda self: None)
     factory = FakeSelectorFactory()
     manager = SessionManager(selector_factory=factory, reconnect_delay=0.01)
     try:

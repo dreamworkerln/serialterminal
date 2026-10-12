@@ -10,7 +10,7 @@ from serialterminal.profiles.chatter.machine_codec import Frame,Kind,decode,enco
 class Node:
     def __init__(self):
         self.client=None; self.frames=[]; self.epoch=41; self.drop_link=False
-        self.legacy=False; self.unknown=False; self.outcomes={}; self.write_unknown=False
+        self.legacy=False; self.unknown=False; self.outcomes={}; self.write_unknown=False; self.drop_outcomes=set()
     def send(self,text):
         frame=decode(text.lstrip("\n")); self.frames.append(frame)
         def emit(kind,payload=b"",epoch=None):
@@ -22,8 +22,8 @@ class Node:
             emit(Kind.CLOSED)
         elif frame.kind == Kind.SUBMIT:
             self.outcomes[frame.request]=Kind.LINK_OK
-            emit(Kind.ACCEPTED)
-            emit(Kind.TX_DONE)
+            if Kind.ACCEPTED not in self.drop_outcomes: emit(Kind.ACCEPTED)
+            if Kind.TX_DONE not in self.drop_outcomes: emit(Kind.TX_DONE)
             if not self.drop_link: emit(Kind.LINK_OK)
         elif frame.kind == Kind.QUERY:
             emit(Kind.UNKNOWN if self.unknown else self.outcomes.get(frame.request,Kind.UNKNOWN))
@@ -281,4 +281,63 @@ def test_idle_same_epoch_reconnect_keeps_monotonic_request_counter():
     assert [(frame.epoch,frame.request) for frame in submits]==[(41,1),(41,2)]
     assert submits[0].payload!=submits[1].payload
     assert len([frame for frame in node.frames if frame.kind==Kind.HELLO])==2
+    client.close()
+
+
+@pytest.mark.parametrize("lost_admission", [False, True])
+def test_later_link_result_recovers_earlier_ticket_without_full_credit_status(lost_admission):
+    client,node=setup_node(timeout=30);node.drop_link=True
+    if lost_admission: node.drop_outcomes={Kind.ACCEPTED,Kind.TX_DONE}
+    first=client.submit_binary(b"first already delivered")
+    node.drop_link=False;node.drop_outcomes.clear()
+    second=client.submit_binary(b"second already delivered")
+    assert second.outcome==Kind.LINK_OK
+    assert first.later_terminal_at is not None
+    started=time.monotonic()
+    client.settle_binary(first);client.settle_binary(second)
+    assert time.monotonic()-started < 1.0
+    assert [f.request for f in node.frames if f.kind==Kind.QUERY]==[first.request]
+    assert [f.kind for f in node.frames].count(Kind.SUBMIT)==2
+    client.close()
+
+
+def test_full_credit_recovers_ticket_even_when_all_admission_outcomes_were_lost():
+    client,node=setup_node(timeout=30);node.drop_link=True
+    node.drop_outcomes={Kind.ACCEPTED,Kind.TX_DONE}
+    ticket=client.submit_binary(b"delivered without host outcomes")
+    assert ticket.outcome is None
+    client.feed_line("chat",encode(Frame(Kind.STATUS,ticket.epoch,ticket.request,b"\x02"+struct.pack("<IIB",2,0,2))).decode())
+    assert ticket.outcome is None and ticket.credit_returned_at is not None
+    started=time.monotonic();client.settle_binary(ticket)
+    assert time.monotonic()-started < 1.0
+    assert [f.kind for f in node.frames].count(Kind.SUBMIT)==1
+    assert [f.kind for f in node.frames].count(Kind.QUERY)==1
+    client.close()
+
+
+def test_unowned_status_and_later_result_do_not_arm_recovery():
+    client,node=setup_node(timeout=30);node.drop_link=True
+    ticket=client.submit_binary(b"pending")
+    for epoch,request in [(ticket.epoch,ticket.request+1000),(ticket.epoch-1,ticket.request),(ticket.epoch,ticket.request-1)]:
+        client.feed_line("chat",encode(Frame(Kind.STATUS,epoch,request,b"\x02"+struct.pack("<IIB",0,0,2))).decode())
+        client.feed_line("chat",encode(Frame(Kind.LINK_OK,epoch,request)).decode())
+    assert ticket.credit_returned_at is None and ticket.later_terminal_at is None
+    assert ticket.outcome==Kind.TX_DONE
+    assert not any(f.kind==Kind.QUERY for f in node.frames)
+    client.feed_line("chat",encode(Frame(Kind.LINK_OK,ticket.epoch,ticket.request)).decode())
+    client.settle_binary(ticket);client.close()
+
+
+@pytest.mark.parametrize("cached_outcome,code", [(Kind.LINK_FAIL,"machine_link_failed"),(Kind.UNKNOWN,"local_tx_unsettled")])
+def test_later_success_only_prompts_query_and_cannot_hide_earlier_failure(cached_outcome,code):
+    client,node=setup_node(timeout=30);node.drop_link=True
+    first=client.submit_binary(b"earlier uncertain delivery")
+    node.outcomes[first.request]=cached_outcome
+    node.drop_link=False;second=client.submit_binary(b"later success")
+    with pytest.raises(BinaryUserError) as caught: client.settle_binary(first)
+    assert caught.value.code==code
+    assert [f.request for f in node.frames if f.kind==Kind.QUERY]==[first.request]
+    assert [f.kind for f in node.frames].count(Kind.SUBMIT)==2
+    if cached_outcome==Kind.UNKNOWN: assert client.pending[first.request] is first
+    else: client.settle_binary(second)
     client.close()

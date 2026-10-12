@@ -451,7 +451,7 @@ post-closure hardware smoke: PASS / physical BLE multi-device / 2026-09-03
 
 ### TODO_042 — [todos/TODO_042_FT1_BATCHED_FINAL_REPAIR.md](todos/TODO_042_FT1_BATCHED_FINAL_REPAIR.md)
 
-Status: OPEN / CRITICAL / IMPLEMENTATION NOT STARTED / VALIDATION OPEN
+Status: OPEN / CRITICAL / PROTOTYPE IMPLEMENTED / BROAD VALIDATION OPEN
 
 Selected design: transmit the full missing list as an internal FT1 file in the
 reverse direction; recursively repair that file with another missing-list file
@@ -465,18 +465,16 @@ are exempt from that percent gate. Three consecutive completed repair cycles wit
 no decrease in missing count fail the operation, with a separate counter for each
 file and reset on any decrease. Slow progress is permitted. No new ST PHY/RTT/radio
 retry layer, mandatory pacing or fixed one-hour repair budget is selected.
-Current v1 source/runtime/constants are unchanged; backward compatibility is not
-required. Prior portion-based MISSING design is superseded by this recursive design.
+Prototype uses FT1 v2 META parent/depth and END repair_id, MRF2 full lists.
+Current recursive software suite:571 PASS. USB↔USB targeted radio smoke:128KiB each way, controlled80 isolated ROOT holes + service DATA loss, depth2/unwind PASS both ways; explicit persistent resume after receiver reboot PASS. SF12 CRC/retry/LINK_FAIL remain under investigation; full hardware matrix OPEN. Firmware unchanged in this ST timing/test revision.
+Backward compatibility is not required. Prior portion-based MISSING design is superseded by this recursive design.
 
-Docs checkpoint: 2026-10-12, `dev_tui_exp_recursive_missing@fd94bdeb1fd878e072b0f852b3e8f461d928e3cd`
-+ current documentation edits, branched from dev_tui by operator instruction.
-Next priority: TODO_042. Specify technical codec/ownership/recovery details and
-implement/test in this branch after a separate source start, then merge into
-dev_tui after acceptance and operator instruction. This step changes documents
-only. Raw evidence stays outside Git in
-`/home/dream/coding/журнал экспериментов/TODO_042/`; preserve old stage8 bundles
-and link new evidence by exact revisions/SHA256. Midstream/FLOW/CAPS/watchdog/
-LoRa-SACK stay separate. Detailed contracts/checklists live in TODO.
+Docs checkpoint:991ff0e. Source: same HEAD + uncommitted recursive implementation.
+Luna medium prompt and new evidence live outside Git in
+`/home/dream/coding/журнал экспериментов/Проверка dev_tui_exp_recursive_missing/`.
+Operator authorized limited100KiB + receiver-reboot probes before Luna's matrix;
+Luna has not been launched. Keep historical stage8 bundles immutable. No merge/push
+or TODO closure until broad acceptance. Detailed contract/checklists in TODO.
 
 ## Current validation posture
 
@@ -517,3 +515,6 @@ TODO_041 broader FLOW/midstream scope remains OPEN. TODO_042 was DEFERRED at
 that experimental checkpoint and is now OPEN / CRITICAL under the updated design
 above; new runtime implementation has not started.
 No new commit/push/current-head CI. Work stopped at experimental stage8.
+
+
+Timing/recursive test revision 2026-10-12: актуальные tests проверяют recursive missing service files, >28 isolated ranges, nested loss и bounded control/resume; 571 pytest PASS, compileall/diff-check PASS. Radio deadlines Chatter derived from SPI PHY/LoRa ToA/ACK/retry; no implicit3600s or sweep hour cap. Detailed inventory: TIMING_AUDIT.md. Hardware smoke results and limitations: `журнал экспериментов/ST_TIMING_REVISION_20261012T131217Z`; full topology/reset matrix not claimed. Experimental policy: `/home/dream/coding/AGENTS.md`.

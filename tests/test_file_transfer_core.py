@@ -1,4 +1,5 @@
 import hashlib
+import itertools
 from pathlib import Path
 import random
 import threading
@@ -19,6 +20,7 @@ from serialterminal.file_transfer import (
     encode_message,
     decode_message,
 )
+from recursive_evidence import service_requests
 from serialterminal.file_transfer.core import default_receive_dir
 from serialterminal.file_transfer.protocol import data_payload_capacity
 
@@ -270,7 +272,7 @@ def test_truncated_transfer_requests_repair_and_keeps_temp_state(tmp_path):
     receive_dir = tmp_path / "rx"
     manager = FileTransferManager(transport, receive_dir=receive_dir)
     try:
-        payload = b"x" * 400
+        payload = b"x" * 700
         digest = hashlib.sha256(payload).digest()
         chunk_size = data_payload_capacity(200)
         manager.feed_binary(
@@ -288,15 +290,11 @@ def test_truncated_transfer_requests_repair_and_keeps_temp_state(tmp_path):
             )
         )
         assert _wait_until(lambda: manager.display_snapshot() is not None)
+        for index in range(3):
+            manager.feed_binary(encode_message(DataMessage(100, index, payload[index*chunk_size:(index+1)*chunk_size]), 200))
         manager.feed_binary(
             encode_message(
-                DataMessage(100, 0, payload[:chunk_size]),
-                200,
-            )
-        )
-        manager.feed_binary(
-            encode_message(
-                EndMessage(100, 3, digest),
+                EndMessage(100, 4, digest),
                 200,
             )
         )
@@ -305,17 +303,16 @@ def test_truncated_transfer_requests_repair_and_keeps_temp_state(tmp_path):
             lambda: (
                 snapshot
                 if (snapshot := manager.display_snapshot())
-                and snapshot["state"] == "repairing"
+                and snapshot["state"] == "repair_requested"
                 else None
             )
         )
-        assert repairing["state"] == "repairing"
-        sent = [decode_message(item) for item in transport.sent]
-        missing = [item for item in sent if isinstance(item, MissingMessage)]
+        assert repairing["state"] == "repair_requested"
+        missing = _wait_until(lambda: service_requests(transport.sent, 100))
         assert len(missing) == 1
-        assert sum(r.count for r in missing[0].ranges) == 2
+        assert [(r.start_chunk,r.count) for r in missing[0].ranges] == [(3,1)]
         assert not (receive_dir / "truncated.bin").exists()
-        assert list(receive_dir.glob("*.part"))
+        assert manager._resume_store.incoming_part(100).read_bytes() == payload[:3*chunk_size]
     finally:
         manager.close()
 
@@ -509,10 +506,11 @@ def _lossy_pair(tmp_path, drop_counts, *, replay_interval=0.05):
     right = _LossyPairBinaryTransport()
     left.peer = right
     right.peer = left
+    tx_ids, rx_ids = itertools.count(0xABCD), itertools.count(0xDCBA)
     tx = FileTransferManager(
         left,
         receive_dir=tmp_path / "left-lossy",
-        id_factory=lambda: 0xABCD,
+        id_factory=lambda: next(tx_ids),
         result_timeout_s=2.0,
         control_replay_interval_s=replay_interval,
         max_control_replays=4,
@@ -521,7 +519,7 @@ def _lossy_pair(tmp_path, drop_counts, *, replay_interval=0.05):
     rx = FileTransferManager(
         right,
         receive_dir=tmp_path / "right-lossy",
-        id_factory=lambda: 0xDCBA,
+        id_factory=lambda: next(rx_ids),
         result_timeout_s=2.0,
         control_replay_interval_s=replay_interval,
         max_control_replays=4,
@@ -579,11 +577,7 @@ def test_missing_chunks_are_selectively_repaired_without_resending_whole_file(tm
             for index, count in counts.items()
             if index not in {2, 3, 7}
         )
-        missing_messages = [
-            message
-            for raw in right.sent
-            if isinstance((message := decode_message(raw)), MissingMessage)
-        ]
+        missing_messages = service_requests(right.sent, int(started["transfer_id"],16))
         assert len(missing_messages) == 1
         assert [(r.start_chunk, r.count) for r in missing_messages[0].ranges] == [
             (2, 2),
@@ -596,7 +590,7 @@ def test_missing_chunks_are_selectively_repaired_without_resending_whole_file(tm
             window=100,
             timeout_ms=0,
         )
-        assert any(event["kind"] == "repair_requested" for event in observed["events"])
+        assert any(event["kind"] == "repair_progress" for event in observed["events"])
     finally:
         tx.close()
         rx.close()
@@ -631,7 +625,7 @@ def test_second_repair_round_recovers_chunk_lost_during_first_repair(tmp_path):
         rx.close()
 
 
-def test_control_replay_recovers_when_receiver_missed_initial_meta(tmp_path):
+def test_lost_meta_hits_percent_gate_then_explicit_retry_keeps_identity(tmp_path):
     source = tmp_path / "miss-meta.bin"
     source.write_bytes(random.Random(99).randbytes(184 * 5))
     tx, rx, left, _right = _lossy_pair(
@@ -639,7 +633,7 @@ def test_control_replay_recovers_when_receiver_missed_initial_meta(tmp_path):
         {("meta", None): 1},
     )
     try:
-        tx.start_send(source)
+        first = tx.start_send(source)
         done = _wait_until(
             lambda: (
                 snapshot
@@ -649,7 +643,15 @@ def test_control_replay_recovers_when_receiver_missed_initial_meta(tmp_path):
             ),
             timeout=4.0,
         )
-        assert done["state"] == "completed"
+        assert done["state"] == "failed"
+        assert done["failure"]["details"]["remote_code"] == "missing_percent_exceeded"
+        tx.join_all(1)
+        second = tx.start_send(source)
+        assert second["transfer_id"] == first["transfer_id"] and second["resumed"]
+        completed = _wait_until(lambda: tx.display_snapshot() if tx.display_snapshot()["state"] == "completed" else None)
+        assert completed["state"] == "completed"
+        received = _wait_until(lambda: rx.display_snapshot() if rx.display_snapshot()["state"] == "completed" else None)
+        assert Path(received["final_path"]).read_bytes() == source.read_bytes()
         meta_count = sum(
             isinstance(decode_message(raw), MetaMessage)
             for raw in left.sent
@@ -730,28 +732,24 @@ def test_repeated_identical_meta_and_end_are_idempotent_after_completion(tmp_pat
         rx.close()
 
 
-def test_oversized_missing_set_fails_with_repair_too_large_and_no_pagination(tmp_path):
+def test_more_than_28_disjoint_holes_use_verified_service_file(tmp_path):
     source = tmp_path / "fragmented.bin"
-    source.write_bytes(random.Random(303).randbytes(184 * 48))
-    drops = {("data", index): 1 for index in range(0, 48, 2)}
-    tx, rx, _left, right = _lossy_pair(tmp_path, drops)
+    source.write_bytes(random.Random(303).randbytes(184 * 100))
+    holes = set(range(0,60,2))
+    tx, rx, left, right = _lossy_pair(tmp_path,{("data",index):1 for index in holes})
     try:
-        tx.start_send(source)
-        failed = _wait_until(
-            lambda: (
-                snapshot
-                if (snapshot := tx.display_snapshot())
-                and snapshot["state"] in {"completed", "failed"}
-                else None
-            )
-        )
-        assert failed["state"] == "failed"
-        assert failed["failure"]["code"] == "remote_failed"
-        assert failed["failure"]["details"]["remote_code"] == "repair_too_large"
-        assert not any(
-            isinstance(decode_message(raw), MissingMessage)
-            for raw in right.sent
-        )
+        started = tx.start_send(source)
+        done = _wait_until(lambda: tx.display_snapshot() if tx.display_snapshot()["state"] in {"completed","failed"} else None)
+        assert done["state"] == "completed", done
+        received = _wait_until(lambda: rx.display_snapshot() if rx.display_snapshot()["state"] == "completed" else None)
+        assert Path(received["final_path"]).read_bytes() == source.read_bytes()
+        root_id = int(started["transfer_id"],16)
+        lists = service_requests(right.sent,root_id)
+        assert len(lists) == 1
+        assert [(r.start_chunk,r.count) for r in lists[0].ranges] == [(index,1) for index in sorted(holes)]
+        data = [m for raw in left.sent if isinstance((m:=decode_message(raw)),DataMessage) and m.transfer_id == root_id]
+        assert all(sum(m.chunk_index == index for m in data) == (2 if index in holes else 1) for index in range(100))
+        assert not any(isinstance(decode_message(raw),MissingMessage) for raw in right.sent)
     finally:
         tx.close()
         rx.close()
@@ -1130,11 +1128,7 @@ def test_bad_length_chunk_is_selectively_repaired_without_losing_good_chunks(
                 1 + damage_count if index == chunk_index and not duplicate else 1
             )
             assert sum(m.chunk_index == index for m in sent_data) == expected_count
-        missing = [
-            message
-            for raw in right.sent
-            if isinstance((message := decode_message(raw)), MissingMessage)
-        ]
+        missing = service_requests(right.sent, int(started["transfer_id"],16))
         assert len(missing) == (0 if duplicate else damage_count)
         assert all(
             [(r.start_chunk, r.count) for r in message.ranges] == [(chunk_index, 1)]
@@ -1160,14 +1154,13 @@ def test_bad_length_chunk_is_selectively_repaired_without_losing_good_chunks(
 
 
 def test_terminal_record_drains_host_writes_before_releasing_lease(tmp_path):
-    from serialterminal.file_transfer.core import FileTransferManager as CoreManager
     order = []
     class DrainTransport(_PairBinaryTransport):
         def drain_binary(self, timeout_s):
             assert 0 < timeout_s <= 10.0
             order.append("drain")
             return {42: "cancelled"}
-    manager = CoreManager(DrainTransport(), receive_dir=tmp_path, release_transfer=lambda *_: order.append("release"))
+    manager = FileTransferManager(DrainTransport(), receive_dir=tmp_path, release_transfer=lambda *_: order.append("release"))
     try:
         record = manager._reserve_record(17, direction="TX", filename="x")
         manager._terminal_record(record, "failed")
@@ -1178,12 +1171,11 @@ def test_terminal_record_drains_host_writes_before_releasing_lease(tmp_path):
 
 
 def test_drain_timeout_retains_lease_and_reports_failure(tmp_path):
-    from serialterminal.file_transfer.core import FileTransferManager as CoreManager
     released = []
     class DrainTransport(_PairBinaryTransport):
         def drain_binary(self, timeout_s):
             raise BinaryUserError("local_tx_drain_timeout", "write still active")
-    manager = CoreManager(DrainTransport(), receive_dir=tmp_path, release_transfer=lambda *_: released.append(True))
+    manager = FileTransferManager(DrainTransport(), receive_dir=tmp_path, release_transfer=lambda *_: released.append(True))
     try:
         record = manager._reserve_record(17, direction="TX", filename="x")
         manager._terminal_record(record, "failed")

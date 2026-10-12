@@ -551,7 +551,7 @@ class TerminalSession(ManagedSession):
             self.close_logs()
 
     def close_logs(self) -> None:
-        """Flush logs and dump the in-memory timing trace exactly once."""
+        """Flush logs and append the remaining timing batch exactly once."""
         with self.output_lock:
             if not self.log_file.closed:
                 self.log_file.flush()

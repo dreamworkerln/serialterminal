@@ -1,5 +1,6 @@
 import base64
 import hashlib
+import itertools
 from pathlib import Path
 import random
 import time
@@ -8,7 +9,7 @@ import pytest
 
 from serialterminal.file_transfer import (
     BinaryUserError, DataMessage, EndMessage, FileTransferManager,
-    MissingMessage, ResultMessage, ResumeMessage, encode_message,
+    MetaMessage, ResultMessage, ResumeMessage, encode_message,
 )
 from serialterminal.file_transfer import core
 from serialterminal.profiles.chatter.binary_pipeline import PipelinedChatterBinaryUserAdapter
@@ -259,30 +260,31 @@ def test_same_process_publishing_failure_reconciles_single_destination(tmp_path,
         manager.close()
 
 
-@pytest.mark.parametrize("message_type", [MissingMessage, ResultMessage])
+@pytest.mark.parametrize("message_type", [MetaMessage, ResultMessage])
 @pytest.mark.parametrize("permanent", [False, True])
 def test_lost_control_is_bounded_and_explicit_retry_keeps_identity(tmp_path, message_type, permanent):
     source = tmp_path / "control.bin"
-    payload = random.Random(15).randbytes(227 * 3)
+    payload = random.Random(15).randbytes(227 * 4)
     source.write_bytes(payload)
     left, right = CaptureTransport(), CaptureTransport()
     # Outbox и durable publication асинхронны: 20 ms replay interval расходовал
-    # два повтора раньше fsync/RESULT (~140 ms в полном прогоне). Общий deadline,
-    # число повторов и внешняя граница <1 s остаются проверяемыми ограничениями.
-    tx = FileTransferManager(left, receive_dir=tmp_path / "tx", id_factory=lambda: 171,
+    # два повтора раньше fsync/RESULT (~140 ms в полном прогоне). Проверяем
+    # ограниченное число control replay и внешнюю границу завершения <1 s.
+    ids = itertools.count(171)
+    tx = FileTransferManager(left, receive_dir=tmp_path / "tx", id_factory=lambda: next(ids),
                              result_timeout_s=0.3, control_replay_interval_s=0.08,
                              max_control_replays=2, resume_handshake_timeout_s=0.02)
-    rx = FileTransferManager(right, receive_dir=tmp_path / "rx")
+    rx = FileTransferManager(right, receive_dir=tmp_path / "rx", control_replay_interval_s=0.08, max_control_replays=2, resume_handshake_timeout_s=0.02)
     dropped_data = [False]
     dropped_control = [False]
     loss_enabled = [True]
     def send_left(message):
-        if message_type is MissingMessage and isinstance(message, DataMessage) and message.chunk_index == 1 and not dropped_data[0]:
+        if message_type is MetaMessage and isinstance(message, DataMessage) and message.chunk_index == 1 and not dropped_data[0]:
             dropped_data[0] = True
             return
         right.receiver(encode_message(message, 243))
     def send_right(message):
-        if isinstance(message, message_type) and loss_enabled[0] and (permanent or not dropped_control[0]):
+        if isinstance(message, message_type) and (message_type is not MetaMessage or message.parent_transfer_id != 0) and loss_enabled[0] and (permanent or not dropped_control[0]):
             dropped_control[0] = True
             return
         left.receiver(encode_message(message, 243))
@@ -296,10 +298,18 @@ def test_lost_control_is_bounded_and_explicit_retry_keeps_identity(tmp_path, mes
         assert time.monotonic() - started < 1
         assert dropped_control[0]
         if permanent:
-            assert tx._records[171].failure["code"] == "remote_result_timeout"
+            assert tx._records[171].failure["code"] in {"remote_result_timeout", "remote_failed"}
+            if tx._records[171].failure["code"] == "remote_failed":
+                assert tx._records[171].failure["details"]["remote_code"] == "remote_result_timeout"
             assert tx._resume_store.outgoing_manifest(171).is_file()
-            if message_type is MissingMessage:
+            if message_type is MetaMessage:
                 assert rx._resume_store.incoming_part(171).is_file()
+            # У ROOT и потерянного child независимые control budgets. Перед
+            # явным resume ждём settlement обеих сторон, иначе старый child
+            # ещё владеет RX и может прислать RESULT предыдущей попытки.
+            assert wait_until(lambda: rx._records[171].state in {"completed", "failed"})
+            assert rx._outbox.wait_idle(1)
+            assert time.monotonic() - started < 1
             loss_enabled[0] = False
             second = tx.start_send(source)
             assert second["transfer_id"] == first["transfer_id"] and second["resumed"]

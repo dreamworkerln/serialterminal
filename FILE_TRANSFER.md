@@ -26,10 +26,12 @@ apply to **explicit legacy compatibility** after old-firmware rejection. They do
 define protected machine settlement. Machine mode works independently of human output
 mode and waits for typed LINK_OK, never DELIVERY telemetry. Final file completion still
 requires verified remote RESULT, durable publication and the completed tombstone.
-FT1 encoding, capacities and END/MISSING repair below remain unchanged; midstream
-repair and the FT1 FLOW/CAPS/QUERY extension remain deferred. Machine QUERY is local.
+The recursive repair prototype uses FT1 version 2, expanded META/END and internal
+missing-list files. DATA capacity remains unchanged. Midstream repair and the
+FT1 FLOW/CAPS/QUERY extension remain deferred. Machine QUERY is local.
 
-The current implementation lives on `serialterminal/dev_tui`. The authoritative firmware
+The current experimental implementation lives on `dev_tui_exp_recursive_missing`.
+The completed stage8 baseline remains on `dev_tui`. The authoritative firmware
 transport contract is maintained in:
 
 ```text
@@ -53,6 +55,7 @@ src/serialterminal/file_transfer/core.py
 src/serialterminal/file_transfer/resumable.py
 src/serialterminal/file_transfer/manager.py
 src/serialterminal/file_transfer/pipeline_manager.py
+src/serialterminal/file_transfer/recursive.py
 src/serialterminal/file_transfer/outbox.py
 ```
 
@@ -537,7 +540,7 @@ Host-side repair must create a **new firmware USER transaction** carrying the sa
 
 ---
 
-## 9. FT1 v1 common header
+## 9. FT1 v2 common header
 
 Every FT1 message is raw bytes carried inside one BINARY USER payload.
 
@@ -548,7 +551,7 @@ The common header is exactly 12 bytes:
 ```text
 offset  size  field
 0       2     magic = ASCII "FT"
-2       1     version = 1
+2       1     version = 2
 3       1     message_type
 4       8     transfer_id (uint64)
 ```
@@ -566,7 +569,8 @@ Message types:
 2  DATA
 3  END
 4  RESULT
-5  MISSING
+5  MISSING (legacy codec only; rejected by the recursive coordinator)
+6  RESUME
 ```
 
 A sender allocates a non-zero 64-bit `transfer_id` that is unique among retained
@@ -587,6 +591,8 @@ compression        uint8
 chunk_size         uint16
 original_sha256    32 bytes
 filename_len       uint8
+parent_transfer_id uint64 (0 for ROOT)
+depth              uint8 (ROOT=0; service=1..8)
 filename           filename_len UTF-8 bytes
 ```
 
@@ -598,7 +604,7 @@ Compression values:
 ```
 
 With a 243-byte BINARY USER capacity, the maximum META filename payload is currently
-179 UTF-8 bytes.
+170 UTF-8 bytes.
 
 META is deliberately idempotent:
 
@@ -699,12 +705,13 @@ END layout:
 12 bytes  FT1 common header
 4 bytes   chunk_count uint32
 32 bytes  wire_sha256
+8 bytes   repair_id uint64 (0 initially; latest verified list ID after repair)
 ```
 
 Total current END payload size:
 
 ```text
-48 bytes
+56 bytes
 ```
 
 END means:
@@ -726,9 +733,12 @@ Repeated identical END is idempotent.
 
 After META, the receiver creates a hidden temporary wire file and tracks received
 chunk indexes. Incomplete incoming state also has a bounded inactivity lifetime:
-current META/DATA/END activity refreshes the deadline, and after 120 seconds with no
-FT1 activity the receiver fails that transfer with `remote_sender_timeout`, removes
-the temporary state and releases the one-transfer session lease.
+current META/DATA/END activity refreshes the deadline. With Chatter the inactivity
+budget is `(max_control_replays + 1) * control_budget + drain_budget`, derived from
+verified PHY and firmware ACK/retry timing. On expiry the receiver fails that transfer with `remote_sender_timeout`, removes
+the active runtime state and releases the one-transfer session lease. Usable partial
+bytes and durable received ranges remain eligible for explicit resume. Parent idle
+checks are paused while a child transfer is active.
 
 For each DATA:
 
@@ -754,123 +764,82 @@ If `missing` is non-empty, FT1 enters selective repair.
 
 ---
 
-## 15. MISSING: requesting arbitrary chunks
+## 15. Full missing lists as internal FT1 files
 
-This is the mechanism for asking the **peer SerialTerminal** to retransmit arbitrary
-file chunks.
+After END, the receiving ST computes the complete missing set from its chunk bitmap.
+It sends that set back as an internal FT1 file, using ordinary META/DATA/END/RESULT.
+Firmware sees opaque BINARY USER bytes and has no file or recursion knowledge.
+There is no compact MISSING exchange in this coordinator; its codec is retained
+only for legacy low-level tests. No per-DATA file ACK or LoRa SACK is introduced.
 
-It is not a firmware command.
-
-The receiver SerialTerminal creates an FT1 MISSING message and sends it through the
-same generic firmware API:
-
-```text
-MISSING raw bytes
-    -> base64
-    -> /bin <BASE64>
-    -> local firmware
-    -> reliable BINARY USER
-    -> peer firmware
-    -> peer SerialTerminal
-```
-
-### MISSING layout
+The uncompressed service-file content is big-endian:
 
 ```text
-12 bytes  FT1 common header
-1 byte    range_count
-then range_count times:
-    4 bytes start_chunk uint32
-    4 bytes count       uint32
+magic             4 bytes: MRF2
+parent_transfer_id uint64
+missing_total     uint32
+range_count       uint32
+range_count times:
+    start_chunk   uint32
+    count         uint32
 ```
 
-Missing indexes are canonicalized into contiguous ranges.
+Ranges are sorted, disjoint, nonadjacent and within the parent chunk count.
+Their counts must sum to missing_total. Exact length is 20+8*range_count bytes.
+Parent identity, length, bounds, counts and both ordinary FT1 hashes are validated
+before any repair starts. The entire list may span many DATA packets, without the
+old 28-range capacity ceiling. Service files use the same gzip selection as ROOT.
 
-Example:
+Each fresh list has a new uint64 transfer ID, even if its bytes are unchanged.
+Retransmission preserves that ID. META carries the direct parent ID and depth.
+The receiving parent's processed-ID map prevents duplicate repair. END after a
+parent repair echoes the verified child's ID in repair_id. An old END cannot
+complete or increment the no-progress counter for a newer cycle.
+
+## 16. Recursive repair and limits
 
 ```text
-missing indexes:
-7, 8, 9, 15, 16
-
-canonical ranges:
-(start=7,  count=3)
-(start=15, count=2)
+ROOT A -> B, missing chunks
+LIST1 B -> A, full ROOT missing list
+LIST1 incomplete -> LIST2 A -> B, full LIST1 missing list
+verified LIST2 -> repair LIST1 -> verified LIST1 -> repair ROOT
+verified ROOT -> durable atomic publication -> RESULT OK
 ```
 
-With a 243-byte application capacity:
+The original transfer ID/chunk indices are preserved for selective DATA repair.
+Only one leaf progresses at a time. ROOT retains the external session lease;
+children reuse the same engine, transport and outbox. Parent control-replay and
+idle waits are paused until the child settles. Internal service files are not
+published as ordinary downloads or counted as ROOT success.
 
-```text
-243 - 12 - 1 = 230 bytes available for ranges
-230 / 8 = 28 complete ranges
-```
+Policy defaults live in file_transfer/recursive.py and can be overridden through
+FileTransferManager constructor arguments (no new UI/JSONL settings added):
 
-So FT1 v1 can encode at most 28 disjoint missing ranges in one MISSING message at the
-current Chatter capacity.
+* max_missing_percent=30, integer 0..100: ROOT fails when
+  100*missing_total > threshold*chunks_total. Exactly 30% is permitted;
+  gzip uses wire chunk count. Service files are exempt.
+* max_recursion_depth=8: ROOT depth0, service depths1..8. Needing depth9
+  fails the ROOT with recursion_depth_limit.
+* max_no_progress_cycles=3: each file has its own counter. Initial missing count
+  is the baseline. Each completed selective repair followed by its matching END
+  increments the counter if the missing count did not decrease. Any decrease
+  resets it. Three such cycles fail with repair_no_progress. Child progress or
+  duplicate control does not reset a parent's counter.
 
-FT1 v1 has no MISSING pagination.
+The sender exposes missing_total after a verified list arrives; the receiver exposes
+it after END. Snapshots contain optional repair data; repair_progress events include
+missing_total and depth (receiver also no_progress).
 
-If the complete missing set cannot fit one MISSING message, the transfer fails with
-`repair_too_large`. A full resend is an explicit new transfer with a new
-`transfer_id`; the implementation must not silently invent pagination or an endless
-whole-file restart loop.
+There is no fixed overall one-hour repair deadline and no fixed eight-cycle limit
+in this coordinator. Slow progress is allowed. Existing transport/recovery limits
+remain. With no active child, unanswered control waits use the profile roundtrip
+budget and maximum3 META+END replays. Receiver inactivity covers that whole cycle
+plus drain. An active child uses its own waits; budgets do not pace DATA or add RF retry.
 
----
-
-## 16. How selective resend works
-
-When the sender SerialTerminal receives MISSING:
-
-1. validate every requested range against the known `chunks_total`;
-2. keep the same FT1 `transfer_id`;
-3. seek directly to every requested `chunk_index` in the prepared wire stream;
-4. emit only those DATA messages;
-5. keep each DATA's original `chunk_index`;
-6. send END again.
-
-Example:
-
-```text
-Receiver has:
-0 1 2 3 4 5 6 _ _ _ 10 11 12 13 14 _ _ 17 ...
-
-Receiver -> MISSING:
-    (7,3)
-    (15,2)
-
-Sender resends:
-    DATA chunk=7
-    DATA chunk=8
-    DATA chunk=9
-    DATA chunk=15
-    DATA chunk=16
-
-Sender then sends:
-    END
-```
-
-If one of the repair DATA messages is itself lost, the next END causes another MISSING
-round.
-
-Current default bound:
-
-```text
-FILE_MAX_REPAIR_ROUNDS = 8
-```
-
-The important identity distinction is:
-
-```text
-FT1 identity stays:
-    same transfer_id
-    same chunk_index
-
-firmware transport identity may be new:
-    new user_seq
-```
-
-That new firmware USER identity is intentional. It ensures receiver firmware treats
-the repaired DATA as NEW and presents it to the receiver host instead of suppressing
-it as a duplicate radio retry.
+Failures terminate the operation and retain usable ROOT partial state under
+FT1_RESUME.md. Process restart does not reconstruct the recursive stack: explicit
+ROOT resume revalidates persistent identity and starts a fresh repair context.
+Drain/ownership ambiguity retains the lease and requires session closure.
 
 ---
 
@@ -887,7 +856,7 @@ it as a duplicate radio retry.
 | END is lost | Sender ST control replay | Re-send identical META + END |
 | MISSING is lost | Sender ST control replay causes reevaluation | Receiver sees repeated END and sends MISSING again |
 | RESULT is lost | Sender ST control replay + completed receiver replay | Repeated META/END causes completed receiver to send RESULT again |
-| SerialTerminal process dies | Not resumable in FT1 v1 | Start a new transfer with a new transfer_id |
+| SerialTerminal process dies | Explicit ROOT resume | Revalidate journals/durable ranges; reuse ROOT ID; rebuild repair context |
 
 This table is the practical answer to "who resends what?"
 
@@ -944,9 +913,9 @@ same END
 Current defaults:
 
 ```text
-FILE_CONTROL_REPLAY_INTERVAL_S = 30
+control_replay_interval_s      = None (derive profile roundtrip budget)
 FILE_MAX_CONTROL_REPLAYS       = 3
-FILE_RESULT_TIMEOUT_S          = 3600
+FILE_RESULT_TIMEOUT_S          = None (no implicit overall deadline)
 ```
 
 Why replay both?
@@ -1427,21 +1396,28 @@ Chatter BINARY USER payload capacity     243 bytes
 FT1 full DATA file payload               227 bytes
 firmware reliable USER max attempts      5
 firmware reliable USER queue depth       8
-FT1 repair rounds                        8
+FT1 no-progress repair cycles            3 per file
+FT1 maximum service depth                8
+FT1 ROOT missing-percent threshold       30%; service files exempt
 FT1 local-message replays                4
-Chatter local BINARY presentation timeout 30 s
+Chatter machine send deadline             2 * radio transaction + local guard
 Chatter output-mode query timeout         5 s
-Chatter controller READY timeout          15 s
-FT1 incoming inactivity timeout           120 s
-FT1 control replay interval              30 s
+Chatter controller READY timeout          15 s host startup + boot self-test ToA
+FT1 incoming inactivity timeout           4 * control budget + drain
+FT1 control replay interval              4 * radio transaction + local guard
 FT1 maximum control replays              3
-FT1 overall remote-result timeout        3600 s
-FT1 MISSING max disjoint ranges          28 at 243-byte capacity
+FT1 overall remote-result timeout        none in recursive coordinator
+FT1 missing list capacity                multi-DATA internal file, uint32 ranges
 simultaneous active FT1 transfers/session 1
 MISSING pagination                       none
 persistent process-restart resume        explicit file_send_start + journals/manifests
 LoRa SACK dependency                     none
 ```
+
+Physical timing formulas and reviewed host-only limits are documented in
+[TIMING_AUDIT.md](TIMING_AUDIT.md). Generic opaque transports without the optional
+timing capability use explicit application fallback policy (30 s control, 1 s resume,
+10 s drain, 120 s idle); those numbers are not LoRa estimates.
 
 These values are current implementation defaults, not reasons to duplicate constants
 in unrelated UI code. Consume the existing interfaces/constants where possible.

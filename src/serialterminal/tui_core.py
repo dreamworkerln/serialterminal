@@ -8,6 +8,7 @@ import threading
 import time
 from pathlib import Path
 
+from .application_log import error_snapshot, report_event, report_exception
 from .file_browser import browse_file
 from .file_transfer import FileTransferError, FileTransferManager
 from .profiles import PROFILE_NAMES, TerminalProfile, resolve_profile
@@ -306,6 +307,7 @@ class TerminalTui:
         self.history_draft = ""
         self.status = ""
         self.running = True
+        self._application_error = False
         self.mouse_capture = True
         self.panel = profile.make_tui_panel()
         self._was_connected = False
@@ -668,6 +670,7 @@ class TerminalTui:
             "status": curses.color_pair(4),
             "error": curses.color_pair(5) | curses.A_BOLD,
             "input": curses.color_pair(6),
+            "error_badge": curses.color_pair(7) | curses.A_BOLD,
             "dim": curses.color_pair(1) | curses.A_DIM,
         }
 
@@ -680,6 +683,11 @@ class TerminalTui:
         if line.startswith("<") or "RX USER" in line:
             return colors["panel"]
         return colors["normal"]
+
+    def _render_error_badge(self, stdscr, width, colors) -> None:
+        if getattr(self, "_application_error", False) or error_snapshot()[0]:
+            badge = " ERROR "
+            self._safe_addstr(stdscr, 0, max(0, width - len(badge) - 1), badge, colors["error_badge"])
 
     def _render(self, stdscr) -> None:
         stdscr.erase()
@@ -714,6 +722,8 @@ class TerminalTui:
         self._safe_addstr(
             stdscr, 0, 0, header, colors["header"]
         )
+
+        self._render_error_badge(stdscr, width, colors)
 
         y = 1
         if self.panel is not None:
@@ -829,10 +839,16 @@ class TerminalTui:
     def _close_file_transfer_manager(self) -> None:
         manager = self._file_transfer
         self._file_transfer = None
-        self._binary_adapter = None
         self._file_transfer_screen_muted.clear()
-        if manager is not None:
-            manager.close()
+        report_event("TUI file manager close begin")
+        try:
+            # Уже принятые M1 tickets и CLOSE завершаются через feed_line.
+            # Отключение adapter до drain потеряет пришедший LINK_OK/CLOSED.
+            if manager is not None:
+                manager.close()
+        finally:
+            self._binary_adapter = None
+            report_event("TUI file manager close end")
 
     def _replace_tui_session(
         self,
@@ -842,6 +858,7 @@ class TerminalTui:
     ) -> None:
         next_profile = self.profile if profile is None else profile
         old_session = self.session
+        report_event("TUI session replacement begin")
 
         # Human preemption must create a new ManagedSession. Reusing the old
         # reconnect-safe TX queue could otherwise deliver an old FT1 /bin to a
@@ -860,6 +877,7 @@ class TerminalTui:
         self._configure_file_transfer(next_profile)
         self._was_connected = False
         self.session.start()
+        report_event("TUI session replacement started")
 
     def _abort_file_transfer_for_operator(self) -> bool:
         manager = self._file_transfer
@@ -871,10 +889,11 @@ class TerminalTui:
         ):
             return False
 
+        report_event(f"TUI FT1 explicit cancel transfer_id={snapshot['transfer_id']}")
         try:
             manager.cancel(str(snapshot["transfer_id"]))
-        except FileTransferError:
-            pass
+        except FileTransferError as exc:
+            self._report_application_error(exc, "TUI FT1 cancellation")
         # Mute belongs to FT1 convenience, not to operator ownership. Once the
         # human preempts the transfer, controller output must be visible at once.
         self._file_transfer_screen_muted.clear()
@@ -913,6 +932,7 @@ class TerminalTui:
 
     def _submit_input(self) -> None:
         line = self.input_text
+        report_event("TUI manual input submitted")
         preempted = self._abort_and_reconnect_same_target()
         self._remember_command(line)
         self.input_text = ""
@@ -1173,6 +1193,18 @@ class TerminalTui:
             )
             self.input_cursor += len(key)
 
+    def _report_application_error(self, exc: Exception, context: str) -> None:
+        path = report_exception(exc, context)
+        self._application_error = True
+        summary = f"{type(exc).__name__}: {exc}".splitlines()[0]
+        self.status = f"ERROR: {summary}" + (f" | App log: {path}" if path else "")
+
+    def _run_key_action(self, stdscr, key, body_rows) -> None:
+        try:
+            self._handle_key(stdscr, key, body_rows)
+        except Exception as exc:
+            self._report_application_error(exc, "TUI action")
+
     def run(self, stdscr) -> None:
         curses.curs_set(1)
         stdscr.keypad(True)
@@ -1190,13 +1222,22 @@ class TerminalTui:
             curses.init_pair(4, curses.COLOR_YELLOW, -1)
             curses.init_pair(5, curses.COLOR_RED, -1)
             curses.init_pair(6, curses.COLOR_GREEN, -1)
+            curses.init_pair(7, curses.COLOR_WHITE, curses.COLOR_RED)
 
-        self.session.start()
-        self.output.write(
-            "SerialTerminal TUI started. F3 switches generic/chatter profile.\n"
-        )
         try:
-            while self.running and not self.session.stop_event.is_set():
+            self.session.start()
+            self.output.write(
+                "SerialTerminal TUI started. F3 switches generic/chatter profile.\n"
+            )
+            while self.running:
+                if self.session.stop_event.is_set():
+                    count, summary, path = error_snapshot()
+                    if not count and not self._application_error:
+                        break
+                    # Ошибка worker видна до выхода оператора, а не исчезает
+                    # вместе с TUI сразу после stop_event.
+                    self._application_error = True
+                    self.status = f"Session stopped: {summary} | App log: {path}"
                 self._run_connected_actions()
                 height, width = stdscr.getmaxyx()
                 panel_rows = len(self.panel.status_lines()) if self.panel else 0
@@ -1207,13 +1248,22 @@ class TerminalTui:
                     key = stdscr.get_wch()
                 except curses.error:
                     continue
-                self._handle_key(stdscr, key, body_rows)
+                self._run_key_action(stdscr, key, body_rows)
+        except KeyboardInterrupt:
+            report_event("TUI Ctrl+C: normal interruption")
+            self.running = False
         finally:
-            self.session._reveal_sent_presentations()
+            # Каждый cleanup выполняется даже после отказа предыдущего.
+            # Стектрейсы остаются в app log, curses восстанавливает терминал.
+            actions = [self.session._reveal_sent_presentations]
             if self._file_transfer is not None:
-                self._file_transfer.close()
-            self.session.stop()
-            self.session.close_logs()
+                actions.append(self._file_transfer.close)
+            actions.extend([self.session.stop, self.session.close_logs])
+            for action in actions:
+                try:
+                    action()
+                except Exception as exc:
+                    self._report_application_error(exc, "TUI shutdown")
 
 
 def run_terminal_tui(

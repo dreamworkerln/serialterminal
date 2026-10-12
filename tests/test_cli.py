@@ -285,7 +285,8 @@ def test_device_selector_fast_menu_uses_remembered_ble_without_discovery(monkeyp
     assert selector.choose_transport_menu() is built
 
 
-def test_device_selector_remembers_all_discovered_ble_targets(monkeypatch):
+def test_device_selector_remembers_all_discovered_ble_targets(tmp_path, monkeypatch):
+    monkeypatch.setenv("SERIALTERMINAL_CACHE_FILE", str(tmp_path / "devices.json"))
     selector = DeviceSelector("ble")
     one = _candidate(1)
     two = _candidate(2)

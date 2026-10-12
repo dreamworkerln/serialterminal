@@ -833,3 +833,111 @@ def test_tui_f2_cancel_keeps_active_transfer_running(monkeypatch):
     tui._choose_device(_Screen())
 
     assert tui.status == "Device selection cancelled; file transfer continues"
+
+
+def test_tui_action_failure_keeps_ui_running_and_logs_traceback(tmp_path):
+    from serialterminal.application_log import ApplicationLog
+    from serialterminal.tui import TerminalTui
+
+    tui = object.__new__(TerminalTui)
+    tui.running = True
+    tui.status = ""
+    def broken_action(*args):
+        raise OSError("receiver partial unavailable")
+    tui._handle_key = broken_action
+    with ApplicationLog(tmp_path / "app.log") as log:
+        tui._run_key_action(None, "\n", 20)
+        assert tui.running
+        assert tui._application_error
+        assert "ERROR:" in tui.status
+        assert str(log.path) in tui.status
+        assert "Traceback" in log.path.read_text()
+
+
+def test_tui_error_badge_is_red_in_upper_right_corner():
+    from serialterminal.tui import TerminalTui
+
+    tui = object.__new__(TerminalTui)
+    tui._application_error = True
+    drawn = []
+    tui._safe_addstr = lambda *args: drawn.append(args)
+    screen = object()
+    tui._render_error_badge(screen, 80, {"error_badge": 77})
+    assert drawn == [(screen, 0, 72, " ERROR ", 77)]
+
+
+def test_tui_ctrl_c_runs_all_cleanup_and_logs_cleanup_error(tmp_path, monkeypatch):
+    import threading
+    from types import SimpleNamespace
+    from serialterminal.application_log import ApplicationLog
+    from serialterminal.tui import TerminalTui
+    from serialterminal import tui_core
+
+    monkeypatch.setattr(tui_core.curses, "curs_set", lambda value: None)
+    monkeypatch.setattr(tui_core.curses, "has_colors", lambda: False)
+    calls = []
+    def fail_close():
+        calls.append("file_close")
+        raise OSError("cleanup failure")
+    tui = object.__new__(TerminalTui)
+    tui.running = True
+    tui._application_error = False
+    tui.panel = None
+    tui._set_mouse_capture = lambda value: None
+    tui._run_connected_actions = lambda: None
+    tui._file_status_lines = lambda width: []
+    tui._render = lambda screen: None
+    tui.output = SimpleNamespace(write=lambda text: None)
+    tui._file_transfer = SimpleNamespace(close=fail_close)
+    tui.session = SimpleNamespace(
+        stop_event=threading.Event(), start=lambda: None,
+        _reveal_sent_presentations=lambda: calls.append("reveal"),
+        stop=lambda: calls.append("stop"), close_logs=lambda: calls.append("logs"),
+    )
+    class Screen:
+        def keypad(self, value): pass
+        def timeout(self, value): pass
+        def getmaxyx(self): return 24, 80
+        def get_wch(self): raise KeyboardInterrupt()
+    with ApplicationLog(tmp_path / "app.log") as log:
+        tui.run(Screen())
+        assert calls == ["reveal", "file_close", "stop", "logs"]
+        assert not tui.running
+        assert log.error_count == 1
+        assert "TUI shutdown" in log.path.read_text()
+        assert "OSError: cleanup failure" in log.path.read_text()
+
+
+def test_tui_manager_close_keeps_machine_rx_attached_until_drain():
+    import threading
+    import time
+    from types import SimpleNamespace
+    from serialterminal.tui import TerminalTui
+    from serialterminal.session import SessionLine
+    from serialterminal.profiles.chatter.machine_client import ChatterMachineClient, Ticket
+    from serialterminal.profiles.chatter.machine_codec import Frame, Kind, encode
+
+    tui = object.__new__(TerminalTui)
+    tui.panel = None
+    tui._file_transfer_screen_muted = threading.Event()
+    client = ChatterMachineClient(lambda text: None)
+    client.mode = "machine"
+    client.epoch = 42
+    ticket = Ticket(42, 7, None, b"data", time.monotonic() + .2)
+    client.pending[7] = ticket
+    client.order.append(7)
+    tui._binary_adapter = client
+    # Подлинный M1 terminal outcome приходит во время manager.close/drain.
+    line = SessionLine("main", 1, 1, encode(Frame(Kind.LINK_OK,42,7)).decode(), time.time())
+    def close_manager():
+        tui._observe_line(line)
+        client.drain_binary(.1)
+    tui._file_transfer = SimpleNamespace(close=close_manager)
+    try:
+        tui._close_file_transfer_manager()
+        assert not client.pending
+        assert tui._binary_adapter is None
+        assert tui._file_transfer is None
+    finally:
+        client.mode = "failed"
+        client.close()

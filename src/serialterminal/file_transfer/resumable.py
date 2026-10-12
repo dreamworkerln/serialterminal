@@ -28,7 +28,6 @@ from .transport import BinaryUserCancelled, BinaryUserError, BinaryUserTransport
 
 FILE_LOCAL_RECOVERY_TIMEOUT_S = 60.0
 FILE_LOCAL_RECOVERY_RETRY_S = 0.25
-FILE_RESUME_HANDSHAKE_TIMEOUT_S = 3.0
 FILE_RESUME_CHECKPOINT_CHUNKS = 32
 FILE_RESUME_CHECKPOINT_S = 1.0
 _RECOVERABLE_BINARY_ERRORS = frozenset(
@@ -44,20 +43,20 @@ def initialize(
     *,
     local_recovery_timeout_s: float = FILE_LOCAL_RECOVERY_TIMEOUT_S,
     local_recovery_retry_s: float = FILE_LOCAL_RECOVERY_RETRY_S,
-    resume_handshake_timeout_s: float = FILE_RESUME_HANDSHAKE_TIMEOUT_S,
+    resume_handshake_timeout_s: float | None = None,
     resume_checkpoint_chunks: int = FILE_RESUME_CHECKPOINT_CHUNKS,
     resume_checkpoint_s: float = FILE_RESUME_CHECKPOINT_S,
     **kwargs: Any,
 ) -> None:
     if local_recovery_timeout_s <= 0 or local_recovery_retry_s <= 0:
         raise ValueError("local recovery timing must be positive")
-    if resume_handshake_timeout_s <= 0:
+    if resume_handshake_timeout_s is not None and (not math.isfinite(resume_handshake_timeout_s) or resume_handshake_timeout_s <= 0):
         raise ValueError("resume_handshake_timeout_s must be positive")
     if resume_checkpoint_chunks <= 0 or resume_checkpoint_s <= 0:
         raise ValueError("resume checkpoint policy must be positive")
     self.local_recovery_timeout_s = float(local_recovery_timeout_s)
     self.local_recovery_retry_s = float(local_recovery_retry_s)
-    self.resume_handshake_timeout_s = float(resume_handshake_timeout_s)
+    self.resume_handshake_timeout_s = None if resume_handshake_timeout_s is None else float(resume_handshake_timeout_s)
     self.resume_checkpoint_chunks = int(resume_checkpoint_chunks)
     self.resume_checkpoint_s = float(resume_checkpoint_s)
     self._suspended_ids: deque[int] = deque(maxlen=32)
@@ -95,6 +94,12 @@ def _send_message_direct(self, message, *, cancel_event, deadline=None) -> None:
                     "local controller did not recover before FT1 recovery deadline",
                     phase="recovering_local_node",
                 )
+            prepare = getattr(self.transport, "prepare_binary", None)
+            if recovery_deadline is not None and callable(prepare):
+                prepare(deadline=deadline, cancel_event=cancel_event)
+                # После readiness RF имеет собственный transport budget. Только
+                # явно заданный caller deadline ограничивает саму пересылку.
+                deadline = caller_deadline
             send_until = getattr(self.transport, "send_binary_until", None)
             if deadline is not None and callable(send_until):
                 send_until(payload, deadline=deadline, cancel_event=cancel_event)
@@ -104,6 +109,8 @@ def _send_message_direct(self, message, *, cancel_event, deadline=None) -> None:
             raise core.FileTransferCancelled(str(exc)) from exc
         except BinaryUserError as exc:
             self._check_send_deadline(caller_deadline)
+            if _defer_data_link_failure(record, fields, exc):
+                return
             if exc.code not in _RECOVERABLE_BINARY_ERRORS:
                 self._raise_binary_failure(record, fields, exc, attempts)
             now = time.monotonic()
@@ -155,6 +162,23 @@ def _send_message_direct(self, message, *, cancel_event, deadline=None) -> None:
                 "binary_send_settled", **fields, local_replays=attempts
             )
         return
+
+def _defer_data_link_failure(record, fields, exc) -> bool:
+    # Только terminal LINK_FAIL освобождает M1 request и позволяет идти дальше.
+    # DATA мог не дойти или дойти без ACK: истинные дыры определит peer после END.
+    # UNKNOWN, admission errors и control packets этим правилом не обходятся.
+    if fields.get("message_type") != "DATA" or exc.code != "machine_link_failed":
+        return False
+    if record is not None:
+        record.event(
+            "binary_send_link_failed",
+            **fields,
+            binary_error=exc.code,
+            repair_deferred=True,
+            remote_delivery_confirmed=False,
+        )
+    return True
+
 
 def _raise_binary_failure(self, record, fields, exc, attempts) -> None:
     if record is not None:
@@ -563,7 +587,7 @@ def _expire_stale_incoming(self) -> None:
         incoming = self._incoming
     if incoming is None:
         return
-    if time.monotonic() - incoming.last_activity_monotonic >= self.incoming_idle_timeout_s:
+    if time.monotonic() - incoming.last_activity_monotonic >= self._incoming_idle_budget_s():
         self._suspend_incoming(incoming, reason="remote_sender_timeout")
 
 def _fail_incoming(self, incoming, failure, *, terminal_state="failed") -> None:
@@ -771,7 +795,7 @@ def feed_binary(self, payload: bytes) -> None:
     core.FileTransferManager.feed_binary(self, payload)
 
 def _await_resume(self, record, chunk_count: int):
-    deadline = time.monotonic() + self.resume_handshake_timeout_s
+    deadline = time.monotonic() + self._timing_budget_s("resume", self.resume_handshake_timeout_s)
     with record._condition:
         while True:
             if record.cancel_event.is_set():
@@ -930,29 +954,51 @@ def display_snapshot(self):
             self._suspended_ids.pop()
     return None
 
-def close(self) -> None:
+def _stop_receiver_for_close(self) -> None:
+    # RX может удалять part при cancel или перемещать его при publication.
+    # Checkpoint shutdown допустим только после выхода этого worker.
     self._stopping.set()
-    self._outbox.discard_pending()
     self.transport.set_receiver(None)
-    with self._lock:
-        incoming = self._incoming
-        active = (
-            self._records.get(self._active_id)
-            if self._active_id is not None
-            else None
-        )
-    if incoming is not None:
-        self._suspend_incoming(incoming, reason="manager_close")
-    if active is not None and active.direction == "TX":
-        active._shutdown_suspend = True
-        active.cancel_event.set()
     try:
         self._rx_queue.put_nowait(None)
     except queue.Full:
         pass
     self._rx_thread.join(timeout=1.0)
-    self._outbox.close(1.0)
-    self.join_all(1.0)
-    shutdown = getattr(self.transport, "close", None)
-    if callable(shutdown):
-        shutdown()
+    if self._rx_thread.is_alive():
+        raise core.FileTransferError(
+            "local_ownership_unsettled", "receiver worker did not stop before checkpoint",
+            phase="settling",
+        )
+
+
+def close(self) -> None:
+    try:
+        _stop_receiver_for_close(self)
+        with self._lock:
+            incoming = self._incoming
+            active = (
+                self._records.get(self._active_id)
+                if self._active_id is not None
+                else None
+            )
+        if incoming is not None:
+            if incoming.record.cancel_event.is_set() and not getattr(incoming.record, "_shutdown_suspend", False):
+                self._cancel_incoming(incoming.record.transfer_id)
+            else:
+                self._suspend_incoming(incoming, reason="manager_close")
+        if active is not None and active.direction == "TX":
+            if not active.cancel_event.is_set():
+                active._shutdown_suspend = True
+            active.cancel_event.set()
+            with active._condition:
+                active._condition.notify_all()
+    finally:
+        # Terminal jobs уже начатой отмены завершаются до закрытия outbox.
+        # Ошибка checkpoint не должна оставлять transport и workers открытыми.
+        self._outbox.wait_idle(1.0)
+        self._outbox.discard_pending()
+        self._outbox.close(1.0)
+        self.join_all(1.0)
+        shutdown = getattr(self.transport, "close", None)
+        if callable(shutdown):
+            shutdown()

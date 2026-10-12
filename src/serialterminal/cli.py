@@ -980,7 +980,7 @@ def _run_auto(argv: list[str], prog: str) -> int:
     )
 
 
-def main(argv: list[str] | None = None) -> int:
+def _dispatch_main(argv: list[str] | None = None) -> int:
     args = list(sys.argv[1:] if argv is None else argv)
 
     if args and args[0] == "agent":
@@ -1002,3 +1002,23 @@ def main(argv: list[str] | None = None) -> int:
         return _run_auto(args[1:], "serialterminal auto")
 
     return _run_auto(args, "serialterminal")
+
+
+def main(argv: list[str] | None = None) -> int:
+    from .application_log import ApplicationLog
+
+    try:
+        log = ApplicationLog()
+    except OSError as exc:
+        print(f"ST could not open application log: {exc}", file=sys.stderr)
+        return 1
+    with log:
+        try:
+            return _dispatch_main(argv)
+        except KeyboardInterrupt:
+            log.note("Ctrl+C: normal interruption")
+            return 130
+        except Exception as exc:
+            log.exception(exc, "main")
+            print(f"ST stopped after an error. Application log: {log.path}", file=sys.stderr)
+            return 1

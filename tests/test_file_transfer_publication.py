@@ -119,6 +119,7 @@ def test_interrupted_publication_restarts_without_duplicate_or_early_ok(tmp_path
     manager2 = FileTransferManager(transport2, receive_dir=tmp_path)
     try:
         manager2._handle_meta(meta)
+        assert manager2._outbox.wait_idle(1)
         restored = manager2._incoming_for(91)
         if restored is not None:
             for index, offset in enumerate(range(0, len(wire), size)):

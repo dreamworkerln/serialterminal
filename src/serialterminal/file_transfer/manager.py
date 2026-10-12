@@ -12,7 +12,7 @@ from .resume_store import ResumeStateStore
 from . import resumable
 
 
-_PUBLIC_RESUME_HANDSHAKE_TIMEOUT_S = 1.0
+_PUBLIC_RESUME_HANDSHAKE_TIMEOUT_S = None
 
 
 class _DurableResumeStateStore(ResumeStateStore):
@@ -371,7 +371,8 @@ def _expire_stale_incoming(self) -> None:
     if incoming is None:
         return
     idle_s = time.monotonic() - incoming.last_activity_monotonic
-    if idle_s < self.incoming_idle_timeout_s:
+    idle_budget = self._incoming_idle_budget_s()
+    if idle_s < idle_budget:
         return
 
     self._checkpoint_incoming(incoming, status="suspended", force=True)
@@ -383,7 +384,7 @@ def _expire_stale_incoming(self) -> None:
         "remote_sender_timeout",
         "remote sender stopped before END completion",
         phase="receiving",
-        details={"timeout_seconds": self.incoming_idle_timeout_s},
+        details={"timeout_seconds": idle_budget},
     )
     incoming.record.event(
         "transfer_suspended",

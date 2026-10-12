@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+from contextlib import contextmanager
 from collections import deque
 from dataclasses import dataclass
 import gzip
@@ -43,7 +44,7 @@ from .transport import (
 FILE_EVENT_RETENTION = 1024
 FILE_MAX_WINDOW = 100
 FILE_MAX_RETAINED_TERMINAL = 16
-FILE_RESULT_TIMEOUT_S = 3600.0
+FILE_RESULT_TIMEOUT_S = None
 FILE_LOCAL_TX_DRAIN_TIMEOUT_S = 10.0
 FILE_CONTROL_REPLAY_INTERVAL_S = 30.0
 FILE_MAX_CONTROL_REPLAYS = 3
@@ -246,6 +247,8 @@ class _TransferRecord:
             "bytes_completed": self.bytes_completed,
             "percentage": round(self._percentage_locked(), 2),
         }
+        if hasattr(self, "repair_progress"):
+            result["repair"] = dict(self.repair_progress)
         if self.failure is not None:
             result["failure"] = dict(self.failure)
         if self.final_path is not None:
@@ -475,12 +478,12 @@ class FileTransferManager:
         id_factory: Callable[[], int] | None = None,
         event_retention: int = FILE_EVENT_RETENTION,
         max_retained_terminal: int = FILE_MAX_RETAINED_TERMINAL,
-        result_timeout_s: float = FILE_RESULT_TIMEOUT_S,
-        control_replay_interval_s: float = FILE_CONTROL_REPLAY_INTERVAL_S,
+        result_timeout_s: float | None = None,
+        control_replay_interval_s: float | None = None,
         max_control_replays: int = FILE_MAX_CONTROL_REPLAYS,
         max_repair_rounds: int = FILE_MAX_REPAIR_ROUNDS,
         max_local_message_replays: int = FILE_MAX_LOCAL_MESSAGE_REPLAYS,
-        incoming_idle_timeout_s: float = FILE_INCOMING_IDLE_TIMEOUT_S,
+        incoming_idle_timeout_s: float | None = None,
         event_sink: Callable[[dict[str, Any]], None] | None = None,
         _defer_start: bool = False,
     ) -> None:
@@ -495,9 +498,9 @@ class FileTransferManager:
         self.id_factory = id_factory or (lambda: secrets.randbits(64))
         self.event_retention = event_retention
         self.max_retained_terminal = max_retained_terminal
-        if result_timeout_s <= 0:
+        if result_timeout_s is not None and (not math.isfinite(result_timeout_s) or result_timeout_s <= 0):
             raise ValueError("result_timeout_s must be positive")
-        if control_replay_interval_s <= 0:
+        if control_replay_interval_s is not None and (not math.isfinite(control_replay_interval_s) or control_replay_interval_s <= 0):
             raise ValueError("control_replay_interval_s must be positive")
         if max_control_replays < 0:
             raise ValueError("max_control_replays must be non-negative")
@@ -505,17 +508,20 @@ class FileTransferManager:
             raise ValueError("max_repair_rounds must be positive")
         if max_local_message_replays < 0:
             raise ValueError("max_local_message_replays must be non-negative")
-        if incoming_idle_timeout_s <= 0:
+        if incoming_idle_timeout_s is not None and (not math.isfinite(incoming_idle_timeout_s) or incoming_idle_timeout_s <= 0):
             raise ValueError("incoming_idle_timeout_s must be positive")
-        self.result_timeout_s = float(result_timeout_s)
-        self.control_replay_interval_s = float(control_replay_interval_s)
+        self.result_timeout_s = None if result_timeout_s is None else float(result_timeout_s)
+        self.control_replay_interval_s = None if control_replay_interval_s is None else float(control_replay_interval_s)
         self.max_control_replays = int(max_control_replays)
         self.max_repair_rounds = int(max_repair_rounds)
         self.max_local_message_replays = int(max_local_message_replays)
-        self.incoming_idle_timeout_s = float(incoming_idle_timeout_s)
+        self.incoming_idle_timeout_s = None if incoming_idle_timeout_s is None else float(incoming_idle_timeout_s)
         self.event_sink = event_sink
 
-        self._lock = threading.Lock()
+        # Рекурсивный admission сохраняет ROOT lease под тем же lock, пока
+        # существующая RX policy резервирует дочерний контекст.
+        self._lock = threading.RLock()
+        self._control_admission = threading.local()
         self._records: dict[int, _TransferRecord] = {}
         self._terminal_order: deque[int] = deque()
         self._active_id: int | None = None
@@ -532,6 +538,43 @@ class FileTransferManager:
         self._runtime_started = False
         if not _defer_start:
             self._start_workers()
+
+    @contextmanager
+    def _control_admission_scope(self):
+        with self._lock:
+            previous = getattr(self._control_admission, "depth", 0)
+            self._control_admission.depth = previous + 1
+            try:
+                yield
+            finally:
+                self._control_admission.depth = previous
+
+    def _timing_budget_s(self, purpose: str, override: float | None = None) -> float:
+        if override is not None:
+            return override
+        provider = getattr(self.transport, "timing_budget_s", None)
+        if callable(provider):
+            try:
+                value = float(provider(purpose))
+            except BinaryUserError as exc:
+                raise FileTransferError(exc.code, str(exc), phase="timing") from exc
+            if not math.isfinite(value) or value <= 0:
+                raise FileTransferError("invalid_timing_budget", "transport timing budget must be finite and positive", phase="timing")
+            return value
+        # У opaque transports без timing capability остаётся прикладная policy.
+        # Это не оценка радио: физический profile обязан предоставить свои бюджеты.
+        return {"control": FILE_CONTROL_REPLAY_INTERVAL_S, "resume": 1.0,
+                "drain": FILE_LOCAL_TX_DRAIN_TIMEOUT_S}[purpose]
+
+    def _incoming_idle_budget_s(self) -> float:
+        if self.incoming_idle_timeout_s is not None:
+            return self.incoming_idle_timeout_s
+        if not callable(getattr(self.transport, "timing_budget_s", None)):
+            return FILE_INCOMING_IDLE_TIMEOUT_S
+        # Receiver ждёт весь bounded цикл META/END replay отправителя; один
+        # интервал нельзя считать исчезновением peer, пока тот ещё ждёт ответ.
+        return ((self.max_control_replays + 1) * self._timing_budget_s("control", self.control_replay_interval_s)
+                + self._timing_budget_s("drain"))
 
     def _start_workers(self) -> None:
         # Receiver может синхронно доставить META при регистрации: все storage
@@ -660,7 +703,7 @@ class FileTransferManager:
     ) -> None:
         action = lambda: self._terminal_record_settled(record, state, failure=failure, final_path=final_path)
         try:
-            if threading.current_thread() is self._rx_thread:
+            if threading.current_thread() is self._rx_thread or getattr(self._control_admission, "depth", 0):
                 self._outbox.submit(action, on_error=lambda exc: self._terminal_outbox_failed(record, exc, final_path))
             else:
                 self._outbox.call(action)
@@ -677,16 +720,17 @@ class FileTransferManager:
         drain = getattr(self.transport, "drain_binary", None)
         if callable(drain):
             try:
-                outcomes = drain(min(FILE_LOCAL_TX_DRAIN_TIMEOUT_S, self.result_timeout_s))
+                outcomes = drain(self._timing_budget_s("drain"))
                 if outcomes:
                     record.event("local_tx_drained", outcomes=outcomes)
-            except BinaryUserError as exc:
+            except (BinaryUserError, FileTransferError) as exc:
                 # Пока host write живёт, lease остаётся занятой. Закрытие session
                 # завершает этот путь; неизвестный исход не является отменой bytes.
                 record.event("local_tx_drain_failed", code=exc.code, error=str(exc))
                 record.terminal(
                     "failed",
-                    failure=FileTransferError(exc.code, str(exc), phase="settling"),
+                    failure=failure or FileTransferError(exc.code, str(exc), phase="settling"),
+                    final_path=final_path,
                 )
                 return
         record.terminal(state, failure=failure, final_path=final_path)
@@ -747,7 +791,9 @@ class FileTransferManager:
     def _send_message(self, message, *, cancel_event, deadline=None) -> None:
         action = lambda: self._send_message_direct(message, cancel_event=cancel_event, deadline=deadline)
         try:
-            if threading.current_thread() is self._rx_thread:
+            # Outbox action берёт manager lock для correlation. Admission под
+            # тем же lock ставит control в очередь, иначе два потока ждут друг друга.
+            if threading.current_thread() is self._rx_thread or getattr(self._control_admission, "depth", 0):
                 self._outbox.submit(action, on_error=lambda exc: self._outbound_error(message.transfer_id, exc))
             else:
                 self._outbox.call(action, deadline=deadline)
@@ -1073,13 +1119,13 @@ class FileTransferManager:
         end: EndMessage,
         chunk_size: int,
     ) -> ResultMessage:
-        overall_deadline = time.monotonic() + self.result_timeout_s
+        overall_deadline = None if self.result_timeout_s is None else time.monotonic() + self.result_timeout_s
         control_replays = 0
         repair_rounds = 0
 
         while True:
             record.set_state("waiting_result")
-            remaining_total = overall_deadline - time.monotonic()
+            remaining_total = math.inf if overall_deadline is None else overall_deadline - time.monotonic()
             if remaining_total <= 0:
                 raise FileTransferError(
                     "remote_result_timeout",
@@ -1089,7 +1135,7 @@ class FileTransferManager:
             outcome = self._wait_remote_outcome(
                 record,
                 timeout_s=min(
-                    self.control_replay_interval_s,
+                    self._timing_budget_s("control", self.control_replay_interval_s),
                     remaining_total,
                 ),
             )
@@ -1188,6 +1234,8 @@ class FileTransferManager:
                 self._rx_worker_error(exc)
 
     def _rx_worker_error(self, exc: Exception) -> None:
+        from ..application_log import report_exception
+        report_exception(exc, "FT1 RX worker")
         with self._lock:
             incoming = self._incoming
             self._incoming = None
@@ -1211,7 +1259,8 @@ class FileTransferManager:
         if incoming is None:
             return
         idle_s = time.monotonic() - incoming.last_activity_monotonic
-        if idle_s < self.incoming_idle_timeout_s:
+        idle_budget = self._incoming_idle_budget_s()
+        if idle_s < idle_budget:
             return
         self._fail_incoming(
             incoming,
@@ -1219,7 +1268,7 @@ class FileTransferManager:
                 "remote_sender_timeout",
                 (
                     "incoming FT1 transfer received no META/DATA/END activity "
-                    f"for {self.incoming_idle_timeout_s:.0f}s"
+                    f"for {idle_budget:.0f}s"
                 ),
                 phase="receiving",
                 details={"idle_seconds": round(idle_s, 3)},
@@ -1251,7 +1300,7 @@ class FileTransferManager:
     ) -> None:
         try:
             action = lambda: self._send_result(record, result)
-            if threading.current_thread() is self._rx_thread:
+            if threading.current_thread() is self._rx_thread or getattr(self._control_admission, "depth", 0):
                 self._outbox.submit(action)
             else:
                 self._outbox.call(action)
@@ -1782,6 +1831,9 @@ class FileTransferManager:
                         "original_hash_mismatch",
                         "storage_failed",
                         "repair_too_large",
+                        "missing_percent_exceeded",
+                        "recursion_depth_limit",
+                        "repair_no_progress",
                         "remote_sender_timeout",
                         "cancelled",
                         "protocol_error",

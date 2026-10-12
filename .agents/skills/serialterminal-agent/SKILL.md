@@ -178,7 +178,18 @@ file_transfer_close
 
 Во время active transfer session mutation-owned: не делай на ней параллельный `send_line`, `send_bytes`, `close` или sweep start. Read-only status/observe допустимы.
 
-FT1 не использует TELEMETRY как control plane и не меняет human-console output mode. Не жди `DELIVERY ACK` на каждый DATA: local `send_binary()` использует exact `> [BINARY]` как controller-local backpressure, а remote truth принадлежит FT1 RESUME/MISSING/RESULT. В TELEMETRY-only режиме без BINARY presentation transfer завершается capability error; он не переключает `/both`. Если mode ещё неизвестен, Chatter profile делает read-only `/help` preflight.
+Protected Chatter machine path восстанавливает потерянный локальный outcome через cached QUERY той же epoch/request. Full-credit STATUS или результат позднего pending ticket — только повод QUERY; они не подтверждают успех раннего ticket. Потеря ACCEPTED/TX_DONE не отключает recovery; UNKNOWN блокирует новую submission, RF SUBMIT автоматически не повторяется. Полный contract — AGENT_API.md.
+
+FT1 не использует TELEMETRY как control plane и не меняет human-console output mode. Не жди диагностический `DELIVERY ACK` на каждый DATA: protected machine path использует correlated epoch/request outcomes независимо от human presentation; remote truth принадлежит FT1 RESUME/RESULT и repair. В explicit legacy fallback local `send_binary()` использует exact `> [BINARY]` как controller-local backpressure. Только этот fallback в TELEMETRY-only режиме без BINARY presentation завершается capability error и не переключает `/both`; если mode неизвестен, legacy adapter делает read-only `/help` preflight.
+
+Terminal `machine_link_failed` одного DATA не обрывает файл: M1 ticket освобождён,
+ST пишет `binary_send_link_failed` и продолжает до END. Это относится к ROOT,
+DATA списков дыр и досылке. Немедленного RF replay из ST нет: реальные пропуски
+запрашивает peer через final recursive repair. Потерянный ACK возможен и при
+доставленном DATA; completion доказывается только RESULT OK и SHA.
+META/END/control LINK_FAIL, REJECTED/UNAVAILABLE и UNKNOWN этим исключением
+не покрываются. Progress отражает обработанный поток DATA, включая link failure,
+а не доказанное сохранение всех chunks.
 
 ### Controller reboot / same-process recovery
 
@@ -198,6 +209,8 @@ Receiver durable state хранится под configured receive directory:
 
 EOF agent закрывает FT manager через suspension и сохраняет partial/journal для same-transfer resume; это не `file_transfer_cancel`. Явный cancel удаляет receiver partial state. При проверке сохранения нужны и manifest, и существующий `.part`.
 
+Chatter получает radio-dependent deadlines из проверенного `/config` + `/radio read config` и LoRa ToA/ACK/retry, а не из фиксированных SF7 таймаутов. `radio_timing_unavailable` требует разобраться с отсутствующим или расходящимся readback; не обходи его ручным `/bin`. `timeout_ms` у observe — только long-poll, не предел длительности файла. У ROOT нет общего часового deadline; idle/control/drain используют бюджеты profile. При local boot control/idle могут оцениваться по последнему проверенному PHY; RF admission всё равно ждёт READY и fresh readback. После failed ROOT перед явным resume дождись settlement обеих сторон: поздний RESULT ещё активного remote child может совпасть с новой попыткой того же ROOT ID.
+
 Receiver timeout может оставить durable suspended partial и освободить runtime ownership. Не интерпретируй `remote_sender_timeout` как обязательное удаление partial state. Durable received ranges, а не размер `.part`, являются доказательством того, какие chunks можно пропустить после restart.
 
 Не удаляй `.part`/manifest вручную во время recovery. Completed tombstone позволяет повторно подтвердить уже опубликованный transfer после потерянного RESULT без создания duplicate final file.
@@ -215,14 +228,14 @@ file_send_start(path)
 <- RESUME_FROM N
 -> DATA N...
 -> END
-<- MISSING ranges, если остались точечные holes
+<- полный missing-list служебным файлом, если остались holes
 -> selective DATA repair + END
 <- RESULT OK
 ```
 
 `RESUME_FROM` — coarse earliest-missing cursor, а существующий `MISSING` остаётся exact final selective repair. Это не firmware ACK и не LoRa SACK. Per-DATA FT1 ACK нет.
 
-New sender совместим со старым receiver через bounded wait/fallback to chunk 0; old sender может проигнорировать optional RESUME нового receiver. Invalid resume cursor за `chunk_count` считается protocol failure.
+Текущий recursive coordinator использует FT1 v2: оба ST endpoint должны обновляться вместе. Совместимость с v1 не требуется. RESUME ожидание остаётся bounded. Invalid resume cursor за `chunk_count` считается protocol failure.
 
 Следи за состояниями/событиями вроде:
 
@@ -251,7 +264,7 @@ DATA неверной длины даёт `chunk_rejected` (`chunk_index`, `reas
 
 Обычный progress контролируй coarse-grained snapshot-ами `status` примерно раз в 2–5 секунд: `state`, `chunks_completed`, `bytes_completed`, `percentage`, `failure`, а при Chatter recovery — также controller state. `file_transfer_observe` используй для bounded lifecycle/fault observation, не как обязательный per-chunk control loop. Детальную последовательность после прогона бери targeted search из finalized forensic log.
 
-Если получен `repair_too_large`, текущий transfer terminal-failed; не изобретай MISSING pagination или бесконечный restart loop. Persistent resume после process restart теперь поддерживается по `FT1_RESUME.md`, поэтому не начинай безусловно новый transfer с нуля и не меняй transfer_id вручную.
+В recursive coordinator полный список передаётся внутренним FT1 файлом; старый compact MISSING отвергается. ROOT default30%, служебные файлы exempt; depths1..8, три завершённых no-progress cycles на файл. Parent waits приостановлены на время child. Не запускай ручную досылку и не считай служебный RESULT OK завершением ROOT. Snapshots могут содержать repair={missing_total,depth,no_progress}. Нет overall часового deadline; idle control/transport recovery bounded. После process restart стек не восстанавливается автоматически, используется явный ROOT resume. Persistent resume после process restart теперь поддерживается по `FT1_RESUME.md`, поэтому не начинай безусловно новый transfer с нуля и не меняй transfer_id вручную.
 
 Полный current recovery/resume contract, durability guarantees и physical-validation boundary — в `FT1_RESUME.md`. LoRa SACK в этот contract не входит.
 
@@ -335,3 +348,13 @@ Firmware-specific команды, RSSI/SNR/Q, radio collision rules, reboot/canc
 ## Exclusive serial ownership
 
 Не открывай один и тот же tty одновременно из двух процессов SerialTerminal. На POSIX transport запрашивает exclusive ownership; второй процесс остаётся reconnecting и получает `connect-failed` с `serial device busy: <path>` до освобождения порта.
+
+## Application errors and incremental timing
+
+CLI создаёт отдельный `logs/serialterminal-application-<timestamp>-p<pid>.log`:
+traceback ошибки записывается сразу, с flush/fsync. Не путай его с транспортным
+`.log`. Ошибка не должна нарушать JSONL stdout. TUI показывает красную ERROR плашку;
+Ctrl+C завершает работу без traceback в терминал. Timing `.fttiming.jsonl` пишется
+пачками256 отдельным writer (очередь максимум8), close дописывает остаток. После
+SIGKILL ранее flushed данные остаются, незаписанный хвост может отсутствовать;
+не считай такой trace полным. Writer failure виден в app log. Подробности в AGENT_API.md.

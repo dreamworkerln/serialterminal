@@ -5,11 +5,12 @@ Status: OPEN
 Priority: CRITICAL
 Created: 2026-10-11
 Design updated: 2026-10-12, обсуждение и согласование с оператором.
-Implementation: OPEN / NOT STARTED
-Validation: OPEN / NOT RUN
+Implementation: PROTOTYPE IMPLEMENTED / REVIEW AND BROAD VALIDATION OPEN
+Validation: 10 TARGETED CASES PASS / FULL SUITE AND HARDWARE OPEN
 Branch: `dev_tui_exp_recursive_missing`
 Base checkpoint: `dev_tui@fd94bdeb1fd878e072b0f852b3e8f461d928e3cd` (`point 8 done`).
-Docs checkpoint: та же revision + незакоммиченные изменения документации в feature branch.
+Docs checkpoint: `991ff0e` (`docs: define recursive FT1 missing-list repair prototype`).
+Source checkpoint: `991ff0e` + uncommitted implementation; точный digest фиксируется перед run.
 
 Descriptive suffix BATCHED_FINAL_REPAIR сохранён как историческое имя файла;
 актуальный design — recursive missing, TODO-ID не меняется.
@@ -44,7 +45,10 @@ Descriptive suffix BATCHED_FINAL_REPAIR сохранён как историче
 - [TODO_038](TODO_038_FT1_REMOTE_PROGRESS_WATCHDOG.md) — отдельный watchdog.
 - [TODO_040](TODO_040_CENTRALIZED_SETTINGS_SINGLE_SOURCE.md) — future config layer.
 
-## Current behavior and layer boundary
+## Исходное поведение до реализации прототипа и границы слоёв
+
+Ниже описан исходный FT1 v1. Текущий recursive v2 и последующие исправления
+описаны в Result и implementation checkpoints; старые defaults здесь — история.
 
 - FT1 v1 header:12 bytes, >2sBBQ, transfer_id:uint64. MISSING:type5, затем
   range_count:uint8 и пары start_chunk:uint32/count:uint32, big-endian.
@@ -154,7 +158,7 @@ ROOT имеет depth0. LIST1 имеет depth1; разрешены служеб
 ### Процентный gate: ROOT30%, служебные файлы без процентного gate
 
 Согласован будущий configurable default max_missing_percent=30 для исходного
-пользовательского файла. Source constant пока не добавляется.
+пользовательского файла. Default реализован в file_transfer/recursive.py и constructor argument max_missing_percent.
 Метрика:100*missing_total/chunks_total по чанкам wire-потока; при compression
 деноминатор относится к сжатому потоку. Сравнивать без округления процента.
 
@@ -307,7 +311,9 @@ failure/recovery semantics; отдельный attempt-token protocol не со�
 - [ ] ROOT ниже/ровно/выше30%, empty/compressed stream; service file с >30%
   gaps допускает recursive repair. Fixtures >28 ranges соблюдают ROOT gate.
 - [ ] ACK-repaired CRC loss не выдаётся за FT1 gap; host-side injected gap
-  явно маркируется. LINK_FAIL/USB hub loss дают соответствующий failure/recovery.
+  явно маркируется. Terminal DATA LINK_FAIL допускает переход к END и final
+  repair; META/END/control LINK_FAIL остаётся отказом. USB hub loss и UNKNOWN
+  требуют отдельного recovery/settlement, а не трактовки как потерянного DATA.
 - [ ] Cancel/negative RESULT в initial DATA/repair/child/waiting, late tickets,
   потеря RESULT, same-ID ROOT resume; отсутствие двойной публикации и deadlock.
 - [ ] Sender/receiver/both restart на выбранных границах, сохранение пригодного
@@ -338,12 +344,71 @@ exemption service files от ROOT30% gate и три consecutive no-progress cycl
 
 Схема ограничивает глубину и циклы без прогресса, но разрешает долгое успешное
 продвижение. Точное место post-LINK_OK gaps и LoRa-SACK остаются отдельными работами.
-Это docs checkpoint, не implementation и не validation рекурсивного FT1.
+Docs-only checkpoint сохранён в991ff0e. Далее оператор разрешил source implementation
+и только targeted smoke, полную software/hardware матрицу оставил Luna medium.
 
 ## Result
 
 Status: OPEN / CRITICAL
-Implemented: отсутствует; source/runtime/config/firmware не изменены.
-Validated: документационный review/link/diff checks; runtime/hardware gates NOT RUN.
-Next action: закрепить технический codec/ownership/recovery contract в feature
-branch и начать source implementation по отдельному поручению оператора.
+Implemented: recursive.py policy + META/END v2 codec, coordinator wiring, durable
+identity fields и repair snapshot. Исправлена остановка ROOT/служебного файла
+на terminal DATA LINK_FAIL: известный исход M1 освобождает ticket, ST продолжает
+до END, а receiver запрашивает реальные дыры. META/END/control остаются fail-fast.
+Firmware этой ST-правкой не изменена.
+Validated: текущие software tests мигрированы на recursive multi missing; 571 pytest tests PASS, compileall и diff-check PASS (2026-10-12). Hardware smoke с новыми timing budgets выполнен: USB↔USB128KiB, по80 разрозненных ROOT holes и потеря DATA списка, успешный depth2/unwind в обе стороны; SF12 CRC/retry/LINK_FAIL и reboot/resume зажурналированы. Полная аппаратная матрица OPEN. Старый point8 evidence не доказывает recursive v2. Luna не запускалась.
+Next action: разобрать отдельный firmware/RF SF12 CRC/LINK_FAIL кандидат и согласовать дальнейшую аппаратную матрицу. Текущая ST итерация и её измерения: `/home/dream/coding/журнал экспериментов/ST_TIMING_REVISION_20261012T131217Z/FINAL_REPORT.md`. Промпт:
+`/home/dream/coding/журнал экспериментов/Проверка dev_tui_exp_recursive_missing/PROMPT_LUNA_MEDIUM.md`.
+Не merge и не объявлять TODO закрытым до принятия результатов.
+
+
+## Prototype implementation checkpoint — 2026-10-12
+
+Wire VERSION2. META adds parent:uint64/depth:uint8; END adds repair_id:uint64.
+Full list MRF2 + parent:uint64 + missing_total:uint32 + range_count:uint32 +
+pairs(start:uint32,count:uint32), big-endian, exact20+8*range_count bytes.
+Hash-verified child ID привязывает selective pass; stale END игнорируется.
+Constructor policies integer ROOT0..100(default30), depth1..8(default8),
+no_progress>=1(default3). Нет новой UI/agent config операции.
+ROOT external lease, один outbox, serial selective repair, parent waits paused.
+Service state internal; root resume fresh context после restart, не persistent stack.
+Initial validation boundary: compact-MISSING assertions и fixed-ID fixtures требовали миграции. После последующего указания оператора они мигрированы на актуальные служебные файлы/уникальные child IDs; полный локальный suite 571 PASS. Совместимость v1 не является acceptance target. Аппаратная матрица остаётся отдельной проверкой.
+
+Radio checkpoint: frozen f6a4b797 manifest, BLE→BLE100KiB integrity PASS62.29s
+with11 gaps/listdepth1. Reboot100KiB produced34 gaps/19 ranges and service LINK_FAIL;
+depth2 not observed. Found shared-dir service TX deleting peer RX part; fixed after
+run, new focused regression PASS. Explicit RX-child cancellation and ROOT-scoped
+abort also added. Old hardware freeze does not validate those fixes. Evidence:
+`Проверка dev_tui_exp_recursive_missing/ПРОБЫ_100КБ_20261011T224333Z/УТОЧНЕНИЕ_РЕЗУЛЬТАТОВ.md`.
+
+SF9/BW250 radio checkpoint ae00b746 manifest: ROOT44/452 isolated holes, LIST1
+lost1/1, real LIST2 created(depth2). Driver rebooted LIST2 receiver too; LINK_FAIL
+caused ROOT FAIL, so successful unwind pending. Revealed display_snapshot returning
+terminal child instead of ROOT; fixed after run, shared-dir regression extended
+with ROOT identity assertion and5 focused tests PASS. Source still uncommitted.
+Latest operator scope: self-run targeted radio exploration; no Luna. Matrix allowed
+after fixes/stability gates. No full coverage campaign claimed.
+
+
+## DATA LINK_FAIL checkpoint — 2026-10-12
+
+Пользовательская USB→USB передача SF12/BW500 обрывала ROOT на DATA33 до END;
+поэтому recursive repair не запускался. Подтверждённый terminal M1 LINK_FAIL
+теперь журналируется как binary_send_link_failed с repair_deferred=true и
+remote_delivery_confirmed=false. Отсутствие ACK не доказывает отсутствие DATA.
+ST не делает немедленный radio retry: после END receiver определяет реальные
+дыры. Обработанный pipeline ticket удаляется без discard соседнего ticket.
+Это применяется также к DATA служебных списков и selective repair. Прогресс TX
+показывает обработанную часть потока; только RESULT OK подтверждает успех файла.
+
+Добавлены11 тестов с настоящим ChatterMachineClient и виртуальными M1 peers:
+clean window1/2, lost DATA/lost ACK window1/2, повторная потеря repair DATA,
+потеря DATA списка с depth2, permanent loss/no_progress, fatal META/END.
+До исправления7 из11 регрессий FAIL, после исправления11 PASS. Targeted suite
+59 PASS; полный suite594 PASS (61.072с), без skip/errors. Первый полный прогон
+593 PASS/1 FAIL выявил неизолированный BLE-cache test; исправлена его изоляция
+через временный cache path, пользовательский cache не менялся.
+
+Это software evidence: физическая причина SF12 no ACK пока не установлена,
+новое поведение после этой правки на радио ещё не проверено. Полная аппаратная
+матрица и TODO остаются OPEN. Отчёт и RED/GREEN/XML артефакты:
+`/home/dream/coding/журнал экспериментов/SF12_USB_NO_ACK_20261012T191332Z/LINK_FAIL_FIX.md`.

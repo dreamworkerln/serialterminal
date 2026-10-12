@@ -673,9 +673,9 @@ def test_cancel_uses_separate_short_settlement_budget(monkeypatch):
     cancel = threading.Event()
     cancel.set()
     monkeypatch.setattr(
-        chatter_sweep,
-        "_CANCEL_SETTLEMENT_TIMEOUT_S",
-        0.05,
+        chatter_sweep.RadioTiming,
+        "budget_s",
+        lambda self, purpose, payload_bytes=243: 0.05,
     )
 
     started = time.monotonic()

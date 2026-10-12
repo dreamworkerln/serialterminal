@@ -1,6 +1,9 @@
 import hashlib
+import struct
 
 import pytest
+
+from serialterminal.file_transfer.recursive import read_missing_list, write_missing_list
 
 from serialterminal.file_transfer.protocol import (
     Compression,
@@ -14,7 +17,6 @@ from serialterminal.file_transfer.protocol import (
     canonical_missing_ranges,
     data_payload_capacity,
     decode_message,
-    missing_range_capacity,
     encode_message,
 )
 
@@ -74,17 +76,18 @@ def test_unknown_ft1_version_is_rejected_not_guessed():
         ResultMessage(transfer_id=1, ok=True, code="ok", reason=""),
         200,
     ))
-    payload[2] = 2
+    payload[2] = 255
 
     with pytest.raises(FileProtocolError, match="version"):
         decode_message(bytes(payload))
 
 
 
-def test_ft1_missing_roundtrip_one_and_multiple_ranges():
-    one = MissingMessage(transfer_id=7, ranges=(MissingRange(101, 6),))
+def test_service_missing_list_roundtrip_one_and_multiple_ranges(tmp_path):
+    one = MissingMessage(transfer_id=7, ranges=(MissingRange(101, 6),),request_id=99)
     many = MissingMessage(
         transfer_id=8,
+        request_id=99,
         ranges=(
             MissingRange(1, 2),
             MissingRange(10, 1),
@@ -92,8 +95,10 @@ def test_ft1_missing_roundtrip_one_and_multiple_ranges():
         ),
     )
 
-    assert decode_message(encode_message(one, 200)) == one
-    assert decode_message(encode_message(many, 200)) == many
+    for message in (one,many):
+        path = tmp_path / str(message.transfer_id)
+        assert write_missing_list(path,message.transfer_id,message.ranges) == sum(r.count for r in message.ranges)
+        assert read_missing_list(path,message.transfer_id,5000,99) == message
 
 
 def test_canonical_missing_ranges_sorts_deduplicates_and_coalesces():
@@ -115,27 +120,26 @@ def test_canonical_missing_ranges_sorts_deduplicates_and_coalesces():
         (MissingRange(9, 1), MissingRange(2, 1)),
     ],
 )
-def test_missing_rejects_noncanonical_or_invalid_ranges(ranges):
+def test_service_list_rejects_noncanonical_or_invalid_ranges(tmp_path,ranges):
+    path = tmp_path / "missing"
     with pytest.raises(FileProtocolError):
-        encode_message(MissingMessage(1, ranges), 200)
+        write_missing_list(path,1,ranges)
+    # Проверяем входящий бинарный файл независимо от валидирующего writer.
+    total = sum(item.count for item in ranges)
+    path.write_bytes(struct.pack(">4sQII", b"MRF2", 1, total, len(ranges)) +
+                     b"".join(struct.pack(">II", item.start_chunk, item.count) for item in ranges))
+    with pytest.raises(FileProtocolError):
+        read_missing_list(path,1,100,99)
 
 
-def test_missing_range_set_uses_advertised_transport_capacity_without_pagination():
-    assert missing_range_capacity(200) == 23
-    fits = MissingMessage(
-        1,
-        tuple(MissingRange(index * 2, 1) for index in range(23)),
-    )
-    assert len(encode_message(fits, 200)) <= 200
-
-    too_many = MissingMessage(
-        1,
-        tuple(MissingRange(index * 2, 1) for index in range(24)),
-    )
-    with pytest.raises(FileProtocolError, match="does not fit"):
-        encode_message(too_many, 200)
-
-    assert missing_range_capacity(100) == 10
+def test_service_range_count_is_independent_of_one_packet_capacity(tmp_path):
+    ranges = tuple(MissingRange(index*2,1) for index in range(80))
+    path = tmp_path / "missing"
+    assert write_missing_list(path,1,ranges) == 80
+    assert path.stat().st_size > 243
+    result = read_missing_list(path,1,400,99)
+    assert result.ranges == ranges
+    assert result.request_id == 99
 
 
 def test_canonical_missing_ranges_rejects_out_of_declared_chunk_count():

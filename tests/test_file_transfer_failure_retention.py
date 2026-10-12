@@ -39,6 +39,7 @@ def fixture(manager, transfer_id=71, count=3):
     chunks = [payload[i:i + size] for i in range(0, len(payload), size)]
     end = EndMessage(transfer_id, count, hashlib.sha256(payload).digest())
     manager._handle_meta(meta)
+    assert manager._outbox.wait_idle(1)
     return meta, chunks, end
 
 
@@ -111,25 +112,27 @@ def test_conflicting_duplicate_is_quarantined_and_not_resumed_after_restart(tmp_
         manager2.close()
 
 
-def test_missing_send_failure_retains_partial_and_manifest(tmp_path):
+def test_service_send_failure_retains_root_partial_and_manifest(tmp_path):
     transport = CaptureTransport()
-    def fail_missing(message):
-        if isinstance(message, MissingMessage):
-            raise BinaryUserError("send_rejected", "MISSING queue full")
-    transport.on_send = fail_missing
-    manager = FileTransferManager(transport, receive_dir=tmp_path)
+    def fail_service(message):
+        if isinstance(message, MetaMessage) and message.parent_transfer_id:
+            raise BinaryUserError("send_rejected", "missing-list META queue full")
+    transport.on_send = fail_service
+    manager = FileTransferManager(transport, receive_dir=tmp_path, resume_handshake_timeout_s=0.01)
     try:
-        meta, chunks, end = fixture(manager)
-        manager._handle_data(DataMessage(meta.transfer_id, 0, chunks[0]))
+        meta, chunks, end = fixture(manager,count=5)
+        for index in (0,2,3,4):
+            manager._handle_data(DataMessage(meta.transfer_id,index,chunks[index]))
         manager._handle_end(end)
-        assert manager._records[meta.transfer_id].state == "failed"
-        assert manager._resume_store.incoming_part(meta.transfer_id).read_bytes() == chunks[0]
+        assert wait_until(lambda: manager._records[meta.transfer_id].state == "failed")
+        assert manager._records[meta.transfer_id].failure["code"] == "binary_send_failed"
+        assert manager._resume_store.incoming_part(meta.transfer_id).read_bytes().startswith(chunks[0])
         assert manager._resume_store.load_incoming(meta.transfer_id)[0]["status"] == "suspended"
     finally:
         manager.close()
 
 
-def test_missing_range_overflow_retains_partial_with_no_pagination(tmp_path):
+def test_percent_gate_retains_disjoint_partial_without_service_file(tmp_path):
     transport = CaptureTransport()
     manager = FileTransferManager(transport, receive_dir=tmp_path)
     try:
@@ -138,7 +141,7 @@ def test_missing_range_overflow_retains_partial_with_no_pagination(tmp_path):
             manager._handle_data(DataMessage(meta.transfer_id, index, chunks[index]))
         manager._handle_end(end)
         record = manager._records[meta.transfer_id]
-        assert record.failure["code"] == "repair_too_large"
+        assert record.failure["code"] == "missing_percent_exceeded"
         assert manager._resume_store.incoming_part(meta.transfer_id).is_file()
         assert len(manager._resume_store.load_incoming(meta.transfer_id)[0]["received_ranges"]) == 30
         assert not any(isinstance(m, MissingMessage) for m in transport.sent)
@@ -156,27 +159,112 @@ def test_negative_result_stops_new_data_without_operator_cancel(tmp_path, path):
         transport.discard_binary_pipeline = lambda: None
     source = tmp_path / "source.bin"
     source.write_bytes(random.Random(2).randbytes(227 * 6))
-    manager = FileTransferManager(transport, receive_dir=tmp_path / "rx", resume_handshake_timeout_s=0.01)
-    counts = {"end": 0, "data": 0}
+    manager = FileTransferManager(transport, receive_dir=tmp_path / "tx", resume_handshake_timeout_s=0.01)
+    remote = None
+    right = CaptureTransport()
+    if path == "repair":
+        remote = FileTransferManager(right, receive_dir=tmp_path / "rx", resume_handshake_timeout_s=0.01)
+        right.on_send = lambda message: transport.receiver(encode_message(message,243))
+    counts = {"end":0, "data":0}
+    root_id = [None]
     def receive(message):
-        if isinstance(message, EndMessage):
+        if isinstance(message, MetaMessage) and message.depth == 0:
+            root_id[0] = message.transfer_id
+        if isinstance(message, EndMessage) and message.transfer_id == root_id[0]:
             counts["end"] += 1
-            if path == "repair" and counts["end"] == 1:
-                from serialterminal.file_transfer import MissingRange
-                transport.receiver(encode_message(MissingMessage(message.transfer_id, (MissingRange(0, 6),)), 243))
-        if isinstance(message, DataMessage):
+        if isinstance(message, DataMessage) and message.transfer_id == root_id[0]:
             if path != "repair" or counts["end"]:
                 counts["data"] += 1
-                transport.receiver(encode_message(ResultMessage(message.transfer_id, False, "storage_failed", "disk full"), 243))
+                transport.receiver(encode_message(ResultMessage(message.transfer_id,False,"storage_failed","disk full"),243))
+                return
+            if message.chunk_index == 1:
+                return
+        if remote is not None:
+            right.receiver(encode_message(message,243))
     transport.on_send = receive
     try:
         started = manager.start_send(source)
-        transfer_id = int(started["transfer_id"], 16)
+        transfer_id = int(started["transfer_id"],16)
         assert wait_until(lambda: manager._records[transfer_id].state == "failed")
         record = manager._records[transfer_id]
         assert record.failure["code"] == "remote_failed"
         assert record.remote_failure_event.is_set()
         assert not record.cancel_event.is_set()
         assert counts["data"] == 1
+        if path == "repair":
+            assert any(isinstance(m,MetaMessage) and m.parent_transfer_id == transfer_id for m in right.sent)
     finally:
+        manager.close()
+        if remote is not None:
+            remote.close()
+
+
+@pytest.mark.parametrize("cancel_in_flight", [False, True])
+def test_cancel_then_close_does_not_resurrect_deleted_receiver(tmp_path, cancel_in_flight):
+    import threading
+
+    transport = CaptureTransport()
+    manager = FileTransferManager(transport, receive_dir=tmp_path)
+    entered, release, closing = threading.Event(), threading.Event(), threading.Event()
+    errors = []
+    original_result = manager._send_result
+    original_data = manager._handle_data
+    original_set_receiver = transport.set_receiver
+
+    def blocked_result(record, result):
+        if not result.ok:
+            entered.set()
+            assert release.wait(2)
+        return original_result(record, result)
+
+    def blocked_data(message):
+        entered.set()
+        assert release.wait(2)
+        return original_data(message)
+
+    def receiver_changed(receiver):
+        if receiver is None:
+            closing.set()
+        return original_set_receiver(receiver)
+
+    def close():
+        try:
+            manager.close()
+        except Exception as exc:
+            errors.append(exc)
+
+    worker = None
+    try:
+        meta, chunks, _ = fixture(manager)
+        manager._handle_data(DataMessage(meta.transfer_id, 0, chunks[0]))
+        if cancel_in_flight:
+            manager._send_result = blocked_result
+            manager.cancel(meta.transfer_id)
+        else:
+            manager._handle_data = blocked_data
+            manager.feed_binary(encode_message(DataMessage(meta.transfer_id, 1, chunks[1]), 243))
+        assert entered.wait(1)
+        if not cancel_in_flight:
+            manager.cancel(meta.transfer_id)
+        transport.set_receiver = receiver_changed
+        worker = threading.Thread(target=close)
+        worker.start()
+        # close обязан сначала остановить RX, а не fsync уже удалённого part.
+        closing.wait(.2)
+        release.set()
+        worker.join(3)
+        assert not worker.is_alive()
+        assert not errors, errors
+        assert not manager._rx_thread.is_alive()
+        assert manager._records[meta.transfer_id].state == "cancelled"
+        assert manager._incoming is None
+        assert not manager._resume_store.incoming_part(meta.transfer_id).exists()
+        assert not manager._resume_store.incoming_manifest(meta.transfer_id).exists()
+        assert not getattr(manager, "last_rx_worker_error", None)
+    finally:
+        release.set()
+        if worker is not None:
+            worker.join(3)
+        manager._send_result = original_result
+        manager._handle_data = original_data
         manager.close()

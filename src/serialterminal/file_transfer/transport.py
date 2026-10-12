@@ -32,6 +32,11 @@ class BinaryUserTransport(Protocol):
 
     send_binary() settles only controller-local submission/backpressure. Remote
     application completion belongs to FT1 RESULT/MISSING semantics.
+
+    Необязательные capabilities: timing_budget_s(purpose) возвращает opaque
+    положительный конечный бюджет control/resume/drain; prepare_binary(deadline,
+    cancel_event) ограничивает local readiness отдельно от отправки по радио.
+    Расчёт физического времени остаётся в конкретном transport/profile.
     """
 
     payload_capacity: int

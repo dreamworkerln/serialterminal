@@ -155,6 +155,7 @@ class ChatterProfile:
     ) -> ProfileBinaryUserAdapter | None:
         return ChatterMachineClient(
             send_line,
+            radio_timing=True,
             wait_tx_outcome=wait_tx_outcome,
             cancel_tx=cancel_tx,
             connection_generation=connection_generation,

@@ -6,12 +6,12 @@ import struct
 
 
 MAGIC = b"FT"
-VERSION = 1
+VERSION = 2
 
 _COMMON = struct.Struct(">2sBBQ")
-_META_FIXED = struct.Struct(">QQBH32sB")
+_META_FIXED = struct.Struct(">QQBH32sBQB")
 _DATA_FIXED = struct.Struct(">I")
-_END_FIXED = struct.Struct(">I32s")
+_END_FIXED = struct.Struct(">I32sQ")
 _MISSING_COUNT = struct.Struct(">B")
 _MISSING_RANGE = struct.Struct(">II")
 _RESULT_FIXED = struct.Struct(">BBB")
@@ -46,6 +46,9 @@ _RESULT_CODE_TO_INT = {
     "protocol_error": 10,
     "remote_failed": 11,
     "repair_too_large": 12,
+    "missing_percent_exceeded": 13,
+    "recursion_depth_limit": 14,
+    "repair_no_progress": 15,
 }
 _RESULT_INT_TO_CODE = {value: key for key, value in _RESULT_CODE_TO_INT.items()}
 
@@ -63,6 +66,8 @@ class MetaMessage:
     compression: Compression
     chunk_size: int
     original_sha256: bytes
+    parent_transfer_id: int = 0
+    depth: int = 0
 
 
 @dataclass(frozen=True)
@@ -77,6 +82,7 @@ class EndMessage:
     transfer_id: int
     chunk_count: int
     wire_sha256: bytes
+    repair_id: int = 0
 
 
 @dataclass(frozen=True)
@@ -89,6 +95,7 @@ class MissingRange:
 class MissingMessage:
     transfer_id: int
     ranges: tuple[MissingRange, ...]
+    request_id: int = 0
 
 
 @dataclass(frozen=True)
@@ -239,6 +246,10 @@ def _common(message_type: MessageType, transfer_id: int) -> bytes:
 
 def encode_meta(message: MetaMessage, capacity: int) -> bytes:
     filename = message.filename.encode("utf-8")
+    if not 0 <= message.parent_transfer_id <= 0xFFFFFFFFFFFFFFFF:
+        raise FileProtocolError("META parent transfer_id is out of range")
+    if not 0 <= message.depth <= 8 or bool(message.parent_transfer_id) != bool(message.depth):
+        raise FileProtocolError("META parent/depth mismatch")
     if len(message.original_sha256) != 32:
         raise FileProtocolError("META original_sha256 must be 32 bytes")
     if not 0 <= message.original_size <= 0xFFFFFFFFFFFFFFFF:
@@ -259,6 +270,8 @@ def encode_meta(message: MetaMessage, capacity: int) -> bytes:
             message.chunk_size,
             message.original_sha256,
             len(filename),
+            message.parent_transfer_id,
+            message.depth,
         )
         + filename
     )
@@ -287,9 +300,11 @@ def encode_end(message: EndMessage, capacity: int) -> bytes:
         raise FileProtocolError("END chunk_count is out of range")
     if len(message.wire_sha256) != 32:
         raise FileProtocolError("END wire_sha256 must be 32 bytes")
+    if not 0 <= message.repair_id <= 0xFFFFFFFFFFFFFFFF:
+        raise FileProtocolError("END repair_id is out of range")
     payload = (
         _common(MessageType.END, message.transfer_id)
-        + _END_FIXED.pack(message.chunk_count, message.wire_sha256)
+        + _END_FIXED.pack(message.chunk_count, message.wire_sha256, message.repair_id)
     )
     if len(payload) > capacity:
         raise FileProtocolError("END exceeds binary payload capacity")
@@ -398,6 +413,8 @@ def decode_message(data: bytes) -> FileMessage | None:
             chunk_size,
             original_sha256,
             filename_len,
+            parent_transfer_id,
+            depth,
         ) = _META_FIXED.unpack_from(data, offset)
         if len(data) != minimum + filename_len:
             raise FileProtocolError("META filename length mismatch")
@@ -415,6 +432,8 @@ def decode_message(data: bytes) -> FileMessage | None:
             raise FileProtocolError("META filename is empty")
         if chunk_size <= 0:
             raise FileProtocolError("META chunk_size must be positive")
+        if depth > 8 or bool(parent_transfer_id) != bool(depth):
+            raise FileProtocolError("META parent/depth mismatch")
         return MetaMessage(
             transfer_id=transfer_id,
             filename=filename,
@@ -423,6 +442,8 @@ def decode_message(data: bytes) -> FileMessage | None:
             compression=compression,
             chunk_size=chunk_size,
             original_sha256=original_sha256,
+            parent_transfer_id=parent_transfer_id,
+            depth=depth,
         )
 
     if message_type is MessageType.DATA:
@@ -440,11 +461,12 @@ def decode_message(data: bytes) -> FileMessage | None:
         expected = offset + _END_FIXED.size
         if len(data) != expected:
             raise FileProtocolError("END length mismatch")
-        chunk_count, wire_sha256 = _END_FIXED.unpack_from(data, offset)
+        chunk_count, wire_sha256, repair_id = _END_FIXED.unpack_from(data, offset)
         return EndMessage(
             transfer_id=transfer_id,
             chunk_count=chunk_count,
             wire_sha256=wire_sha256,
+            repair_id=repair_id,
         )
 
     if message_type is MessageType.MISSING:

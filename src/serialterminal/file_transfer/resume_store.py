@@ -96,6 +96,8 @@ class ResumeStateStore:
             "compression": int(meta.compression),
             "chunk_size": meta.chunk_size,
             "original_sha256": meta.original_sha256.hex(),
+            "parent_transfer_id": meta.parent_transfer_id,
+            "depth": meta.depth,
         }
 
     @staticmethod
@@ -112,6 +114,8 @@ class ResumeStateStore:
                 compression=Compression(int(value["compression"])),
                 chunk_size=int(value["chunk_size"]),
                 original_sha256=digest,
+                parent_transfer_id=int(value.get("parent_transfer_id", 0)),
+                depth=int(value.get("depth", 0)),
             )
         except (KeyError, TypeError, ValueError):
             return None
@@ -124,6 +128,7 @@ class ResumeStateStore:
         return {
             "chunk_count": end.chunk_count,
             "wire_sha256": end.wire_sha256.hex(),
+            "repair_id": end.repair_id,
         }
 
     @staticmethod
@@ -136,6 +141,7 @@ class ResumeStateStore:
                 transfer_id=transfer_id,
                 chunk_count=int(value["chunk_count"]),
                 wire_sha256=digest,
+                repair_id=int(value.get("repair_id", 0)),
             )
         except (KeyError, TypeError, ValueError):
             return None

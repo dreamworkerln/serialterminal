@@ -48,6 +48,15 @@ def _data_pipeline(
         lambda *args, **kwargs: self._outbox.call(lambda: settle(*args, **kwargs)),
     )
 
+def _discard_after_failure(self, record, original) -> None:
+    try:
+        self._discard_data_pipeline()
+    except BinaryUserError as cleanup:
+        # Вторичная ошибка очистки не должна скрывать причину отказа DATA;
+        # terminal drain отдельно удерживает lease без доказанного settlement.
+        record.event("pipeline_cleanup_failed", code=cleanup.code, error=str(cleanup), original_code=original.code)
+
+
 def _discard_data_pipeline(self) -> None:
     discard = getattr(self.transport, "discard_binary_pipeline", None)
     if callable(discard):
@@ -153,7 +162,7 @@ def _send_chunks_from(self, record, prepared, chunk_size: int, start: int) -> No
                             outstanding=len(pending),
                         )
                         return
-                    self._discard_data_pipeline()
+                    _discard_after_failure(self, record, exc)
                     self._raise_binary_failure(record, fields, exc, 0)
 
                 pending.append(
@@ -167,6 +176,7 @@ def _send_chunks_from(self, record, prepared, chunk_size: int, start: int) -> No
                 next_index += 1
 
             current = pending[0]
+            link_failed = False
             try:
                 settle(
                     current.ticket,
@@ -176,7 +186,11 @@ def _send_chunks_from(self, record, prepared, chunk_size: int, start: int) -> No
                 self._discard_data_pipeline()
                 raise core.FileTransferCancelled(str(exc)) from exc
             except BinaryUserError as exc:
-                if exc.code in _RECOVERABLE_PIPELINE_ERRORS:
+                if resumable._defer_data_link_failure(record, current.fields, exc):
+                    # Adapter уже завершил этот ticket. Остальные slots остаются
+                    # валидными: discard сорвал бы их последующий settlement.
+                    link_failed = True
+                elif exc.code in _RECOVERABLE_PIPELINE_ERRORS:
                     self._pipeline_fallback(
                         record,
                         prepared,
@@ -186,17 +200,19 @@ def _send_chunks_from(self, record, prepared, chunk_size: int, start: int) -> No
                         outstanding=len(pending),
                     )
                     return
-                self._discard_data_pipeline()
-                self._raise_binary_failure(record, current.fields, exc, 0)
+                else:
+                    _discard_after_failure(self, record, exc)
+                    self._raise_binary_failure(record, current.fields, exc, 0)
 
             pending.popleft()
             settled_bytes += current.payload_bytes
-            record.event(
-                "binary_send_settled",
-                **current.fields,
-                local_replays=0,
-                pipeline_window=window,
-            )
+            if not link_failed:
+                record.event(
+                    "binary_send_settled",
+                    **current.fields,
+                    local_replays=0,
+                    pipeline_window=window,
+                )
             record.set_progress(
                 bytes_completed=settled_bytes,
                 chunks_completed=current.chunk_index + 1,
