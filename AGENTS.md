@@ -285,6 +285,19 @@ If CI fails:
 * distinguish failures introduced by the current change from unrelated infrastructure problems;
 * do not make unrelated code changes merely to make CI green.
 
+## Review records
+
+For SerialTerminal review tasks, follow [REVIEWER.md](REVIEWER.md) and
+[REVIEW_MANAGEMENT_POLICY.md](REVIEW_MANAGEMENT_POLICY.md). Unless the user requests
+chat-only/read-only output, save each review pass in
+`reviews/REVIEW_<NNN>_<SHORT_STABLE_NAME>.md` and update
+[REVIEW_INVENTORY.md](REVIEW_INVENTORY.md) using its next independent REVIEW-ID.
+Record the exact reviewed commit and link, base, scope, findings, evidence and scoped
+verdict. A new review pass receives a new ID; preserve previous results.
+Track fixes in linked TODOs according to [TODO_MANAGEMENT_POLICY.md](TODO_MANAGEMENT_POLICY.md).
+Writing review records does not authorize source fixes, commit/push, firmware changes
+or hardware runs. Existing firmware and observation-workspace boundaries still apply.
+
 ## Reporting
 
 At the end of a task, report concisely:

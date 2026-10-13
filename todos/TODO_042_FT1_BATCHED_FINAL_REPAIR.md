@@ -10,11 +10,29 @@ Validation: 10 TARGETED CASES PASS / FULL SUITE AND HARDWARE OPEN
 Branch: `dev_tui_exp_recursive_missing`
 Base checkpoint: `dev_tui@fd94bdeb1fd878e072b0f852b3e8f461d928e3cd` (`point 8 done`).
 Docs checkpoint: `991ff0e` (`docs: define recursive FT1 missing-list repair prototype`).
-Source checkpoint reviewed: `cb891540451df7c864a40d06618213f10235477a`; локальные dirty edits не входят в этот review checkpoint.
+Initial source checkpoint reviewed: `cb891540451df7c864a40d06618213f10235477a`; локальные dirty edits на момент первого ревью не входят в этот checkpoint.
+Follow-up source checkpoint reviewed: `8cf689e0edd286ac9e48df9ab3c6990fc1bf0f79`.
 
 ## Independent review received — 2026-10-13
 
 Для указанного HEAD ревьюер вынес **RED / не merge-ready; в таком виде в dev_tui не merge'ить**. Все шесть замечаний собраны в отдельном [TODO_043](TODO_043_FT1_RECURSIVE_LIFECYCLE_REVIEW_FIXES.md): atomic RX restore, same-ID quarantine retry, deferred ROOT END, child-ID admission collision, terminal ROOT frame retention и bounded processed history. Recursive repair и DATA LINK_FAIL → END сохраняются. Исправления, регрессии/stress, software gates и повторное ревью предшествуют решению о hardware matrix/merge. TODO_042 остаётся OPEN / CRITICAL; прежние PASS не закрывают эти findings. Внешние subsets 114/98 PASS не являются полным suite PASS или новой локальной validation.
+
+Дополнительное ревью `8cf689e` независимо подтвердило все шесть дефектов;
+`recursive.py`, `resumable.py`, `manager.py`, `coordinator.py` не менялись
+относительно `cb891540`. Исправления lifecycle не начаты, вердикт остаётся RED.
+Ревьюер сообщил 215 PASS для FT1/machine/timing subset, compileall и diff-check
+PASS; полный pytest collection падает на 14 modules без pyserial и не считается
+PASS. Рост live ROOT history подтверждён 5000 успешными child settlements
+с `processed=5000`. Подробности и границы внешнего evidence — в TODO_043;
+локально при обновлении документации repro/tests не запускались.
+
+По следующему поручению оператора собственное software ревью ST на `8cf689e`
+воспроизвело исходные шесть findings в явно описанных границах и добавило findings
+7–14 плюс static follow-ups S1–S2 в TODO_043. Среди новых blockers — повреждение
+ROOT frame rejected META, неправильная idle pause и concurrent publication с
+overwrite при двух RESULT OK. Полный pytest вне sandbox: 601 PASS; compileall PASS.
+Это validation существующего неисправленного HEAD, не PASS исправлений. Вердикт
+остаётся RED; implementation, новые регрессии и повторное ревью OPEN.
 
 Descriptive suffix BATCHED_FINAL_REPAIR сохранён как историческое имя файла;
 актуальный design — recursive missing, TODO-ID не меняется.

@@ -492,6 +492,13 @@ Validation:
 
 Существенные факты, обнаруженные во время implementation или validation, не должны оставаться только в чате, issue-комментарии или памяти разработчика.
 
+Для findings инженерного ревью исходный отчёт хранится в `reviews/` по
+[REVIEW_MANAGEMENT_POLICY.md](REVIEW_MANAGEMENT_POLICY.md) и регистрируется в
+[REVIEW_INVENTORY.md](REVIEW_INVENTORY.md). Профильный TODO ведёт исправление и
+ссылается на `REVIEW_<NNN>/Fxxx`; REVIEW-ID и TODO-ID нумеруются независимо.
+Не копировать весь review report в TODO. Повторное ревью нового checkpoint
+получает новый REVIEW-ID, сохраняя историю первоначального finding.
+
 Новый finding следует записать:
 
 1. в профильный `TODO_<NNN>...md`;
