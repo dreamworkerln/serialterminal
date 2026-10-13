@@ -191,6 +191,13 @@ META/END/control LINK_FAIL, REJECTED/UNAVAILABLE и UNKNOWN этим исклю�
 не покрываются. Progress отражает обработанный поток DATA, включая link failure,
 а не доказанное сохранение всех chunks.
 
+После временного отказа local HELLO (например, прежний owner ещё завершает
+RF после отмены) client повторяет только согласование, в bounded deadline.
+Idle receiver восстанавливается без file_send_start; новая file operation тоже
+может запустить HELLO. Pending/UNKNOWN и несовместимый WELCOME не обходятся,
+RF SUBMIT автоматически не повторяется. События machine_negotiation_failed и
+machine_negotiation_retry позволяют отделить это ожидание от radio DATA loss.
+
 ### Controller reboot / same-process recovery
 
 Controller lifetime отделён от transport generation. USB tty может остаться открытым во время reboot. Chatter adapter распознаёт controller reset/READY и не превращает обычный transport reconnect без reset evidence в фиктивный reboot.

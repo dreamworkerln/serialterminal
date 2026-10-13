@@ -10,7 +10,11 @@ Validation: 10 TARGETED CASES PASS / FULL SUITE AND HARDWARE OPEN
 Branch: `dev_tui_exp_recursive_missing`
 Base checkpoint: `dev_tui@fd94bdeb1fd878e072b0f852b3e8f461d928e3cd` (`point 8 done`).
 Docs checkpoint: `991ff0e` (`docs: define recursive FT1 missing-list repair prototype`).
-Source checkpoint: `991ff0e` + uncommitted implementation; точный digest фиксируется перед run.
+Source checkpoint reviewed: `cb891540451df7c864a40d06618213f10235477a`; локальные dirty edits не входят в этот review checkpoint.
+
+## Independent review received — 2026-10-13
+
+Для указанного HEAD ревьюер вынес **RED / не merge-ready; в таком виде в dev_tui не merge'ить**. Все шесть замечаний собраны в отдельном [TODO_043](TODO_043_FT1_RECURSIVE_LIFECYCLE_REVIEW_FIXES.md): atomic RX restore, same-ID quarantine retry, deferred ROOT END, child-ID admission collision, terminal ROOT frame retention и bounded processed history. Recursive repair и DATA LINK_FAIL → END сохраняются. Исправления, регрессии/stress, software gates и повторное ревью предшествуют решению о hardware matrix/merge. TODO_042 остаётся OPEN / CRITICAL; прежние PASS не закрывают эти findings. Внешние subsets 114/98 PASS не являются полным suite PASS или новой локальной validation.
 
 Descriptive suffix BATCHED_FINAL_REPAIR сохранён как историческое имя файла;
 актуальный design — recursive missing, TODO-ID не меняется.
@@ -27,8 +31,9 @@ Descriptive suffix BATCHED_FINAL_REPAIR сохранён как историче
 сторону. Вложенность ограничена; после доставки нижнего списка чинится его
 родитель, затем последовательно возвращаемся к исходному файлу.
 
-Это будущая реализация. Текущий runtime остаётся FT1 v1: рекурсивных сессий,
-нового missing_total и процентного gate пока нет. Source constants не менялись.
+Это описание исходного design до implementation. Recursive FT1 v2 prototype
+реализован в source checkpoint выше; Result и checkpoints ниже сохраняют историю
+validation. Текущие review findings и критерии исправлений находятся в TODO_043.
 
 ## Related documents
 

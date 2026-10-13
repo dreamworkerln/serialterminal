@@ -470,6 +470,16 @@ DATA stream, including these known link failures; it is not proof of storage.
 LINK_FAIL of META/END/control, REJECTED and UNAVAILABLE remain fatal. UNKNOWN
 and unresolved ownership still block new submissions; no hidden RF replay or reboot.
 
+A transient local HELLO/bootstrap failure can be renegotiated once the previous
+machine owner has settled. The lifecycle worker also retries this negotiation
+for an idle receiver; a new file operation can trigger it directly. Only local
+HELLO is repeated, within each operation's deadline: no RF SUBMIT is replayed.
+The owner nonce and same-epoch request sequence are retained, while a fresh
+HELLO request rejects stale negotiation replies. Pending machine tickets,
+UNKNOWN/unsettled outcomes and incompatible WELCOME remain blocking conditions.
+Timing events `machine_negotiation_failed` and `machine_negotiation_retry` expose
+the negotiation failure/recovery separately from file DATA delivery.
+
 File transfer never sends `/both`, `/chat` or `/tele`, including reconnect and
 terminal cleanup. Machine mode works independently of that human output mode.
 Only legacy compatibility reads `/help` and fails in TELEMETRY-only before `/bin`.

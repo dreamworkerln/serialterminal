@@ -132,7 +132,7 @@ Remaining work: align the primary `NODE_OBSERVATION_RECORDING_POLICY.md` and nod
 
 TODO_026 logging-contract investigation is also OPEN and may be scheduled independently when log-format work is selected.
 
-Suggested next work: implement and validate critical TODO_042 recursive missing-list files in dev_tui_exp_recursive_missing after operator starts source implementation: depth8, ROOT missing-percent default30% with service-file exemption, and three consecutive no-progress cycles per file with reset on any decrease. This checkpoint updates documents only in the created feature branch; preserve stage8 evidence and merge into dev_tui only after acceptance and operator instruction. Then address TODO_041's remaining FT1 failure/recovery and RX observability scope, retaining the existing throughput evidence and without enabling TODO_038. Then finish the current firmware/BlueZ throughput characterization without enabling TODO_038, so the pre-progress-checkpoint baseline remains clean. Then physically validate the implemented TODO_033 child workstream at the exact current `dev_tui` checkpoint: `TODO_034` BLE/USB controller lifecycle, `TODO_035` same-process FT1 reboot/reconnect recovery, `TODO_036` receiver process-restart durability, and `TODO_037` sender/receiver/both-process persistent resume plus lost-RESULT tombstone behavior. After the current firmware/baud work settles, implement TODO_040's centralized settings/single-source foundation together with TODO_039's discoverable F9 menu and profile-aware/runtime baud policy, so the UI does not introduce another independent set of defaults. After that, implement/validate `TODO_038` as the rare FT1 ST-to-ST remote application-progress watchdog, measuring its overhead against the preserved baseline. Then rerun the broader TODO_029 two-node reconnect/MISSING validation against the recovery stack. Independently finish the HCI boundary isolation in TODO_024; then continue correctness/evidence boundaries (`TODO_011`, `TODO_013`, `TODO_016`, `TODO_017`, `TODO_021`, remaining `TODO_025` docs), lifecycle/API robustness (`TODO_019`, `TODO_022`, `TODO_023`), and consistency/docs follow-ups (`TODO_012`, `TODO_014`, `TODO_015`, `TODO_020`). Re-evaluate ordering if physical validation exposes a regression.
+Suggested next work: after a separate operator start, implement and validate critical TODO_043 review fixes on dev_tui_exp_recursive_missing: recursive findings 3+4+5, restore/retry findings 1+2, bounded processed history 6, deterministic regression/stress tests, full software validation and independent re-review of the diff from cb891540451df7c864a40d06618213f10235477a. That reviewed checkpoint is RED / not merge-ready. Then continue TODO_042 broad hardware acceptance for recursive missing-list files: depth8, ROOT missing-percent default30% with service-file exemption, and three consecutive no-progress cycles per file with reset on any decrease. Preserve stage8 evidence and merge into dev_tui only after acceptance and operator instruction. Then address TODO_041's remaining FT1 failure/recovery and RX observability scope, retaining the existing throughput evidence and without enabling TODO_038. Then finish the current firmware/BlueZ throughput characterization without enabling TODO_038, so the pre-progress-checkpoint baseline remains clean. Then physically validate the implemented TODO_033 child workstream at the exact current `dev_tui` checkpoint: `TODO_034` BLE/USB controller lifecycle, `TODO_035` same-process FT1 reboot/reconnect recovery, `TODO_036` receiver process-restart durability, and `TODO_037` sender/receiver/both-process persistent resume plus lost-RESULT tombstone behavior. After the current firmware/baud work settles, implement TODO_040's centralized settings/single-source foundation together with TODO_039's discoverable F9 menu and profile-aware/runtime baud policy, so the UI does not introduce another independent set of defaults. After that, implement/validate `TODO_038` as the rare FT1 ST-to-ST remote application-progress watchdog, measuring its overhead against the preserved baseline. Then rerun the broader TODO_029 two-node reconnect/MISSING validation against the recovery stack. Independently finish the HCI boundary isolation in TODO_024; then continue correctness/evidence boundaries (`TODO_011`, `TODO_013`, `TODO_016`, `TODO_017`, `TODO_021`, remaining `TODO_025` docs), lifecycle/API robustness (`TODO_019`, `TODO_022`, `TODO_023`), and consistency/docs follow-ups (`TODO_012`, `TODO_014`, `TODO_015`, `TODO_020`). Re-evaluate ordering if physical validation exposes a regression.
 
 ### TODO_026 — `todos/TODO_026_UNIFIED_LOGGING_CONTRACT.md`
 
@@ -451,7 +451,9 @@ post-closure hardware smoke: PASS / physical BLE multi-device / 2026-09-03
 
 ### TODO_042 — [todos/TODO_042_FT1_BATCHED_FINAL_REPAIR.md](todos/TODO_042_FT1_BATCHED_FINAL_REPAIR.md)
 
-Status: OPEN / CRITICAL / PROTOTYPE IMPLEMENTED / BROAD VALIDATION OPEN
+Status: OPEN / CRITICAL / PROTOTYPE IMPLEMENTED / REVIEW AND BROAD VALIDATION OPEN
+
+Review checkpoint: `cb891540451df7c864a40d06618213f10235477a` — RED / not merge-ready. All six reviewer findings are tracked in [TODO_043](todos/TODO_043_FT1_RECURSIVE_LIFECYCLE_REVIEW_FIXES.md); resolve and re-review them before hardware matrix/merge readiness. Earlier PASS evidence does not settle these defects.
 
 Selected design: transmit the full missing list as an internal FT1 file in the
 reverse direction; recursively repair that file with another missing-list file
@@ -469,12 +471,25 @@ Prototype uses FT1 v2 META parent/depth and END repair_id, MRF2 full lists.
 Current recursive software suite:571 PASS. USB↔USB targeted radio smoke:128KiB each way, controlled80 isolated ROOT holes + service DATA loss, depth2/unwind PASS both ways; explicit persistent resume after receiver reboot PASS. SF12 CRC/retry/LINK_FAIL remain under investigation; full hardware matrix OPEN. Firmware unchanged in this ST timing/test revision.
 Backward compatibility is not required. Prior portion-based MISSING design is superseded by this recursive design.
 
-Docs checkpoint:991ff0e. Source: same HEAD + uncommitted recursive implementation.
+Docs checkpoint:991ff0e. Reviewed source HEAD: `cb891540451df7c864a40d06618213f10235477a`; existing local machine-client/API/skill/test edits are outside that reviewed checkpoint.
 Luna medium prompt and new evidence live outside Git in
 `/home/dream/coding/журнал экспериментов/Проверка dev_tui_exp_recursive_missing/`.
 Operator authorized limited100KiB + receiver-reboot probes before Luna's matrix;
 Luna has not been launched. Keep historical stage8 bundles immutable. No merge/push
 or TODO closure until broad acceptance. Detailed contract/checklists in TODO.
+
+
+## Critical recursive lifecycle review follow-up
+
+### TODO_043 — [todos/TODO_043_FT1_RECURSIVE_LIFECYCLE_REVIEW_FIXES.md](todos/TODO_043_FT1_RECURSIVE_LIFECYCLE_REVIEW_FIXES.md)
+
+Status: OPEN / CRITICAL / IMPLEMENTATION AND FIX VALIDATION OPEN
+
+Finding checkpoint: `dev_tui_exp_recursive_missing@cb891540451df7c864a40d06618213f10235477a`, base `fd94bdeb1fd878e072b0f852b3e8f461d928e3cd`; independent review received 2026-10-13. Verdict: RED / do not merge this checkpoint into dev_tui.
+
+Scope: all six SerialTerminal findings — non-atomic RX restore; automatic same-ID retry of quarantined/integrity-failed identity; ROOT END lost before child RESULT presentation; child-ID collision corrupting recursive context before admission; terminal ROOT frame leak; unbounded processed-child replay history. Preserve recursive repair, DATA LINK_FAIL → END → actual holes, normal same-ID resume and ROOT ownership/publication semantics.
+
+Implementation: not started by this documentation task. Reviewer reports 114 and 98 passing subsets, compileall and base-to-HEAD diff-check PASS; full suite was not confirmed because pyserial was absent. Repro and stress estimates are reviewer evidence, not locally rerun validation. Fix/regression/stress/full-suite/re-review gates remain OPEN. Related: TODO_041 recovery lifecycle and TODO_042 recursive acceptance; neither is closed by creating TODO_043.
 
 ## Current validation posture
 
@@ -512,8 +527,8 @@ coverage and current HCI interval7.5ms/MTU247/DLE251/244+117 writes recorded.
 Full software suite remains 545 PASS/48.56s. Results and evidence boundaries:
 `/home/dream/coding/журнал экспериментов/ИТОГИ_ПУНКТОВ_1-8_2026-10-11.md`.
 TODO_041 broader FLOW/midstream scope remains OPEN. TODO_042 was DEFERRED at
-that experimental checkpoint and is now OPEN / CRITICAL under the updated design
-above; new runtime implementation has not started.
+that experimental checkpoint. Current recursive implementation/review status is
+recorded above under TODO_042 and TODO_043; this paragraph is historical evidence.
 No new commit/push/current-head CI. Work stopped at experimental stage8.
 
 

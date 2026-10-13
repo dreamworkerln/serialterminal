@@ -72,6 +72,7 @@ class ChatterMachineClient:
         except BinaryUserError as exc:
             with self.condition:
                 self.error=exc; self.mode="failed"; self.condition.notify_all()
+            self.legacy._timing("machine_negotiation_failed", reason=exc.code)
 
         # Idle receiver должен восстановить machine RX после reconnect без
         # нового file_send_start. При pending tickets recovery остаётся у FT1.
@@ -80,7 +81,8 @@ class ChatterMachineClient:
                 pending=bool(self.pending)
                 changed=self.negotiated_generation != self.legacy._generation()
                 reset=self.error is not None and self.error.code == "local_controller_reset"
-                restore=not pending and ((self.mode == "machine" and changed) or reset)
+                restore=not pending and ((self.mode == "machine" and changed) or reset
+                                         or self._negotiation_retry_reason() is not None)
             if not restore:
                 continue
             try:
@@ -89,6 +91,24 @@ class ChatterMachineClient:
             except BinaryUserError as exc:
                 with self.condition:
                     self.error=exc; self.mode="failed"; self.condition.notify_all()
+                self.legacy._timing("machine_negotiation_failed", reason=exc.code)
+
+    def _negotiation_retry_reason(self) -> str | None:
+        with self.condition:
+            # HELLO не запускает RF USER. Временный отказ bootstrap не должен
+            # навсегда блокировать новый META или приём после ухода старого owner.
+            # Pending/UNKNOWN и несовместимый WELCOME не обходятся новым HELLO.
+            if self.closed.is_set() or self.mode != "failed" or self.pending:
+                return None
+            if self.error is not None and self.error.code == "machine_owner_busy" and not self.hello_busy:
+                # Остальные REJECTED reasons не являются временным BUSY owner.
+                return None
+            if self.error is not None and self.error.code in {
+                "machine_owner_busy", "machine_negotiation_timeout",
+                "local_tx_timeout", "local_tx_unknown", "local_disconnect",
+            }:
+                return self.error.code
+            return None
 
     def _write(self, frame: Frame, deadline: float, cancel_event=None, *, boundary=False):
         command=encode(frame).decode("ascii").rstrip("\n")
@@ -116,6 +136,8 @@ class ChatterMachineClient:
                     if remaining <= 0: raise BinaryUserError("machine_owner_busy","old machine owner did not settle before deadline")
                     # HELLO не выпускает RF; старый owner может ещё завершать ACK.
                     self.condition.wait(min(remaining,0.1))
+                    if time.monotonic() >= deadline:
+                        raise BinaryUserError("machine_owner_busy", "old machine owner did not settle before deadline")
                     self.hello_busy=False
                     continue
                 if self.error is not None: raise self.error
@@ -127,12 +149,19 @@ class ChatterMachineClient:
             mode=self.mode
             changed=self.negotiated_generation != self.legacy._generation()
             pending=bool(self.pending)
+            retry_reason=self._negotiation_retry_reason()
         if mode == "failed" and self.error is not None and self.error.code == "local_controller_reset":
             self.legacy._wait_until_controller_ready(generation=self.legacy._generation(), cancel_event=cancel_event, allow_reconnect_probe=True, deadline=deadline)
             self.legacy.drain_binary(max(0.0,deadline-time.monotonic()))
             with self.condition:
                 self.pending.clear(); self.order.clear()
             self.nonce=secrets.randbits(64) or 1; self.hello_request=secrets.randbits(32) or 1
+            self._negotiate(deadline,cancel_event)
+        elif retry_reason is not None:
+            self.legacy._timing("machine_negotiation_retry", reason=retry_reason)
+            # Nonce сохраняет identity владельца, новый request отсекает запоздалый
+            # ответ прежнего HELLO. Pending tickets здесь запрещены выше.
+            self.hello_request=secrets.randbits(32) or 1
             self._negotiate(deadline,cancel_event)
         elif changed and mode == "machine":
             previous_epoch=self.epoch
