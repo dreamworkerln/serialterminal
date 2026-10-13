@@ -279,6 +279,25 @@ and an associated error event with:
 
 `tx_state:"unknown"` is terminal for that queued item: SerialTerminal does **not** automatically resend it after reconnect because doing so could create a duplicate side effect. A machine scenario must decide success/failure from later application/protocol evidence or classify the case as ambiguous/inconclusive. Do not reinterpret `unknown` as either `written` or definitely-not-written.
 
+Serial writes now use the same conservative outcome boundary: a nonzero short or
+invalid backend write return, any exception from backend write, and any flush failure
+after writing produce `unknown`. An explicit zero-byte return is a definite failure
+and remains reconnect/retry eligible. Unexpected backend exceptions cannot silently
+end a TX worker with an accepted item left pending.
+
+Session shutdown settles writes that never started as `tx_state:"cancelled"` and
+writes still in flight as `unknown`. A failed session worker emits an error with
+`state:"worker-failed"`, stops new admission and settles dependent pending TX.
+Notifier failures emit `state:"notifier-failed"`; they do not replay a completed TX.
+These are host transport outcomes, not controller or RF queue settlement.
+
+The internal profile lifecycle hooks include addressable `cancel_tx(tx_id)` and an
+owned-TX drain. They affect only the caller's accepted writes; no new JSONL cancel
+operation or firmware command is introduced. FT1 accounts for its host writes before
+releasing ownership. If that drain times out, the transfer reports
+`local_tx_drain_timeout` and retains ownership until the session is closed.
+
+
 ## Send raw bytes
 
 ```json
@@ -428,17 +447,21 @@ ownership after settling a pre-transfer accepted-TX fence. While owned, ordinary
 rejected with `session_busy`. Read-only `status` and ordinary `observe` remain
 available.
 
-The Chatter binary adapter settles each local `/bin` submission on the exact matching
-controller `> [BINARY]` presentation after first physical TxDone. Local
-`tx_state=written` alone is not controller backpressure, and this presentation is not
-remote delivery proof. `DELIVERY WAIT_ACK/ACK/FAILED` telemetry is diagnostic only
-and does not drive FT1 state.
+The bundled Chatter profile negotiates the protected local `/m1` interface on open.
+A WELCOME selects machine mode; only an explicit old-firmware command rejection
+selects legacy `/bin` compatibility. Silence is `machine_negotiation_timeout`.
+The [shared contract](CHATTER_MACHINE_PROTOCOL_V1.md) defines CRC, epoch/request
+identity, two outstanding slots and the cached local QUERY recovery path.
+ACCEPTED and TX_DONE do not settle a machine send: LINK_OK requires the existing
+matching radio ACK. It still does not prove remote ST storage. Human DELIVERY
+telemetry never drives FT1. UNKNOWN/unsettled outcomes block new submissions;
+LINK_FAIL and UNAVAILABLE fail visibly without hidden RF replay or reboot.
 
 File transfer never sends `/both`, `/chat` or `/tele`, including reconnect and
-terminal cleanup. If Chatter output mode is not yet known for the current
-connection/controller epoch, the profile issues read-only `/help` and consumes
-`[SYS] current=...`; TELEMETRY-only still fails before `/bin` rather than changing
-the operator-selected mode.
+terminal cleanup. Machine mode works independently of that human output mode.
+Only legacy compatibility reads `/help` and fails in TELEMETRY-only before `/bin`.
+Machine frames are hidden on the human screen and redacted in default logs;
+`--log-base64` retains them for explicit forensic capture.
 
 Remote completion remains FT1-level: stable transfer/chunk identity, MISSING repair and
 final `RESULT OK`. A controller reboot may occur without transport disconnect. The
@@ -487,6 +510,11 @@ Exactly `100.0` means `state=completed`. A sender that has delivered every DATA
 chunk but is still waiting for the receiver's final verified RESULT remains below
 100%.
 
+DATA with an incorrect META-derived length is discarded with `chunk_rejected`
+(`chunk_index`, `reason=length_mismatch`, `actual_length`, `expected_length`). RX
+keeps its partial file and valid chunks; END/MISSING selectively requests any
+remaining hole. A malformed duplicate does not erase an already stored valid copy.
+
 Reconnect-repair states include `waiting_result`, `repair_requested` and
 `repairing`. Transfer events may include `missing_detected`, `repair_requested`,
 `repair_round_sent` and `control_replay`; these are structured application events
@@ -509,12 +537,9 @@ progress/event history. An active transfer cannot be closed.
 ### FT1 / Chatter boundary
 
 The maintained file protocol is documented in `FILE_TRANSFER.md`. Chatter local
-encapsulation is:
-
-```text
-/bin <BASE64>
-< [RSSI/SNR Q] [BINARY] <BASE64>
-```
+machine framing is `/m1 <BASE64>` as specified in
+[CHATTER_MACHINE_PROTOCOL_V1.md](CHATTER_MACHINE_PROTOCOL_V1.md).
+Old firmware uses the explicit legacy `/bin <BASE64>` and human BINARY presentation.
 
 Base64 exists only on the local controller boundary. The LoRa BINARY USER and FT1
 transport payload are raw bytes up to the profile-advertised capacity (currently 243
@@ -527,15 +552,19 @@ and the sender retransmits only those DATA chunks before repeating END. Repeated
 identical META/END are idempotent and bounded META+END control replay can recover a
 missed control/result boundary.
 
-There is no per-DATA file ACK, no MISSING pagination, no persistent resume after the
-SerialTerminal process exits/restarts, and no LoRa SACK dependency. If the complete
-missing range set does not fit one application payload, the transfer terminates with
-stable `repair_too_large`; callers start a new `file_send_start` explicitly if they
-want a full retransmission.
+There is no per-DATA file ACK, no MISSING pagination and no LoRa SACK dependency.
+A full missing set that exceeds one payload reports `repair_too_large` and retains
+usable partial state. Explicit `file_send_start` with the unchanged source reuses a
+matching journal and the same transfer ID, both in the same process and after restart.
+An old sender worker must have finished settling before same-process retry can start.
+See `FT1_RESUME.md` for durable state, ambiguity and immutable wire checks.
 
-A generic `tx_state=unknown` is still never blindly resent by `ManagedSession`. For
-file transfer only, the profile/application layer may replay the same idempotent FT1
-message after an ambiguous local boundary.
+A generic `tx_state=unknown` is never blindly resent by `ManagedSession`. FT1 replay
+also requires accounting for the previous controller operation. Legacy lost echo or
+unresolved pipeline tickets block further BINARY with `local_tx_unsettled` until an
+observed controller reset changes the epoch. Host drain/reconnect alone is insufficient.
+Restore failures preserve the old terminal record/history; failed lease rollback retains
+admission and reports `local_ownership_unsettled` / `resume_rollback_failed`.
 
 ## Sweep jobs
 
@@ -841,6 +870,8 @@ Continuous observation means issuing a new `observe` or `sweep_observe` after ea
 
 EOF/process shutdown cancels pending session observations, requests cancellation of an active sweep, gives bounded sweep workers a chance to settle, force-closes remaining sessions, then joins sweep/observe workers while logs/stdout are still available. A pending ordinary `observe` cancelled by process shutdown may return structured `agent_stopping`.
 
+For FT1, EOF closes the file manager through its bounded suspension path: receiver partial bytes/durable ranges and sender journal remain eligible for same-transfer resume. It does not invoke `file_transfer_cancel`. Explicit `file_transfer_cancel` retains its cancellation/cleanup semantics. Shutdown failure is reported separately; a manifest alone does not prove retained bytes.
+
 ## Multiple devices
 
 A single process may keep independent sessions open simultaneously:
@@ -895,3 +926,13 @@ state and emits one deduplicated raw `error` event for that failure epoch with
 `state="connect-failed"` and text `serial device busy: <path>`. It may connect later
 after the other owner releases the port; no second SerialTerminal reader is allowed
 to consume the same serial byte stream concurrently.
+
+Protected Chatter recovery: if the addressed STATUS reports both node credits
+returned but its terminal outcome is missing after 100 ms, the client issues one
+cached local QUERY. STATUS is not success evidence; RF SUBMIT is not repeated.
+The original bounded deadline fallback remains if this diagnostic query cannot
+recover a terminal result.
+
+Same-epoch WELCOME after reconnect preserves the Chatter request counter; fresh
+epoch starts a new counter. This prevents new payloads from reusing retained cache
+identities after a live USB controller reconnect.

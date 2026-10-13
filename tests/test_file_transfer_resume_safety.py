@@ -1,4 +1,6 @@
 import hashlib
+import os
+import stat
 import time
 from types import SimpleNamespace
 
@@ -61,13 +63,13 @@ def test_manifest_rename_fsyncs_parent_directory(monkeypatch, tmp_path):
     calls = []
     monkeypatch.setattr(
         "serialterminal.file_transfer.manager.os.fsync",
-        lambda fd: calls.append(fd),
+        lambda fd: calls.append(stat.S_ISDIR(os.fstat(fd).st_mode)),
     )
     path = manager._resume_store.incoming_manifest(0xF00D)
 
     try:
         manager._resume_store.atomic_json(path, {"schema": 1})
-        assert len(calls) == 2
+        assert calls == [False, True, True, True]
         assert path.is_file()
     finally:
         manager.close()

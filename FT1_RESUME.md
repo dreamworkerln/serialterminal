@@ -58,6 +58,54 @@ A transport disconnect without reset evidence remains distinguishable from a pro
 controller reboot; transport reconnect alone does not manufacture a new controller
 epoch.
 
+## Experimental transport lifecycle hardening
+
+The architecture-repair series starts after SerialTerminal checkpoint `b7f58f8` and
+paired Chatter checkpoint `2d8723ca`. Its overall execution plan lives in Chatter:
+`chatter/ARCHITECTURE_REPAIR_EXECUTION_PLAN_2026-10-11.md`.
+
+Serial short/invalid writes and backend write/flush exceptions produce an unknown
+host outcome instead of blind generic replay. FT1 accounts for owned host writes
+before releasing its mutation lease; a drain timeout reports a terminal failure and
+retains ownership until session close. The local drain budget is at most 10 seconds
+(and no longer than the configured RESULT wait); it is independent of the hour-long
+default remote RESULT timeout. This does not fence legacy firmware/RF queues.
+
+Chatter adapter waits share the caller's absolute monotonic deadline, including
+scheduling lock acquisition, controller readiness and output-mode queries. Recovery
+uses `send_binary_until` when the opaque adapter offers it; adapters with only the
+legacy synchronous send contract cannot be promised a hard bound inside their own
+backend call.
+
+An unexpected RX handler or idle-sweep exception is visible as `rx_worker_error` and
+ends the affected attempt while retaining its partial/manifest. The shared RX worker
+remains available. Invalid DATA index/length and END chunk count reject only that
+message. Conflicting duplicates and hash/decompression failures retain the partial
+in quarantine, which cannot automatically resume. MISSING delivery failure and
+range overflow retain a suspended manifest; explicit cancellation removes it.
+Legacy MISSING still carries the full set in one message, at most 28 ranges at
+payload capacity 243; overflow reports `repair_too_large` without pagination.
+
+An observed negative RESULT wakes recovery waits and stops new DATA submissions
+in original, pipeline and repair paths. It does not set operator cancellation or
+issue `/cancel all`. RESULT decoding rejects contradictory status/code pairs.
+Already issued firmware/RF operations are outside the legacy host drain guarantee.
+
+Local automated checkpoint for stages 1–4: 494 tests passed with an isolated device
+cache. Stage 4 source is retained at `f9c8a8f`. Physical validation remains separate.
+Same-process retry reuses the failed record and event cursor after its worker settles;
+claim/checkpoint failure preserves the old terminal history. Lease rollback failure
+retains admission instead of allowing another transfer. Old RESULT/MISSING/cancel
+state is cleared only after the new attempt is admitted. FT1 v1 has no attempt epoch;
+a delayed negative RESULT can therefore safely fail a later same-ID attempt.
+
+Lost local echo after real delivery and discarded unresolved pipeline tickets block
+new legacy BINARY submissions with `local_tx_unsettled`. A connection generation or
+READY line alone does not settle the old firmware queue; observed controller reset
+is required. This condition is intentionally not added to the automatic recoverable
+set. RESULT/control/repair work shares one absolute completion deadline, including
+nested local recovery; blocking third-party legacy adapters retain their own limits.
+
 ## Same-process FT1 recovery
 
 An active FT1 sender treats these BINARY failures as recoverable local-node lifecycle
@@ -130,9 +178,18 @@ write DATA bytes
 -> atomically replace/fsync manifest with advanced received ranges
 ```
 
+An active-META RESUME first forces a successful checkpoint, so its cursor cannot
+advance beyond persisted bytes and ranges. A checkpoint failure prevents that cursor
+from being sent.
+
 If a crash happens after bytes are written but before the manifest advances, the sender
 may retransmit those bytes. That is safe because duplicate DATA for the same
 transfer/chunk must be identical and is idempotent.
+
+Agent EOF also uses the manager suspension path, preserving receiver partial bytes
+and the sender journal. It must not first invoke explicit cancellation, which discards
+receiver partial state. The same distinction applies when checking shutdown evidence: a
+retained manifest must reference existing bytes.
 
 Receiver idle timeout releases current runtime ownership and records suspended durable
 state rather than deleting the partial transfer. Runtime history may still surface
@@ -144,8 +201,29 @@ directory.
 
 ## Completed tombstones
 
-After verification and final publication, the receiver stores a completed tombstone
-for the transfer identity.
+The receiver uses one chosen destination throughout publication:
+
+```text
+verify wire and original hashes/sizes
+-> fsync final bytes
+-> durable publishing intent with chosen destination
+-> rename final bytes to that destination
+-> fsync destination directory
+-> durable completed tombstone
+-> RESULT OK
+-> partial/manifest cleanup
+```
+
+A restart reconciles an existing verified destination or reuses the retained intent
+when publication has not happened. It never chooses a second destination for an
+accepted intent. A failure to submit RESULT after the durable commit leaves local
+completion intact. Completed replay verifies and persists that same commit again;
+it does not publish a second copy. Cleanup failure does not revoke the commit.
+
+On POSIX, file/directory fsync errors stop advancement. The durability model assumes
+atomic rename and a filesystem/storage stack honoring fsync; automated fault
+injection is not a physical power-loss test. Non-POSIX platforms retain the existing
+best-effort directory fallback and do not claim the same power-loss guarantee.
 
 This covers the case:
 
@@ -196,6 +274,13 @@ and reports the candidate transfer IDs.
 Symlinked journal manifests are not trusted.
 
 ## Deterministic compression
+
+Preparation reads the source once into independent raw and gzip temporary files,
+then selects the smaller representation. DATA and repair read only the selected
+snapshot, including Compression.NONE; editing the user file afterwards cannot
+change the prepared bytes. Temporary snapshots are removed after the attempt.
+Restart still requires an unchanged source, reconstructs a new snapshot and verifies
+its wire size/hash/compression/chunk size against the retained journal before reuse.
 
 When gzip is selected, the resumable path creates a deterministic wire stream using a
 stable gzip header (`mtime=0`, empty embedded filename). On restart it rebuilds the
@@ -269,6 +354,12 @@ Only receiver-proven durable state may advance the restart cursor. Sender memory
 ## MISSING remains final exact repair
 
 The existing END/MISSING/RESULT contract remains authoritative for exact completion.
+
+Wrong-length DATA is discarded with `chunk_rejected` while the partial file and
+valid chunk bitmap remain intact. Such a DATA does not advance a durable resume
+cursor. END/MISSING requests that index if it is still absent. A wrong-length
+replay of an already stored chunk does not erase the stored copy. Final wire and
+original SHA-256 verification remains mandatory.
 
 Earliest-missing resume may retransmit already-durable chunks after the first hole.
 That is acceptable. After END, the existing MISSING range mechanism requests exact
@@ -389,3 +480,31 @@ receiver completes/publishes -> sender misses RESULT/restarts -> tombstone compl
 
 Record exact SerialTerminal SHA, firmware SHA, node identities, transport, transfer ID,
 resume cursor, final hash and result for those runs.
+
+## Protected local machine and outbox continuation — 2026-10-11
+
+The experimental working tree composes one FT1 coordinator with bounded outbox,
+RX and control queues. The full isolated-cache host suite passed 543 tests.
+Protected local framing is defined in `CHATTER_MACHINE_PROTOCOL_V1.md` and negotiated
+by the Chatter profile. LINK_OK proves the existing peer-node ACK, not remote storage.
+Physical four-path/reconnect/reset/resume/performance gates remain separate.
+
+On reconnect an idle receiver reopens its machine RX automatically. Outstanding old
+requests remain guarded: same-epoch reconnect cannot erase unresolved tickets. Owned
+host writes must settle; an observed controller reset or new protected WELCOME epoch
+can invalidate the old node slots and permit explicit idempotent FT1 recovery. This
+never completes the old ticket as successful and never issues a blind adapter SUBMIT.
+A local-only HELLO/QUERY may recover evidence; absent proof fails visibly. Legacy
+compatibility retains the weaker echo/firmware-queue limitations documented above.
+Close finalizes discarded terminal jobs visibly while preserving published bytes and
+completed tombstones; unresolved ownership is retained rather than falsely released.
+
+The BLE-sender physical matrix exposed a missing local outcome with a 29-second
+wait before QUERY. The client now queries the same epoch/request after an addressed
+full-credit STATUS and 100 ms grace; credit alone never completes a ticket. This
+is local cache recovery, not midstream RF repair.
+
+A repeated WELCOME with the same live USB node epoch preserves the monotonically
+increasing request counter. Only a fresh epoch resets it; the node outcome cache
+is still authoritative after same-epoch reconnect. Regression was reproduced on
+frozen v4 and fixed before v5 validation.

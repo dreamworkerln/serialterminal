@@ -141,3 +141,12 @@ def test_missing_range_set_uses_advertised_transport_capacity_without_pagination
 def test_canonical_missing_ranges_rejects_out_of_declared_chunk_count():
     with pytest.raises(FileProtocolError, match="outside declared"):
         canonical_missing_ranges([0, 5], chunk_count=5)
+
+
+@pytest.mark.parametrize("status,code", [(0, 1), (0, 255), (1, 0)])
+def test_result_decoder_rejects_contradictory_status_and_code(status, code):
+    payload = bytearray(encode_message(ResultMessage(1, True, "ok", ""), 243))
+    payload[-3] = status
+    payload[-2] = code
+    with pytest.raises(FileProtocolError, match="conflicts"):
+        decode_message(bytes(payload))

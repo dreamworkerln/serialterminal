@@ -147,10 +147,17 @@ bar for both TX and incoming RX transfers. While a Chatter transfer is active, t
 TUI session-output sink is muted so protocol/controller lines do not flood scrollback,
 but file progress/status remains live. FT1 does not change CHAT/TELEMETRY/BOTH and does
 not require DELIVERY telemetry; Chatter local backpressure uses exact `> [BINARY]`
-presentation, while remote completion remains MISSING/RESULT based. Same-process
+settlement (protected LINK_OK or explicit legacy first-TxDone presentation), while
+remote completion remains MISSING/RESULT based. DATA chunks
+with an incorrect length are discarded without losing the partial file; END/MISSING
+selectively repairs the missing indexes before final SHA-256 verification. Same-process
 temporary local reconnects can repair missing FT1 chunks
-selectively through one compact MISSING range message; persistent resume after
-SerialTerminal process restart is intentionally not provided.
+selectively through one compact MISSING range message. Persistent resume after
+SerialTerminal process restart uses retained manifests and sender journals; see
+[FT1_RESUME.md](FT1_RESUME.md) for the current contract. Protocol/integrity failures
+retain a suspended or quarantined partial, while explicit cancellation removes it.
+Negative RESULT stops new DATA submissions. RESULT OK follows verified durable
+publication and the completed tombstone.
 Verified incoming files default to the `files` directory in the SerialTerminal
 source root (next to `pyproject.toml`) when running from a checkout/editable install;
 the directory is created on demand on Linux/Windows. Packaged installs without a
@@ -159,6 +166,13 @@ source root fall back to `./files` in the launch directory. Use
 atomic-save and completion semantics are documented in [FILE_TRANSFER.md](FILE_TRANSFER.md).
 
 Normal CLI передаёт выбранный profile явно в terminal/session factory. Прямые `TerminalSession` и `DeviceSelector` constructors тоже используют `generic` по умолчанию; Chatter behavior включается только явным `profile=CHATTER_PROFILE` или `--profile chatter`.
+
+
+Experimental local machine interface: the Chatter profile negotiates `/m1` with CRC,
+epoch/request identity and two outstanding tickets. Machine sends settle on the
+existing matching node ACK; remote file completion still requires verified RESULT.
+Human output mode does not disable the machine path. Explicit legacy compatibility
+retains the old presentation/mode limits. See [the shared contract](CHATTER_MACHINE_PROTOCOL_V1.md).
 
 ## Что поддержано
 

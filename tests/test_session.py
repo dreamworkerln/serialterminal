@@ -485,3 +485,101 @@ def test_connect_failure_event_is_actionable_and_deduplicated():
     transport.busy = True
     assert session._connect() is False
     assert len(session.events_after(0, kinds=["error"])) == 2
+
+
+def test_cancel_one_queued_tx_preserves_other_submissions():
+    transport = FakeTransport()
+    session = ManagedSession(transport)
+    first = session.queue_line("mine")
+    second = session.queue_line("other")
+    assert session.cancel_tx(first)
+    assert session.wait_tx_outcome(first, 0) == "cancelled"
+    assert not session.cancel_tx(first)
+    session.start()
+    try:
+        assert session.wait_tx_drain([first, second], 1) == {
+            first: "cancelled", second: "written"
+        }
+        assert transport.writes == [b"other\n"]
+    finally:
+        session.stop()
+
+
+def test_cancel_cannot_retract_in_flight_backend_write():
+    transport = BlockingWriteTransport()
+    session = ManagedSession(transport)
+    session.start()
+    try:
+        tx_id = session.queue_line("in-flight")
+        assert transport.write_started.wait(1)
+        assert not session.cancel_tx(tx_id)
+        transport.write_release.set()
+        assert session.wait_tx_outcome(tx_id, 1) == "written"
+    finally:
+        transport.write_release.set()
+        session.stop()
+
+
+def test_stopping_before_start_settles_all_accepted_tx():
+    session = ManagedSession(FakeTransport())
+    ids = [session.queue_line("one"), session.queue_bytes(b"two")]
+    session.stop()
+    assert session.wait_tx_drain(ids, 0) == dict.fromkeys(ids, "cancelled")
+    assert session.outgoing.unfinished_tasks == 0
+
+
+def test_invalid_bytes_do_not_create_phantom_pending_tx():
+    session = ManagedSession(FakeTransport())
+    with pytest.raises(TypeError):
+        session.queue_bytes(object())
+    assert session.capture_tx_fence() == 0
+
+
+def test_unexpected_backend_write_is_unknown_and_is_not_replayed():
+    class BrokenWrite(FakeTransport):
+        def write(self, data):
+            self.writes.append(bytes(data))
+            raise RuntimeError("backend failed after side effect")
+    transport = BrokenWrite()
+    session = ManagedSession(transport, reconnect_delay=0.01)
+    tx_id = session.queue_line("once")
+    session.start()
+    try:
+        assert session.wait_tx_outcome(tx_id, 1) == "unknown"
+        assert _wait_until(lambda: transport.connect_count >= 2)
+        assert transport.writes == [b"once\n"]
+    finally:
+        session.stop()
+
+
+def test_rx_worker_failure_closes_admission_and_settles_pending_tx():
+    class BrokenConnect(FakeTransport):
+        def connect(self):
+            raise RuntimeError("connect worker crashed")
+    session = ManagedSession(BrokenConnect())
+    tx_id = session.queue_line("waiting")
+    session.start()
+    try:
+        assert session.wait_tx_outcome(tx_id, 1) == "cancelled"
+        assert session.stop_event.is_set()
+        assert any(e.state == "worker-failed" for e in session.events_after(0))
+        from serialterminal.session import SessionClosedError
+        with pytest.raises(SessionClosedError):
+            session.queue_line("late")
+    finally:
+        session.stop()
+
+
+def test_broken_notifier_is_visible_and_does_not_break_tx():
+    def broken():
+        raise RuntimeError("callback failed")
+    transport = FakeTransport()
+    session = ManagedSession(transport, event_notifier=broken)
+    tx_id = session.queue_line("once")
+    session.start()
+    try:
+        assert session.wait_tx_outcome(tx_id, 1) == "written"
+        assert any(e.state == "notifier-failed" for e in session.events_after(0))
+        assert transport.writes == [b"once\n"]
+    finally:
+        session.stop()

@@ -109,13 +109,13 @@ def test_explicit_chatter_terminal_preserves_serial_preamble(tmp_path):
 
 def test_binary_user_capability_is_profile_owned():
     from serialterminal.profiles import GENERIC_PROFILE
-    from serialterminal.profiles.chatter.binary_user import ChatterBinaryUserAdapter
+    from serialterminal.profiles.chatter.machine_client import ChatterMachineClient
 
     generic = GENERIC_PROFILE.make_binary_user_transport(lambda text: None)
     chatter = CHATTER_PROFILE.make_binary_user_transport(lambda text: None)
 
     assert generic is None
-    assert isinstance(chatter, ChatterBinaryUserAdapter)
+    assert isinstance(chatter, ChatterMachineClient)
     assert CHATTER_PROFILE.recognized_command("/bin AA==") == "/bin AA=="
 
 
@@ -134,3 +134,14 @@ def test_chatter_profile_hides_binary_presentation_but_generic_does_not():
     assert GENERIC_PROFILE.human_screen_text("/bin QUJDRA==\n") == (
         "/bin QUJDRA==\n"
     )
+
+
+def test_chatter_machine_frames_are_hidden_and_default_logs_redact_payload():
+    from serialterminal.profiles import GENERIC_PROFILE
+    from serialterminal.profiles.chatter import CHATTER_PROFILE
+    from serialterminal.log_redaction import redact_base64_text
+    line="/m1 QUJDRA==\n"
+    assert not CHATTER_PROFILE.human_line_visible("chat",line)
+    assert GENERIC_PROFILE.human_line_visible("main",line)
+    assert CHATTER_PROFILE.human_screen_text(line)=="/m1 <base64>\n"
+    assert redact_base64_text(line)=="/m1 <base64>\n"

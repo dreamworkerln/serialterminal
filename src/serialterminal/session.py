@@ -158,6 +158,8 @@ class ManagedSession:
         self._next_tx_id = 1
         self._tx_condition = threading.Condition()
         self._pending_tx_ids: set[int] = set()
+        self._writing_tx_ids: set[int] = set()
+        self._tx_items: dict[int, QueuedTx] = {}
         self._last_unknown_tx_id: int | None = None
         self._tx_outcomes: dict[int, str] = {}
         self._tx_outcome_order: deque[int] = deque()
@@ -186,6 +188,8 @@ class ManagedSession:
 
     def _next_tx(self) -> int:
         with self._tx_condition:
+            if self.stop_event.is_set():
+                raise SessionClosedError("managed session is stopped")
             tx_id = self._next_tx_id
             self._next_tx_id += 1
             self._pending_tx_ids.add(tx_id)
@@ -196,9 +200,13 @@ class ManagedSession:
         with self._tx_condition:
             return self._next_tx_id - 1
 
-    def _settle_tx(self, tx_id: int, state: str) -> None:
+    def _settle_tx(self, tx_id: int, state: str) -> bool:
         with self._tx_condition:
-            self._pending_tx_ids.discard(tx_id)
+            if tx_id not in self._pending_tx_ids:
+                return False
+            self._pending_tx_ids.remove(tx_id)
+            self._writing_tx_ids.discard(tx_id)
+            self._tx_items.pop(tx_id, None)
             if tx_id not in self._tx_outcomes:
                 self._tx_outcome_order.append(tx_id)
             self._tx_outcomes[tx_id] = state
@@ -208,6 +216,61 @@ class ManagedSession:
             if state == "unknown":
                 self._last_unknown_tx_id = tx_id
             self._tx_condition.notify_all()
+            return True
+
+    def cancel_tx(self, tx_id: int) -> bool:
+        """Cancel one accepted TX only while no backend write is in flight."""
+        with self._tx_condition:
+            if tx_id in self._writing_tx_ids or tx_id not in self._pending_tx_ids:
+                return False
+            item = self._tx_items[tx_id]
+            self._settle_tx(tx_id, "cancelled")
+            self._record_event(
+                "tx", _notify=False, tx_id=tx_id, tx_state="cancelled", data=item.data
+            )
+        self._notify_event_notifier()
+        return True
+
+    def wait_tx_drain(self, tx_ids: Iterable[int], timeout: float) -> dict[int, str]:
+        """Wait for the caller's own TX outcomes without fencing unrelated work."""
+        if timeout < 0:
+            raise ValueError("timeout must be non-negative")
+        deadline = time.monotonic() + timeout
+        result = {}
+        for tx_id in dict.fromkeys(tx_ids):
+            state = self.wait_tx_outcome(tx_id, max(0.0, deadline - time.monotonic()))
+            if state is None:
+                raise SessionTxFenceTimeout(f"owned TX drain timed out at tx_id={tx_id}")
+            result[tx_id] = state
+        return result
+
+    def _abort_pending_tx(self) -> None:
+        settled = []
+        with self._tx_condition:
+            for tx_id, item in list(self._tx_items.items()):
+                # Остановка worker не отменяет уже начатый backend side effect.
+                state = "unknown" if tx_id in self._writing_tx_ids else "cancelled"
+                if self._settle_tx(tx_id, state):
+                    settled.append((tx_id, item, state))
+        for tx_id, item, state in settled:
+            self._record_event("tx", tx_id=tx_id, tx_state=state, data=item.data)
+        while True:
+            try:
+                self.outgoing.get_nowait()
+            except queue.Empty:
+                break
+            self.outgoing.task_done()
+
+    def _run_worker(self, target: Callable[[], None], worker: str) -> None:
+        try:
+            target()
+            if not self.stop_event.is_set():
+                raise RuntimeError(f"{worker} worker exited unexpectedly")
+        except Exception as exc:
+            self._record_event("error", state="worker-failed", error=f"{worker}: {exc}")
+            self.stop_event.set()
+            self.connected_event.clear()
+            self._abort_pending_tx()
 
     def wait_tx_outcome(self, tx_id: int, timeout: float) -> str | None:
         """Wait for one accepted TX to reach written/unknown transport outcome."""
@@ -310,7 +373,7 @@ class ManagedSession:
             state.seq_last = event.seq
         return completed
 
-    def _record_event(self, kind: str, **fields) -> SessionEvent:
+    def _record_event(self, kind: str, *, _notify: bool = True, **fields) -> SessionEvent:
         completed_lines: list[SessionLine] = []
         with self._event_condition:
             if (
@@ -345,17 +408,31 @@ class ManagedSession:
         self._record_timing(f"session_{kind}", **timing_fields)
 
         line_notifier = self.line_notifier
-        if line_notifier is not None:
+        if _notify and line_notifier is not None:
             for line in completed_lines:
-                line_notifier(line)
+                try:
+                    line_notifier(line)
+                except Exception as exc:
+                    self._record_event(
+                        "error", _notify=False, state="notifier-failed", error=str(exc)
+                    )
 
-        notifier = self.event_notifier
-        if notifier is not None:
+        if _notify:
             # Внешний wakeup вызывается только после освобождения session condition:
             # manager-level observer может держать свой condition и читать event ring
             # без обратного порядка блокировок и без второго буфера событий.
-            notifier()
+            self._notify_event_notifier()
         return event
+
+    def _notify_event_notifier(self) -> None:
+        notifier = self.event_notifier
+        if notifier is not None:
+            try:
+                notifier()
+            except Exception as exc:
+                self._record_event(
+                    "error", _notify=False, state="notifier-failed", error=str(exc)
+                )
 
     def _decode_event_text(self, stream: str, data: bytes) -> str:
         if not data:
@@ -443,32 +520,41 @@ class ManagedSession:
         data = encode_line(line, ending)
         # Резервируем accepted TX id только после локальной подготовки payload:
         # ошибка кодирования не должна создавать phantom pending TX для fence.
-        tx_id = self._next_tx()
-        item = _QueuedLine(line, tx_id=tx_id, data=data)
-        self.outgoing.put(item)
-        self._record_event(
-            "tx",
-            tx_id=tx_id,
-            tx_state="queued",
-            data=item.data,
-            text=str(item),
-            device_key=self._current_transport().device_key,
-        )
+        with self._tx_condition:
+            tx_id = self._next_tx()
+            item = _QueuedLine(line, tx_id=tx_id, data=data)
+            self._tx_items[tx_id] = item
+            self.outgoing.put(item)
+            self._record_event(
+                "tx",
+                _notify=False,
+                tx_id=tx_id,
+                tx_state="queued",
+                data=item.data,
+                text=str(item),
+                device_key=self._current_transport().device_key,
+            )
+        self._notify_event_notifier()
         return tx_id
 
     def queue_bytes(self, data: bytes) -> int:
         if self.stop_event.is_set():
             raise SessionClosedError("managed session is stopped")
-        tx_id = self._next_tx()
-        item = _QueuedBytes(bytes(data), tx_id=tx_id)
-        self.outgoing.put(item)
-        self._record_event(
-            "tx",
-            tx_id=tx_id,
-            tx_state="queued",
-            data=item.data,
-            device_key=self._current_transport().device_key,
-        )
+        payload = bytes(data)
+        with self._tx_condition:
+            tx_id = self._next_tx()
+            item = _QueuedBytes(payload, tx_id=tx_id)
+            self._tx_items[tx_id] = item
+            self.outgoing.put(item)
+            self._record_event(
+                "tx",
+                _notify=False,
+                tx_id=tx_id,
+                tx_state="queued",
+                data=item.data,
+                device_key=self._current_transport().device_key,
+            )
+        self._notify_event_notifier()
         return tx_id
 
     def on_waiting(self) -> None:
@@ -631,6 +717,9 @@ class ManagedSession:
 
             try:
                 while not self.stop_event.is_set():
+                    with self._tx_condition:
+                        if item.tx_id not in self._pending_tx_ids:
+                            break
                     if not self.connected_event.wait(timeout=0.1):
                         continue
 
@@ -642,13 +731,24 @@ class ManagedSession:
                             bytes=len(item.data),
                             device_key=transport.device_key,
                         )
-                        transport.write(item.data)
+                        with self._tx_condition:
+                            if item.tx_id not in self._pending_tx_ids:
+                                break
+                            self._writing_tx_ids.add(item.tx_id)
+                        try:
+                            transport.write(item.data)
+                        except TransportError:
+                            raise
+                        except Exception as exc:
+                            raise TransportWriteOutcomeUnknown(str(exc)) from exc
                         self._record_timing(
                             "transport_write_done",
                             tx_id=item.tx_id,
                             bytes=len(item.data),
                             device_key=transport.device_key,
                         )
+                        if not self._settle_tx(item.tx_id, "written"):
+                            break
                         self._record_event(
                             "tx",
                             tx_id=item.tx_id,
@@ -658,10 +758,11 @@ class ManagedSession:
                             device_key=transport.device_key,
                             description=transport.description,
                         )
-                        self._settle_tx(item.tx_id, "written")
                         self.on_tx_written(item)
                         break
                     except TransportWriteOutcomeUnknown as exc:
+                        if not self._settle_tx(item.tx_id, "unknown"):
+                            break
                         self._record_timing(
                             "transport_write_unknown",
                             tx_id=item.tx_id,
@@ -677,7 +778,6 @@ class ManagedSession:
                             device_key=transport.device_key,
                             description=transport.description,
                         )
-                        self._settle_tx(item.tx_id, "unknown")
                         self._record_event(
                             "error",
                             error=str(exc),
@@ -688,7 +788,9 @@ class ManagedSession:
                         )
                         self._disconnect(str(exc))
                         break
-                    except (TransportError, OSError) as exc:
+                    except TransportError as exc:
+                        with self._tx_condition:
+                            self._writing_tx_ids.discard(item.tx_id)
                         self._record_timing(
                             "transport_write_error",
                             tx_id=item.tx_id,
@@ -716,12 +818,14 @@ class ManagedSession:
                 return
 
             self._rx_thread = threading.Thread(
-                target=self.rx_loop,
+                target=self._run_worker,
+                args=(self.rx_loop, "rx"),
                 name=f"serialterminal-rx-{id(self):x}",
                 daemon=True,
             )
             self._tx_thread = threading.Thread(
-                target=self.tx_loop,
+                target=self._run_worker,
+                args=(self.tx_loop, "tx"),
                 name=f"serialterminal-tx-{id(self):x}",
                 daemon=True,
             )
@@ -729,7 +833,8 @@ class ManagedSession:
             self._tx_thread.start()
 
     def stop(self) -> None:
-        self.stop_event.set()
+        with self._tx_condition:
+            self.stop_event.set()
         self.connection_paused.clear()
         self.connected_event.clear()
 
@@ -740,6 +845,7 @@ class ManagedSession:
         if tx is not None:
             tx.join(timeout=1.0)
 
+        self._abort_pending_tx()
         self._current_transport().close()
         self._reset_event_decoders()
         self._record_event(

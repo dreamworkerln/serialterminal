@@ -8,6 +8,7 @@ from ..sweep import SweepAdapterFactory
 from ..timing import TimingSink
 from ..transports.ble_nus import NUS_RX_UUID, NUS_TX_UUID
 from .base import (
+    BinaryCancelTx,
     BinaryConnectionGeneration,
     BinarySendLine,
     BinaryWaitTxOutcome,
@@ -72,10 +73,11 @@ class GenericProfile:
         send_line: BinarySendLine,
         *,
         wait_tx_outcome: BinaryWaitTxOutcome | None = None,
+        cancel_tx: BinaryCancelTx | None = None,
         connection_generation: BinaryConnectionGeneration | None = None,
         timing_sink: TimingSink | None = None,
     ) -> ProfileBinaryUserAdapter | None:
-        del send_line, wait_tx_outcome, connection_generation, timing_sink
+        del send_line, wait_tx_outcome, cancel_tx, connection_generation, timing_sink
         return None
 
     def recognized_command(self, line: str) -> str | None:

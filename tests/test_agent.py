@@ -265,8 +265,14 @@ def test_manager_chatter_profile_preserves_connect_preamble_and_ble_streams():
         assert second["profile"] == "chatter"
         assert second["streams"] == ["main"]
         assert "auto_id" not in second
-        assert _wait_until(lambda: factory.transports["ble:a"].writes == [b"/id\n"])
-        assert _wait_until(lambda: factory.transports["serial:b"].writes == [b"/id\n"])
+        from serialterminal.profiles.chatter.machine_codec import decode, Kind
+        for key in ("ble:a", "serial:b"):
+            assert _wait_until(lambda: len(factory.transports[key].writes) == 2)
+            writes = factory.transports[key].writes
+            assert writes[0] == b"/id\n"
+            hello = decode(writes[1].lstrip(b"\n"))
+            assert hello.kind == Kind.HELLO and hello.epoch == 0
+            assert hello.request != 0 and len(hello.payload) == 8
         assert manager.status(first["session"])["profile"] == "chatter"
         assert manager.status(second["session"])["profile"] == "chatter"
     finally:
@@ -914,3 +920,55 @@ def test_async_observe_worker_bookkeeping_drops_completed_threads(tmp_path):
             timeout=3.0,
         )
         assert runner._pending_ids == set()
+
+
+@pytest.mark.parametrize("explicit_cancel", [False, True])
+def test_agent_eof_preserves_partial_but_explicit_cancel_discards_it(tmp_path, explicit_cancel):
+    from serialterminal.file_transfer import DataMessage, FileTransferManager, ResumeMessage
+    from test_file_transfer_failure_retention import CaptureTransport, fixture, wait_until
+
+    factory = FakeSelectorFactory()
+    with RunLog(tmp_path / "shutdown.log") as run_log:
+        manager = SessionManager(selector_factory=factory, run_log=run_log, receive_dir=tmp_path / "rx")
+        manager.discover()
+        session = manager.open("serial:b", profile="generic")["session"]
+        old = manager._file_managers.get(session)
+        if old is not None:
+            old.close()
+        transport = CaptureTransport()
+        receiver = FileTransferManager(transport, receive_dir=tmp_path / "rx")
+        manager._file_managers[session] = receiver
+        meta, chunks, end = fixture(receiver, transfer_id=951)
+        receiver._handle_data(DataMessage(951, 0, chunks[0]))
+        assert receiver._outbox.wait_idle(1)
+        part = receiver._resume_store.incoming_part(951)
+        if explicit_cancel:
+            receiver.cancel(951)
+            assert wait_until(lambda: receiver._records[951].state == "cancelled")
+        runner = _AgentJsonlRunner(manager, AgentProtocol(manager, run_log=run_log), run_log, io.StringIO(""), io.StringIO())
+        started = time.monotonic()
+        runner.run()
+        assert time.monotonic() - started < 3
+        assert not receiver._rx_thread.is_alive()
+        assert not receiver._outbox.worker.is_alive()
+        if explicit_cancel:
+            assert not part.exists()
+            assert receiver._resume_store.load_incoming(951) is None
+            return
+        assert part.read_bytes() == chunks[0]
+        assert receiver._resume_store.load_incoming(951)[0]["status"] == "suspended"
+        assert not any(isinstance(m, ResumeMessage) for m in transport.sent[1:])
+    resumed_transport = CaptureTransport()
+    resumed = FileTransferManager(resumed_transport, receive_dir=tmp_path / "rx")
+    try:
+        resumed._handle_meta(meta)
+        assert resumed._outbox.wait_idle(1)
+        assert any(isinstance(m, ResumeMessage) and m.next_chunk == 1 for m in resumed_transport.sent)
+        for index, chunk in enumerate(chunks[1:], 1):
+            resumed._handle_data(DataMessage(951, index, chunk))
+        resumed._handle_end(end)
+        assert wait_until(lambda: resumed._records[951].state == "completed")
+        assert (tmp_path / "rx" / meta.filename).read_bytes() == b"".join(chunks)
+        assert len(list((tmp_path / "rx").glob(meta.filename))) == 1
+    finally:
+        resumed.close()

@@ -11,6 +11,8 @@ serialterminal.log
 build/
 dist/
 *.log
-.jsonl
 /files/
 /logs/
+
+# Local gdi settings, verified cache and CI state
+.gdi/

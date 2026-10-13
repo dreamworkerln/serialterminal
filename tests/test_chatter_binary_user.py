@@ -1,5 +1,6 @@
 import base64
 import threading
+import time
 
 import pytest
 
@@ -492,3 +493,68 @@ def test_binary_adapter_local_tx_wait_is_cancel_responsive():
     assert type(caught.value).__name__ == "BinaryUserCancelled"
     assert waits
     assert max(waits) <= 0.1
+
+
+def test_binary_adapter_drain_cancels_only_owned_queued_write():
+    from serialterminal.session import ManagedSession
+    from test_session import FakeTransport
+    session = ManagedSession(FakeTransport())
+    unrelated = session.queue_line("operator")
+    adapter = ChatterBinaryUserAdapter(
+        session.queue_line,
+        wait_tx_outcome=session.wait_tx_outcome,
+        cancel_tx=session.cancel_tx,
+        presentation_timeout_s=0.02,
+    )
+    adapter.feed_line("main", "[SYS] current=CHAT")
+    try:
+        with pytest.raises(Exception) as caught:
+            adapter.send_binary(b"mine")
+        assert caught.value.code == "local_tx_timeout"
+        owned = session.capture_tx_fence()
+        assert adapter.drain_binary(0.02) == {owned: "cancelled"}
+        assert session.wait_tx_outcome(unrelated, 0) is None
+    finally:
+        session.stop()
+
+
+def test_binary_adapter_deadline_limits_mode_query_and_sends_no_data():
+    commands = []
+    adapter = ChatterBinaryUserAdapter(
+        lambda text: commands.append(text),
+        mode_query_timeout_s=5,
+        presentation_timeout_s=30,
+    )
+    started = time.monotonic()
+    with pytest.raises(Exception) as caught:
+        adapter.send_binary_until(b"payload", deadline=started + 0.02)
+    assert caught.value.code == "binary_mode_unknown"
+    assert time.monotonic() - started < 0.2
+    assert commands == ["/help"]
+
+
+def test_binary_adapter_deadline_limits_controller_ready_wait():
+    commands = []
+    adapter = ChatterBinaryUserAdapter(
+        lambda text: commands.append(text), controller_ready_timeout_s=15,
+    )
+    adapter.feed_line("main", "ESP-ROM: reset")
+    started = time.monotonic()
+    with pytest.raises(Exception) as caught:
+        adapter.send_binary_until(b"payload", deadline=started + 0.02)
+    assert caught.value.code == "controller_ready_timeout"
+    assert time.monotonic() - started < 0.2
+    assert commands == []
+
+
+def test_binary_adapter_deadline_bounds_wait_for_send_lock():
+    adapter = ChatterBinaryUserAdapter(lambda text: None)
+    adapter._send_lock.acquire()
+    try:
+        started = time.monotonic()
+        with pytest.raises(Exception) as caught:
+            adapter.send_binary_until(b"payload", deadline=started + 0.02)
+        assert caught.value.code == "local_tx_timeout"
+        assert time.monotonic() - started < 0.2
+    finally:
+        adapter._send_lock.release()

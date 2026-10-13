@@ -132,7 +132,7 @@ Remaining work: align the primary `NODE_OBSERVATION_RECORDING_POLICY.md` and nod
 
 TODO_026 logging-contract investigation is also OPEN and may be scheduled independently when log-format work is selected.
 
-Suggested next work: first finish the current firmware/BlueZ throughput characterization without enabling TODO_038, so the pre-progress-checkpoint baseline remains clean. Then physically validate the implemented TODO_033 child workstream at the exact current `dev_tui` checkpoint: `TODO_034` BLE/USB controller lifecycle, `TODO_035` same-process FT1 reboot/reconnect recovery, `TODO_036` receiver process-restart durability, and `TODO_037` sender/receiver/both-process persistent resume plus lost-RESULT tombstone behavior. After the current firmware/baud work settles, implement TODO_040's centralized settings/single-source foundation together with TODO_039's discoverable F9 menu and profile-aware/runtime baud policy, so the UI does not introduce another independent set of defaults. After that, implement/validate `TODO_038` as the rare FT1 ST-to-ST remote application-progress watchdog, measuring its overhead against the preserved baseline. Then rerun the broader TODO_029 two-node reconnect/MISSING validation against the recovery stack. Independently finish the HCI boundary isolation in TODO_024; then continue correctness/evidence boundaries (`TODO_011`, `TODO_013`, `TODO_016`, `TODO_017`, `TODO_021`, remaining `TODO_025` docs), lifecycle/API robustness (`TODO_019`, `TODO_022`, `TODO_023`), and consistency/docs follow-ups (`TODO_012`, `TODO_014`, `TODO_015`, `TODO_020`). Re-evaluate ordering if physical validation exposes a regression.
+Suggested next work: first address TODO_041's observed FT1 failure/recovery and RX observability gaps, retaining the existing throughput evidence and without enabling TODO_038. Then finish the current firmware/BlueZ throughput characterization without enabling TODO_038, so the pre-progress-checkpoint baseline remains clean. Then physically validate the implemented TODO_033 child workstream at the exact current `dev_tui` checkpoint: `TODO_034` BLE/USB controller lifecycle, `TODO_035` same-process FT1 reboot/reconnect recovery, `TODO_036` receiver process-restart durability, and `TODO_037` sender/receiver/both-process persistent resume plus lost-RESULT tombstone behavior. After the current firmware/baud work settles, implement TODO_040's centralized settings/single-source foundation together with TODO_039's discoverable F9 menu and profile-aware/runtime baud policy, so the UI does not introduce another independent set of defaults. After that, implement/validate `TODO_038` as the rare FT1 ST-to-ST remote application-progress watchdog, measuring its overhead against the preserved baseline. Then rerun the broader TODO_029 two-node reconnect/MISSING validation against the recovery stack. Independently finish the HCI boundary isolation in TODO_024; then continue correctness/evidence boundaries (`TODO_011`, `TODO_013`, `TODO_016`, `TODO_017`, `TODO_021`, remaining `TODO_025` docs), lifecycle/API robustness (`TODO_019`, `TODO_022`, `TODO_023`), and consistency/docs follow-ups (`TODO_012`, `TODO_014`, `TODO_015`, `TODO_020`). Re-evaluate ordering if physical validation exposes a regression.
 
 ### TODO_026 — `todos/TODO_026_UNIFIED_LOGGING_CONTRACT.md`
 
@@ -251,6 +251,17 @@ Status: OPEN
 Goal: refactor important shared operational defaults/policy into one authoritative settings source so a single decision such as Serial baud is not independently hardcoded in transport, selector, CLI and UI layers.
 
 Selected boundary: centralize only genuinely shared user/runtime-facing configuration and policy. Do not create a giant constants dump; protocol/wire constants and module-local implementation invariants remain with their owners. Prefer one small immutable typed settings/defaults object plus pure resolver helpers over many mutable globals. TODO_039's profile-aware baud policy (`explicit -b wins`, otherwise `chatter=921600`, `generic/default=115200`) must consume this single source.
+
+
+### TODO_041 — `todos/TODO_041_FT1_FAILURE_RECOVERY_AND_RX_OBSERVABILITY.md`
+
+Status: PARTIAL / REMAINING IMPLEMENTATION OPEN / PHYSICAL VALIDATION OPEN
+
+Goal: preserve valid FT1 chunks/resume state on recoverable message or local-presentation failure, react promptly to negative remote RESULT, and expose RX handler/checkpoint/worker failures instead of unexplained stopped progress.
+
+Finding checkpoint: `dev_tui@b838ecbc5fa27039455480e2c7c5dfbdbe462371` + uncommitted wrong-length DATA fix. That narrow fix has 5 regression cases PASS and 427 full-suite tests PASS with isolated device cache; no post-fix physical run yet. TODO_041 records exact file hashes, source findings and temporary QUICK log references from 2026-10-10.
+
+Remaining findings: bad DATA index/conflicting duplicate and malformed END still destroy partials; failed MISSING submission and oversized missing sets also terminate RX destructively. Lost local BINARY echo is not automatically retried even when the peer ST received the DATA. A received negative RESULT does not interrupt DATA submission immediately. Some RX exceptions are swallowed, while an idle-checkpoint exception can terminate the FT1 worker. Ordinary RX idle timeout already retains durable state; preserve that distinction. Selected design now adds negotiated host-to-host midstream repair/progress control: stop new DATA, drain the two-message pipeline, repair bounded missing-range batches, confirm durable reception, then return to the saved original cursor. Trigger by range capacity, missing-chunk count/age and periodic time/credit checkpoint; explicit capability/fallback, tokens and bounded retry protect against lost/stale control. Coordinate this one exchange with TODO_038; legacy one-message MISSING and firmware USER ACK stay unchanged. Architecture is documented only; runtime implementation/compatibility/physical throughput validation remain OPEN.
 
 ## Closed
 
@@ -436,6 +447,50 @@ GitHub Actions:               33764159009 SUCCESS
 post-closure hardware smoke: PASS / physical BLE multi-device / 2026-09-03
 ```
 
+## Deferred final-repair follow-up
+
+### TODO_042 — [todos/TODO_042_FT1_BATCHED_FINAL_REPAIR.md](todos/TODO_042_FT1_BATCHED_FINAL_REPAIR.md)
+
+Status: DEFERRED / IMPLEMENTATION OPEN / VALIDATION OPEN
+
+Goal: remove the full-set MISSING limit using sequential capacity-bounded portions
+in END → MISSING → repair DATA → END cycles, preserving FT1 v1 uint32 ranges,
+opaque firmware and verified single publication. Revise the eight-round budget
+with finite no-progress/deadline limits; validate loss, duplicates and old/new peers.
+This is final repair only; midstream repair/FLOW/CAPS/watchdog remain separate.
+
+Docs-only design checkpoint: 2026-10-11, `dev_tui@f9c8a8f0798db362f6c04b7df12de7f53256975a`
+plus the existing experimental working tree. No implementation/tests/hardware PASS
+is claimed. Scheduling: this TODO does not change the current next-action order;
+select it separately after the active architecture-repair physical/performance
+gates when planning the later LoRa-SACK work, before attempting large sparse-gap
+acceptance beyond the legacy limit.
+
 ## Current validation posture
 
 Repository CI is the normal per-change clean-environment gate. Physical-node claims remain separate: do not infer current-head hardware validity from older run bundles. TODO_034 through TODO_037 have completed host implementation/automated validation but remain explicitly open for the required physical BLE/USB/two-node process-restart matrix. TODO_038 is intentionally deferred until the current firmware/BlueZ throughput characterization establishes a stable pre-checkpoint baseline; its later acceptance must include measured overhead and real silent-remote-ST stall/recovery validation. TODO_039 and TODO_040 are coupled UI/config-policy follow-ups: they must begin from the final accepted baud-rate state after the current firmware/speed work, and the F9/runtime baud work must consume the centralized single-source settings policy rather than introducing another copy of the same defaults. For the next build-level validation pass, continue to prefer one long-lived `serialterminal agent` process and a broad scenario matrix over repeated manual operator actions; only UI-specific behavior that the machine API cannot exercise should require a separate human pass.
+
+## Experimental architecture-repair series
+
+Demarcation baseline: SerialTerminal `b7f58f8`, Chatter `2d8723ca`.
+Execution order: `lora-sack/chatter/ARCHITECTURE_REPAIR_EXECUTION_PLAN_2026-10-11.md`.
+TODO_041 stages 1–3 passed local validation (477 pytest tests with an isolated
+device cache): transport/session lifecycle, owned host write drain, visible RX
+worker failures, shared monotonic deadlines, partial retention/quarantine and
+negative RESULT stop, immutable wire snapshots, checkpoint-before-RESUME and
+publication/tombstone-before-OK. Same-ID revival and later stages remain open. This
+does not close TODO_041 or physical gates. FLOW/CAPS/QUERY remains deferred for this series.
+
+Architecture repair experimental checkpoint (2026-10-11): stage 4 `f9c8a8f`
+revalidated; machine contract, bounded outbox/RX/control and composed FT1 coordinator
+implemented in the working tree, full isolated-cache pytest 543 PASS. This is local
+software evidence; restart/reset, four-transport and performance gates remain open.
+Local QUERY belongs only to `/m1`, not the deferred FT1 FLOW/CAPS/QUERY extension.
+
+Manual-reset finding (2026-10-11): forward USB sender reset completed a verified
+30 KiB same-ID transfer; reverse receiver reset gave bounded LINK_FAIL. Agent EOF
+then removed the receiver .part through implicit user cancellation. Local shutdown
+fix preserves the existing suspension path; regression reproduces the deletion on
+v5 and passes EOF-retain/resume plus explicit-cancel on the fix. Updated isolated-cache full suite 545 PASS/48.56s; compileall/diff-check PASS.
+Hardware retention/resume gate pending. Details/evidence in TODO_041; this does
+not implement the deferred TODO_042 batched repair or close architecture stage 8.

@@ -486,6 +486,8 @@ def decode_message(data: bytes) -> FileMessage | None:
     failed, code_value, reason_len = _RESULT_FIXED.unpack_from(data, offset)
     if failed not in (0, 1):
         raise FileProtocolError("RESULT status is invalid")
+    if (failed == 0) != (code_value == _RESULT_CODE_TO_INT["ok"]):
+        raise FileProtocolError("RESULT status conflicts with code")
     if len(data) != expected + reason_len:
         raise FileProtocolError("RESULT reason length mismatch")
     try:

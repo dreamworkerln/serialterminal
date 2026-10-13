@@ -217,3 +217,36 @@ def test_conflicting_duplicate_after_restart_is_still_fatal(tmp_path):
         assert failed["failure"]["code"] == "invalid_chunk"
     finally:
         manager2.close()
+
+
+def test_idle_sweep_failure_is_visible_retains_partial_and_keeps_rx_alive(tmp_path, monkeypatch):
+    transport = _CaptureTransport()
+    manager = FileTransferManager(transport, receive_dir=tmp_path)
+    payload = random.Random(7).randbytes(400)
+    meta, chunks, _ = _fixture(transport, payload, 0xF001)
+    try:
+        manager.feed_binary(encode_message(meta, transport.payload_capacity))
+        assert _wait_until(lambda: manager._incoming_for(meta.transfer_id))
+        manager.feed_binary(encode_message(DataMessage(meta.transfer_id, 0, chunks[0]), transport.payload_capacity))
+        assert _wait_until(lambda: manager._incoming_for(meta.transfer_id).received)
+        part = manager._resume_store.incoming_part(meta.transfer_id)
+        manifest = manager._resume_store.incoming_manifest(meta.transfer_id)
+        original_sweep = manager._expire_stale_incoming
+        called = {"value": False}
+        def broken_once():
+            if not called["value"]:
+                called["value"] = True
+                raise OSError("checkpoint unavailable")
+            original_sweep()
+        monkeypatch.setattr(manager, "_expire_stale_incoming", broken_once)
+        assert _wait_until(lambda: manager._records[meta.transfer_id].state == "failed")
+        assert part.read_bytes() == chunks[0]
+        assert manifest.is_file()
+        assert manager._rx_thread.is_alive()
+        events = manager._records[meta.transfer_id].observe(cursor=0, window=100, timeout_ms=0)["events"]
+        assert any(e["kind"] == "rx_worker_error" for e in events)
+        new_meta, _, _ = _fixture(transport, payload, 0xF002)
+        manager.feed_binary(encode_message(new_meta, transport.payload_capacity))
+        assert _wait_until(lambda: manager._incoming_for(new_meta.transfer_id))
+    finally:
+        manager.close()
