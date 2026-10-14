@@ -13,12 +13,13 @@ from serialterminal.file_transfer import (
 class Wire:
     payload_capacity = 243
 
-    def __init__(self, *, holes=(), repeat=False, drop_service=False, fail_service=False):
+    def __init__(self, *, holes=(), repeat=False, drop_service=False, fail_service=False, drop_service_depths=()):
         self.peer = None
         self.receiver = None
         self.holes = set(holes)
         self.repeat = repeat
         self.drop_service = drop_service
+        self.drop_service_depths = set(drop_service_depths)
         self.fail_service = fail_service
         self.metadata = {}
         self.messages = []
@@ -47,6 +48,9 @@ class Wire:
             elif meta.depth == 1 and self.drop_service and message.chunk_index == 0:
                 drop = True
                 self.drop_service = False
+            elif meta.depth in self.drop_service_depths and message.chunk_index == 0:
+                drop = True
+                self.drop_service_depths.remove(meta.depth)
         if not drop and self.peer.receiver is not None:
             self.peer.receiver(bytes(payload))
             # Fake wire не имеет физического ToA; ограничиваем его очередью,
@@ -59,10 +63,11 @@ class Wire:
         return BinarySendReceipt(tx_id=len(self.messages))
 
 
-def run_transfer(tmp_path, *, holes=(), repeat=False, nested=False):
+def run_transfer(tmp_path, *, holes=(), repeat=False, nested=False, nested_depth=0):
     source = tmp_path / 'payload.bin'
     source.write_bytes(random.Random(420).randbytes(227 * 500))
-    left, right = Wire(holes=holes, repeat=repeat), Wire(drop_service=nested)
+    left = Wire(holes=holes, repeat=repeat, drop_service_depths=range(1, nested_depth))
+    right = Wire(drop_service=nested, drop_service_depths=range(1, nested_depth))
     left.peer, right.peer = right, left
     claims, releases = [], []
     ids = itertools.count(100)
@@ -170,3 +175,73 @@ def test_nested_remote_failure_preserves_root_reason(remote_code):
     assert root_record.remote_result.code == remote_code
     assert root_record.remote_result.reason == 'nested remote rejection'
     assert root_record.remote_result.ok is False
+
+
+@pytest.mark.parametrize("required_depth,expected_state,actual_depth", [(8, "completed", 8), (9, "failed", 8)])
+def test_recursive_depth_boundary_and_service_percent_exemption(tmp_path, required_depth, expected_state, actual_depth):
+    from recursive_evidence import service_requests
+
+    result, original, files, left, right = run_transfer(
+        tmp_path, holes=range(1, 160, 2), nested_depth=required_depth,
+    )
+    assert result["state"] == expected_state, result
+    metadata = {m.transfer_id: m for wire in (left, right) for m in wire.messages if isinstance(m, MetaMessage)}
+    assert max(meta.depth for meta in metadata.values()) == actual_depth
+    # Проверяем реально переданные hash-verified LIST, а не только snapshots.
+    # Маленькие LIST теряют свой единственный DATA (100%), но не ROOT gate.
+    assert any(meta.depth > 1 and meta.wire_size <= meta.chunk_size for meta in metadata.values())
+    if expected_state == "completed":
+        assert len(files) == 1 and files[0].read_bytes() == original
+        assert len({m.transfer_id for m in metadata.values() if m.depth}) >= 8
+        root_id = int(result["transfer_id"], 16)
+        assert len(service_requests(right.messages, root_id)) == 1
+    else:
+        assert not files
+        assert result["failure"]["details"]["remote_code"] == "recursion_depth_limit"
+        assert list((tmp_path / "b").glob("*.part"))
+    assert not list((tmp_path / "a").glob("*.missing"))
+    assert not list((tmp_path / "b").glob("*.missing"))
+
+
+@pytest.mark.parametrize("missing_count,expected", [(150, "completed"), (151, "failed")])
+def test_root_missing_percent_exact_boundary(tmp_path, missing_count, expected):
+    result, original, files, _, right = run_transfer(tmp_path, holes=range(missing_count))
+    assert result["state"] == expected, result
+    if expected == "completed":
+        assert len(files) == 1 and files[0].read_bytes() == original
+        assert any(isinstance(m, MetaMessage) and m.depth == 1 for m in right.messages)
+    else:
+        assert result["failure"]["details"]["remote_code"] == "missing_percent_exceeded"
+        assert not files
+        assert not any(isinstance(m, MetaMessage) and m.depth for m in right.messages)
+
+
+def test_any_missing_decrease_resets_counter_without_total_cycle_cap(tmp_path, monkeypatch):
+    from test_file_transfer_failure_retention import CaptureTransport, fixture
+
+    manager = FileTransferManager(CaptureTransport(), receive_dir=tmp_path)
+    issued_lists = []
+    monkeypatch.setattr(manager, "_start_list", lambda parent, ranges: issued_lists.append(tuple(ranges)))
+    try:
+        meta, chunks, end = fixture(manager, count=20)
+        holes = [1, 3, 5, 7]
+        for index, chunk in enumerate(chunks):
+            if index not in holes:
+                manager._handle_data(DataMessage(meta.transfer_id, index, chunk))
+        expected = [(4, 0), (4, 1), (3, 0), (3, 1), (2, 0), (2, 1),
+                    (2, 2), (1, 0), (1, 1), (1, 2), (1, 3)]
+        previous = 4
+        for count, no_progress in expected:
+            if count < previous:
+                recovered = holes.pop()
+                manager._handle_data(DataMessage(meta.transfer_id, recovered, chunks[recovered]))
+            manager._handle_end(end)
+            progress = manager._records[meta.transfer_id].snapshot()["repair"]
+            assert progress == {"missing_total": count, "no_progress": no_progress, "depth": 0}
+            previous = count
+        assert len(issued_lists) == 10
+        assert manager._records[meta.transfer_id].failure["code"] == "repair_no_progress"
+        assert manager._resume_store.incoming_part(meta.transfer_id).is_file()
+        assert not (tmp_path / meta.filename).exists()
+    finally:
+        manager.close()

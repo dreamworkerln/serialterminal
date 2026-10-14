@@ -499,6 +499,12 @@ Luna has not been launched. Keep historical stage8 bundles immutable. No merge/p
 or TODO closure until broad acceptance. Detailed contract/checklists in TODO.
 
 
+Host-only extension on base `ae1ef7f` (2026-10-14): depth8/unwind and depth9 failure,
+100% service-loss percent exemption, exact ROOT30% boundary and no-progress resets
+beyond eight cycles now have deterministic tests. Targeted24 PASS;
+full isolated-cache suite652 PASS/68.43s, diff-check PASS; production src unchanged. No runtime/hardware acceptance claim; TODO_043
+lifecycle fixes and independent re-review remain required.
+
 ## Critical recursive lifecycle review follow-up
 
 ### TODO_043 — [todos/TODO_043_FT1_RECURSIVE_LIFECYCLE_REVIEW_FIXES.md](todos/TODO_043_FT1_RECURSIVE_LIFECYCLE_REVIEW_FIXES.md)

@@ -6,7 +6,7 @@ Priority: CRITICAL
 Created: 2026-10-11
 Design updated: 2026-10-12, обсуждение и согласование с оператором.
 Implementation: PROTOTYPE IMPLEMENTED / REVIEW AND BROAD VALIDATION OPEN
-Validation: 10 TARGETED CASES PASS / FULL SUITE AND HARDWARE OPEN
+Validation: HOST SOFTWARE 652 PASS / REVIEW AND HARDWARE OPEN
 Branch: `dev_tui_exp_recursive_missing`
 Base checkpoint: `dev_tui@fd94bdeb1fd878e072b0f852b3e8f461d928e3cd` (`point 8 done`).
 Docs checkpoint: `991ff0e` (`docs: define recursive FT1 missing-list repair prototype`).
@@ -435,3 +435,36 @@ clean window1/2, lost DATA/lost ACK window1/2, повторная потеря r
 новое поведение после этой правки на радио ещё не проверено. Полная аппаратная
 матрица и TODO остаются OPEN. Отчёт и RED/GREEN/XML артефакты:
 `/home/dream/coding/журнал экспериментов/SF12_USB_NO_ACK_20261012T191332Z/LINK_FAIL_FIX.md`.
+
+
+## Host-only acceptance extension — 2026-10-14
+
+Operator order: TODO_040 → TODO_041 → TODO_042 → TODO_043…; no hardware runs,
+firmware changes, merge or push. Base: `ae1ef7f`.
+
+The existing recursive v2 prototype is retained. New deterministic tests extend
+software acceptance to depth8 successful unwind and needing depth9 explicit ROOT
+failure with retained partial. Both directions drop service DATA at every depth;
+small service files lose their sole DATA (100%) and correctly bypass the ROOT
+percentage gate. ROOT outcomes are checked against exact final bytes and the
+hash-verified service list, with one application claim/release and no public service
+files. Additional ROOT boundary cases prove exactly30% permits repair and30.2%
+rejects before a service transfer. A focused cycle-policy test checks any decrease
+resets no_progress and that ten useful/unchanged cycles are permitted before the
+third consecutive final no-progress failure; this test stubs list scheduling and
+is not a physical/end-to-end slow-progress stress.
+
+Existing LINK_FAIL tests preserve DATA failure → END → actual holes for delivered
+and lost DATA, window1/window2, nested service loss and permanent no-progress.
+No runtime change or legacy MISSING expectation is introduced by this pass.
+
+Targeted recursive/LINK_FAIL suite: 24 PASS / 11.54 s.
+Full isolated-cache suite: 652 PASS / 68.43 s. `git diff --check` PASS after removing
+a trailing blank line. The production src tree is unchanged from `ae1ef7f` (its
+compileall gate passed); new test syntax/execution validated by pytest. Prototype software coverage does not close
+REVIEW_001 lifecycle defects in TODO_043 or broad physical/re-review acceptance.
+TODO_042 remains OPEN / CRITICAL with hardware explicitly deferred by operator.
+
+Validated Git content trees: `src=a4114706bdb6a5a7f9f07c2fbdc45d20f552df5f`,
+`tests=f3e756555480b41a06a1d90e91631e7da7ea75b0`.
+Test/validation commit is the commit containing this dated record, parent `ae1ef7f`.
