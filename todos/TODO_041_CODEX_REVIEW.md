@@ -1,5 +1,7 @@
 # TODO 41: глубокий разбор FT1, SerialTerminal и Chatter
 
+Разобрано в TODO: TODO_041
+
 Дата: 2026-10-11, Europe/Moscow.
 Тип работы: анализ исходников, существующих тестов и fault injection на fake transports.
 Это review к TODO_041, а не реализация и не новая задача с новым TODO-ID.

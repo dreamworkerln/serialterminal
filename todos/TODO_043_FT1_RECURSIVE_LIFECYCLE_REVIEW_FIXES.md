@@ -28,6 +28,40 @@ Review verdict: **RED / не merge-ready; в таком виде в dev_tui не
 
 Оформление этого TODO не запускает исправления, аппаратные прогоны или Git-операции.
 
+## Связи с REVIEW_001 — разбор 2026-10-14
+
+[REVIEW_001](../reviews/REVIEW_001_DEV_TUI_EXP_RECURSIVE_MISSING.md) проверяет
+`db740af94c700c7c4e6d96abef7e809dadfcaf1c`. Исходные checkpoints и результаты
+собственного/внешнего ревью ниже сохраняются; новый разбор не является re-review.
+
+| Numbered finding | Раздел этой задачи |
+| --- | --- |
+| REVIEW_001/F001 | 1 — RX restore atomicity |
+| REVIEW_001/F002 | 2 — quarantined same-ID retry |
+| REVIEW_001/F003 | 3 — ROOT END / child RESULT ordering |
+| REVIEW_001/F004 | 4 — child identity collision |
+| REVIEW_001/F005 | 5 — terminal ROOT frame retention |
+| REVIEW_001/F006 | 6 — bounded processed history |
+| REVIEW_001/F007 | 7 — rejected ROOT META mutation |
+| REVIEW_001/F008 | 8 — child-aware idle budget / META activity |
+| REVIEW_001/F009 | 9 — foreground negotiation state |
+| REVIEW_001/F010 | 10 — concurrent publication ownership |
+| REVIEW_001/F011 | 11 — losing concurrent open workers |
+| REVIEW_001/F012 | 12 — cleanup vs live pre-manifest partial |
+| REVIEW_001/F013 | 13 — normalized cancel ID error |
+| REVIEW_001/F014 | 14 — malformed journal timestamp |
+
+Implementation/validation по всем этим findings остаются OPEN.
+Из S1 выделен подтверждённый `REVIEW_001/F015` в
+[TODO_044](TODO_044_FT1_LIVE_DURABLE_RETENTION.md); согласовать его cleanup
+с finding 12. Из S2 выделен подтверждённый uint32 admission defect
+`REVIEW_001/F016` в [TODO_045](TODO_045_FT1_CHUNK_SPACE_ADMISSION.md).
+Остальные memory/queue/LIST invariants S2 остаются в этой задаче; их подозрения
+не превращаются в доказанный runtime defect одним разбором.
+Новый peer-ownership blocker `REVIEW_001/F017` ведётся отдельно в
+[TODO_046](TODO_046_FT1_PEER_SCOPED_SENDER_JOURNALS.md), timing regression
+`REVIEW_001/F018` — в [TODO_047](TODO_047_TIMING_APPEND_EVENT_IDENTITY.md).
+
 ## Checkpoint и границы доказательств
 
 Ревьюер указал checkout `/mnt/serialterminal-exp`, branch

@@ -5,6 +5,82 @@ Status: PARTIAL / REMAINING IMPLEMENTATION OPEN / PHYSICAL VALIDATION OPEN
 Created: 2026-10-10
 Finding checkpoint: `dev_tui@b838ecbc5fa27039455480e2c7c5dfbdbe462371` + локальный незакоммиченный фикс wrong-length DATA.
 
+## Разбор исторических ревью — 2026-10-14
+
+Источники: [CODEX review](TODO_041_CODEX_REVIEW.md) и
+[GPT review](TODO_041_GPT_REVIEW.md), оба для SerialTerminal
+`ea4a0d8362fa4163e181e4d5a878a6cf80c3a0be`.
+Это historical findings/design leads; выполненные stages ниже не подтверждают
+автоматически каждый пункт. Перед исправлением проверить актуальный exact source.
+Импорт в numbered registry и новый проход проверки здесь не выполняются.
+
+| CODEX finding / GPT section | Профильный scope и acceptance |
+| --- | --- |
+| F01 / §17.1 | TODO_041 stage 1 и [TODO_013](TODO_013_SERIAL_SPP_WRITE_AMBIGUITY.md): termios/short/partial write, unknown outcome и accepted-TX settlement; generic command replay не становится FT1 replay |
+| F02 / §4.1–4.3, §21 | TODO_041 stage 2 и error policy: bad DATA/END/MISSING не удаляют пригодные bytes; conflicting valid copies и hash failure не дают ложного trusted bitmap |
+| F03 / §11, §24, §28 codec | TODO_041 terminal/control protection и corruption gates ниже; contradiction check alone не доказывает integrity RESULT |
+| F04 / §17, §26 | TODO_041 bounded echo-loss/reconnect recovery с exact same bytes/identity, включая pipeline и repair |
+| F05 / §14, §23 | TODO_041 stage 1: own accepted submission retirement/drain, operator cancel отдельно от remote protocol preemption |
+| F06 / §4.4, §14 | TODO_041 stage 2: negative RESULT проверяется во всех loops/waits; не выдаёт новые DATA/repair и не вызывает чужой cancel |
+| F07 / §4.5, §7 | TODO_041 stages 1–3: worker/disk/checkpoint/callback failure наблюдаемы, durable proof не продвигается без commit |
+| F08 / §16–17 | TODO_041 stage 4: same-ID revive/resume, ownership и validated source/journal; F017 peer namespace отдельно в TODO_046 |
+| F09 / §7 | TODO_041 stage 3 и future durable snapshot barrier: RESUME/FLOW не подтверждают только memory bitmap |
+| F10 / §4, §7 | TODO_041 stage 2: cleanup только created-by-operation state, corrupt existing part не удаляется автоматически |
+| F11 / §12, §23 | TODO_041 coordinator/outbox: bounded RX/control queues, один submission lane, repair/cursor ownership; correlation overlap уже в [TODO_011](TODO_011_CHATTER_PRESENTATION_CORRELATION.md) |
+| F12 / §18–19 | TODO_041 local RADIO_UNAVAILABLE policy: retain state, typed profile error, bounded wait for explicit recovery; firmware reprobe и скрытый reboot вне host scope |
+| F13 / §10–12 | TODO_041 stage 3: immutable raw/gzip representation для original и repair; identity/data mode сохраняются при resume |
+| F14 / §16–17 | TODO_041 stage 4 и REVIEW_001/F001 в TODO_043: atomic durable/runtime/lease restore, post-checkpoint rollback проверяется отдельно |
+| F15 / §13, §15, §26 | TODO_041 общие remaining deadlines и no-progress budgets; healthy useful repair не ограничивать произвольным total batch count |
+
+### Непринятые design proposals и недостающие gates
+
+Пункты CODEX D01–D10, GPT §31 и automated/physical matrices сохранены как
+открытая работа TODO_041. Они не выбирают новую архитектуру или encoding сами
+по себе. FLOW/CAPS/QUERY, checked DATA и remote-progress extension остаются
+отложенными для текущей implementation series; отдельный старт/согласование
+требуется перед реализацией. При разборе добавлены явные gates:
+
+- [ ] CODEX D01/F03: определить защиту всех state-changing terminal/control
+  messages, включая META/END/RESULT/RESUME/MISSING. Проверить corrupt identity/body
+  до mutation; не считать одно согласование ok/code полной защитой RESULT.
+- [ ] D02–D04 / GPT §8–10, §24: выбрать ownership `flow_session`, request/reply
+  correlation, issued/covered frontier и partial-batch proof scope. Не перечисленные
+  ranges не означают delivered chunks; loss последнего CAPS confirm, delayed confirm,
+  fallback, peer restart и stale runtime control имеют детерминированную policy.
+- [ ] D05 / GPT §10–11: выбранные chunking/data mode заморожены до META и persisted;
+  existing 227-byte journals не перекраиваются в 223-byte checked transfers.
+  Token остаётся runtime state; default checked mode и compatibility надо согласовать.
+- [ ] D06 / GPT §4.2, §21: conflicting valid duplicate не перезаписывает durable
+  bytes без независимого chunk truth. Invalidation commit предшествует replacement;
+  bad CRC не позволяет использовать недостоверный index для изменения bitmap.
+- [ ] D07 / GPT §14, §23: protocol preemption не вызывает operator cancel;
+  issued tickets имеют bounded drain/retirement, terminal control не теряется при
+  outbox coalescing, publication/final RESULT принадлежат одному coordinator.
+- [ ] D08–D09 / GPT §7, §13, §15: durable snapshot barrier при DATA во время fsync,
+  progress/credit по доказанному durable prefix, tail gaps по issued frontier,
+  bounded unchanged retries и responsive cancel/close на каждой phase.
+  Query/credit/gap defaults — measurement proposals, не утверждённые constants.
+- [ ] D10: согласовать отложенный [TODO_038](TODO_038_FT1_REMOTE_PROGRESS_WATCHDOG.md)
+  с одним FLOW coordinator; сохранить pre-extension baseline и не вводить второй
+  независимый watchdog. Исторический full-set MISSING plan согласовать с текущим
+  recursive [TODO_042](TODO_042_FT1_BATCHED_FINAL_REPAIR.md), не возвращая legacy
+  wire behavior вопреки действующему branch contract.
+- [ ] GPT §20, §28 scalability: определить bounded sparse memory/range representation
+  и исключить O(n) recount на каждый chunk; synthetic large-count и fragmented-loss
+  tests проверяют память/очереди без огромных allocations. Interval set — proposal,
+  структура не выбрана этим разбором; overlap TODO_043/S2 и TODO_045 учитывать.
+- [ ] GPT §19, §22: typed rejection classification остаётся в profile; observer/TUI
+  различают original issued/local settled/receiver durable, repair/pause и local
+  recovery. INPUT TOO LONG classification не подменяет доказательство его причины.
+- [ ] CODEX regression gates 1–15 / GPT §28–29: трассируемая automated и physical
+  matrix на exact checkpoint, включая lost echo при delivery, negative RESULT во
+  всех waits, snapshot/crash boundaries, stale control, no remote ST при RF ACK,
+  restarts/reconnect и явную границу RADIO_UNAVAILABLE. Physical work отдельно;
+  host-only TODO не требует изменения firmware или автоматического reboot.
+
+Существующие implementation/physical статусы сохранены. Этот разбор не запускал
+исправления или validation и не объявляет historical findings исправленными.
+
 ## Architecture-repair execution checkpoint
 
 Experimental series baseline: SerialTerminal `b7f58f8`, Chatter `2d8723ca`.

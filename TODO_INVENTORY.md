@@ -132,7 +132,7 @@ Remaining work: align the primary `NODE_OBSERVATION_RECORDING_POLICY.md` and nod
 
 TODO_026 logging-contract investigation is also OPEN and may be scheduled independently when log-format work is selected.
 
-Suggested next work: after a separate operator start, triage own-review findings 7–14 and S1–S2 (especially publication/shared-storage ownership), then implement and validate critical TODO_043 review fixes on dev_tui_exp_recursive_missing: original recursive findings 3+4+5, restore/retry findings 1+2, bounded processed history 6 plus the additional findings, deterministic regression/stress tests, full software validation and independent re-review of the diff from cb891540451df7c864a40d06618213f10235477a. That reviewed checkpoint is RED / not merge-ready. Then continue TODO_042 broad hardware acceptance for recursive missing-list files: depth8, ROOT missing-percent default30% with service-file exemption, and three consecutive no-progress cycles per file with reset on any decrease. Preserve stage8 evidence and merge into dev_tui only after acceptance and operator instruction. Then address TODO_041's remaining FT1 failure/recovery and RX observability scope, retaining the existing throughput evidence and without enabling TODO_038. Then finish the current firmware/BlueZ throughput characterization without enabling TODO_038, so the pre-progress-checkpoint baseline remains clean. Then physically validate the implemented TODO_033 child workstream at the exact current `dev_tui` checkpoint: `TODO_034` BLE/USB controller lifecycle, `TODO_035` same-process FT1 reboot/reconnect recovery, `TODO_036` receiver process-restart durability, and `TODO_037` sender/receiver/both-process persistent resume plus lost-RESULT tombstone behavior. After the current firmware/baud work settles, implement TODO_040's centralized settings/single-source foundation together with TODO_039's discoverable F9 menu and profile-aware/runtime baud policy, so the UI does not introduce another independent set of defaults. After that, implement/validate `TODO_038` as the rare FT1 ST-to-ST remote application-progress watchdog, measuring its overhead against the preserved baseline. Then rerun the broader TODO_029 two-node reconnect/MISSING validation against the recovery stack. Independently finish the HCI boundary isolation in TODO_024; then continue correctness/evidence boundaries (`TODO_011`, `TODO_013`, `TODO_016`, `TODO_017`, `TODO_021`, remaining `TODO_025` docs), lifecycle/API robustness (`TODO_019`, `TODO_022`, `TODO_023`), and consistency/docs follow-ups (`TODO_012`, `TODO_014`, `TODO_015`, `TODO_020`). Re-evaluate ordering if physical validation exposes a regression.
+Suggested next work: after a separate operator start, resolve REVIEW_001 software blockers before hardware/merge acceptance: triage TODO_043 findings 7–14 and remaining S2 memory/queue bounds, agree the peer-ownership design in TODO_046 and safe live-retention boundaries in TODO_044 together with TODO_043/F012, include TODO_045 chunk-space admission and TODO_047 timing identities/documentation in implementation and re-review, then implement and validate critical TODO_043 review fixes on dev_tui_exp_recursive_missing: original recursive findings 3+4+5, restore/retry findings 1+2, bounded processed history 6 plus the additional findings, deterministic regression/stress tests, full software validation and independent re-review of the diff from cb891540451df7c864a40d06618213f10235477a. That reviewed checkpoint is RED / not merge-ready. Then continue TODO_042 broad hardware acceptance for recursive missing-list files: depth8, ROOT missing-percent default30% with service-file exemption, and three consecutive no-progress cycles per file with reset on any decrease. Preserve stage8 evidence and merge into dev_tui only after acceptance and operator instruction. Then address TODO_041's remaining FT1 failure/recovery and RX observability scope, retaining the existing throughput evidence and without enabling TODO_038. Then finish the current firmware/BlueZ throughput characterization without enabling TODO_038, so the pre-progress-checkpoint baseline remains clean. Then physically validate the implemented TODO_033 child workstream at the exact current `dev_tui` checkpoint: `TODO_034` BLE/USB controller lifecycle, `TODO_035` same-process FT1 reboot/reconnect recovery, `TODO_036` receiver process-restart durability, and `TODO_037` sender/receiver/both-process persistent resume plus lost-RESULT tombstone behavior. After the current firmware/baud work settles, implement TODO_040's centralized settings/single-source foundation together with TODO_039's discoverable F9 menu and profile-aware/runtime baud policy, so the UI does not introduce another independent set of defaults. After that, implement/validate `TODO_038` as the rare FT1 ST-to-ST remote application-progress watchdog, measuring its overhead against the preserved baseline. Then rerun the broader TODO_029 two-node reconnect/MISSING validation against the recovery stack. Independently finish the HCI boundary isolation in TODO_024; then continue correctness/evidence boundaries (`TODO_011`, `TODO_013`, `TODO_016`, `TODO_017`, `TODO_021`, remaining `TODO_025` docs), lifecycle/API robustness (`TODO_019`, `TODO_022`, `TODO_023`), and consistency/docs follow-ups (`TODO_012`, `TODO_014`, `TODO_015`, `TODO_020`). Re-evaluate ordering if physical validation exposes a regression.
 
 ### TODO_026 — `todos/TODO_026_UNIFIED_LOGGING_CONTRACT.md`
 
@@ -258,6 +258,15 @@ Selected boundary: centralize only genuinely shared user/runtime-facing configur
 Status: PARTIAL / REMAINING IMPLEMENTATION OPEN / PHYSICAL VALIDATION OPEN
 
 Goal: preserve valid FT1 chunks/resume state on recoverable message or local-presentation failure, react promptly to negative remote RESULT, and expose RX handler/checkpoint/worker failures instead of unexplained stopped progress.
+
+Historical [CODEX](todos/TODO_041_CODEX_REVIEW.md) and
+[GPT](todos/TODO_041_GPT_REVIEW.md) reviews at
+`ea4a0d8362fa4163e181e4d5a878a6cf80c3a0be` are explicitly mapped into TODO_041
+as of 2026-10-14, including missing design/acceptance gates. Related generic write
+ambiguity stays in TODO_013 and presentation correlation in TODO_011. FLOW/CAPS/QUERY,
+checked control/DATA, scalability and remote progress remain unselected/deferred
+work for this implementation series; no historical finding is declared fixed by
+this breakdown and no firmware work is authorized.
 
 Finding checkpoint: `dev_tui@b838ecbc5fa27039455480e2c7c5dfbdbe462371` + uncommitted wrong-length DATA fix. That narrow fix has 5 regression cases PASS and 427 full-suite tests PASS with isolated device cache; no post-fix physical run yet. TODO_041 records exact file hashes, source findings and temporary QUICK log references from 2026-10-10.
 
@@ -494,6 +503,59 @@ Implementation: not started. Follow-up reviewer reports FT1/machine/timing subse
 Operator-requested own review at `8cf689e` (2026-10-13): original six reproduced within documented handler/settlement/end-to-end boundaries; eight additional findings 7–14 recorded in TODO_043. Rejected ROOT META overwrites live frame; parent idle counts child duration/ignores duplicate META; failed foreground HELLO retry sticks in negotiating; concurrent publication overwrites one payload despite two RESULT OK; losing concurrent open leaks workers; startup cleanup deletes another manager's live partial; invalid cancel ID becomes internal_error; corrupt journal timestamp bypasses candidate validation. Static S1/S2 cover live durable retention and representability/memory/queue bounds. Review remains RED; publication/storage concurrency requires design before fixes.
 
 Own software validation at the unchanged source HEAD: full pytest outside sandbox 601 PASS, related subset 284 PASS, compileall PASS. Initial sandbox run: 573 PASS/28 FAIL; 26 mocked BLE failures coincide with socketpair.send EPERM, other two passed isolated and in the full outside-sandbox run. This is separate from the reviewer's pyserial limitation and does not satisfy fix regression/re-review/hardware gates. Only review documents changed; no runtime fixes, commit, push or hardware actions.
+
+Numbered [REVIEW_001](reviews/REVIEW_001_DEV_TUI_EXP_RECURSIVE_MISSING.md), target
+`db740af94c700c7c4e6d96abef7e809dadfcaf1c`, is fully assigned as of 2026-10-14:
+F001–F014 remain in TODO_043; F015–F018 are separate TODO_044–TODO_047 below.
+The review's pre-existing vs introduced regression attribution is preserved.
+Historical S1 is confirmed by F015; only the representability part of S2 is confirmed
+by F016, while the remaining memory/queue/LIST boundaries stay in TODO_043.
+No fix or validation status changed during this documentation-only breakdown.
+
+## Additional numbered-review follow-ups
+
+### TODO_044 — [todos/TODO_044_FT1_LIVE_DURABLE_RETENTION.md](todos/TODO_044_FT1_LIVE_DURABLE_RETENTION.md)
+
+Status: OPEN / HIGH / IMPLEMENTATION AND FIX VALIDATION OPEN
+
+Source: REVIEW_001/F015 at `db740af94c700c7c4e6d96abef7e809dadfcaf1c`,
+pre-existing at `fd94bdeb1fd878e072b0f852b3e8f461d928e3cd`.
+Goal: enforce incoming/outgoing/completed count, TTL and partial-byte bounds during
+one long-running process without deleting another manager's active-owned state.
+Ownership and enforcement boundaries need design; coordinate with TODO_043/F012.
+Review repro is supplied evidence; it was not rerun during task creation.
+
+### TODO_045 — [todos/TODO_045_FT1_CHUNK_SPACE_ADMISSION.md](todos/TODO_045_FT1_CHUNK_SPACE_ADMISSION.md)
+
+Status: OPEN / HIGH / IMPLEMENTATION AND FIX VALIDATION OPEN
+
+Source: REVIEW_001/F016 at `db740af94c700c7c4e6d96abef7e809dadfcaf1c`,
+pre-existing at `fd94bdeb1fd878e072b0f852b3e8f461d928e3cd`.
+Goal: reject META-derived chunk counts above uint32 before RX admission and enforce
+the same representability during sender preparation. Boundary regression tests must
+cover `0xffffffff` and `0x100000000` without huge allocations. No new wire format
+or arbitrary smaller file limit is selected; remaining TODO_043/S2 bounds stay open.
+
+### TODO_046 — [todos/TODO_046_FT1_PEER_SCOPED_SENDER_JOURNALS.md](todos/TODO_046_FT1_PEER_SCOPED_SENDER_JOURNALS.md)
+
+Status: OPEN / BLOCKER / IMPLEMENTATION AND FIX VALIDATION OPEN
+
+Source: REVIEW_001/F017 at `db740af94c700c7c4e6d96abef7e809dadfcaf1c`,
+pre-existing at `fd94bdeb1fd878e072b0f852b3e8f461d928e3cd`.
+Goal: prevent independent peers/sessions sending one local source from selecting or
+deleting each other's outgoing journals. Stable peer key, reconnect/restart semantics
+and old journal compatibility require an explicit design before implementation.
+Preserve generic discovery/profile dependency boundaries and valid same-peer resume.
+
+### TODO_047 — [todos/TODO_047_TIMING_APPEND_EVENT_IDENTITY.md](todos/TODO_047_TIMING_APPEND_EVENT_IDENTITY.md)
+
+Status: OPEN / MEDIUM / IMPLEMENTATION AND FIX VALIDATION OPEN
+
+Source: REVIEW_001/F018 at `db740af94c700c7c4e6d96abef7e809dadfcaf1c`, introduced
+by the implementation after `fd94bdeb1fd878e072b0f852b3e8f461d928e3cd`.
+Goal: unambiguous event identity across timing append/reopen and TUI replacement.
+Choose file-global sequence or explicit segment correlation before implementation;
+include reopen/TUI regression coverage and reconcile stale LOGGING.md timing prose.
 
 ## Current validation posture
 

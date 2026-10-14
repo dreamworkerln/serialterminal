@@ -1,5 +1,7 @@
 # TODO_041 deep review: FT1 selective repair, flow control, and recovery across SerialTerminal + Chatter
 
+Разобрано в TODO: TODO_041
+
 Review date: 2026-10-10
 
 Reviewed revisions:

@@ -1,6 +1,7 @@
 # dev_tui_exp_recursive_missing independent review
 
 REVIEW-ID: REVIEW_001
+Разобрано в TODO: TODO_043, TODO_044, TODO_045, TODO_046, TODO_047
 Status: COMPLETE
 Verdict: RED
 Date UTC: 2026-10-13
@@ -104,7 +105,7 @@ Confidence / limitations: confirmed in-process with two managers sharing the rea
 
 Required acceptance: namespace or bind durable outgoing identity to a stable peer/device/session identity that survives only where resume is semantically valid; validate that identity before candidate selection and deletion. Regression: A and B sending the same local source must never select/delete each other's journals.
 
-Follow-up TODO: not yet assigned; `TODO_043` should be extended or a dedicated persistent-state ownership TODO created.
+Follow-up TODO: [TODO_046](../todos/TODO_046_FT1_PEER_SCOPED_SENDER_JOURNALS.md).
 
 ### F003 — HIGH: valid ROOT END can be dropped solely because child RESULT presentation has not settled locally
 
@@ -264,7 +265,7 @@ Confidence / limitations: confirmed. Cleanup must also be fixed without reintrod
 
 Required acceptance: enforce retention at safe lifecycle/write boundaries with cross-manager active-owner awareness. Add long-running tests that exceed each count/TTL/byte limit and prove bounded state without deleting live transfers.
 
-Follow-up TODO: not yet assigned; `TODO_043` should be extended or durable-store lifecycle split into its own TODO.
+Follow-up TODO: [TODO_044](../todos/TODO_044_FT1_LIVE_DURABLE_RETENTION.md).
 
 ### F016 — HIGH: receiver admits META identities that cannot be represented by END/RESUME uint32 chunk space
 
@@ -284,7 +285,7 @@ Confidence / limitations: confirmed protocol-admission bug; ordinary file sizes/
 
 Required acceptance: reject META before allocating/claiming receiver state whenever derived chunk count exceeds uint32 (and enforce the same representability on sender preparation). Add boundary tests for exactly `0xffffffff` and `0x100000000` chunks.
 
-Follow-up TODO: not yet assigned; candidate extension to `TODO_043` or protocol-boundary TODO.
+Follow-up TODO: [TODO_045](../todos/TODO_045_FT1_CHUNK_SPACE_ADMISSION.md).
 
 ### F006 — MEDIUM: one live ROOT can accumulate unbounded `processed` child history
 
@@ -464,7 +465,7 @@ Confidence / limitations: confirmed local deterministic behavior. No claim is ma
 
 Required acceptance: either preserve a file-global monotonically increasing sequence when appending, or add an explicit stable trace/session segment identity and document that `(segment, seq)` is the correlation key. Add a reopen/session-replacement regression test that proves unambiguous identities.
 
-Follow-up TODO: not yet assigned.
+Follow-up TODO: [TODO_047](../todos/TODO_047_TIMING_APPEND_EVENT_IDENTITY.md).
 
 Adjacent documentation drift found during this audit: `AGENT_API.md` and the active skill describe incremental timing, while `LOGGING.md` still says timing is held in RAM and written only on clean shutdown. That text is stale relative to the implementation and should be reconciled, but it is not elevated to a separate runtime finding.
 
@@ -484,3 +485,20 @@ Adjacent documentation drift found during this audit: `AGENT_API.md` and the act
 | full pytest | target | BLOCKED | runtime still lacks `pyserial`; no full-suite PASS claimed |
 
 Regression verdict: RED. At least `F005`, `F009`, `F013` and `F018` are regressions in previously available/general behavior, while `F003`, `F004`, `F006`, `F007`, `F008` are correctness defects introduced with the new recursive feature itself. The pre-existing findings remain real blockers/high issues, but they are not attributed to this implementation delta.
+
+## TODO breakdown 2026-10-14
+
+Все actionable findings этого прохода и regression addendum оформлены:
+
+| Finding | Task record | Состояние |
+| --- | --- | --- |
+| REVIEW_001/F001–F014 | [TODO_043](../todos/TODO_043_FT1_RECURSIVE_LIFECYCLE_REVIEW_FIXES.md) | OPEN; добавлены явные связи с numbered review |
+| REVIEW_001/F015 | [TODO_044](../todos/TODO_044_FT1_LIVE_DURABLE_RETENTION.md) | OPEN; live count/TTL/byte enforcement с active-owner awareness |
+| REVIEW_001/F016 | [TODO_045](../todos/TODO_045_FT1_CHUNK_SPACE_ADMISSION.md) | OPEN; cross-message uint32 representability до admission |
+| REVIEW_001/F017 | [TODO_046](../todos/TODO_046_FT1_PEER_SCOPED_SENDER_JOURNALS.md) | OPEN; peer-bound outgoing state |
+| REVIEW_001/F018 и смежный LOGGING.md drift | [TODO_047](../todos/TODO_047_TIMING_APPEND_EVENT_IDENTITY.md) | OPEN; unambiguous append identities и согласование logging docs |
+
+Ранее записанное в Result требование назначить TODO для F015–F017 теперь выполнено;
+остальные fix/regression/full-suite/re-review gates сохраняются. Исходные findings,
+reviewed target/base, regression attribution и COMPLETE/RED не изменены.
+Этот разбор не является новым review pass или подтверждением исправлений.
