@@ -75,6 +75,10 @@ def _send_message_direct(self, message, *, cancel_event, deadline=None) -> None:
     if record is not None:
         record.event("binary_send_start", **fields)
 
+    operation_stop = (
+        core._SubmissionStop(record, cancel_event)
+        if record is not None and record.direction == "TX" else cancel_event
+    )
     caller_deadline = deadline
     recovery_deadline = None
     attempts = 0
@@ -96,18 +100,21 @@ def _send_message_direct(self, message, *, cancel_event, deadline=None) -> None:
                 )
             prepare = getattr(self.transport, "prepare_binary", None)
             if recovery_deadline is not None and callable(prepare):
-                prepare(deadline=deadline, cancel_event=cancel_event)
+                prepare(deadline=deadline, cancel_event=operation_stop)
                 # После readiness RF имеет собственный transport budget. Только
                 # явно заданный caller deadline ограничивает саму пересылку.
                 deadline = caller_deadline
+            self._check_remote_failure(record)
             send_until = getattr(self.transport, "send_binary_until", None)
             if deadline is not None and callable(send_until):
-                send_until(payload, deadline=deadline, cancel_event=cancel_event)
+                send_until(payload, deadline=deadline, cancel_event=operation_stop)
             else:
-                self.transport.send_binary(payload, cancel_event=cancel_event)
+                self.transport.send_binary(payload, cancel_event=operation_stop)
         except BinaryUserCancelled as exc:
+            self._check_remote_failure(record)
             raise core.FileTransferCancelled(str(exc)) from exc
         except BinaryUserError as exc:
+            self._check_remote_failure(record)
             self._check_send_deadline(caller_deadline)
             if _defer_data_link_failure(record, fields, exc):
                 return

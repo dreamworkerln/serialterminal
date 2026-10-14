@@ -109,6 +109,7 @@ def _send_chunks_from(self, record, prepared, chunk_size: int, start: int) -> No
         next_chunk=start,
     )
 
+    operation_stop = core._SubmissionStop(record, record.cancel_event)
     pending: deque[_PendingData] = deque()
     next_index = start
     with prepared.wire_path.open("rb") as source:
@@ -116,14 +117,14 @@ def _send_chunks_from(self, record, prepared, chunk_size: int, start: int) -> No
         while next_index < record.chunks_total or pending:
             try:
                 self._check_remote_failure(record)
-            except core.FileTransferError:
-                self._discard_data_pipeline()
+            except core.FileTransferError as exc:
+                _discard_after_failure(self, record, exc)
                 raise
             while next_index < record.chunks_total and len(pending) < window:
                 try:
                     self._check_remote_failure(record)
-                except core.FileTransferError:
-                    self._discard_data_pipeline()
+                except core.FileTransferError as exc:
+                    _discard_after_failure(self, record, exc)
                     raise
                 if record.cancel_event.is_set():
                     self._discard_data_pipeline()
@@ -143,12 +144,18 @@ def _send_chunks_from(self, record, prepared, chunk_size: int, start: int) -> No
                 try:
                     ticket = submit(
                         payload,
-                        cancel_event=record.cancel_event,
+                        cancel_event=operation_stop,
                     )
                 except BinaryUserCancelled as exc:
+                    if record.remote_failure_event.is_set():
+                        _discard_after_failure(self, record, exc)
+                        self._check_remote_failure(record)
                     self._discard_data_pipeline()
                     raise core.FileTransferCancelled(str(exc)) from exc
                 except BinaryUserError as exc:
+                    if record.remote_failure_event.is_set():
+                        _discard_after_failure(self, record, exc)
+                        self._check_remote_failure(record)
                     if exc.code in _RECOVERABLE_PIPELINE_ERRORS:
                         replay_index = (
                             pending[0].chunk_index if pending else next_index
@@ -180,12 +187,18 @@ def _send_chunks_from(self, record, prepared, chunk_size: int, start: int) -> No
             try:
                 settle(
                     current.ticket,
-                    cancel_event=record.cancel_event,
+                    cancel_event=operation_stop,
                 )
             except BinaryUserCancelled as exc:
+                if record.remote_failure_event.is_set():
+                    _discard_after_failure(self, record, exc)
+                    self._check_remote_failure(record)
                 self._discard_data_pipeline()
                 raise core.FileTransferCancelled(str(exc)) from exc
             except BinaryUserError as exc:
+                if record.remote_failure_event.is_set():
+                    _discard_after_failure(self, record, exc)
+                    self._check_remote_failure(record)
                 if resumable._defer_data_link_failure(record, current.fields, exc):
                     # Adapter уже завершил этот ticket. Остальные slots остаются
                     # валидными: discard сорвал бы их последующий settlement.

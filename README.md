@@ -12,6 +12,10 @@ baud разрешается по профилю из `open`. При смене �
 Общие immutable defaults определены в `src/serialterminal/settings.py`;
 профили выбирают свой Serial default, transports получают разрешённое значение.
 
+FT1 отрицательный RESULT прерывает cancellation-aware ожидания send/readiness и
+pipeline, сохраняя `remote_failed` и sender journal. Явный operator cancel остаётся
+отдельным действием. Неопределённый drain удерживает ownership до закрытия session.
+
 ## Инженерные ревью
 
 Отчёты хранятся в [reviews/](reviews/README.md). Точки входа:

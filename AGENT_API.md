@@ -604,6 +604,12 @@ Snapshots optionally include repair={missing_total,depth,no_progress}; no_progre
 receiver-owned. The sender learns missing_total from each hash-verified full list.
 A nested negative RESULT preserves its original remote code in the ROOT sender
 failure.details.remote_code; the sender failure.code remains remote_failed.
+A negative remote RESULT also interrupts cancellation-aware binary send,
+controller-readiness and pipeline submit/settle waits. It does not set the operator
+cancel event: the outcome stays `remote_failed` and the sender journal is retained.
+Owned pipeline cleanup/drain still runs; an ambiguous drain retains the lease and
+a secondary cleanup error does not replace the original remote failure. A backend
+that ignores the supplied stop signal keeps its own blocking-call limitation.
 There is no overall3600 s deadline or fixed8-cycle repair cap in this coordinator.
 Unanswered idle control remains bounded by interval/max_control_replays. No per-DATA
 FT1 ACK, midstream watchdog, PHY retries or LoRa SACK is implemented.

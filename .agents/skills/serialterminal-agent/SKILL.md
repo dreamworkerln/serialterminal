@@ -211,6 +211,12 @@ Controller lifetime отделён от transport generation. USB tty может
 
 Generic `tx_state=unknown` по-прежнему нельзя blind-retry через обычный `send_line`; recovery authority здесь существует только потому, что FT1 message identity/idempotence определены приложением.
 
+Отрицательный RESULT прерывает cancellation-aware binary send/readiness и
+pipeline waits. Это `remote_failed`, не operator cancel: sender journal остаётся.
+При cleanup/drain error исходный remote code сохраняется, а неопределённый drain
+удерживает lease до session close. Backend, игнорирующий stop signal, сохраняет
+свои ограничения на blocking call.
+
 ### Persistent receiver state
 
 Receiver durable state хранится под configured receive directory:

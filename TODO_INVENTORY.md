@@ -276,6 +276,13 @@ Finding checkpoint: `dev_tui@b838ecbc5fa27039455480e2c7c5dfbdbe462371` + uncommi
 
 Remaining findings: bad DATA index/conflicting duplicate and malformed END still destroy partials; failed MISSING submission and oversized missing sets also terminate RX destructively. Lost local BINARY echo is not automatically retried even when the peer ST received the DATA. A received negative RESULT does not interrupt DATA submission immediately. Some RX exceptions are swallowed, while an idle-checkpoint exception can terminate the FT1 worker. Ordinary RX idle timeout already retains durable state; preserve that distinction. Selected design now adds negotiated host-to-host midstream repair/progress control: stop new DATA, drain the two-message pipeline, repair bounded missing-range batches, confirm durable reception, then return to the saved original cursor. Trigger by range capacity, missing-chunk count/age and periodic time/credit checkpoint; explicit capability/fallback, tokens and bounded retry protect against lost/stale control. Coordinate this one exchange with TODO_038; legacy one-message MISSING and firmware USER ACK stay unchanged. Architecture is documented only; runtime implementation/compatibility/physical throughput validation remain OPEN.
 
+Current host-only scope confirmed by operator 2026-10-14. Negative RESULT now interrupts
+cancellation-aware send/readiness/pipeline waits without operator cancellation;
+secondary cleanup errors preserve remote cause and ambiguous drain ownership.
+RX overflow-handling exceptions are visible and no longer kill the shared worker.
+New regressions: targeted 60 PASS; full isolated-cache suite 647 PASS/65.15s; compileall/diff-check PASS. FLOW/CAPS/QUERY,
+checked DATA and remote progress stay deferred. REVIEW_001 fixes remain TODO_043–047.
+
 ## Closed
 
 ### TODO_028 — `todos/TODO_028_GENERIC_SWEEP_AGENT_API.md`

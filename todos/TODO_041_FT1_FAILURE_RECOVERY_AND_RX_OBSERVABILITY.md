@@ -786,3 +786,62 @@ Full software suite remains 545 PASS/48.56s. Results and evidence boundaries:
 `/home/dream/coding/журнал экспериментов/ИТОГИ_ПУНКТОВ_1-8_2026-10-11.md`.
 TODO_041 broader FLOW/midstream scope remains OPEN; TODO_042 remains DEFERRED.
 No new commit/push/current-head CI. Work stopped at experimental stage8.
+
+
+## Текущий host-only проход — 2026-10-14
+
+Operator scope: только принятые host-side исправления; FLOW/CAPS/QUERY, checked
+DATA и remote-progress остаются DEFERRED. Physical runs и firmware mutations
+исключены. Base: `316177a` on `dev_tui_exp_recursive_missing`.
+
+Повторная проверка актуального public coordinator вместо исторического core-only
+описания выявила два незакрытых host boundary defects:
+
+1. Negative RESULT не будил binary send/readiness/pipeline waits; после readiness
+   мог уйти ещё один DATA replay. Пять новых regression cases FAIL на base.
+2. Overflow failure handling находился вне RX exception boundary. Injected OSError
+   завершал shared RX thread; regression FAIL на base с thread exception.
+
+Исправление: приватный read-only stop signal объединяет operator cancel и remote
+failure для текущей TX submission, не меняя operator event. После readiness и при
+backend error повторно проверяется remote failure. Pipeline обрабатывает только свои
+tickets; secondary cleanup error не скрывает primary cause. Drain ambiguity остаётся
+отдельной границей и удерживает lease. Overflow handling использует ту же visible
+worker-failure policy, что RX handlers и idle sweep.
+
+| Failure | Retry / state policy | RX partial / sender journal |
+| --- | --- | --- |
+| DATA invalid index/length, END invalid count | reject only this message, bounded existing idle/control wait | valid chunks preserved; rejected message is not durable proof |
+| Conflicting duplicate, wire/original hash or decompression failure | terminal quarantine; automatic trusted resume prohibited | doubtful bytes retained in quarantine, no publication |
+| local_tx_unknown / disconnect / observed controller reset | bounded exact-message recovery with owned settlement | same immutable identity; journal retained |
+| Lost legacy echo / unresolved firmware ticket | fail visibly, no blind replay until reset/epoch proof | sender journal retained; generic writes not retried |
+| Local RADIO_UNAVAILABLE / typed permanent rejection | fail visibly; explicit operator recovery, no hidden reboot | retained resumable state |
+| Negative RESULT | stop new DATA and cancellation-aware waits, remote_failed | sender journal retained; operator cancel remains unset |
+| Pipeline cleanup/drain failure | record secondary cause, never declare ambiguous lease released | owned state/journal retained |
+| Missing-list service send/depth/percent/no-progress failure | bounded recursive failure, retained ROOT state | suspended partial retained; recursive v2 contract stays current |
+| RX storage/handler/idle/overflow exception | visible rx_worker_error, failed attempt, shared worker survives | existing partial/manifest retained, no unsupported durable progress |
+| Explicit operator cancel | cooperative cancelled; owned drain still required | receiver state / sender journal deleted deliberately |
+| EOF/close without explicit cancel | suspend/retain, bounded worker shutdown | incoming and outgoing resume state retained |
+
+Existing host implementations and regression suites already cover non-destructive
+DATA/END rejection, conflicting-copy quarantine, negative RESULT between original/
+pipeline/repair submissions, immutable source snapshots, checkpoint-before-RESUME,
+publication/tombstone-before-OK, creation-owned cleanup and idle worker failure.
+This pass extends those tests with send/readiness/submit/settle interruption,
+operator-cancel distinctions, cleanup/drain failure at three boundaries and overflow
+fault injection. It does not claim to fix the separately assigned REVIEW_001/F001–F014
+in TODO_043, live-retention/peer ownership in TODO_044/046, or protocol extension
+acceptance gates. No unrelated legacy MISSING expectations are restored.
+
+Validation: targeted FT1 retention/recovery/atomic/pipeline/outbox/receiver-restart
+suite — 60 PASS / 14.01 s. Full isolated-cache software suite — 647 PASS / 65.15 s.
+`python -m compileall -q src serialterminal.py usb_timing_logger.py tools scripts`
+(with external PYTHONPYCACHEPREFIX) and `git diff --check` — PASS. Source/deletion/
+comment review completed; existing comments preserved. Ruff remains unavailable.
+Host maintenance fixes in this pass are implemented and locally validated; overall TODO remains PARTIAL because
+separately tracked review fixes, deferred designs and physical gates are not closed.
+
+Validated Git content trees: `src=a4114706bdb6a5a7f9f07c2fbdc45d20f552df5f`,
+`tests=14ac3715dd261d7724661a75a7dccb77c2ea7620`.
+Implementation commit is the commit containing this dated host-only record,
+parent `316177a`; no hardware/push/CI/re-review acceptance claimed.

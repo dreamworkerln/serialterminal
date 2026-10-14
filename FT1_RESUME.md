@@ -102,7 +102,7 @@ controller preparation separately from the radio send budget. Without that capab
 `send_binary_until` carries the caller deadline when supported. A synchronous opaque
 backend without deadline support cannot be promised a hard bound inside its call.
 
-An unexpected RX handler or idle-sweep exception is visible as `rx_worker_error` and
+An unexpected RX handler, overflow-handling or idle-sweep exception is visible as `rx_worker_error` and
 ends the affected attempt while retaining its partial/manifest. The shared RX worker
 remains available. Invalid DATA index/length and END chunk count reject only that
 message. Conflicting duplicates and hash/decompression failures retain the partial
@@ -112,8 +112,12 @@ Legacy MISSING still carries the full set in one message, at most 28 ranges at
 payload capacity 243; overflow reports `repair_too_large` without pagination.
 
 An observed negative RESULT wakes recovery waits and stops new DATA submissions
-in original, pipeline and repair paths. It does not set operator cancellation or
-issue `/cancel all`. RESULT decoding rejects contradictory status/code pairs.
+in original, pipeline and repair paths, including cancellation-aware send,
+readiness and pipeline submit/settle waits. It does not set operator cancellation or
+issue `/cancel all`. Sender journals remain resumable. Secondary pipeline cleanup
+failures are recorded without replacing the remote failure; ambiguous drain still
+retains ownership. Third-party backends ignoring the stop signal retain their own
+blocking-call limits. RESULT decoding rejects contradictory status/code pairs.
 Already issued firmware/RF operations are outside the legacy host drain guarantee.
 
 Local automated checkpoint for stages 1–4: 494 tests passed with an isolated device

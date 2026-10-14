@@ -59,6 +59,34 @@ _IO_CHUNK = 256 * 1024
 _TERMINAL_STATES = frozenset({"completed", "failed", "cancelled"})
 
 
+class _SubmissionStop:
+    """Сигнал остановки FT1 wait без изменения operator cancel state."""
+
+    def __init__(self, record, cancel_event):
+        self.record = record
+        self.cancel_event = cancel_event
+
+    def is_set(self) -> bool:
+        return (
+            self.record.remote_failure_event.is_set()
+            or (self.cancel_event is not None and self.cancel_event.is_set())
+        )
+
+    def wait(self, timeout: float | None = None) -> bool:
+        deadline = None if timeout is None else time.monotonic() + timeout
+        with self.record._condition:
+            while not self.is_set():
+                remaining = None if deadline is None else deadline - time.monotonic()
+                if remaining is not None and remaining <= 0:
+                    return False
+                # Remote RESULT уведомляет condition сразу; внешний Event может
+                # не уведомлять её, поэтому проверка operator cancel ограничена.
+                self.record._condition.wait(
+                    timeout=0.05 if remaining is None else min(0.05, remaining)
+                )
+            return True
+
+
 class FileTransferError(RuntimeError):
     def __init__(
         self,
@@ -1204,7 +1232,10 @@ class FileTransferManager:
                 with self._lock:
                     incoming = self._incoming
                 if incoming is not None:
-                    self._fail_incoming(incoming, FileTransferError("receiver_overflow", "bounded FT1 RX queue overflow", phase="receiving"))
+                    try:
+                        self._fail_incoming(incoming, FileTransferError("receiver_overflow", "bounded FT1 RX queue overflow", phase="receiving"))
+                    except Exception as exc:
+                        self._rx_worker_error(exc)
             try:
                 item = self._rx_queue.get(timeout=FILE_RX_IDLE_SWEEP_S)
             except queue.Empty:

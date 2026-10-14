@@ -30,6 +30,13 @@ The recursive repair prototype uses FT1 version 2, expanded META/END and interna
 missing-list files. DATA capacity remains unchanged. Midstream repair and the
 FT1 FLOW/CAPS/QUERY extension remain deferred. Machine QUERY is local.
 
+A negative remote RESULT also interrupts cancellation-aware binary send,
+controller-readiness and pipeline submit/settle waits. It does not set the operator
+cancel event: the outcome stays `remote_failed` and the sender journal is retained.
+Owned pipeline cleanup/drain still runs; an ambiguous drain retains the lease and
+a secondary cleanup error does not replace the original remote failure. A backend
+that ignores the supplied stop signal keeps its own blocking-call limitation.
+
 The current experimental implementation lives on `dev_tui_exp_recursive_missing`.
 The completed stage8 baseline remains on `dev_tui`. The authoritative firmware
 transport contract is maintained in:

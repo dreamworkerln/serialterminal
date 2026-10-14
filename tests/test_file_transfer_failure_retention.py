@@ -6,7 +6,7 @@ import pytest
 
 from serialterminal.file_transfer import (
     BinarySendReceipt, BinaryUserError, Compression, DataMessage, EndMessage,
-    FileTransferManager, MetaMessage, MissingMessage, ResultMessage, ResumeMessage,
+    FileTransferError, FileTransferManager, MetaMessage, MissingMessage, ResultMessage, ResumeMessage,
     decode_message, encode_message,
 )
 from serialterminal.file_transfer.protocol import data_payload_capacity
@@ -267,4 +267,184 @@ def test_cancel_then_close_does_not_resurrect_deleted_receiver(tmp_path, cancel_
             worker.join(3)
         manager._send_result = original_result
         manager._handle_data = original_data
+        manager.close()
+
+
+@pytest.mark.parametrize("stop_reason", ["remote_result", "operator_cancel"])
+@pytest.mark.parametrize("wait_path", ["send", "prepare", "pipeline_submit", "pipeline_settle"])
+def test_remote_failure_and_operator_cancel_interrupt_binary_wait_with_distinct_outcomes(tmp_path, wait_path, stop_reason):
+    import threading
+    from serialterminal.file_transfer import BinaryUserCancelled
+
+    transport = CaptureTransport()
+    source = tmp_path / "source.bin"
+    source.write_bytes(random.Random(20).randbytes(227 * 6))
+    entered = threading.Event()
+    exited = threading.Event()
+    requests = []
+    manager = FileTransferManager(
+        transport, receive_dir=tmp_path / "state",
+        resume_handshake_timeout_s=0.01, local_recovery_retry_s=0.001,
+    )
+    original_send = transport.send_binary
+
+    def blocked(cancel_event):
+        entered.set()
+        try:
+            if cancel_event.wait(2):
+                raise BinaryUserCancelled()
+            raise BinaryUserError("binary_presentation_timeout", "wait was not interrupted")
+        finally:
+            exited.set()
+
+    def send(data, *, cancel_event=None):
+        message = decode_message(data)
+        if isinstance(message, DataMessage):
+            requests.append(message)
+            if wait_path == "prepare":
+                raise BinaryUserError("local_disconnect", "local readiness lost")
+            blocked(cancel_event)
+        return original_send(data, cancel_event=cancel_event)
+
+    if wait_path.startswith("pipeline"):
+        transport.pipeline_capacity = 2
+        transport.discard_binary_pipeline = lambda: None
+        def submit(data, *, cancel_event=None):
+            message = decode_message(data)
+            requests.append(message)
+            if wait_path == "pipeline_submit":
+                blocked(cancel_event)
+            return BinarySendReceipt(len(requests))
+        def settle(ticket, *, cancel_event=None):
+            blocked(cancel_event)
+        transport.submit_binary = submit
+        transport.settle_binary = settle
+    else:
+        transport.send_binary = send
+        if wait_path == "prepare":
+            transport.prepare_binary = lambda *, deadline, cancel_event: blocked(cancel_event)
+
+    try:
+        started = manager.start_send(source)
+        transfer_id = int(started["transfer_id"], 16)
+        assert entered.wait(1)
+        record = manager._records[transfer_id]
+        if stop_reason == "remote_result":
+            record.set_remote_result(ResultMessage(transfer_id, False, "storage_failed", "disk full"))
+        else:
+            manager.cancel(transfer_id)
+        assert exited.wait(0.5), "stop must wake binary wait promptly"
+        expected_state = "failed" if stop_reason == "remote_result" else "cancelled"
+        assert wait_until(lambda: record.state == expected_state)
+        assert record.failure["code"] == ("remote_failed" if stop_reason == "remote_result" else "cancelled")
+        if stop_reason == "remote_result":
+            assert record.failure["details"]["remote_code"] == "storage_failed"
+            assert not record.cancel_event.is_set()
+            assert manager._resume_store.outgoing_manifest(transfer_id).is_file()
+        else:
+            assert record.cancel_event.is_set()
+            assert not manager._resume_store.outgoing_manifest(transfer_id).exists()
+        assert len(requests) == (2 if wait_path == "pipeline_settle" else 1)
+    finally:
+        manager.close()
+
+
+def test_negative_result_after_readiness_prevents_replay_submission(tmp_path):
+    transport = CaptureTransport()
+    calls = []
+    manager = FileTransferManager(transport, receive_dir=tmp_path, local_recovery_retry_s=0.001)
+    record = manager._reserve_record(155, direction="TX", filename="x")
+    def send(data, *, cancel_event=None):
+        calls.append(data)
+        if len(calls) == 1:
+            raise BinaryUserError("local_disconnect", "disconnected")
+        return BinarySendReceipt(len(calls))
+    def ready(*, deadline, cancel_event=None):
+        record.set_remote_result(ResultMessage(155, False, "storage_failed", "disk full"))
+    transport.send_binary = send
+    transport.prepare_binary = ready
+    try:
+        with pytest.raises(FileTransferError) as caught:
+            manager._send_message(DataMessage(155, 0, b"x"), cancel_event=record.cancel_event)
+        assert caught.value.code == "remote_failed"
+        assert len(calls) == 1
+        assert not record.cancel_event.is_set()
+    finally:
+        manager.close()
+
+
+def test_overflow_failure_is_visible_and_does_not_kill_shared_rx_worker(tmp_path, monkeypatch):
+    transport = CaptureTransport()
+    manager = FileTransferManager(transport, receive_dir=tmp_path)
+    try:
+        meta, chunks, _ = fixture(manager)
+        manager._handle_data(DataMessage(meta.transfer_id, 0, chunks[0]))
+        part = manager._resume_store.incoming_part(meta.transfer_id)
+        manifest = manager._resume_store.incoming_manifest(meta.transfer_id)
+        original = manager._fail_incoming
+        def broken(incoming, failure, **kwargs):
+            if failure.code == "receiver_overflow":
+                raise OSError("overflow checkpoint unavailable")
+            return original(incoming, failure, **kwargs)
+        monkeypatch.setattr(manager, "_fail_incoming", broken)
+        manager._rx_overflow.set()
+        manager._rx_queue.put(object())
+        assert wait_until(lambda: manager._records[meta.transfer_id].state == "failed")
+        assert manager._rx_thread.is_alive()
+        assert part.read_bytes() == chunks[0]
+        assert manifest.is_file()
+        events = manager.observe(meta.transfer_id)["events"]
+        assert any(item["kind"] == "rx_worker_error" and "overflow checkpoint" in item["error"] for item in events)
+        assert wait_until(lambda: manager._active_id is None)
+        other_meta, _, _ = fixture(manager, transfer_id=meta.transfer_id + 1)
+        assert manager._incoming_for(other_meta.transfer_id) is not None
+    finally:
+        manager.close()
+
+
+
+@pytest.mark.parametrize("failure_at", ["submit", "settle", "between_submissions"])
+def test_remote_failure_preserves_primary_cause_and_lease_when_pipeline_drain_fails(tmp_path, failure_at):
+    from serialterminal.file_transfer import BinaryUserCancelled
+
+    transport = CaptureTransport()
+    transport.pipeline_capacity = 2
+    source = tmp_path / "source.bin"
+    source.write_bytes(random.Random(21).randbytes(227 * 6))
+    manager = FileTransferManager(transport, receive_dir=tmp_path / "state", resume_handshake_timeout_s=0.01)
+    submitted = []
+    def reject():
+        record = manager._records[manager._active_id]
+        record.set_remote_result(ResultMessage(record.transfer_id, False, "storage_failed", "disk full"))
+    def submit(data, *, cancel_event=None):
+        submitted.append(decode_message(data))
+        if failure_at in {"submit", "between_submissions"}:
+            reject()
+            if failure_at == "submit":
+                raise BinaryUserCancelled()
+        return BinarySendReceipt(len(submitted))
+    def settle(ticket, *, cancel_event=None):
+        reject()
+        raise BinaryUserCancelled()
+    def unsettled(*args):
+        raise BinaryUserError("local_tx_unsettled", "owned RF still pending")
+    transport.submit_binary = submit
+    transport.settle_binary = settle
+    transport.discard_binary_pipeline = unsettled
+    transport.drain_binary = unsettled
+    try:
+        started = manager.start_send(source)
+        transfer_id = int(started["transfer_id"], 16)
+        record = manager._records[transfer_id]
+        assert wait_until(lambda: record.state == "failed")
+        assert record.failure["code"] == "remote_failed"
+        assert record.failure["details"]["remote_code"] == "storage_failed"
+        assert manager._active_id == transfer_id
+        assert manager._resume_store.outgoing_manifest(transfer_id).is_file()
+        assert not record.cancel_event.is_set()
+        events = manager.observe(transfer_id)["events"]
+        assert any(item["kind"] == "pipeline_cleanup_failed" for item in events)
+        assert any(item["kind"] == "local_tx_drain_failed" for item in events)
+        assert len(submitted) == (2 if failure_at == "settle" else 1)
+    finally:
         manager.close()
