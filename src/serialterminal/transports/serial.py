@@ -10,6 +10,7 @@ import serial
 from serial import SerialException
 from serial.tools import list_ports
 
+from ..settings import DEFAULTS
 from .base import Transport, TransportError, TransportWriteOutcomeUnknown
 
 
@@ -244,7 +245,7 @@ class SerialTransport(Transport):
     def __init__(
         self,
         device: str | None = None,
-        baud: int = 921600,
+        baud: int = DEFAULTS.serial.generic_baud,
         identity: SerialDeviceIdentity | None = None,
     ):
         if device is not None and identity is not None:

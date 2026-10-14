@@ -4,6 +4,14 @@
 
 `serialterminal` редактирует строку локально и отправляет её устройству только после `Enter`. Исходящие строки переживают временный disconnect/reboot и отправляются после reconnect к тому же выбранному физическому устройству.
 
+Serial baud без `-b/--baud`: `generic` — 115200, `chatter` — 921600.
+Явное значение имеет приоритет. Политика одинакова для `serial`, unified `auto`
+и agent: в agent baud из `discover` является явным override, а при его отсутствии
+baud разрешается по профилю из `open`. При смене профиля неявный baud следует
+новому профилю; явный CLI/runtime выбор сохраняется.
+Общие immutable defaults определены в `src/serialterminal/settings.py`;
+профили выбирают свой Serial default, transports получают разрешённое значение.
+
 ## Инженерные ревью
 
 Отчёты хранятся в [reviews/](reviews/README.md). Точки входа:

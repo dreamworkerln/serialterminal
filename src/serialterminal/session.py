@@ -8,6 +8,7 @@ import threading
 import time
 from typing import Any, Callable, Iterable
 
+from .settings import DEFAULTS
 from .timing import TimingSink
 from .transports.base import (
     ReceivedChunk,
@@ -124,7 +125,7 @@ class ManagedSession:
         transport: Transport,
         *,
         line_ending: str = "\n",
-        reconnect_delay: float = 0.5,
+        reconnect_delay: float = DEFAULTS.session.reconnect_delay,
         connect_preamble: ConnectPreamble | None = None,
         event_limit: int = 4096,
         event_notifier: EventNotifier | None = None,

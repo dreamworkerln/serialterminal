@@ -159,7 +159,13 @@ ble
 spp
 ```
 
-Optional `baud` and `scan_seconds` may be supplied.
+Optional `baud` and `scan_seconds` may be supplied. An explicit discovery `baud`
+is retained as the Serial override for candidates from that discovery. With no
+`baud`, Serial baud is resolved when `open` selects the profile: generic 115200,
+Chatter 921600. BLE and native SPP do not use UART baud. The terminal discovery
+window defaults to 3 seconds; the aggressive scanner has a separate 5-second
+window and 8-second probe timeout. Shared immutable defaults live in
+`src/serialterminal/settings.py`; runtime overrides remain per selector/session.
 
 Discovery returns transport candidates with stable-enough `device_key`, `kind`, `label`, and `detail`. The agent frontend uses the same sticky physical identity as the rest of SerialTerminal.
 

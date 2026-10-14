@@ -7,6 +7,7 @@ import queue
 import threading
 from typing import Any
 
+from ..settings import DEFAULTS
 from .base import (
     ReceivedChunk,
     Transport,
@@ -67,7 +68,9 @@ def ble_log_slug(target_name: str) -> str:
     return "".join(ch if ch.isalnum() or ch in "-_" else "-" for ch in slug)
 
 
-async def _scan_raw_devices(timeout: float = 3.0) -> list[Any]:
+async def _scan_raw_devices(
+    timeout: float = DEFAULTS.discovery.terminal_scan_seconds,
+) -> list[Any]:
     _require_bleak()
     return list(await BleakScanner.discover(timeout=timeout))
 
@@ -78,7 +81,7 @@ class BleNusTransport(Transport):
     def __init__(
         self,
         target: BleDeviceIdentity | str,
-        scan_timeout: float = 3.0,
+        scan_timeout: float = DEFAULTS.discovery.terminal_scan_seconds,
         connect_timeout: float = 10.0,
         read_timeout: float = 0.20,
         write_timeout: float = 5.0,

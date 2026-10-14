@@ -4,6 +4,7 @@ import asyncio
 from dataclasses import dataclass, field
 from typing import Any, Iterable
 
+from .settings import DEFAULTS
 from .device_cache import capability_confirmed, get_cached_device
 from .transports import ble_nus
 from .transports.ble_nus import (
@@ -48,7 +49,9 @@ def _service_uuids_from_device(device: Any) -> tuple[str, ...]:
     return ()
 
 
-async def scan_all_ble_devices(timeout: float = 3.0) -> list[BleDiscoveryItem]:
+async def scan_all_ble_devices(
+    timeout: float = DEFAULTS.discovery.terminal_scan_seconds,
+) -> list[BleDiscoveryItem]:
     """Return every BLE device visible to Bleak, including unrelated devices."""
     ble_nus._require_bleak()
     scanner = ble_nus.BleakScanner
@@ -118,7 +121,7 @@ def _default_visible(item: BleDiscoveryItem) -> bool:
 
 
 def discover_terminal_ble_devices(
-    timeout: float = 3.0,
+    timeout: float = DEFAULTS.discovery.terminal_scan_seconds,
 ) -> list[BleDeviceIdentity]:
     """Safe/default BLE discovery: advertised-NUS or cached-NUS only."""
     return [
@@ -245,7 +248,7 @@ async def probe_ble_nus_async(
 
 def probe_ble_nus(
     item: BleDiscoveryItem,
-    timeout: float = 8.0,
+    timeout: float = DEFAULTS.discovery.probe_timeout_seconds,
 ) -> BleProbeResult:
     """Synchronous wrapper for one-off probes."""
     return asyncio.run(probe_ble_nus_async(item, timeout))

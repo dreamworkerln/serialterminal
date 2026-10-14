@@ -9,6 +9,7 @@ import threading
 import time
 from typing import Any, Callable, TextIO
 
+from .settings import DEFAULTS
 from .file_transfer import FileTransferError, FileTransferManager, transfer_id_text
 from .file_transfer.core import FILE_MAX_WINDOW
 from .profiles import SendBytes, SendLine, resolve_profile
@@ -47,7 +48,7 @@ class AgentError(RuntimeError):
         self.details = details or {}
 
 
-def _default_selector_factory(scope: str, baud: int, scan_seconds: float):
+def _default_selector_factory(scope: str, baud: int | None, scan_seconds: float):
     # Импорт ленивый, чтобы CLI мог подключать agent frontend без циклического
     # top-level import и без отдельной копии discovery/transport factory logic.
     from .cli import DeviceSelector
@@ -163,10 +164,10 @@ class SessionManager:
         self,
         *,
         run_log: RunLog | None = None,
-        selector_factory: Callable[[str, int, float], Any] | None = None,
-        default_baud: int = 115200,
-        default_scan_seconds: float = 3.0,
-        reconnect_delay: float = 0.5,
+        selector_factory: Callable[[str, int | None, float], Any] | None = None,
+        default_baud: int | None = None,
+        default_scan_seconds: float = DEFAULTS.discovery.terminal_scan_seconds,
+        reconnect_delay: float = DEFAULTS.session.reconnect_delay,
         receive_dir: str | Path | None = None,
     ):
         self.run_log = run_log

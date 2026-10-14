@@ -80,6 +80,7 @@ class PresentationAdapter(Protocol):
 class TerminalProfile(Protocol):
     name: str
     device_help_command: str | None
+    default_serial_baud: int
 
     def connect_preamble(self) -> tuple[ProfileAction, ...]:
         ...

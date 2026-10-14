@@ -48,6 +48,11 @@ Transient UNKNOWN probe не означает NO и не должен заста
 
 Если target отсутствует, используй Bluetooth capability scanner/prober и повтори `discover`. После discovery открывай возвращённый `device_key`; не используй BLE name aliases.
 
+Для Serial явный `baud` в `discover` сохраняется как override. Если его нет,
+`open` разрешает baud по выбранному профилю: generic 115200, chatter 921600.
+BLE/native SPP UART baud не используют. Не подставляй универсальный Chatter baud
+в discovery для sessions с разными профилями.
+
 ## Profiles
 
 `open` без `profile` использует `generic`. Generic session не отправляет controller-specific connect preamble; generic BLE использует standard NUS и stream `main`.

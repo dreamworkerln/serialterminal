@@ -13,6 +13,7 @@ from prompt_toolkit import PromptSession
 from prompt_toolkit.key_binding import KeyBindings
 from prompt_toolkit.patch_stdout import patch_stdout
 
+from .settings import DEFAULTS
 from .log_redaction import redact_base64_text
 from .runlog import console_log_path, format_console_record
 from .timing import TimingTrace
@@ -42,7 +43,7 @@ class TerminalSession(ManagedSession):
         transport: Transport,
         log_path: str | Path = "serialterminal.log",
         line_ending: str = "\n",
-        reconnect_delay: float = 0.5,
+        reconnect_delay: float = DEFAULTS.session.reconnect_delay,
         device_chooser: Callable[[], Transport | None] | None = None,
         profile: TerminalProfile = GENERIC_PROFILE,
         screen_writer: Callable[[str], None] | None = None,

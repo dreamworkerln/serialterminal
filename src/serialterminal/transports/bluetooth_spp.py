@@ -7,6 +7,7 @@ import socket
 import subprocess
 import threading
 
+from ..settings import DEFAULTS
 from ..device_cache import confirmed_devices
 from .base import Transport, TransportError
 
@@ -156,7 +157,7 @@ def _parse_sdptool_spp(text: str) -> int | None:
 
 def probe_spp_channel(
     address: str,
-    timeout: float = 8.0,
+    timeout: float = DEFAULTS.discovery.probe_timeout_seconds,
 ) -> SppProbeResult:
     """Use BlueZ SDP to decide whether one Classic device exposes SPP."""
     sdptool = shutil.which("sdptool")
@@ -245,7 +246,7 @@ def test_rfcomm_connection(
 
 def probe_spp_device(
     address: str,
-    timeout: float = 8.0,
+    timeout: float = DEFAULTS.discovery.probe_timeout_seconds,
     connect_test: bool = True,
 ) -> SppProbeResult:
     result = probe_spp_channel(address, timeout)
@@ -267,7 +268,7 @@ def probe_spp_device(
 
 
 def discover_spp_devices(
-    timeout: float = 3.0,
+    timeout: float = DEFAULTS.discovery.terminal_scan_seconds,
 ) -> list[SppDeviceIdentity]:
     """Return visible Classic devices previously confirmed by scanner as SPP."""
     cached = confirmed_devices("classic", "spp")

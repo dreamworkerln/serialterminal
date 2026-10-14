@@ -7,6 +7,7 @@ import sys
 from prompt_toolkit import PromptSession
 from prompt_toolkit.key_binding import KeyBindings
 
+from .settings import DEFAULTS
 from .ble_discovery import probe_ble_nus_async, scan_all_ble_devices
 from .device_cache import (
     default_cache_path,
@@ -50,8 +51,8 @@ def _ble_nus_knowledge(address: str, probed: bool | None) -> bool | None:
 
 async def _scan_ble_async(
     *,
-    scan_seconds: float = 5.0,
-    probe_timeout: float = 8.0,
+    scan_seconds: float = DEFAULTS.discovery.scanner_scan_seconds,
+    probe_timeout: float = DEFAULTS.discovery.probe_timeout_seconds,
 ) -> ScannerSummary:
     """Scan and probe every BLE candidate on one asyncio/BlueZ event loop."""
     print(f"Scanning all BLE devices for {scan_seconds:g}s...")
@@ -98,8 +99,8 @@ async def _scan_ble_async(
 
 def scan_ble(
     *,
-    scan_seconds: float = 5.0,
-    probe_timeout: float = 8.0,
+    scan_seconds: float = DEFAULTS.discovery.scanner_scan_seconds,
+    probe_timeout: float = DEFAULTS.discovery.probe_timeout_seconds,
 ) -> ScannerSummary:
     # One event loop for discovery + every GATT probe. Repeated asyncio.run()
     # around individual Bleak clients can close the dbus-fast transport while
@@ -114,8 +115,8 @@ def scan_ble(
 
 def scan_spp(
     *,
-    scan_seconds: float = 5.0,
-    probe_timeout: float = 8.0,
+    scan_seconds: float = DEFAULTS.discovery.scanner_scan_seconds,
+    probe_timeout: float = DEFAULTS.discovery.probe_timeout_seconds,
     connect_test: bool = True,
 ) -> ScannerSummary:
     print(
@@ -173,8 +174,8 @@ def scan_spp(
 def run_scanner(
     mode: str,
     *,
-    scan_seconds: float = 5.0,
-    probe_timeout: float = 8.0,
+    scan_seconds: float = DEFAULTS.discovery.scanner_scan_seconds,
+    probe_timeout: float = DEFAULTS.discovery.probe_timeout_seconds,
     connect_test: bool = True,
 ) -> ScannerSummary:
     total = ScannerSummary()

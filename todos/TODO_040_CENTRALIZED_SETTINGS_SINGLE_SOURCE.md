@@ -1,7 +1,7 @@
 # Centralized settings / single-source-of-truth TODO
 
 TODO-ID: TODO_040
-Status: OPEN
+Status: IMPLEMENTED / LOCAL VALIDATION PASS / CI OPEN
 Related: `TODO_039_TUI_MAIN_MENU_AND_BAUD_SELECTOR`
 Finding checkpoint: `dev_tui@2682f1c4a3cd077bdffe49e3989d6856e1402795`
 
@@ -272,21 +272,21 @@ A lightweight source-level regression check is acceptable for especially importa
 
 ## Implementation checklist
 
-- [ ] Audit duplicated configuration-like defaults and classify ownership.
-- [ ] Select/create one central settings/defaults module.
-- [ ] Use immutable typed settings/default structures or an equivalent non-mutable design.
-- [ ] Centralize Serial baud policy first.
-- [ ] Integrate TODO_039 profile-aware baud resolution.
-- [ ] Make CLI omission distinguishable from explicit override.
-- [ ] Remove duplicated baud literals/default-policy definitions from constructors/parsers.
-- [ ] Centralize other genuinely shared important defaults found by the audit.
-- [ ] Leave protocol/wire and local implementation constants with their owners.
-- [ ] Avoid mutable global runtime configuration.
-- [ ] Update tests.
-- [ ] Update documentation/help where defaults are displayed.
-- [ ] Review `BASE..HEAD` diff and all deletions.
-- [ ] Run targeted tests.
-- [ ] Run full repository CI.
+- [x] Audit duplicated configuration-like defaults and classify ownership.
+- [x] Select/create one central settings/defaults module.
+- [x] Use immutable typed settings/default structures or an equivalent non-mutable design.
+- [x] Centralize Serial baud policy first.
+- [x] Integrate TODO_039 profile-aware baud resolution.
+- [x] Make CLI omission distinguishable from explicit override.
+- [x] Remove duplicated baud literals/default-policy definitions from constructors/parsers.
+- [x] Centralize other genuinely shared important defaults found by the audit.
+- [x] Leave protocol/wire and local implementation constants with their owners.
+- [x] Avoid mutable global runtime configuration.
+- [x] Update tests.
+- [x] Update documentation/help where defaults are displayed.
+- [x] Review `BASE..HEAD` diff and all deletions.
+- [x] Run targeted tests.
+- [ ] Run full repository CI (push not requested for this workstream).
 
 ## Acceptance criteria
 
@@ -310,3 +310,40 @@ The intended rule for future development is:
 At the same time:
 
 > Do not centralize constants that are not configuration. Local ownership is better than a giant global constants module.
+
+
+## Implementation audit — 2026-10-14
+
+Base: `368378f` on `dev_tui_exp_recursive_missing`.
+
+| Policy | Former owners | Classification / action |
+| --- | --- | --- |
+| Generic/Chatter Serial baud | SerialTransport, DeviceSelector, two CLI parsers, SessionManager | Shared defaults + profile-owned choice: settings.SerialDefaults, profile capability, common resolver; omitted CLI/agent baud stays None until profile selection |
+| Terminal discovery window | CLI auto/BLE/SPP, DeviceSelector, agent, BLE discovery/transport, SPP discovery | Shared operational policy: discovery.terminal_scan_seconds |
+| Aggressive scanner window / capability probe timeout | CLI scan, scanner functions, BLE/SPP probes | Distinct scanner/prober policies: discovery.scanner_scan_seconds / probe_timeout_seconds |
+| Session reconnect delay | ManagedSession, TerminalSession, agent, CLI | Shared session default; existing human Bluetooth delay remains a separate policy |
+| Logs / receive directory | runlog.default_log_path, FT1 core/store | Existing single-owner resolution retained; no semantically identical duplicated location policy found |
+| Radio timing guard UART divisor / transport buffers / FT1 wire sizes | Chatter radio_timing, transports, FT1 protocol | Protocol or local implementation constants; retained with owners |
+
+Settings are frozen nested dataclasses, with no runtime global mutation. Profiles
+select Serial defaults through a generic capability; settings/transports do not
+import concrete profiles. Explicit startup/runtime baud survives recreation; an
+implicit baud follows the newly selected profile. Physical identity is retained.
+Runtime F9 baud/menu work remains TODO_039 and is not implemented by this change.
+Agent discovery factories receive None for omitted baud and resolve it in the
+selector after open sets the profile; explicit manager/discovery overrides persist.
+
+Validation: targeted settings/CLI/serial/agent/profile suite — 101 PASS.
+Full local suite: `SERIALTERMINAL_CACHE_FILE=<isolated path> PYTHONDONTWRITEBYTECODE=1
+pytest -q -p no:cacheprovider` — 634 PASS / 59.83 s. Compile check:
+`PYTHONPYCACHEPREFIX=/tmp/st-todo040-pycache python -m compileall -q src
+serialterminal.py usb_timing_logger.py tools scripts` — PASS. `git diff --check`
+— PASS; source/comment/dependency/deletion review completed. Ruff invocation
+was unavailable (`ruff: command not found`); no static-analysis PASS claimed.
+No hardware, firmware changes, push or GitHub Actions run. CI remains an external
+validation gate, so this task is IMPLEMENTED rather than CLOSED.
+
+Validated content identities (Git tree objects):
+`src=e8131c087de074fe59266dc0d9720bf62e96854d`,
+`tests=61a4a998b2da4fee187a10f19cc5e9a260df046e`.
+Implementation commit: the commit containing this dated record, parent `368378f`.

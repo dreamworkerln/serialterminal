@@ -56,6 +56,17 @@ A profile describes controller semantics through generic interfaces. A profile-o
 
 Profile selection is explicit and per session. `generic` is the default. Different sessions in one agent process may use different profiles without changing process-global transport semantics.
 
+### Shared operational defaults
+
+`settings.py` owns small frozen typed defaults for Serial baud, terminal discovery,
+capability scanner/prober and session reconnect policy. Equal numeric values with
+different meanings remain separate policies; wire sizes and protocol/radio timing
+stay with their subsystem. Each profile exposes `default_serial_baud`; generic
+selector resolution uses that capability without branching on profile names.
+Transports do not import profiles. Omitted baud is retained through discovery so
+agent `open` and human startup apply the same profile-aware rule. Explicit CLI or
+runtime baud remains selector/object state and survives profile recreation.
+
 ### Generic session core
 
 `ManagedSession` owns controller-independent lifecycle and data mechanics:

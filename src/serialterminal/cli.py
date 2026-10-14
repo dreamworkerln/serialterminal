@@ -5,6 +5,7 @@ import sys
 from dataclasses import dataclass
 from typing import Any
 
+from .settings import DEFAULTS, resolve_serial_baud
 from .device_cache import confirmed_devices
 from .profiles import (
     GENERIC_PROFILE,
@@ -38,17 +39,25 @@ class DeviceSelector:
     def __init__(
         self,
         scope: str,
-        baud: int = 921600,
-        scan_seconds: float = 3.0,
+        baud: int | None = None,
+        scan_seconds: float = DEFAULTS.discovery.terminal_scan_seconds,
         profile: TerminalProfile = GENERIC_PROFILE,
     ):
         if scope not in {"auto", "serial", "ble", "spp"}:
             raise ValueError(f"unknown device selector scope: {scope}")
         self.scope = scope
-        self.baud = baud
+        self._explicit_baud = baud
         self.scan_seconds = scan_seconds
         self.profile = profile
         self._known_candidates: dict[str, DeviceCandidate] = {}
+
+    @property
+    def baud(self) -> int:
+        return resolve_serial_baud(self.profile, self._explicit_baud)
+
+    @baud.setter
+    def baud(self, value: int) -> None:
+        self._explicit_baud = value
 
     @staticmethod
     def _serial_candidate(item: SerialDeviceIdentity) -> DeviceCandidate:
@@ -298,20 +307,24 @@ class DeviceSelector:
         """Build the same physical target with another controller profile."""
         builder = DeviceSelector(
             self.scope,
-            baud=self.baud,
+            baud=self._explicit_baud,
             scan_seconds=self.scan_seconds,
             profile=profile,
         )
 
         if isinstance(transport, SerialTransport):
+            # Явный CLI/runtime выбор сохраняется; неявный baud следует профилю.
+            baud = (
+                builder.baud if transport.baud == self.baud else transport.baud
+            )
             if transport.identity is not None:
                 return SerialTransport(
                     identity=transport.identity,
-                    baud=transport.baud,
+                    baud=baud,
                 )
             return SerialTransport(
                 device=transport.requested_device,
-                baud=transport.baud,
+                baud=baud,
             )
 
         from .transports.ble_nus import BleDeviceIdentity, BleNusTransport
@@ -564,6 +577,16 @@ def _add_profile_argument(parser: argparse.ArgumentParser) -> None:
     )
 
 
+def _add_baud_argument(parser: argparse.ArgumentParser) -> None:
+    parser.add_argument(
+        "-b", "--baud", type=int, default=None,
+        help=(
+            f"serial baud; default: generic {DEFAULTS.serial.generic_baud}, "
+            f"chatter {DEFAULTS.serial.chatter_baud}"
+        ),
+    )
+
+
 def _serial_parser(prog: str) -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(
         prog=prog,
@@ -575,7 +598,7 @@ def _serial_parser(prog: str) -> argparse.ArgumentParser:
         default=None,
         help="Serial device; if omitted, discover and choose",
     )
-    parser.add_argument("-b", "--baud", type=int, default=921600)
+    _add_baud_argument(parser)
     parser.add_argument(
         "-l",
         "--list",
@@ -612,7 +635,7 @@ def _ble_parser(prog: str) -> argparse.ArgumentParser:
     parser.add_argument(
         "--scan-seconds",
         type=float,
-        default=3.0,
+        default=DEFAULTS.discovery.terminal_scan_seconds,
     )
     _add_profile_argument(parser)
     return parser
@@ -632,7 +655,7 @@ def _spp_parser(prog: str) -> argparse.ArgumentParser:
     parser.add_argument(
         "--scan-seconds",
         type=float,
-        default=3.0,
+        default=DEFAULTS.discovery.terminal_scan_seconds,
     )
     _add_profile_argument(parser)
     return parser
@@ -652,12 +675,12 @@ def _scan_parser(prog: str) -> argparse.ArgumentParser:
     parser.add_argument(
         "--scan-seconds",
         type=float,
-        default=5.0,
+        default=DEFAULTS.discovery.scanner_scan_seconds,
     )
     parser.add_argument(
         "--probe-timeout",
         type=float,
-        default=8.0,
+        default=DEFAULTS.discovery.probe_timeout_seconds,
     )
     parser.add_argument(
         "--no-rfcomm-test",
@@ -708,7 +731,7 @@ def _auto_parser(prog: str) -> argparse.ArgumentParser:
             "legacy explicit serial path; omit for unified discovery"
         ),
     )
-    parser.add_argument("-b", "--baud", type=int, default=921600)
+    _add_baud_argument(parser)
     parser.add_argument("--log", default=None)
     parser.add_argument(
         "--eol",
@@ -718,7 +741,7 @@ def _auto_parser(prog: str) -> argparse.ArgumentParser:
     parser.add_argument(
         "--scan-seconds",
         type=float,
-        default=3.0,
+        default=DEFAULTS.discovery.terminal_scan_seconds,
     )
     parser.add_argument(
         "-l",
@@ -740,7 +763,7 @@ def _run_session(
     log_path: str | None,
     eol: str,
     selector: DeviceSelector,
-    reconnect_delay: float = 0.5,
+    reconnect_delay: float = DEFAULTS.session.reconnect_delay,
     profile: TerminalProfile = GENERIC_PROFILE,
     classic: bool = False,
     receive_dir: str | None = None,
@@ -796,7 +819,7 @@ def _run_serial(argv: list[str], prog: str) -> int:
     if args.device is not None:
         transport = SerialTransport(
             device=args.device,
-            baud=args.baud,
+            baud=selector.baud,
         )
     else:
         transport = selector.make_transport(selector.choose_initial())
@@ -834,7 +857,7 @@ def _run_ble(argv: list[str], prog: str) -> int:
         log_path=args.log,
         eol=args.eol,
         selector=selector,
-        reconnect_delay=1.0,
+        reconnect_delay=DEFAULTS.session.human_bluetooth_reconnect_delay,
         profile=profile,
         classic=args.classic,
         receive_dir=args.receive_dir,
@@ -863,7 +886,7 @@ def _run_spp(argv: list[str], prog: str) -> int:
         log_path=args.log,
         eol=args.eol,
         selector=selector,
-        reconnect_delay=1.0,
+        reconnect_delay=DEFAULTS.session.human_bluetooth_reconnect_delay,
         profile=profile,
         classic=args.classic,
         receive_dir=args.receive_dir,
@@ -941,7 +964,7 @@ def _run_auto(argv: list[str], prog: str) -> int:
         return _run_session(
             SerialTransport(
                 device=args.device,
-                baud=args.baud,
+                baud=selector.baud,
             ),
             log_path=args.log,
             eol=args.eol,

@@ -4,6 +4,7 @@ from collections.abc import Mapping
 from dataclasses import dataclass
 from types import MappingProxyType
 
+from ...settings import DEFAULTS
 from ...sweep import SweepAdapterFactory
 from ...timing import TimingSink
 from ...transports.ble_nus import NUS_RX_UUID, NUS_TX_UUID
@@ -107,6 +108,7 @@ _BLE_CONFIG = BleProfileConfig(
 class ChatterProfile:
     name: str = "chatter"
     device_help_command: str | None = CHATTER_HELP_COMMAND
+    default_serial_baud: int = DEFAULTS.serial.chatter_baud
 
     def connect_preamble(self) -> tuple[ProfileAction, ...]:
         return (SendLine(CHATTER_ID_COMMAND),)
