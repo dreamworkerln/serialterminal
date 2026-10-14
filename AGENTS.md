@@ -337,6 +337,13 @@ Track fixes in linked TODOs according to [TODO_MANAGEMENT_POLICY.md](TODO_MANAGE
 Writing review records does not authorize source fixes, commit/push, firmware changes
 or hardware runs. Existing firmware and observation-workspace boundaries still apply.
 
+
+Команду оператора «разбери ревью на TODO» выполнять по разделу 5.1 политики
+`REVIEW_MANAGEMENT_POLICY.md`: после оформления задач записать в шапку каждого
+обработанного ревью строку `Разобрано в TODO: TODO_…` с номерами созданных и
+дополненных задач. Отметка — обычный текст после REVIEW-ID, без гиперссылок;
+она находится в шапке файла, а не в нижнем итоговом отчёте.
+
 ## Reporting
 
 At the end of a task, report concisely:
