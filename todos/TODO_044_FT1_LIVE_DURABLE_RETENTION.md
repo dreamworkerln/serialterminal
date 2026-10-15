@@ -5,7 +5,7 @@ Status: IMPLEMENTED / LOCAL VALIDATION PASS / CI AND RE-REVIEW OPEN
 Priority: HIGH
 Created: 2026-10-14
 Implementation: CYCLIC HOST RETENTION AND REGRESSIONS IMPLEMENTED
-Validation: HOST SOFTWARE 739 PASS / CI AND RE-REVIEW OPEN
+Validation: HOST SOFTWARE 775 PASS / CI AND RE-REVIEW OPEN
 Source review: [REVIEW_001/F015](../reviews/REVIEW_001_DEV_TUI_EXP_RECURSIVE_MISSING.md#f015--high-documented-durable-retentionstorage-bounds-are-enforced-only-at-store-construction)
 Reviewed commit: [db740af94c700c7c4e6d96abef7e809dadfcaf1c](https://github.com/dreamworkerln/serialterminal/commit/db740af94c700c7c4e6d96abef7e809dadfcaf1c)
 Regression attribution: pre-existing at `fd94bdeb1fd878e072b0f852b3e8f461d928e3cd` по addendum ревью.
@@ -79,24 +79,24 @@ cleanup defect остаётся `REVIEW_001/F012` в
 
 ## Implementation
 
-- [ ] Закрепить runtime bounds и active-owner contract, согласовать с F012.
-- [ ] Реализовать безопасное enforcement count/TTL/byte limits.
-- [ ] Согласовать FT1_RESUME.md, FILE_TRANSFER.md, AGENT_API.md и agent skill
+- [x] Закрепить runtime bounds и active-owner contract, согласовать с F012.
+- [x] Реализовать безопасное enforcement count/TTL/byte limits.
+- [x] Согласовать FT1_RESUME.md, FILE_TRANSFER.md, AGENT_API.md и agent skill
   с реализованными boundaries и error semantics.
 
 ## Validation / acceptance
 
-- [ ] Один store без reconstruction: превысить каждый incoming/outgoing/completed
+- [x] Один store без reconstruction: превысить каждый incoming/outgoing/completed
   count limit, TTL и total-part-byte budget; проверить документированные bounds.
-- [ ] Два managers/процесса с общим store: live state сохраняется, включая окно
+- [x] Два managers/процесса с общим store: live state сохраняется, включая окно
   создания `.part` до первого manifest; expired/non-owned state очищается безопасно.
-- [ ] Fault injection cleanup/save и отсутствие свободного бюджета дают явную
+- [x] Fault injection cleanup/save и отсутствие свободного бюджета дают явную
   ошибку, сохраняют ownership и последнее пригодное durable state.
-- [ ] Retained resume и lost-RESULT tombstones продолжают работать.
+- [x] Retained resume и lost-RESULT tombstones продолжают работать.
 - [ ] Relevant store/recovery tests, full pytest, compileall, diff --check и новое
   numbered re-review на exact implementation SHA.
 
-## Evidence и Result
+## История: evidence при создании задачи
 
 Evidence/repro и ограничения сохранены в исходном finding ревью. При оформлении
 TODO repro не запускался повторно, fixes и source/tests не изменялись.
@@ -136,3 +136,33 @@ scenario under full-run timing; it passed unchanged in the targeted54-test suite
 
 Final isolated-cache full suite739 PASS/104.94s; compileall and diff-check PASS.
 Exact implementation trees: src `4f816b3cbf2ab66c7d5f9b89e35602d0bd101e10`; tests `bc6dce72e7931e38a579450c915ff452b5b79b43`.
+
+## Exact-repro verification follow-up — 2026-10-15
+
+Final series verification repeated F015 directly: two8-byte parts followed by
+save_incoming under max_part_bytes10 still retained16 bytes, bypassing the normal
+DATA growth path. Checkpoint save now enforces the existing byte budget under
+the same namespace lock, protecting the current part and evicting inactive older
+parts before advancing proof. An over-budget set of live-owned parts explicitly
+refuses checkpoint without replacing its last manifest. Sender candidate lookup
+also excludes expired journals before admission can protect/revive them.
+Permanent regressions include the exact8+8/10 repro, all-live checkpoint refusal
+and expired candidate selection. These refine the accepted runtime boundaries;
+no retention setting, wire limit or final-file policy changes.
+
+A short control-META regression intermittently consumed its synthetic0.08s budget
+in real fsync latency before the first retried child META was admitted. A40-run
+diagnostic reproduced this at iteration19 (ROOT timeout before child admission).
+Its fsync is now isolated as a no-op for that protocol-budget test; real file/flush,
+retry counts, completion/failure assertions and <1s bounds remain. Actual durability
+ordering/fault injection remains covered by separate storage/atomic tests.
+
+Follow-up targeted store/atomic/journal/peer/interval/ownership suite92 PASS/16.08s.
+The isolated control-META loss scenario then passed40 consecutive repetitions
+with unchanged replay limits and assertions. Final cumulative full suite pending;
+its working tree also includes the pending TODO_047 timing change.
+
+Final cumulative working-tree suite:775 PASS/97.88s; compileall and diff-check PASS.
+Log SHA256 `86409ba193076ec7a3600b59895700859cb4d93fa1b4f81d465b63c6c50f473f`. This run includes the pending TODO_047 timing
+implementation; its exact cumulative src/tests trees are recorded in TODO_047.
+The checkpoint-budget/TTL follow-up is committed separately from timing.

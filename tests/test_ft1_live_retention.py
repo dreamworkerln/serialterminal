@@ -310,3 +310,46 @@ def test_rollback_lease_release_preserves_untrusted_manifest_for_explicit_reject
     store.release('incoming', 9)
     assert manifest.read_text() == '{broken-json'
     assert part.read_bytes() == b'previous partial'
+
+
+def test_direct_checkpoint_reclaims_old_parts_at_exact_review_budget_boundary(tmp_path):
+    store = ResumeStateStore(tmp_path / '.serialterminal-state', max_part_bytes=10)
+    for number in [1, 2]:
+        store.incoming_part(number).write_bytes(b'abcdefgh')
+        store.save_incoming(meta=identity(number), received={0: 4, 1: 4}, status='suspended')
+    assert store._part_bytes() == 8
+    assert not store.incoming_part(1).exists() and not store.incoming_manifest(1).exists()
+    assert store.incoming_part(2).read_bytes() == b'abcdefgh'
+    assert store.load_incoming(2)[0]['received_ranges'] == [[0, 2]]
+
+
+def test_checkpoint_refuses_over_budget_live_parts_without_advancing_proof(tmp_path):
+    store = ResumeStateStore(tmp_path / '.serialterminal-state', max_part_bytes=20)
+    try:
+        for number in [1, 2]:
+            store.claim('incoming', number)
+            store.incoming_part(number).write_bytes(b'abcdefgh')
+            store.save_incoming(meta=identity(number), received={}, status='receiving')
+        previous = store.incoming_manifest(2).read_bytes()
+        store.max_part_bytes = 10
+        with pytest.raises(OSError) as error:
+            store.save_incoming(meta=identity(2), received={0: 4, 1: 4}, status='receiving')
+        assert error.value.errno == errno.ENOSPC
+        assert store.incoming_manifest(2).read_bytes() == previous
+        assert all(store.incoming_part(number).read_bytes() == b'abcdefgh' for number in [1, 2])
+    finally:
+        store.release_all()
+
+
+def test_expired_sender_journal_is_not_selected_before_next_mutating_cleanup(tmp_path, monkeypatch):
+    store = ResumeStateStore(tmp_path / '.serialterminal-state', ttl_s=10)
+    source = tmp_path / 'source'
+    source.write_bytes(b'x')
+    now = [100.0]
+    monkeypatch.setattr(resume_store.time, 'time', lambda: now[0])
+    store.save_outgoing(1, {'status': 'active', 'source_path': str(source.resolve())})
+    assert store.find_outgoing_for_source(source)
+    now[0] = 111
+    assert store.find_outgoing_for_source(source) == []
+    store.save_outgoing(2, {'status': 'active'})
+    assert not store.outgoing_manifest(1).exists()

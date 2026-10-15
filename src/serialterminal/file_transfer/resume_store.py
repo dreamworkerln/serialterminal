@@ -310,7 +310,11 @@ class ResumeStateStore:
             for kind, maximum in (("incoming", DEFAULT_MAX_INCOMING), ("outgoing", DEFAULT_MAX_OUTGOING), ("completed", DEFAULT_MAX_COMPLETED)):
                 if kind != path.parent.name:
                     self._cleanup_dir(self.root / kind, maximum, with_parts=kind == "incoming")
-            self.with_reclamation(lambda: self.atomic_json(path, payload), free_bytes=len(encoded))
+            part = self.incoming_part(int(path.stem, 16)) if path.parent == self.incoming_dir else None
+            self.with_reclamation(
+                lambda: self.atomic_json(path, payload), free_bytes=len(encoded), keep=part,
+                enforce_part_budget=part is not None,
+            )
 
     def save_incoming(
         self,
@@ -431,7 +435,7 @@ class ResumeStateStore:
                     stamp = float(updated)
                 except (OverflowError, ValueError):
                     continue
-                if not math.isfinite(stamp) or stamp < 0:
+                if not math.isfinite(stamp) or stamp < 0 or time.time() - stamp > self.ttl_s:
                     continue
                 result.append(value)
         result.sort(key=lambda item: item["updated"], reverse=True)
@@ -514,9 +518,9 @@ class ResumeStateStore:
             total += part.stat().st_size
         return total
 
-    def with_reclamation(self, operation, *, growth: int = 0, free_bytes: int = 0, keep: Path | None = None):
+    def with_reclamation(self, operation, *, growth: int = 0, free_bytes: int = 0, keep: Path | None = None, enforce_part_budget: bool = False):
         with self.namespace_lock():
-            while (growth and self._part_bytes() + growth > self.max_part_bytes) or shutil.disk_usage(self.root.parent).free < free_bytes:
+            while ((growth or enforce_part_budget) and self._part_bytes() + growth > self.max_part_bytes) or shutil.disk_usage(self.root.parent).free < free_bytes:
                 if not self._evict_oldest_part(keep=keep):
                     raise OSError(errno.ENOSPC, "no inactive partials remain to reclaim storage")
             while True:

@@ -262,14 +262,15 @@ def test_same_process_publishing_failure_reconciles_single_destination(tmp_path,
 
 @pytest.mark.parametrize("message_type", [MetaMessage, ResultMessage])
 @pytest.mark.parametrize("permanent", [False, True])
-def test_lost_control_is_bounded_and_explicit_retry_keeps_identity(tmp_path, message_type, permanent):
+def test_lost_control_is_bounded_and_explicit_retry_keeps_identity(tmp_path, message_type, permanent, monkeypatch):
     source = tmp_path / "control.bin"
     payload = random.Random(15).randbytes(227 * 4)
     source.write_bytes(payload)
     left, right = CaptureTransport(), CaptureTransport()
-    # Outbox и durable publication асинхронны: 20 ms replay interval расходовал
-    # два повтора раньше fsync/RESULT (~140 ms в полном прогоне). Проверяем
-    # ограниченное число control replay и внешнюю границу завершения <1 s.
+    # Здесь проверяются control replay/cancel budgets. Реальный fsync способен
+    # занять весь synthetic deadline до доставки первого child META; durability
+    # ordering/faults проверяются отдельно. Flush и реальные файлы сохраняются.
+    monkeypatch.setattr(core.os, "fsync", lambda descriptor: None)
     ids = itertools.count(171)
     tx = FileTransferManager(left, receive_dir=tmp_path / "tx", id_factory=lambda: next(ids),
                              result_timeout_s=0.3, control_replay_interval_s=0.08,
