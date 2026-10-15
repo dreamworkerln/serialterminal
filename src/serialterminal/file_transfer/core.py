@@ -199,15 +199,18 @@ def _sha256_file(
     return digest.digest()
 
 
-def _unique_destination(directory: Path, filename: str) -> Path:
+def _unique_destination(directory: Path, filename: str, *, reserved: set[Path] | None = None) -> Path:
+    def occupied(path: Path) -> bool:
+        return path.exists() or path.is_symlink() or (reserved is not None and path.parent.resolve() / path.name in reserved)
+
     candidate = directory / filename
-    if not candidate.exists():
+    if not occupied(candidate):
         return candidate
     stem = candidate.stem
     suffix = candidate.suffix
     for index in range(1, 10000):
         alternate = directory / f"{stem} ({index}){suffix}"
-        if not alternate.exists():
+        if not occupied(alternate):
             return alternate
     raise FileTransferError(
         "storage_failed",
@@ -1383,7 +1386,7 @@ class FileTransferManager:
                 return
             self._reject_incoming(
                 meta.transfer_id,
-                "protocol_error",
+                "invalid_metadata",
                 "conflicting META for existing transfer_id",
             )
             return
@@ -1533,6 +1536,12 @@ class FileTransferManager:
                 )
                 return
 
+            check_insert = getattr(incoming.received, "check_insert", None)
+            if check_insert is not None:
+                try:
+                    check_insert(message.chunk_index)
+                except ValueError as exc:
+                    raise FileTransferError("storage_failed", str(exc), phase="receiving") from exc
             with incoming.wire_path.open("r+b") as file:
                 file.seek(offset)
                 file.write(message.payload)
@@ -1596,7 +1605,7 @@ class FileTransferManager:
                 )
                 return
             self._touch_incoming(incoming)
-            missing = [
+            missing = [] if len(incoming.received) == record.chunks_total else [
                 index
                 for index in range(record.chunks_total)
                 if index not in incoming.received

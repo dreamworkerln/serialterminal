@@ -6,10 +6,10 @@ import struct
 
 
 MAGIC = b"FT"
-VERSION = 2
+VERSION = 3
 
 _COMMON = struct.Struct(">2sBBQ")
-_META_FIXED = struct.Struct(">QQBH32sBQB")
+_META_FIXED = struct.Struct(">QQBH32sBQBQ")
 _DATA_FIXED = struct.Struct(">I")
 _END_FIXED = struct.Struct(">I32sQ")
 _MISSING_COUNT = struct.Struct(">B")
@@ -68,6 +68,7 @@ class MetaMessage:
     original_sha256: bytes
     parent_transfer_id: int = 0
     depth: int = 0
+    previous_repair_id: int = 0
 
 
 @dataclass(frozen=True)
@@ -250,6 +251,10 @@ def encode_meta(message: MetaMessage, capacity: int) -> bytes:
         raise FileProtocolError("META parent transfer_id is out of range")
     if not 0 <= message.depth <= 8 or bool(message.parent_transfer_id) != bool(message.depth):
         raise FileProtocolError("META parent/depth mismatch")
+    if not 0 <= message.previous_repair_id <= 0xFFFFFFFFFFFFFFFF:
+        raise FileProtocolError("META previous repair_id is out of range")
+    if not message.parent_transfer_id and message.previous_repair_id:
+        raise FileProtocolError("ROOT META must not carry previous repair_id")
     if len(message.original_sha256) != 32:
         raise FileProtocolError("META original_sha256 must be 32 bytes")
     if not 0 <= message.original_size <= 0xFFFFFFFFFFFFFFFF:
@@ -272,6 +277,7 @@ def encode_meta(message: MetaMessage, capacity: int) -> bytes:
             len(filename),
             message.parent_transfer_id,
             message.depth,
+            message.previous_repair_id,
         )
         + filename
     )
@@ -415,6 +421,7 @@ def decode_message(data: bytes) -> FileMessage | None:
             filename_len,
             parent_transfer_id,
             depth,
+            previous_repair_id,
         ) = _META_FIXED.unpack_from(data, offset)
         if len(data) != minimum + filename_len:
             raise FileProtocolError("META filename length mismatch")
@@ -434,6 +441,8 @@ def decode_message(data: bytes) -> FileMessage | None:
             raise FileProtocolError("META chunk_size must be positive")
         if depth > 8 or bool(parent_transfer_id) != bool(depth):
             raise FileProtocolError("META parent/depth mismatch")
+        if not parent_transfer_id and previous_repair_id:
+            raise FileProtocolError("ROOT META must not carry previous repair_id")
         return MetaMessage(
             transfer_id=transfer_id,
             filename=filename,
@@ -444,6 +453,7 @@ def decode_message(data: bytes) -> FileMessage | None:
             original_sha256=original_sha256,
             parent_transfer_id=parent_transfer_id,
             depth=depth,
+            previous_repair_id=previous_repair_id,
         )
 
     if message_type is MessageType.DATA:

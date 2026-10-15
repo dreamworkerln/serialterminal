@@ -154,3 +154,32 @@ def test_result_decoder_rejects_contradictory_status_and_code(status, code):
     payload[-2] = code
     with pytest.raises(FileProtocolError, match="conflicts"):
         decode_message(bytes(payload))
+
+
+def test_service_meta_previous_repair_link_roundtrips_and_old_wire_is_rejected():
+    meta = MetaMessage(11, "list", 28, 28, Compression.NONE, 227, b"x" * 32,
+                       parent_transfer_id=10, depth=1, previous_repair_id=9)
+    payload = encode_message(meta, 243)
+    assert payload[2] == 3
+    assert decode_message(payload) == meta
+    old = bytearray(payload)
+    old[2] = 2
+    with pytest.raises(FileProtocolError, match="version"):
+        decode_message(bytes(old))
+
+
+@pytest.mark.parametrize("previous", [-1, 2 ** 64, 1])
+def test_root_or_out_of_range_previous_repair_id_is_rejected(previous):
+    meta = MetaMessage(10, "root", 0, 0, Compression.NONE, 227, b"x" * 32, previous_repair_id=previous)
+    with pytest.raises(FileProtocolError, match="previous repair_id"):
+        encode_message(meta, 243)
+
+
+def test_v3_meta_filename_budget_matches_extended_fixed_header():
+    digest = hashlib.sha256(b"empty").digest()
+    fitting = MetaMessage(11, "x" * 162, 0, 0, Compression.NONE, 227, digest)
+    assert len(encode_message(fitting, 243)) == 243
+    assert decode_message(encode_message(fitting, 243)) == fitting
+    too_long = MetaMessage(11, "x" * 163, 0, 0, Compression.NONE, 227, digest)
+    with pytest.raises(FileProtocolError, match="filename"):
+        encode_message(too_long, 243)

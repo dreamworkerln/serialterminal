@@ -2,12 +2,17 @@
 
 ## Current recursive coordinator extension
 
-The experimental branch dev_tui_exp_recursive_missing uses FT1 v2. Both endpoints
-must run it; v1 interoperability is not required. FILE_TRANSFER.md sections9..16
+The experimental branch dev_tui_exp_recursive_missing uses FT1 v3. Both endpoints
+must run it; v1/v2 wire interoperability is not required. FILE_TRANSFER.md sections9..16
 specify expanded META/END and the hash-verified full missing-list service files.
 DATA and RESUME cursor shapes remain unchanged. Durable ROOT storage, source/wire
 identity validation, atomic publication, quarantine and explicit resume below remain
 applicable. Older stage checkpoints and v1 compatibility paragraphs are historical.
+
+Service META adds previous_repair_id, matching its parent's latest END repair_id.
+A parent retains only its latest completed child META and one queued verified
+request; evicted old child identities cannot restart repair. Settled ROOT frames
+retire while terminal records/tombstones preserve late completion semantics.
 
 ROOT holds the external lease through its child stack. Parent control/idle waits pause
 during children. ROOT threshold30%, service exemption, depths1..8 and per-file three
@@ -134,6 +139,20 @@ READY line alone does not settle the old firmware queue; observed controller res
 is required. This condition is intentionally not added to the automatic recoverable
 set. RESULT/control/repair work shares one absolute completion deadline, including
 nested local recovery; blocking third-party legacy adapters retain their own limits.
+
+RX restore performs durable/runtime rollback before releasing a claimed identity
+if checkpoint or runtime publication fails. Failed rollback keeps admission owned;
+it cannot expose a phantom receiving operation as safely released.
+Remote integrity/quarantine/invalid_metadata identity failures mark sender journals
+terminal before settlement; a new explicit send allocates a fresh ID. A failed
+terminal-journal checkpoint holds admission rather than blindly reusing the ID.
+Timeout/restart/lost outcome remain resumable. Early META rejection retains remote_code.
+
+Final-name selection and publication are coordinated by a POSIX namespace lock.
+Other writers skip names reserved by retained publishing manifests, including crash
+before the final file exists. Exclusive hard-link publication never overwrites a
+final name; the temporary name is then removed. Both names are on the same filesystem.
+The durable publishing destination remains fixed through restart and tombstone.
 
 ## Same-process FT1 recovery
 
@@ -322,11 +341,11 @@ identity.
 ## RESUME wire extension
 
 The original TODO_037 baseline used version1 with an optional RESUME message.
-The current recursive coordinator uses version2 with the same RESUME payload:
+The current recursive coordinator uses version3 with the same RESUME payload:
 
 ```text
 MAGIC   = b"FT"
-VERSION = 2
+VERSION = 3
 RESUME  = message type 6
 ```
 
@@ -531,3 +550,20 @@ A repeated WELCOME with the same live USB node epoch preserves the monotonically
 increasing request counter. Only a fresh epoch resets it; the node outcome cache
 is still authoritative after same-epoch reconnect. Regression was reproduced on
 frozen v4 and fixed before v5 validation.
+
+## FT1 host metadata bounds
+
+Host metadata resource policy: received chunks are stored as canonical intervals,
+not one dictionary entry per chunk. Defaults are65,536 received intervals and4 MiB
+per JSON manifest; manager constructor overrides are `max_received_ranges` and
+`max_manifest_bytes`. A fragment that would exceed the interval limit fails with
+`storage_failed` before writing that DATA, preserving the useful partial and map.
+Large manifest reads are bounded and oversized documents are not accepted/written.
+LIST has at most `max_received_ranges + 1` ranges, validated before allocation;
+service META size is bounded by that representation before decompression. These
+limits do not cap sequential file size or the number of successful repair cycles.
+
+Within a live ROOT each creator allocates monotonic child IDs from a random seed;
+ROOT receiver uses odd IDs and ROOT sender even IDs. Durable IDs and live contexts
+are skipped, and creation is protected by namespace lock plus outgoing lease.
+This permits bounded replay history without reusing evicted child identities.

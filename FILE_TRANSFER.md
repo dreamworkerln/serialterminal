@@ -26,7 +26,7 @@ apply to **explicit legacy compatibility** after old-firmware rejection. They do
 define protected machine settlement. Machine mode works independently of human output
 mode and waits for typed LINK_OK, never DELIVERY telemetry. Final file completion still
 requires verified remote RESULT, durable publication and the completed tombstone.
-The recursive repair prototype uses FT1 version 2, expanded META/END and internal
+The current recursive protocol uses FT1 version 3, expanded META/END and internal
 missing-list files. DATA capacity remains unchanged. Midstream repair and the
 FT1 FLOW/CAPS/QUERY extension remain deferred. Machine QUERY is local.
 
@@ -36,6 +36,11 @@ cancel event: the outcome stays `remote_failed` and the sender journal is retain
 Owned pipeline cleanup/drain still runs; an ambiguous drain retains the lease and
 a secondary cleanup error does not replace the original remote failure. A backend
 that ignores the supplied stop signal keeps its own blocking-call limitation.
+
+Concurrent final publications use a POSIX namespace lock and reserve names in
+durable publishing manifests. A second file receives a distinct name, e.g.
+`file (1).bin`; exclusive hard-link publication protects even an already occupied
+name. The publishing destination remains stable across restart.
 
 The current experimental implementation lives on `dev_tui_exp_recursive_missing`.
 The completed stage8 baseline remains on `dev_tui`. The authoritative firmware
@@ -547,7 +552,7 @@ Host-side repair must create a **new firmware USER transaction** carrying the sa
 
 ---
 
-## 9. FT1 v2 common header
+## 9. FT1 v3 common header
 
 Every FT1 message is raw bytes carried inside one BINARY USER payload.
 
@@ -558,7 +563,7 @@ The common header is exactly 12 bytes:
 ```text
 offset  size  field
 0       2     magic = ASCII "FT"
-2       1     version = 2
+2       1     version = 3
 3       1     message_type
 4       8     transfer_id (uint64)
 ```
@@ -600,6 +605,7 @@ original_sha256    32 bytes
 filename_len       uint8
 parent_transfer_id uint64 (0 for ROOT)
 depth              uint8 (ROOT=0; service=1..8)
+previous_repair_id  uint64 (ROOT=0; service answers parent END repair_id)
 filename           filename_len UTF-8 bytes
 ```
 
@@ -611,14 +617,20 @@ Compression values:
 ```
 
 With a 243-byte BINARY USER capacity, the maximum META filename payload is currently
-170 UTF-8 bytes.
+162 UTF-8 bytes.
 
 META is deliberately idempotent:
 
 - identical META for the same `transfer_id` is a replay, not a new transfer;
-- conflicting META for an existing `transfer_id` is a protocol error.
+- conflicting META for an existing `transfer_id` is rejected as `invalid_metadata` without changing the existing context.
 
 ---
+
+A service META must match the parent's latest END repair_id through
+previous_repair_id. One latest child META provides replay acknowledgment; older
+children fail the link check and do not enqueue repair. Both ST endpoints use v3;
+v1/v2 wire frames are rejected, while ROOT byte identities and DATA capacity remain
+unchanged. MRF2 list format is unchanged.
 
 ## 11. Compression and source preparation
 
@@ -1578,3 +1590,20 @@ and then proceeds, while F2/F3 can preempt the transfer for device/profile chang
 Target-changing preemption uses a fresh ManagedSession so pending FT1 TX from the old
 target is not retried against the new device. Ctrl+C keeps the terminal's normal quit
 semantics.
+
+## FT1 host metadata bounds
+
+Host metadata resource policy: received chunks are stored as canonical intervals,
+not one dictionary entry per chunk. Defaults are65,536 received intervals and4 MiB
+per JSON manifest; manager constructor overrides are `max_received_ranges` and
+`max_manifest_bytes`. A fragment that would exceed the interval limit fails with
+`storage_failed` before writing that DATA, preserving the useful partial and map.
+Large manifest reads are bounded and oversized documents are not accepted/written.
+LIST has at most `max_received_ranges + 1` ranges, validated before allocation;
+service META size is bounded by that representation before decompression. These
+limits do not cap sequential file size or the number of successful repair cycles.
+
+Within a live ROOT each creator allocates monotonic child IDs from a random seed;
+ROOT receiver uses odd IDs and ROOT sender even IDs. Durable IDs and live contexts
+are skipped, and creation is protected by namespace lock plus outgoing lease.
+This permits bounded replay history without reusing evicted child identities.

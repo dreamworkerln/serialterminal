@@ -589,11 +589,16 @@ Base64 exists only on the local controller boundary. The LoRa BINARY USER and FT
 transport payload are raw bytes up to the profile-advertised capacity (currently 243
 bytes for Chatter).
 
-The experimental coordinator uses FT1 v2 and requires both host endpoints updated.
+The experimental coordinator uses FT1 v3 and requires both host endpoints updated.
 DATA remains transfer_id + uint32 chunk_index, with227 payload bytes at capacity243.
 After END, the receiver sends the full missing list back as an internal FT1 file;
 that service file can itself be repaired recursively. META carries parent_transfer_id
 and depth; END carries repair_id, the child-list identity for that selective pass.
+Service META also carries previous_repair_id: it must answer the parent's latest
+END repair_id. Each parent holds at most one queued verified repair request and
+one completed child META for replay; older children are rejected after eviction by
+this link. Slow useful progress has no total cycle limit. Settled ROOT frames retire;
+retained terminal records and completed tombstones own late completion replies.
 ROOT retains the external lease, with one active leaf and one transport/outbox.
 Parent control/idle waits pause during children. Services are not public downloads.
 
@@ -614,7 +619,17 @@ There is no overall3600 s deadline or fixed8-cycle repair cap in this coordinato
 Unanswered idle control remains bounded by interval/max_control_replays. No per-DATA
 FT1 ACK, midstream watchdog, PHY retries or LoRa SACK is implemented.
 
-Explicit file_send_start with unchanged source reuses a matching ROOT journal/ID.
+Explicit file_send_start with unchanged source reuses a matching resumable ROOT
+journal/ID. Remote wire/original hash, decompression, invalid_chunk quarantine and
+invalid_metadata identity failures durably mark the journal terminal, so the next
+explicit start allocates a fresh ID. Other resumable timeout/restart outcomes keep
+the existing identity; remote_code is preserved even for early META rejection.
+Concurrent final files sharing a basename are published under distinct names through
+POSIX namespace coordination, durable publishing-intent reservation and exclusive
+publication. Existing final files are never overwritten. RX restore rolls durable
+and runtime state back before releasing its lease; failed durable rollback keeps
+admission blocked. Invalid cancel IDs return invalid_transfer_id.
+
 Restart does not restore a nested stack: durable ROOT resume builds a fresh context.
 Drain ambiguity retains ownership; close the session before new work. No new JSONL
 configuration operation is introduced. Constructor policy defaults and exact wire
@@ -1095,3 +1110,20 @@ printing a traceback. Cleanup attempts all resources independently; cleanup fail
 are logged as errors. A fatal CLI/frontend error outside a recoverable TUI action
 returns1 with a short log-path notice, without traceback text on stderr. Ctrl+C at the
 CLI boundary returns130. Neither Python catch nor cleanup can run after SIGKILL.
+
+## FT1 host metadata bounds
+
+Host metadata resource policy: received chunks are stored as canonical intervals,
+not one dictionary entry per chunk. Defaults are65,536 received intervals and4 MiB
+per JSON manifest; manager constructor overrides are `max_received_ranges` and
+`max_manifest_bytes`. A fragment that would exceed the interval limit fails with
+`storage_failed` before writing that DATA, preserving the useful partial and map.
+Large manifest reads are bounded and oversized documents are not accepted/written.
+LIST has at most `max_received_ranges + 1` ranges, validated before allocation;
+service META size is bounded by that representation before decompression. These
+limits do not cap sequential file size or the number of successful repair cycles.
+
+Within a live ROOT each creator allocates monotonic child IDs from a random seed;
+ROOT receiver uses odd IDs and ROOT sender even IDs. Durable IDs and live contexts
+are skipped, and creation is protected by namespace lock plus outgoing lease.
+This permits bounded replay history without reusing evicted child identities.

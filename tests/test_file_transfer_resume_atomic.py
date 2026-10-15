@@ -376,3 +376,143 @@ def test_manager_close_during_sender_claim_rolls_back(tmp_path):
         assert manager._active_id is None and manager._records == {}
     finally:
         manager.close()
+
+
+@pytest.mark.parametrize("failure_at", ["after_checkpoint", "restart_after_mutation"])
+def test_rx_restore_post_checkpoint_failure_rolls_back_durable_and_runtime(tmp_path, monkeypatch, failure_at):
+    manager = FileTransferManager(CaptureTransport(), receive_dir=tmp_path)
+    try:
+        meta, chunks = failed_receiver(manager)
+        record = manager._records[meta.transfer_id]
+        before = record.snapshot()
+        manifest = manager._resume_store.read_json(manager._resume_store.incoming_manifest(meta.transfer_id))
+        original_checkpoint = manager._checkpoint_incoming
+        original_restart = manager._restart_record
+        if failure_at == "after_checkpoint":
+            def checkpoint(*args, **kwargs):
+                original_checkpoint(*args, **kwargs)
+                raise OSError("after successful checkpoint")
+            monkeypatch.setattr(manager, "_checkpoint_incoming", checkpoint)
+        else:
+            def restart(*args, **kwargs):
+                original_restart(*args, **kwargs)
+                raise OSError("after runtime mutation")
+            monkeypatch.setattr(manager, "_restart_record", restart)
+        manager._handle_meta(meta)
+        assert manager._resume_store.read_json(manager._resume_store.incoming_manifest(meta.transfer_id)) == manifest
+        assert record.snapshot() == before
+        assert manager._active_id is None and manager._incoming is None
+        assert manager._records[meta.transfer_id] is record
+        assert manager._resume_store.incoming_part(meta.transfer_id).read_bytes() == chunks[0]
+        monkeypatch.undo()
+        manager._handle_meta(meta)
+        assert manager._incoming_for(meta.transfer_id) is not None
+        assert manager._records[meta.transfer_id] is record
+    finally:
+        manager.close()
+
+
+def test_rx_restore_durable_rollback_failure_does_not_release_owner(tmp_path, monkeypatch):
+    manager = FileTransferManager(CaptureTransport(), receive_dir=tmp_path)
+    try:
+        meta, _ = failed_receiver(manager)
+        releases = []
+        manager.claim_transfer = lambda *args: None
+        manager.release_transfer = lambda *args: releases.append(args)
+        def restart(*args, **kwargs):
+            raise OSError("runtime publication failed")
+        def rollback(*args, **kwargs):
+            raise OSError("durable rollback failed")
+        monkeypatch.setattr(manager, "_restart_record", restart)
+        monkeypatch.setattr(manager._resume_store, "atomic_json", rollback)
+        manager._handle_meta(meta)
+        assert manager._active_id == meta.transfer_id
+        assert not releases
+        assert manager._incoming is None
+        with pytest.raises(core.FileTransferError) as caught:
+            manager._reserve_record(999, direction="TX", filename="x")
+        assert caught.value.code == "file_transfer_busy"
+        events = manager.observe(meta.transfer_id)["events"]
+        assert any(item["kind"] == "resume_rollback_failed" for item in events)
+    finally:
+        manager.close()
+
+
+@pytest.mark.parametrize("remote_code", ["wire_hash_mismatch", "original_hash_mismatch", "decompression_failed", "invalid_chunk", "invalid_metadata"])
+def test_terminal_peer_identity_failure_allocates_fresh_id_on_explicit_retry(tmp_path, remote_code):
+    source = tmp_path / "source.bin"
+    source.write_bytes(random.Random(30).randbytes(227 * 3))
+    transport = CaptureTransport()
+    ids = itertools.count(10000)
+    manager = FileTransferManager(transport, receive_dir=tmp_path / "state", id_factory=lambda: next(ids))
+    reject = [True]
+    def receive(message):
+        if isinstance(message, MetaMessage):
+            if reject[0]:
+                response = ResultMessage(message.transfer_id, False, remote_code, "terminal identity rejected")
+            else:
+                response = ResultMessage(message.transfer_id, True, "ok", "")
+            transport.receiver(encode_message(response, 243))
+    transport.on_send = receive
+    try:
+        first = manager.start_send(source)
+        first_id = int(first["transfer_id"], 16)
+        assert wait_until(lambda: manager._records[first_id].state == "failed")
+        manager.join_all(1)
+        journal = manager._resume_store.read_json(manager._resume_store.outgoing_manifest(first_id))
+        assert journal["status"] == "terminal"
+        assert journal["terminal_remote_code"] == remote_code
+        assert manager._records[first_id].failure["details"]["remote_code"] == remote_code
+        reject[0] = False
+        second = manager.start_send(source)
+        assert second["transfer_id"] != first["transfer_id"]
+        assert not second.get("resumed", False)
+        second_id = int(second["transfer_id"], 16)
+        assert wait_until(lambda: manager._records[second_id].state == "completed")
+    finally:
+        manager.close()
+
+
+@pytest.mark.parametrize("failure_code", ["wire_hash_mismatch", "original_hash_mismatch"])
+def test_real_quarantined_receiver_retry_uses_fresh_id_and_publishes_once(tmp_path, failure_code):
+    from dataclasses import replace
+
+    source = tmp_path / "source.bin"
+    expected = random.Random(82).randbytes(227 * 6)
+    source.write_bytes(expected)
+    left, right = CaptureTransport(), CaptureTransport()
+    ids = itertools.count(8000)
+    tx = FileTransferManager(left, receive_dir=tmp_path / "tx", id_factory=lambda: next(ids), resume_handshake_timeout_s=.01)
+    rx = FileTransferManager(right, receive_dir=tmp_path / "rx", id_factory=lambda: next(ids), resume_handshake_timeout_s=.01)
+    corrupt = [True]
+    def send(message):
+        if corrupt[0] and failure_code == "original_hash_mismatch" and isinstance(message, MetaMessage):
+            digest = message.original_sha256
+            message = replace(message, original_sha256=bytes([digest[0] ^ 1]) + digest[1:])
+        if corrupt[0] and failure_code == "wire_hash_mismatch" and isinstance(message, EndMessage):
+            digest = message.wire_sha256
+            message = replace(message, wire_sha256=bytes([digest[0] ^ 1]) + digest[1:])
+        right.receiver(encode_message(message, 243))
+    left.on_send = send
+    right.on_send = lambda message: left.receiver(encode_message(message, 243))
+    try:
+        first = tx.start_send(source)
+        first_id = int(first["transfer_id"], 16)
+        assert wait_until(lambda: tx._records[first_id].state == "failed")
+        tx.join_all(1)
+        assert rx._outbox.wait_idle(1)
+        assert tx._records[first_id].failure["details"]["remote_code"] == failure_code
+        assert rx._resume_store.load_incoming(first_id)[0]["status"] == "quarantined"
+        assert not (tmp_path / "rx" / source.name).exists()
+        corrupt[0] = False
+        second = tx.start_send(source)
+        second_id = int(second["transfer_id"], 16)
+        assert second_id != first_id
+        assert not second.get("resumed", False)
+        assert wait_until(lambda: tx._records[second_id].state == "completed")
+        assert (tmp_path / "rx" / source.name).read_bytes() == expected
+        assert len(list((tmp_path / "rx").glob("source*.bin"))) == 1
+        assert rx._resume_store.incoming_part(first_id).is_file()
+    finally:
+        tx.close()
+        rx.close()

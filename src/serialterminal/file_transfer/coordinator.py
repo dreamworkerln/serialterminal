@@ -12,6 +12,7 @@ class FileTransferManager(core.FileTransferManager):
     _incoming_for = recursive._incoming_for
     _await_remote_completion = recursive._await_remote_completion
     _start_list = recursive._start_list
+    _new_child_id = recursive._new_child_id
     _abort_recursive = recursive._abort_recursive
     _terminal_record_settled = recursive._terminal_record_settled
     cancel = recursive.cancel

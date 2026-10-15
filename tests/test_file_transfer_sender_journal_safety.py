@@ -1,6 +1,8 @@
 import hashlib
 import time
 
+import pytest
+
 from serialterminal.file_transfer import BinarySendReceipt, FileTransferManager
 
 
@@ -82,3 +84,36 @@ def test_manifest_filename_and_embedded_transfer_id_must_agree(tmp_path):
         assert started.get("resumed") is not True
     finally:
         manager.close()
+
+
+@pytest.mark.parametrize("timestamp", ["bad-timestamp", None, True, -1, float("nan"), float("inf"), 10 ** 400])
+def test_malformed_timestamp_is_skipped_before_candidate_selection(tmp_path, timestamp):
+    source = tmp_path / "source.bin"
+    source.write_bytes(b"checked source")
+    manager = FileTransferManager(_CaptureTransport(), receive_dir=tmp_path / "state")
+    try:
+        valid = _journal(source, transfer_id=0x1111)
+        malformed = {**_journal(source, transfer_id=0x2222), "updated": timestamp}
+        manager._resume_store.atomic_json(manager._resume_store.outgoing_manifest(0x1111), valid)
+        manager._resume_store.atomic_json(manager._resume_store.outgoing_manifest(0x2222), malformed)
+        candidate = manager._sender_resume_candidate(source)
+        assert candidate["parsed_transfer_id"] == 0x1111
+        assert manager._resume_store.outgoing_manifest(0x2222).is_file()
+    finally:
+        manager.close()
+
+
+@pytest.mark.parametrize("timestamp", ["bad-timestamp", None, True, -1, float("nan"), float("inf"), 10 ** 400])
+def test_reopened_store_handles_bad_timestamp_without_deleting_recent_journal(tmp_path, timestamp):
+    from serialterminal.file_transfer.resume_store import ResumeStateStore
+
+    source = tmp_path / "source.bin"
+    source.write_bytes(b"source identity")
+    root = tmp_path / "state" / ".serialterminal-state"
+    store = ResumeStateStore(root)
+    path = store.outgoing_manifest(0x2222)
+    malformed = {**_journal(source, transfer_id=0x2222), "updated": timestamp}
+    store.atomic_json(path, malformed)
+    reopened = ResumeStateStore(root)
+    assert path.is_file()
+    assert reopened.find_outgoing_for_source(source) == []

@@ -42,11 +42,10 @@ class _DurableResumeStateStore(ResumeStateStore):
         for directory in (path.parent, path.parent.parent, path.parent.parent.parent):
             _DurableResumeStateStore._fsync_directory(directory)
 
-    @staticmethod
-    def read_json(path: Path) -> dict[str, Any] | None:
+    def read_json(self, path: Path) -> dict[str, Any] | None:
         if path.is_symlink():
             return None
-        return ResumeStateStore.read_json(path)
+        return ResumeStateStore.read_json(self, path)
 
 
 """Public resumable FT1 manager with compatibility and identity guards."""
@@ -59,7 +58,8 @@ def initialize(self, *args: Any, **kwargs: Any) -> None:
     kwargs["_defer_start"] = True
     resumable.initialize(self, *args, **kwargs)
     self._resume_store = _DurableResumeStateStore(
-        self.receive_dir / ".serialterminal-state"
+        self.receive_dir / ".serialterminal-state",
+        max_received_ranges=self.max_received_ranges, max_manifest_bytes=self.max_manifest_bytes,
     )
     core.FileTransferManager._start_workers(self)
 
@@ -152,6 +152,7 @@ def _validated_sender_candidate(
     return candidate
 
 def _save_sender_journal(self, record, prepared, chunk_size: int) -> None:
+    self._resume_store.claim("outgoing", record.transfer_id)
     with self._lock:
         candidate = self._resume_candidates.get(record.transfer_id)
     if candidate is not None:
@@ -200,7 +201,14 @@ def _restore_incoming(self, meta: MetaMessage, *, existing=None):
     part = self._resume_store.incoming_part(meta.transfer_id)
     if part.is_symlink():
         return None
-    return resumable._restore_incoming(self, meta, existing=existing)
+    if not self._resume_store.incoming_manifest(meta.transfer_id).exists():
+        return None
+    acquired = self._resume_store.claim("incoming", meta.transfer_id)
+    try:
+        return resumable._restore_incoming(self, meta, existing=existing)
+    finally:
+        if acquired and self._active_id != meta.transfer_id:
+            self._resume_store.release("incoming", meta.transfer_id)
 
 def _start_new_incoming(self, meta: MetaMessage) -> None:
     part = self._resume_store.incoming_part(meta.transfer_id)
@@ -309,6 +317,26 @@ def _replay_completed_end(self, message: EndMessage) -> bool:
     return True
 
 def _terminal_record(self, record, state: str, **kwargs: Any) -> None:
+    failure = kwargs.get("failure")
+    remote_code = failure.details.get("remote_code") if failure is not None else None
+    if (state == "failed" and record.direction == "TX" and remote_code in {
+            "wire_hash_mismatch", "original_hash_mismatch", "decompression_failed",
+            "invalid_chunk", "invalid_metadata",
+    }):
+        journal = self._resume_store.read_json(self._resume_store.outgoing_manifest(record.transfer_id))
+        if journal is not None:
+            try:
+                self._resume_store.save_outgoing(record.transfer_id, {
+                    **journal, "status": "terminal", "terminal_remote_code": remote_code,
+                })
+                with self._lock:
+                    self._resume_candidates.pop(record.transfer_id, None)
+            except Exception as exc:
+                # Без durable classification нельзя снова автоматически выбрать
+                # этот ID. Ownership остаётся занятым до явного session close.
+                record.event("sender_terminal_checkpoint_failed", error=str(exc), remote_code=remote_code)
+                record.terminal("failed", failure=core.FileTransferError("local_ownership_unsettled", str(exc), phase="settling"))
+                return
     try:
         core.FileTransferManager._terminal_record(self, record, state, **kwargs)
     finally:

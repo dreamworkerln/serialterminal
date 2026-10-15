@@ -720,19 +720,27 @@ class SessionManager:
         with self._lock:
             # Повторная проверка закрывает race между двумя одновременными open.
             existing = self._device_sessions.get(device_key)
-            if existing is not None:
+            if existing is None:
+                self._sessions[session_id] = session
+                self._session_device_keys[session_id] = device_key
+                self._session_profiles[session_id] = terminal_profile.name
+                self._device_sessions[device_key] = session_id
+                if file_manager is not None:
+                    self._file_managers[session_id] = file_manager
+
+        if existing is not None:
+            # Unadmitted workers закрываются вне manager lock: callbacks close
+            # могут обращаться к session ownership под тем же lock.
+            try:
+                if file_manager is not None:
+                    file_manager.close()
+            finally:
                 transport.close()
-                raise AgentError(
-                    "device_busy",
-                    f"device is already owned by session {existing}",
-                    {"session": existing, "device_key": device_key},
-                )
-            self._sessions[session_id] = session
-            self._session_device_keys[session_id] = device_key
-            self._session_profiles[session_id] = terminal_profile.name
-            self._device_sessions[device_key] = session_id
-            if file_manager is not None:
-                self._file_managers[session_id] = file_manager
+            raise AgentError(
+                "device_busy",
+                f"device is already owned by session {existing}",
+                {"session": existing, "device_key": device_key},
+            )
 
         self._start_event_logger(session_id, session)
         try:

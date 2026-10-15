@@ -217,6 +217,12 @@ pipeline waits. Это `remote_failed`, не operator cancel: sender journal о�
 удерживает lease до session close. Backend, игнорирующий stop signal, сохраняет
 свои ограничения на blocking call.
 
+Terminal remote integrity/quarantine/invalid_metadata errors переводят sender
+journal в terminal: следующая explicit отправка получает новый ID. Timeout/restart
+сохраняют same-ID resume. RX restore rollback предшествует release; неудачный
+rollback удерживает ownership. Concurrent итоговые файлы с одним basename
+сохраняются под разными именами, publishing intent резервирует имя до tombstone.
+
 ### Persistent receiver state
 
 Receiver durable state хранится под configured receive directory:
@@ -253,7 +259,11 @@ file_send_start(path)
 
 `RESUME_FROM` — coarse earliest-missing cursor, а существующий `MISSING` остаётся exact final selective repair. Это не firmware ACK и не LoRa SACK. Per-DATA FT1 ACK нет.
 
-Текущий recursive coordinator использует FT1 v2: оба ST endpoint должны обновляться вместе. Совместимость с v1 не требуется. RESUME ожидание остаётся bounded. Invalid resume cursor за `chunk_count` считается protocol failure.
+LIST META несёт previous_repair_id и отвечает на последний END родителя. Replay
+cache хранит одну последнюю child META; старый LIST после eviction не запускает
+repair. У родителя один queued verified request; число полезных циклов не ограничено.
+
+Текущий recursive coordinator использует FT1 v3: оба ST endpoint должны обновляться вместе. Совместимость wire с v1/v2 не требуется. RESUME ожидание остаётся bounded. Invalid resume cursor за `chunk_count` считается protocol failure.
 
 Следи за состояниями/событиями вроде:
 
@@ -376,3 +386,8 @@ Ctrl+C завершает работу без traceback в терминал. Tim
 пачками256 отдельным writer (очередь максимум8), close дописывает остаток. После
 SIGKILL ранее flushed данные остаются, незаписанный хвост может отсутствовать;
 не считай такой trace полным. Writer failure виден в app log. Подробности в AGENT_API.md.
+
+FT1 host metadata по умолчанию ограничены65 536 received ranges и manifest4 МиБ;
+LIST — максимум65 537 ranges. Последовательный файл не хранит запись на каждый
+chunk. Превышение range budget сохраняет полезный partial и даёт storage_failed;
+не считать такой отказ успешным completion и не удалять partial вручную.

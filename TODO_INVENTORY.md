@@ -509,7 +509,7 @@ lifecycle fixes and independent re-review remain required.
 
 ### TODO_043 — [todos/TODO_043_FT1_RECURSIVE_LIFECYCLE_REVIEW_FIXES.md](todos/TODO_043_FT1_RECURSIVE_LIFECYCLE_REVIEW_FIXES.md)
 
-Status: OPEN / CRITICAL / IMPLEMENTATION AND FIX VALIDATION OPEN
+Status: IMPLEMENTED / LOCAL VALIDATION PASS / CI AND RE-REVIEW OPEN
 
 Finding checkpoint: `dev_tui_exp_recursive_missing@8cf689e0edd286ac9e48df9ab3c6990fc1bf0f79`, base `fd94bdeb1fd878e072b0f852b3e8f461d928e3cd`; follow-up independent review received 2026-10-13 reconfirms all six findings from `cb891540451df7c864a40d06618213f10235477a`. Verdict: RED / do not merge this checkpoint into dev_tui.
 
@@ -530,6 +530,13 @@ by F016, while the remaining memory/queue/LIST boundaries stay in TODO_043.
 No fix or validation status changed during this documentation-only breakdown.
 
 ## Additional numbered-review follow-ups
+
+Current implementation (2026-10-15, base dbc3e10): F001–F014 host fixes and
+permanent regressions implemented; bounded interval/manifest/LIST state completes
+the remaining S2 memory policy. Targeted suites71+61 PASS, final full isolated-cache suite720 PASS/83.86s.
+Historical RED verdicts above are preserved for their original revisions; an
+independent post-fix review remains open. Runtime retention and uint32 admission
+continue as TODO_044 and TODO_045. No hardware/push/merge.
 
 ### TODO_044 — [todos/TODO_044_FT1_LIVE_DURABLE_RETENTION.md](todos/TODO_044_FT1_LIVE_DURABLE_RETENTION.md)
 

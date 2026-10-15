@@ -68,7 +68,7 @@ class ChatterMachineClient:
     def _bootstrap(self) -> None:
         try:
             with self.operation_lock:
-                self._negotiate(time.monotonic()+5.0)
+                self._negotiate(time.monotonic()+5.0, self.closed)
         except BinaryUserError as exc:
             with self.condition:
                 self.error=exc; self.mode="failed"; self.condition.notify_all()
@@ -105,7 +105,7 @@ class ChatterMachineClient:
                 return None
             if self.error is not None and self.error.code in {
                 "machine_owner_busy", "machine_negotiation_timeout",
-                "local_tx_timeout", "local_tx_unknown", "local_disconnect",
+                "local_tx_timeout", "local_tx_unknown", "local_disconnect", "cancelled",
             }:
                 return self.error.code
             return None
@@ -122,27 +122,37 @@ class ChatterMachineClient:
         with self.condition:
             self.mode="negotiating"; self.error=None; self.hello_busy=False
             self.generation=self.legacy._generation()
-        while True:
-            if self.closed.is_set() or (cancel_event is not None and cancel_event.is_set()): raise BinaryUserCancelled()
-            self._write(Frame(Kind.HELLO,0,self.hello_request,self.nonce.to_bytes(8,"little")),deadline,cancel_event,boundary=True)
+        try:
+            while True:
+                if self.closed.is_set() or (cancel_event is not None and cancel_event.is_set()): raise BinaryUserCancelled()
+                self._write(Frame(Kind.HELLO,0,self.hello_request,self.nonce.to_bytes(8,"little")),deadline,cancel_event,boundary=True)
+                with self.condition:
+                    while self.mode == "negotiating" and not self.hello_busy:
+                        if self.closed.is_set() or (cancel_event is not None and cancel_event.is_set()): raise BinaryUserCancelled()
+                        remaining=deadline-time.monotonic()
+                        if remaining <= 0: raise BinaryUserError("machine_negotiation_timeout","no protected WELCOME or explicit legacy rejection")
+                        self.condition.wait(min(remaining,0.1))
+                    if self.hello_busy:
+                        remaining=deadline-time.monotonic()
+                        if remaining <= 0: raise BinaryUserError("machine_owner_busy","old machine owner did not settle before deadline")
+                        # HELLO не выпускает RF; старый owner может ещё завершать ACK.
+                        # HELLO не выпускает RF; старый owner может ещё завершать ACK.
+                        self.condition.wait(min(remaining,0.1))
+                        if time.monotonic() >= deadline:
+                            raise BinaryUserError("machine_owner_busy", "old machine owner did not settle before deadline")
+                        self.hello_busy=False
+                        continue
+                    if self.error is not None: raise self.error
+                    self.negotiated_generation=self.legacy._generation()
+                    return
+        except BinaryUserError as exc:
+            # Каждый owner HELLO завершает своё negotiating state, включая
+            # foreground retry/cancel; иначе следующий owner ждёт фантомный loop.
             with self.condition:
-                while self.mode == "negotiating" and not self.hello_busy:
-                    if self.closed.is_set() or (cancel_event is not None and cancel_event.is_set()): raise BinaryUserCancelled()
-                    remaining=deadline-time.monotonic()
-                    if remaining <= 0: raise BinaryUserError("machine_negotiation_timeout","no protected WELCOME or explicit legacy rejection")
-                    self.condition.wait(min(remaining,0.1))
-                if self.hello_busy:
-                    remaining=deadline-time.monotonic()
-                    if remaining <= 0: raise BinaryUserError("machine_owner_busy","old machine owner did not settle before deadline")
-                    # HELLO не выпускает RF; старый owner может ещё завершать ACK.
-                    self.condition.wait(min(remaining,0.1))
-                    if time.monotonic() >= deadline:
-                        raise BinaryUserError("machine_owner_busy", "old machine owner did not settle before deadline")
-                    self.hello_busy=False
-                    continue
-                if self.error is not None: raise self.error
-                self.negotiated_generation=self.legacy._generation()
-                return
+                self.error = exc
+                self.mode = "failed"
+                self.condition.notify_all()
+            raise
 
     def _ready(self, deadline: float, cancel_event=None) -> None:
         with self.condition:

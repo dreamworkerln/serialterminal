@@ -135,3 +135,27 @@ def test_nonbusy_hello_rejection_is_not_automatically_retried():
         assert all(frame.kind == Kind.HELLO for frame in node.frames)
     finally:
         client.close()
+
+
+@pytest.mark.parametrize("failure", ["busy", "cancel"])
+def test_failed_foreground_negotiation_releases_negotiating_state(monkeypatch, failure):
+    from serialterminal.file_transfer.transport import BinaryUserCancelled
+
+    client, node, busy = busy_node(monkeypatch)
+    try:
+        with pytest.raises(BinaryUserError):
+            client._ready(time.monotonic() + .03)
+        assert client.mode == "failed"
+        signal = threading.Event()
+        if failure == "cancel":
+            signal.set()
+        with pytest.raises(BinaryUserCancelled if failure == "cancel" else BinaryUserError):
+            client._ready(time.monotonic() + .03, signal)
+        assert client.mode == "failed"
+        busy.clear()
+        signal.clear()
+        assert client.send_binary(b"new META").tx_id is not None
+        assert client.mode == "machine"
+        assert sum(frame.kind == Kind.SUBMIT for frame in node.frames) == 1
+    finally:
+        client.close()

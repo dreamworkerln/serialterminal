@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+from .received import ReceivedRanges, DEFAULT_MAX_RECEIVED_RANGES, DEFAULT_MAX_MANIFEST_BYTES
+
 from collections import deque
 import os
 import queue
@@ -46,6 +48,8 @@ def initialize(
     resume_handshake_timeout_s: float | None = None,
     resume_checkpoint_chunks: int = FILE_RESUME_CHECKPOINT_CHUNKS,
     resume_checkpoint_s: float = FILE_RESUME_CHECKPOINT_S,
+    max_received_ranges: int = DEFAULT_MAX_RECEIVED_RANGES,
+    max_manifest_bytes: int = DEFAULT_MAX_MANIFEST_BYTES,
     **kwargs: Any,
 ) -> None:
     if local_recovery_timeout_s <= 0 or local_recovery_retry_s <= 0:
@@ -54,6 +58,10 @@ def initialize(
         raise ValueError("resume_handshake_timeout_s must be positive")
     if resume_checkpoint_chunks <= 0 or resume_checkpoint_s <= 0:
         raise ValueError("resume checkpoint policy must be positive")
+    if type(max_received_ranges) is not int or max_received_ranges < 1 or type(max_manifest_bytes) is not int or max_manifest_bytes < 1:
+        raise ValueError("metadata resource limits must be positive integers")
+    self.max_received_ranges = max_received_ranges
+    self.max_manifest_bytes = max_manifest_bytes
     self.local_recovery_timeout_s = float(local_recovery_timeout_s)
     self.local_recovery_retry_s = float(local_recovery_retry_s)
     self.resume_handshake_timeout_s = None if resume_handshake_timeout_s is None else float(resume_handshake_timeout_s)
@@ -62,7 +70,8 @@ def initialize(
     self._suspended_ids: deque[int] = deque(maxlen=32)
     core.FileTransferManager.__init__(self, transport, **kwargs)
     self._resume_store = ResumeStateStore(
-        self.receive_dir / ".serialterminal-state"
+        self.receive_dir / ".serialterminal-state",
+        max_received_ranges=max_received_ranges, max_manifest_bytes=max_manifest_bytes,
     )
 
 # TODO_035: same-process local controller recovery -----------------
@@ -266,6 +275,8 @@ def _chunk_count(meta: MetaMessage) -> int:
     return 0 if meta.wire_size == 0 else math.ceil(meta.wire_size / meta.chunk_size)
 
 def _earliest_missing(incoming) -> int:
+    if isinstance(incoming.received, ReceivedRanges):
+        return next(incoming.received.missing(incoming.record.chunks_total), (incoming.record.chunks_total, 0))[0]
     for index in range(incoming.record.chunks_total):
         if index not in incoming.received:
             return index
@@ -298,7 +309,24 @@ def _restore_incoming(self, meta: MetaMessage, *, existing=None):
             event_retention=self.event_retention, event_sink=self.event_sink,
         )
         self._active_id = meta.transfer_id
+    absent = object()
+    with record._condition:
+        previous_runtime = {
+            name: getattr(record, name, absent) for name in (
+                "failure", "final_path", "ended_monotonic", "started_monotonic",
+                "remote_result", "remote_resume", "control_overflow", "state",
+                "rx_meta", "original_bytes", "wire_bytes", "chunks_total",
+                "bytes_completed", "chunks_completed",
+            )
+        }
+        previous_cancelled = record.cancel_event.is_set()
+        previous_remote_failed = record.remote_failure_event.is_set()
+        previous_missing = record.remote_missing.copy()
+    previous_terminal_order = tuple(self._terminal_order)
+    previous_suspended_ids = tuple(self._suspended_ids)
+    checkpoint_attempted = False
     claimed = False
+    incoming = None
     try:
         incoming = core._IncomingState(
             meta=meta, record=record, wire_path=part, received=received,
@@ -316,6 +344,7 @@ def _restore_incoming(self, meta: MetaMessage, *, existing=None):
         claimed = True
         if self._stopping.is_set():
             raise core.FileTransferError("local_shutdown", "manager closed during RX restore")
+        checkpoint_attempted = True
         self._checkpoint_incoming(incoming, force=True)
         if self._stopping.is_set():
             raise core.FileTransferError("local_shutdown", "manager closed during RX checkpoint")
@@ -329,7 +358,7 @@ def _restore_incoming(self, meta: MetaMessage, *, existing=None):
                 record.original_bytes = meta.original_size
                 record.wire_bytes = meta.wire_size
                 record.chunks_total = self._chunk_count(meta)
-                record.bytes_completed = sum(received.values())
+                record.bytes_completed = received.byte_count
                 record.chunks_completed = len(received)
             self._records[meta.transfer_id] = record
             self._incoming = incoming
@@ -340,6 +369,41 @@ def _restore_incoming(self, meta: MetaMessage, *, existing=None):
             except ValueError:
                 pass
     except Exception:
+        # Rollback возвращает ранее опубликованную runtime truth; history и
+        # cursor не откатываются и не переиспользуются. Durable rollback идёт
+        # до release, чтобы другой owner не увидел фантомный receiving state.
+        with self._lock:
+            if self._incoming is incoming:
+                self._incoming = None
+            if existing is None and self._records.get(meta.transfer_id) is record:
+                self._records.pop(meta.transfer_id, None)
+            with record._condition:
+                for name, value in previous_runtime.items():
+                    if value is absent:
+                        if hasattr(record, name):
+                            delattr(record, name)
+                    else:
+                        setattr(record, name, value)
+                record.cancel_event.set() if previous_cancelled else record.cancel_event.clear()
+                record.remote_failure_event.set() if previous_remote_failed else record.remote_failure_event.clear()
+                record.remote_missing.clear()
+                record.remote_missing.extend(previous_missing)
+                record._condition.notify_all()
+            self._terminal_order.clear()
+            self._terminal_order.extend(previous_terminal_order)
+            self._suspended_ids.clear()
+            self._suspended_ids.extend(previous_suspended_ids)
+        if checkpoint_attempted:
+            try:
+                self._resume_store.atomic_json(self._resume_store.incoming_manifest(meta.transfer_id), payload)
+            except Exception as exc:
+                with self._lock:
+                    self._records[meta.transfer_id] = record
+                failure = core.FileTransferError("local_ownership_unsettled", str(exc), phase="resuming")
+                record.event("resume_rollback_failed", error=str(exc), durable_rollback=True)
+                if existing is None:
+                    record.terminal("failed", failure=failure)
+                raise failure from exc
         try:
             if claimed:
                 self._release(record.transfer_id, record.direction)
@@ -479,7 +543,7 @@ def _handle_meta(self, meta: MetaMessage) -> None:
                     return
         self._reject_incoming(
             meta.transfer_id,
-            "protocol_error",
+            "invalid_metadata",
             "conflicting META for existing transfer_id",
         )
         return
@@ -526,6 +590,7 @@ def _start_new_incoming(self, meta: MetaMessage) -> None:
                 "stale/corrupt durable resume state already exists for transfer_id",
                 phase="receiving",
             )
+        self._resume_store.claim("incoming", meta.transfer_id)
         with part.open("xb"):
             pass
         created = True
@@ -535,11 +600,15 @@ def _start_new_incoming(self, meta: MetaMessage) -> None:
     except core.FileTransferError as exc:
         if created:
             part.unlink(missing_ok=True)
+        if self._active_id != meta.transfer_id:
+            self._resume_store.release("incoming", meta.transfer_id)
         self._reject_incoming(meta.transfer_id, exc.code, exc.message)
         return
     except OSError as exc:
         if created:
             part.unlink(missing_ok=True)
+        if self._active_id != meta.transfer_id:
+            self._resume_store.release("incoming", meta.transfer_id)
         self._reject_incoming(meta.transfer_id, "storage_failed", str(exc))
         return
 
@@ -554,7 +623,7 @@ def _start_new_incoming(self, meta: MetaMessage) -> None:
         meta=meta,
         record=record,
         wire_path=part,
-        received={},
+        received=ReceivedRanges(meta, maximum=self.max_received_ranges),
         last_activity_monotonic=time.monotonic(),
     )
     incoming._checkpoint_count = 0
@@ -649,25 +718,30 @@ def _handle_end(self, message: EndMessage) -> None:
 def _publish_verified(self, incoming, end: EndMessage, final_temp: Path) -> Path:
     with final_temp.open("rb") as handle:
         os.fsync(handle.fileno())
-    destination = getattr(incoming, "_publishing_destination", None)
-    if destination is None:
-        destination = core._unique_destination(self.receive_dir, incoming.record.filename)
-    # Один destination связывает intent, rename и tombstone. После intent
-    # не выбираем другое имя даже при прерывании попытки.
-    incoming._publishing_destination = destination
-    incoming._publishing_end = end
-    self._checkpoint_incoming(
-        incoming, status="publishing", force=True, end=end, destination=destination,
-    )
-    if destination.exists() or destination.is_symlink():
-        raise core.FileTransferError(
-            "storage_failed", "publishing destination is already occupied", phase="publishing",
+    with self._resume_store.publication_lock():
+        destination = getattr(incoming, "_publishing_destination", None)
+        if destination is None:
+            destination = core._unique_destination(self.receive_dir, incoming.record.filename,
+                                                   reserved=self._resume_store.reserved_destinations(incoming.record.filename))
+        # Один destination связывает intent, exclusive publication и tombstone. После intent
+        # не выбираем другое имя даже при прерывании попытки.
+        incoming._publishing_destination = destination
+        incoming._publishing_end = end
+        self._checkpoint_incoming(
+            incoming, status="publishing", force=True, end=end, destination=destination,
         )
-    os.replace(final_temp, destination)
-    self._fsync_directory(destination.parent)
-    self._resume_store.save_completed(meta=incoming.meta, end=end, final_path=destination)
-    incoming._publication_committed = True
-    return destination
+        if destination.exists() or destination.is_symlink():
+            raise core.FileTransferError(
+                "storage_failed", "publishing destination is already occupied", phase="publishing",
+            )
+        # Даже writer вне ST lock не может быть перезаписан: link требует
+        # отсутствующего destination. Оба path находятся на одной filesystem.
+        os.link(final_temp, destination)
+        final_temp.unlink()
+        self._fsync_directory(destination.parent)
+        self._resume_store.save_completed(meta=incoming.meta, end=end, final_path=destination)
+        incoming._publication_committed = True
+        return destination
 
 def _cleanup_published(self, incoming) -> None:
     try:
@@ -928,6 +1002,7 @@ def _finish_early_result(self, record, result: ResultMessage) -> None:
             "remote_failed",
             result.reason or result.code,
             phase="resuming",
+            details={"remote_code": result.code},
         )
     self._resume_store.delete_outgoing(record.transfer_id)
     self._terminal_record(record, "completed")
@@ -1007,5 +1082,10 @@ def close(self) -> None:
         self._outbox.close(1.0)
         self.join_all(1.0)
         shutdown = getattr(self.transport, "close", None)
-        if callable(shutdown):
-            shutdown()
+        try:
+            if callable(shutdown):
+                shutdown()
+        finally:
+            if (not self._rx_thread.is_alive() and not self._outbox.worker.is_alive()
+                    and not any(record._thread is not None and record._thread.is_alive() for record in self._records.values())):
+                self._resume_store.release_all()

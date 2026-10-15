@@ -1,11 +1,11 @@
 # FT1: исправления lifecycle по ревью recursive missing
 
 TODO-ID: TODO_043
-Status: OPEN
+Status: IMPLEMENTED / LOCAL VALIDATION PASS / CI AND RE-REVIEW OPEN
 Priority: CRITICAL
 Created: 2026-10-13
-Implementation: NOT STARTED
-Validation: REVIEW FINDINGS RECORDED / FIX VALIDATION OPEN
+Implementation: HOST FIXES AND REGRESSION TESTS IMPLEMENTED
+Validation: HOST SOFTWARE 720 PASS / CI AND RE-REVIEW OPEN
 Self-review: 2026-10-13 / original six reproduced / eight additional findings
 Branch: `dev_tui_exp_recursive_missing`
 Review checkpoint: `8cf689e0edd286ac9e48df9ab3c6990fc1bf0f79`
@@ -778,3 +778,88 @@ Next action: перед отдельным стартом implementation уче�
 и закрепить publication/shared-storage design; исходный предложенный порядок
 3+4+5 → 1+2 → 6 требует включить новые findings, регрессии/stress, полный software
 gate и повторное независимое ревью.
+
+
+## Implementation design / current operator decisions — 2026-10-14
+
+Base: `dbc3e10`. Host-only scope; no firmware, hardware, push or merge.
+
+Accepted by operator: a service META links to its parent's previous repair_id;
+concurrent final files with one basename are both preserved under unique names.
+META's additional uint64 `previous_repair_id` changes the encoding, so FT1 wire
+version advances to3; both ST endpoints update together. DATA layout/capacity,
+MRF2 list encoding and END repair_id remain unchanged. Durable ROOT identities
+use previous_repair_id=0; no old/new wire compatibility is required.
+
+Replay design: service META must answer the parent's latest END repair_id. A
+parent admits only one child/request at a time. Its replay cache retains only the
+latest completed child META (one entry); older children fail the previous-repair
+link check after cache eviction. Valid slow progress has no total cycle cap.
+Publication design: reserve a free final name atomically, then keep exactly that
+name from durable intent through completed tombstone. A concurrent occupied name
+selects another unique name before publication intent. Active namespace cleanup
+coordination protects live-owned state. On 2026-10-15 the operator selected cyclic
+eviction of old inactive partials under storage pressure; runtime enforcement and
+write retry belong to TODO_044, with final user files excluded from eviction.
+
+Other implementation rules: rejected META never replaces a live frame; a valid
+matching END is deferred while its child TX settles, independent of local child
+RESULT presentation; parent idle elapsed excludes child duration and valid META
+refreshes activity. Settled ROOT frames retire without orphaning retained records;
+RX restore failures roll durable/runtime state back before releasing ownership.
+Integrity/quarantine failures must retire automatic sender candidates while
+resumable timeout/restart outcomes preserve their identity. Foreground negotiation
+owns exception/cancel rollback; failed open closes all unadmitted workers. Invalid
+cancel IDs and malformed journal timestamps stay normalized and non-destructive.
+
+Implementation and regression validation are in progress; no fix acceptance or
+new independent re-review is claimed by this design record.
+
+
+Implementation classification detail: remote wire_hash_mismatch,
+original_hash_mismatch, decompression_failed, invalid_chunk (quarantine) and
+invalid_metadata (including conflicting META identity) mark outgoing journals
+terminal before release. Generic protocol_error/storage/timeout outcomes are not
+blanket-classified terminal. Invalid_metadata identity rejection is explicit so
+classification does not parse human reason text. Failed classification persistence
+keeps admission owned. New FT1 v3 META filename budget at capacity243 is162 bytes.
+
+Interim regression suites: recursive/protocol/new lifecycle38 PASS; restore/restart
+26 PASS; restore/terminal identity/machine retry34 PASS; agent/journal new subset20
+PASS; publication suite17 PASS including cross-process auto-rename and durable
+name reservation. Interim full suite:693 PASS/1 FAIL (73.94s), a pre-existing observer
+startup-traffic race already recorded in the historical review. Two affected
+observer assertions now quiesce unrelated bootstrap and connected-state activity;
+expected assertions are preserved. Final full validation remains required.
+Observation skill and runners inspected for v2 layout/default dependencies: none
+found; no observation-workspace edits or physical runs performed.
+
+## Current implementation checkpoint — 2026-10-15
+
+The preceding historical RED verdicts remain evidence for their recorded revisions.
+Current work on base dbc3e10 implements F001–F014 with permanent regressions,
+including cross-process publication and leases, actual quarantined ROOT retry,
+delayed child RESULT with no extra control replay, repeated ROOT/frame retirement,
+5000 child settlements with one cached META and disjoint creator ID allocation.
+Active leases protect pre-manifest parts, suspended parents during recursive
+children and state of another process; adapter-close failure still releases leases
+only after workers stop. Internal-part-looking final filenames get a safe unique
+suffix so later orphan cleanup cannot delete a published user file.
+
+Operator resumed implementation after the proposed S2 policy: compact received
+intervals (default65,536), bounded manifest reads/writes (default4 MiB), bounded
+LIST ranges (received limit+1), explicit pre-write fragmentation failure retaining
+the map/partial. Sequential uint32-sized history restores into one interval; no
+chunk-index expansion is needed for resume progress, cursor, missing planning or
+complete END. These host limits are configurable on the manager constructor.
+Wire representability remains TODO_045; runtime cyclic eviction remains TODO_044.
+
+Targeted current suites: recursive/lifecycle/ownership/journal71 PASS (19.38s);
+intervals/atomic resume/protocol/path safety61 PASS (7.62s). Full isolated-cache local suite:720 PASS/83.86s. Independent post-fix review, CI and physical validation remain OPEN;
+no GREEN review, hardware result, push or merge is claimed.
+
+Additional lease-creation rollback regression covers failure before LIST publication.
+Additional recursive/negotiation suite31 PASS/6.43s; compileall and diff-check PASS. Source comment audit
+preserves the HELLO/RF invariant in its relocated negotiation loop.
+
+Exact implementation trees: src `ddb6695034bc4cd8f9917c024e033bd72705e967`; tests `f497f8bb1ba753790e30eeb8e135557b7f484fbb`.

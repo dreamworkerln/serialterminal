@@ -2,16 +2,19 @@ from __future__ import annotations
 
 from collections import deque
 from dataclasses import dataclass, field, replace
+import errno
 import os
+import secrets
 from pathlib import Path
 import struct
 import threading
 import time
 
 from . import core, manager, resumable
+from .received import ReceivedRanges, DEFAULT_MAX_RECEIVED_RANGES
 from .protocol import (
     EndMessage, FileProtocolError, MetaMessage, MissingMessage, MissingRange,
-    ResultMessage, canonical_missing_ranges, decode_message, parse_transfer_id,
+    ResultMessage, decode_message, parse_transfer_id,
     transfer_id_text, validate_missing_ranges,
 )
 
@@ -31,6 +34,9 @@ class _Frame:
     meta: MetaMessage | None = None
     incoming: object | None = None
     child_id: int | None = None
+    child_started_monotonic: float | None = None
+    previous_repair_id: int = 0
+    next_child_id: int | None = None
     request_id: int = 0
     previous_missing: int | None = None
     no_progress: int = 0
@@ -56,7 +62,7 @@ def write_missing_list(path, parent_id, ranges):
     return total
 
 
-def read_missing_list(path, parent_id, chunk_count, request_id):
+def read_missing_list(path, parent_id, chunk_count, request_id, *, max_ranges=DEFAULT_MAX_RECEIVED_RANGES + 1):
     with path.open('rb') as handle:
         header = handle.read(_LIST_HEADER.size)
         if len(header) != _LIST_HEADER.size:
@@ -64,7 +70,7 @@ def read_missing_list(path, parent_id, chunk_count, request_id):
         magic, actual_parent, total, count = _LIST_HEADER.unpack(header)
         if magic != _LIST_MAGIC or actual_parent != parent_id:
             raise FileProtocolError('missing-list magic/parent mismatch')
-        if not 0 < count <= total <= chunk_count:
+        if not 0 < count <= total <= chunk_count or count > max_ranges:
             raise FileProtocolError('missing-list count/total exceeds parent')
         if path.stat().st_size != _LIST_HEADER.size + count * _LIST_RANGE.size:
             raise FileProtocolError('missing-list length mismatch')
@@ -92,15 +98,27 @@ def initialize(self, *args, max_missing_percent=FILE_MAX_MISSING_PERCENT,
 
 
 def _claim(self, transfer_id, direction):
-    frame = self._recursive_frames.get(transfer_id)
-    if frame is None or not frame.parent_id:
-        core.FileTransferManager._claim(self, transfer_id, direction)
+    kind = "incoming" if direction == "RX" else "outgoing"
+    try:
+        acquired = self._resume_store.claim(kind, transfer_id)
+    except OSError as exc:
+        code = 'file_transfer_busy' if exc.errno == errno.EBUSY else 'storage_failed'
+        raise core.FileTransferError(code, str(exc), phase='preparing') from exc
+    try:
+        frame = self._recursive_frames.get(transfer_id)
+        if frame is None or not frame.parent_id:
+            core.FileTransferManager._claim(self, transfer_id, direction)
+    except Exception:
+        if acquired:
+            self._resume_store.release(kind, transfer_id)
+        raise
 
 
 def _release(self, transfer_id, direction):
     frame = self._recursive_frames.get(transfer_id)
     if frame is None or not frame.parent_id:
         core.FileTransferManager._release(self, transfer_id, direction)
+    self._resume_store.release("incoming" if direction == "RX" else "outgoing", transfer_id)
     if frame is not None:
         frame.settled = True
 
@@ -129,7 +147,8 @@ def _send_message_direct(self, message, *, cancel_event, deadline=None):
         with self._lock:
             frame = self._recursive_frames.get(message.transfer_id)
             if frame is not None:
-                message = replace(message, parent_transfer_id=frame.parent_id, depth=frame.depth)
+                message = replace(message, parent_transfer_id=frame.parent_id, depth=frame.depth,
+                                  previous_repair_id=frame.previous_repair_id)
                 frame.meta = message
     elif isinstance(message, EndMessage):
         with self._lock:
@@ -145,12 +164,17 @@ def _handle_meta(self, meta):
         if (existing_frame is not None and existing_frame.meta == meta and
                 existing_frame.record is not None and
                 existing_frame.record.state not in {'failed', 'cancelled', 'suspended'}):
+            if existing_frame.incoming is not None:
+                self._touch_incoming(existing_frame.incoming)
             if existing_frame.record.state == 'completed':
                 self._send_result_async(existing_frame.record, ResultMessage(meta.transfer_id, True, 'ok', ''))
             elif existing_frame.incoming is not None and existing_frame.child_id is None:
                 self._send_resume(existing_frame.incoming)
             return
         if meta.parent_transfer_id:
+            if meta.transfer_id in self._recursive_frames:
+                self._reject_incoming(meta.transfer_id, 'protocol_error', 'child identity collides with existing recursive context')
+                return
             parent = self._recursive_frames.get(meta.parent_transfer_id)
             if parent is not None and meta.transfer_id in parent.processed:
                 if parent.processed[meta.transfer_id] == meta:
@@ -158,11 +182,16 @@ def _handle_meta(self, meta):
                 else:
                     self._reject_incoming(meta.transfer_id, 'protocol_error', 'conflicting completed list identity')
                 return
-            if (parent is None or parent.record.direction != 'TX' or
+            root = _root_frame(self, meta.parent_transfer_id)
+            expected_parity = 1 if root is not None and root.record.direction == 'TX' else 0
+            if (root is None or meta.transfer_id % 2 != expected_parity or
+                    parent is None or parent.record.direction != 'TX' or
                     parent.record.state in core._TERMINAL_STATES or parent.last_end is None or
-                    parent.child_id is not None or meta.depth != parent.depth + 1 or
+                    parent.child_id is not None or parent.requests or
+                    meta.previous_repair_id != parent.last_end.repair_id or
+                    meta.depth != parent.depth + 1 or
                     meta.depth > self.max_recursion_depth or
-                    meta.original_size > _LIST_HEADER.size + _LIST_RANGE.size * parent.record.chunks_total):
+                    meta.original_size > _LIST_HEADER.size + _LIST_RANGE.size * min(parent.record.chunks_total, self.max_received_ranges + 1)):
                 self._reject_incoming(meta.transfer_id, 'protocol_error', 'unexpected missing-list parent/depth/size')
                 return
             # Родитель сохраняет внешний lease. Дочерний admission временно
@@ -181,6 +210,7 @@ def _handle_meta(self, meta):
                 frame.record = record
                 frame.incoming = self._incoming
                 parent.child_id = meta.transfer_id
+                parent.child_started_monotonic = time.monotonic()
                 parent.record.event('recursive_child_started', child_id=transfer_id_text(meta.transfer_id), depth=meta.depth)
                 with parent.record._condition:
                     parent.record._condition.notify_all()
@@ -199,23 +229,61 @@ def _handle_meta(self, meta):
             return
         manager._handle_meta(self, meta)
         record = self._records.get(meta.transfer_id)
-        if record is not None and record.state not in core._TERMINAL_STATES:
+        if (record is not None and record.direction == 'RX' and record.rx_meta == meta
+                and record.state not in core._TERMINAL_STATES and self._incoming is not None
+                and self._incoming.record is record and self._incoming.meta == meta):
             self._recursive_frames[meta.transfer_id] = _Frame(record, meta=meta, incoming=self._incoming)
             self._recursive_root_id = meta.transfer_id
 
 
+def _new_child_id(self, parent):
+    root = _root_frame(self, parent.record.transfer_id)
+    if root is None:
+        raise core.FileTransferError('protocol_error', 'missing recursive ROOT for child allocation')
+    if root.next_child_id is None:
+        # Два создателя LIST имеют разные parity; каждый идёт монотонно от
+        # свежего случайного seed. Eviction history не разрешает reuse своего ID.
+        parity = 1 if root.record.direction == 'RX' else 0
+        root.next_child_id = (secrets.randbits(63) << 1) | parity
+    for _ in range(100):
+        child_id = root.next_child_id
+        root.next_child_id += 2
+        if child_id > 0xFFFFFFFFFFFFFFFF:
+            raise core.FileTransferError('transfer_id_exhausted', 'recursive uint64 identity space exhausted')
+        if not child_id or child_id == root.record.transfer_id or child_id in self._records or child_id in self._recursive_frames:
+            continue
+        if any(path.exists() for path in (
+                self._resume_store.incoming_manifest(child_id),
+                self._resume_store.outgoing_manifest(child_id),
+                self._resume_store.completed_manifest(child_id),
+                self._resume_store.root / 'recursive' / f'{transfer_id_text(child_id)}.missing',
+        )):
+            continue
+        return child_id
+    raise core.FileTransferError('transfer_id_exhausted', 'could not allocate a free recursive identity')
+
+
 def _start_list(self, parent, ranges):
     with self._lock:
-        child_id = self._new_transfer_id_locked()
-        path = self._resume_store.root / 'recursive' / f'{transfer_id_text(child_id)}.missing'
-        path.parent.mkdir(parents=True, exist_ok=True)
-        total = write_missing_list(path, parent.record.transfer_id, ranges)
-        self._fsync_directory(path.parent)
+        with self._resume_store.namespace_lock():
+            child_id = self._new_child_id(parent)
+            self._resume_store.claim('outgoing', child_id)
+            path = self._resume_store.root / 'recursive' / f'{transfer_id_text(child_id)}.missing'
+            try:
+                path.parent.mkdir(parents=True, exist_ok=True)
+                total = write_missing_list(path, parent.record.transfer_id, ranges)
+                self._fsync_directory(path.parent)
+            except Exception:
+                path.unlink(missing_ok=True)
+                self._resume_store.release('outgoing', child_id)
+                raise
         record = core._TransferRecord(child_id, direction='TX', filename=path.name,
                                       event_retention=self.event_retention, event_sink=self.event_sink)
         self._records[child_id] = record
-        self._recursive_frames[child_id] = _Frame(record, parent_id=parent.record.transfer_id, depth=parent.depth + 1)
+        self._recursive_frames[child_id] = _Frame(record, parent_id=parent.record.transfer_id,
+                                                 depth=parent.depth + 1, previous_repair_id=parent.request_id)
         parent.child_id = child_id
+        parent.child_started_monotonic = time.monotonic()
         parent.request_id = child_id
         parent.record.set_state('repair_requested')
         parent.record.event('recursive_list_sent', child_id=transfer_id_text(child_id), depth=parent.depth + 1,
@@ -230,6 +298,7 @@ def _start_list(self, parent, ranges):
             self._recursive_frames.pop(child_id, None)
             self._records.pop(child_id, None)
             path.unlink(missing_ok=True)
+            self._resume_store.release('outgoing', child_id)
             raise
 
 
@@ -249,16 +318,16 @@ def _handle_end(self, message):
         # RESULT дочернего TX может разбудить peer раньше, чем локальный worker
         # освободит child context. Сохраняем только END этой ожидаемой досылки.
         child = self._recursive_frames.get(frame.child_id)
-        if child and child.record.direction == 'TX' and child.record.remote_result and child.record.remote_result.ok:
+        if child and child.record.direction == 'TX':
+            self._touch_incoming(incoming)
             frame.deferred_end = message
         return
-    missing = self._missing_indexes(incoming)
-    if not missing:
+    total = frame.record.chunks_total - len(incoming.received)
+    if not total:
         resumable._handle_end(self, message)
         return
     try:
         self._checkpoint_incoming(incoming, force=True)
-        total = len(missing)
         if frame.depth == 0 and 100 * total > self.max_missing_percent * frame.record.chunks_total:
             raise core.FileTransferError('missing_percent_exceeded',
                                         f'{total}/{frame.record.chunks_total} chunks missing; threshold {self.max_missing_percent}%', phase='repairing')
@@ -271,8 +340,20 @@ def _handle_end(self, message):
             raise core.FileTransferError('repair_no_progress', f'{self.max_no_progress_cycles} consecutive repair cycles made no progress', phase='repairing')
         if frame.depth >= self.max_recursion_depth:
             raise core.FileTransferError('recursion_depth_limit', 'missing list would exceed recursive repair depth', phase='repairing')
-        ranges = canonical_missing_ranges(missing, chunk_count=frame.record.chunks_total)
-        self._start_list(frame, ranges)
+        # Полные дырки строим диапазонами по полученным indices. META с большим
+        # chunk_count не создаёт список каждого отсутствующего chunk в памяти.
+        if isinstance(incoming.received, ReceivedRanges):
+            ranges = [MissingRange(start, count) for start, count in incoming.received.missing(frame.record.chunks_total)]
+        else:
+            ranges = []
+            cursor = 0
+            for index in sorted(incoming.received):
+                if cursor < index:
+                    ranges.append(MissingRange(cursor, index - cursor))
+                cursor = index + 1
+            if cursor < frame.record.chunks_total:
+                ranges.append(MissingRange(cursor, frame.record.chunks_total - cursor))
+        self._start_list(frame, tuple(ranges))
     except core.FileTransferError as exc:
         self._fail_incoming(incoming, exc)
     except Exception as exc:
@@ -307,7 +388,8 @@ def _publish_verified(self, incoming, end, final_temp):
     parent = self._recursive_frames[frame.parent_id]
     try:
         frame.service_request = read_missing_list(final_temp, frame.parent_id,
-                                                 parent.record.chunks_total, frame.record.transfer_id)
+                                                 parent.record.chunks_total, frame.record.transfer_id,
+                                                 max_ranges=self.max_received_ranges + 1)
     except FileProtocolError as exc:
         raise core.FileTransferError('protocol_error', str(exc), phase='verifying') from exc
     # Служебный файл проверен тем же FT1 engine, но не публикуется в Downloads.
@@ -334,10 +416,21 @@ def _terminal_record_settled(self, record, state, *, failure=None, final_path=No
         parent = self._recursive_frames.get(frame.parent_id)
         if parent is not None:
             with self._lock:
+                if parent.incoming is not None and parent.child_started_monotonic is not None:
+                    activity = parent.incoming.last_activity_monotonic
+                    # Исключаем только child time после последней валидной
+                    # активности; DATA/META во время child не дают future timestamp.
+                    parent.incoming.last_activity_monotonic += max(
+                        0.0, time.monotonic() - max(activity, parent.child_started_monotonic)
+                    )
+                parent.child_started_monotonic = None
                 parent.child_id = None
                 if self._incoming is frame.incoming or self._incoming is None:
                     self._incoming = parent.incoming if parent.record.state not in core._TERMINAL_STATES else None
                 if record.state == 'completed' and frame.service_request is not None:
+                    if parent.requests:
+                        raise core.FileTransferError('control_queue_overflow', 'parent already owns a verified repair request', phase='settling')
+                    parent.processed.clear()
                     parent.processed[record.transfer_id] = frame.meta
                     parent.requests.append(frame.service_request)
                 with parent.record._condition:
@@ -357,8 +450,12 @@ def _terminal_record_settled(self, record, state, *, failure=None, final_path=No
         else:
             self._resume_store.delete_incoming(record.transfer_id, delete_part=True)
         self._recursive_frames.pop(record.transfer_id, None)
-    elif record.state != 'completed':
-        self._abort_recursive(failure or core.FileTransferError('remote_failed', 'root transfer failed'), record.transfer_id)
+    else:
+        if record.state != 'completed':
+            self._abort_recursive(failure or core.FileTransferError('remote_failed', 'root transfer failed'), record.transfer_id)
+        # Terminal records/tombstones хранят late completion truth; ROOT frame
+        # больше не удерживает старый record или replay history после settlement.
+        self._recursive_frames.pop(record.transfer_id, None)
 
 
 def _root_frame(self, transfer_id):
@@ -462,7 +559,11 @@ def _expire_stale_incoming(self):
 
 
 def cancel(self, transfer_id):
-    root = _root_frame(self, parse_transfer_id(transfer_id))
+    try:
+        parsed = parse_transfer_id(transfer_id)
+    except FileProtocolError as exc:
+        raise core.FileTransferError('invalid_transfer_id', str(exc)) from exc
+    root = _root_frame(self, parsed)
     if root is not None:
         _cancel_descendants(self, root)
     return core.FileTransferManager.cancel(self, transfer_id)
@@ -510,4 +611,13 @@ def close(self):
         if root is not None and not root.ending and root.incoming is not None and not getattr(root.incoming, "_publication_committed", False) and root.record.state not in core._TERMINAL_STATES:
             self._incoming = root.incoming
     finally:
-        resumable.close(self)
+        try:
+            resumable.close(self)
+        finally:
+            if (not self._rx_thread.is_alive() and not self._outbox.worker.is_alive()
+                    and not any(record._thread is not None and record._thread.is_alive() for record in self._records.values())):
+                # Закрытый manager не восстанавливает suspended frame при втором
+                # close: после release другой owner уже вправе очистить его state.
+                with self._lock:
+                    self._recursive_frames.clear()
+                    self._incoming = None

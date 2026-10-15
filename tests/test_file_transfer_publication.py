@@ -88,12 +88,12 @@ def test_interrupted_publication_restarts_without_duplicate_or_early_ok(tmp_path
             return checkpoint(*args, **kwargs)
         monkeypatch.setattr(manager, "_checkpoint_incoming", checkpoint_or_fail)
     elif boundary == "rename":
-        replace = core.os.replace
-        def replace_or_fail(source, destination):
+        link = core.os.link
+        def link_or_fail(source, destination):
             if Path(destination) == expected:
                 fail()
-            return replace(source, destination)
-        monkeypatch.setattr(core.os, "replace", replace_or_fail)
+            return link(source, destination)
+        monkeypatch.setattr(core.os, "link", link_or_fail)
     elif boundary == "directory":
         monkeypatch.setattr(manager, "_fsync_directory", fail)
     elif boundary == "tombstone":
@@ -134,3 +134,115 @@ def test_interrupted_publication_restarts_without_duplicate_or_early_ok(tmp_path
         assert len(list(tmp_path.glob("published*.bin"))) == 2
     finally:
         manager2.close()
+
+
+def _publish_concurrent_payload(root, transfer_id, payload, barrier, result_queue):
+    manager = FileTransferManager(CaptureTransport(), receive_dir=Path(root))
+    try:
+        barrier.wait(5)
+        meta = MetaMessage(transfer_id, "same.bin", len(payload), len(payload), Compression.NONE, 227, hashlib.sha256(payload).digest())
+        end = EndMessage(transfer_id, 1, hashlib.sha256(payload).digest())
+        manager._handle_meta(meta)
+        manager._handle_data(DataMessage(transfer_id, 0, payload))
+        publish = manager._publish_verified
+        def synchronized(*args):
+            barrier.wait(5)
+            return publish(*args)
+        manager._publish_verified = synchronized
+        manager._handle_end(end)
+        record = manager._records[transfer_id]
+        value = record.snapshot()
+        value["bytes"] = Path(record.final_path).read_bytes() if record.final_path else None
+        result_queue.put(value)
+    except Exception as exc:
+        result_queue.put({"exception": str(exc)})
+    finally:
+        manager.close()
+
+
+def test_two_processes_publish_same_basename_without_overwrite_or_dual_path(tmp_path):
+    import multiprocessing
+
+    context = multiprocessing.get_context("fork")
+    barrier = context.Barrier(2)
+    results = context.Queue()
+    payloads = [b"first payload preserved", b"second payload preserved"]
+    processes = [context.Process(target=_publish_concurrent_payload,
+                                 args=(str(tmp_path), 500 + index, payload, barrier, results))
+                 for index, payload in enumerate(payloads)]
+    try:
+        for process in processes:
+            process.start()
+        values = [results.get(timeout=8) for _ in processes]
+        for process in processes:
+            process.join(5)
+            assert not process.is_alive() and process.exitcode == 0
+        assert all(value["state"] == "completed" for value in values), values
+        assert {value["bytes"] for value in values} == set(payloads)
+        assert len({value["final_path"] for value in values}) == 2
+        assert {Path(value["final_path"]).name for value in values} == {"same.bin", "same (1).bin"}
+        assert not list(tmp_path.glob("*.part"))
+    finally:
+        for process in processes:
+            if process.is_alive():
+                process.terminate()
+            process.join(2)
+        results.close()
+
+
+def test_durable_publishing_intent_reserves_name_after_writer_stops(tmp_path, monkeypatch):
+    first = FileTransferManager(CaptureTransport(), receive_dir=tmp_path)
+    second = FileTransferManager(CaptureTransport(), receive_dir=tmp_path)
+    original = b"original retained transfer"
+    newcomer = b"independent new transfer"
+    def receive(manager, transfer_id, payload):
+        meta = MetaMessage(transfer_id, "same.bin", len(payload), len(payload), Compression.NONE, 227, hashlib.sha256(payload).digest())
+        manager._handle_meta(meta)
+        manager._handle_data(DataMessage(transfer_id, 0, payload))
+        return meta, EndMessage(transfer_id, 1, hashlib.sha256(payload).digest())
+    try:
+        meta, end = receive(first, 501, original)
+        link = core.os.link
+        def fail_first(source, destination):
+            if Path(destination) == tmp_path / "same.bin":
+                raise OSError("stopped after intent before publication")
+            return link(source, destination)
+        with monkeypatch.context() as fault:
+            fault.setattr(core.os, "link", fail_first)
+            first._handle_end(end)
+        assert first._resume_store.load_incoming(501)[0]["status"] == "publishing"
+        _, end_new = receive(second, 502, newcomer)
+        second._handle_end(end_new)
+        assert second._records[502].state == "completed"
+        assert (tmp_path / "same (1).bin").read_bytes() == newcomer
+        first._handle_meta(meta)
+        first._handle_end(end)
+        assert first._records[501].state == "completed"
+        assert (tmp_path / "same.bin").read_bytes() == original
+        assert (tmp_path / "same (1).bin").read_bytes() == newcomer
+    finally:
+        first.close()
+        second.close()
+
+
+def test_completed_user_file_cannot_be_mistaken_for_internal_orphan_part(tmp_path):
+    payload = b"verified user file with reserved-looking filename"
+    filename = ".serialterminal-0000000000000900.part"
+    manager = FileTransferManager(CaptureTransport(), receive_dir=tmp_path)
+    meta = MetaMessage(901, filename, len(payload), len(payload), Compression.NONE, 227, hashlib.sha256(payload).digest())
+    end = EndMessage(901, 1, hashlib.sha256(payload).digest())
+    try:
+        manager._handle_meta(meta)
+        manager._handle_data(DataMessage(901, 0, payload))
+        manager._handle_end(end)
+        record = manager._records[901]
+        assert record.state == "completed"
+        final = Path(record.final_path)
+        assert final.name == ".serialterminal-0000000000000900 (1).part"
+        manager._resume_store.ttl_s = 0
+        manager._resume_store.max_part_bytes = 0
+        manager._resume_store.cleanup()
+        assert not manager._resume_store.completed_manifest(901).exists()
+        assert final.read_bytes() == payload
+    finally:
+        manager.close()

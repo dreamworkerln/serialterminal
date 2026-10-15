@@ -110,6 +110,22 @@ class FakeSelectorFactory:
         return FakeSelector(self, scope, baud, scan_seconds)
 
 
+def _quiesce_startup_for_receive_assertions(manager, opened):
+    # observe будит и raw TX/state activity. Проверки пустого окна/конкретной
+    # RX line сначала останавливают посторонний M1 bootstrap и фиксируют cursor
+    # после connected event, а не зависят от thread scheduling после open.
+    file_manager = manager._file_managers.get(opened["session"])
+    if file_manager is not None:
+        file_manager.close()
+    session = manager._get_session(opened["session"])
+    deadline = time.monotonic() + 1
+    while not any(event.kind == "state" and event.state == "connected" for event in session.events_after(0)):
+        assert time.monotonic() < deadline
+        time.sleep(.001)
+    session.wait_tx_fence(session.capture_tx_fence(), timeout=1)
+    opened["latest_seq"] = session.latest_event_seq()
+
+
 class _QueueInput:
     def __init__(self):
         self._lines = queue.Queue()
@@ -363,6 +379,8 @@ def test_observe_two_sessions_wakes_for_either_session():
             wait_connected_ms=500,
         )
         second = manager.open("serial:b", wait_connected_ms=500)
+        _quiesce_startup_for_receive_assertions(manager, first)
+        _quiesce_startup_for_receive_assertions(manager, second)
         cursors = {
             first["session"]: first["latest_seq"],
             second["session"]: second["latest_seq"],
@@ -507,6 +525,7 @@ def test_protocol_dispatches_observe_and_rejects_old_operations(tmp_path):
                 wait_connected_ms=500,
             )
             session_id = opened["session"]
+            _quiesce_startup_for_receive_assertions(manager, opened)
             default_response = json.loads(
                 protocol.process_line(
                     json.dumps(
@@ -975,3 +994,78 @@ def test_agent_eof_preserves_partial_but_explicit_cancel_discards_it(tmp_path, e
         assert len(list((tmp_path / "rx").glob(meta.filename))) == 1
     finally:
         resumed.close()
+
+
+def test_concurrent_open_closes_all_workers_of_unadmitted_file_manager(tmp_path, monkeypatch):
+    import serialterminal.agent_core as core_agent
+    from serialterminal.agent_core import AgentError
+
+    factory = FakeSelectorFactory()
+    manager = SessionManager(selector_factory=factory, receive_dir=tmp_path / "received")
+    manager.discover()
+    original_factory = core_agent.FileTransferManager
+    barrier = threading.Barrier(2)
+    created = []
+    results = []
+    def create(*args, **kwargs):
+        file_manager = original_factory(*args, **kwargs)
+        created.append(file_manager)
+        barrier.wait(2)
+        return file_manager
+    monkeypatch.setattr(core_agent, "FileTransferManager", create)
+    def open_session():
+        try:
+            results.append(manager.open("ble:a", profile="chatter", wait_connected_ms=0))
+        except Exception as exc:
+            results.append(exc)
+    workers = [threading.Thread(target=open_session) for _ in range(2)]
+    try:
+        for worker in workers:
+            worker.start()
+        for worker in workers:
+            worker.join(4)
+            assert not worker.is_alive()
+        assert len(created) == len(results) == 2
+        assert sum(isinstance(result, dict) for result in results) == 1
+        rejected = [result for result in results if isinstance(result, Exception)]
+        assert len(rejected) == 1 and isinstance(rejected[0], AgentError)
+        assert rejected[0].code == "device_busy"
+        admitted = set(manager._file_managers.values())
+        orphan = next(item for item in created if item not in admitted)
+        assert orphan._stopping.is_set()
+        assert not orphan._rx_thread.is_alive()
+        assert not orphan._outbox.worker.is_alive()
+        assert orphan.transport.closed.is_set()
+        assert orphan.transport.start_thread is None or not orphan.transport.start_thread.is_alive()
+    finally:
+        manager.close_all()
+        for file_manager in created:
+            file_manager.close()
+
+
+def test_jsonl_invalid_file_cancel_id_returns_normalized_error_without_mutation(tmp_path):
+    from test_file_transfer_failure_retention import CaptureTransport
+    from serialterminal.file_transfer import FileTransferManager
+    from serialterminal.file_transfer.recursive import _Frame
+
+    manager = SessionManager()
+    files = FileTransferManager(CaptureTransport(), receive_dir=tmp_path)
+    try:
+        record = files._reserve_record(100, direction="TX", filename="root")
+        files._recursive_frames[100] = _Frame(record)
+        files._recursive_root_id = 100
+        manager._sessions["s1"] = object()
+        manager._file_managers["s1"] = files
+        with RunLog(tmp_path / "agent.log") as run_log:
+            response = json.loads(AgentProtocol(manager, run_log=run_log).process_line(json.dumps({
+                "id": 1, "op": "file_transfer_cancel", "session": "s1", "transfer_id": "not-hex",
+            })))
+        assert response["ok"] is False
+        assert response["error"]["code"] == "invalid_transfer_id"
+        assert not record.cancel_event.is_set()
+        assert files._active_id == 100
+    finally:
+        manager._sessions.clear()
+        manager._file_managers.clear()
+        manager.close_all()
+        files.close()
