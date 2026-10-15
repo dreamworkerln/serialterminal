@@ -391,3 +391,10 @@ FT1 host metadata по умолчанию ограничены65 536 received 
 LIST — максимум65 537 ranges. Последовательный файл не хранит запись на каждый
 chunk. Превышение range budget сохраняет полезный partial и даёт storage_failed;
 не считать такой отказ успешным completion и не удалять partial вручную.
+
+Служебные partial очищаются циклически во время работы: старые неактивные `.part`
+и manifests уступают место новым при byte/free-space pressure. ENOSPC/EDQUOT
+повторяется только после фактической eviction; активные owners других процессов
+и итоговые файлы защищены. Если освободить нечего — storage_failed с последним
+пригодным partial/proof. Defaults:7 суток, incoming32/outgoing32/completed64,1 GiB
+partial на receive_dir. Это не `/clean` и не удаление готовых пользовательских файлов.

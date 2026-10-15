@@ -6,6 +6,7 @@ import errno
 import json
 import math
 import os
+import shutil
 from pathlib import Path
 import threading
 import time
@@ -94,6 +95,7 @@ class ResumeStateStore:
         with self.namespace_lock():
             if key in self._owned_leases:
                 return False
+            self._make_count_room(kind, transfer_id)
             path = self._lease_path(kind, transfer_id)
             path.parent.mkdir(parents=True, exist_ok=True)
             descriptor = os.open(path, os.O_RDWR | os.O_CREAT | getattr(os, "O_NOFOLLOW", 0), 0o600)
@@ -296,7 +298,12 @@ class ResumeStateStore:
         encoded = json.dumps(payload, ensure_ascii=False, separators=(",", ":"), sort_keys=True).encode("utf-8")
         if len(encoded) > self.max_manifest_bytes:
             raise OSError(errno.ENOSPC, "manifest resource limit exceeded")
-        self.atomic_json(path, payload)
+        with self.namespace_lock():
+            self._make_count_room(path.parent.name, int(path.stem, 16))
+            for kind, maximum in (("incoming", DEFAULT_MAX_INCOMING), ("outgoing", DEFAULT_MAX_OUTGOING), ("completed", DEFAULT_MAX_COMPLETED)):
+                if kind != path.parent.name:
+                    self._cleanup_dir(self.root / kind, maximum, with_parts=kind == "incoming")
+            self.with_reclamation(lambda: self.atomic_json(path, payload), free_bytes=len(encoded))
 
     def save_incoming(
         self,
@@ -407,6 +414,96 @@ class ResumeStateStore:
         result.sort(key=lambda item: item["updated"], reverse=True)
         return result
 
+    def _make_count_room(self, kind: str, transfer_id: int) -> None:
+        limits = {"incoming": DEFAULT_MAX_INCOMING, "outgoing": DEFAULT_MAX_OUTGOING, "completed": DEFAULT_MAX_COMPLETED}
+        directory = self.root / kind
+        target = directory / f"{transfer_id_text(transfer_id)}.json"
+        maximum = limits[kind]
+        self._cleanup_dir(directory, maximum, with_parts=kind == "incoming", keep=target)
+        entries = {path.stem: path for path in directory.glob("*.json") if path != target}
+        if kind != "completed":
+            for lease in (self.root / "leases").glob(f"{kind}-*.lock"):
+                text = lease.stem[len(kind) + 1:]
+                if text == target.stem:
+                    continue
+                try:
+                    identity = int(text, 16)
+                except ValueError:
+                    continue
+                if self._protected(kind, identity):
+                    entries.setdefault(text, None)
+        ordered = sorted((path for path in entries.values() if path is not None), key=lambda path: path.stat().st_mtime)
+        for path in ordered:
+            if len(entries) < maximum:
+                return
+            try:
+                identity = int(path.stem, 16)
+            except ValueError:
+                identity = None
+            if kind != "completed" and identity is not None and self._protected(kind, identity):
+                continue
+            path.unlink(missing_ok=True)
+            if kind == "incoming" and identity is not None:
+                self.incoming_part(identity).unlink(missing_ok=True)
+            entries.pop(path.stem)
+        if len(entries) >= maximum:
+            raise OSError(errno.ENOSPC, "retained transfer count is occupied by live owners")
+
+    def _evict_oldest_part(self, *, keep: Path | None = None) -> bool:
+        candidates = []
+        for part in self.root.parent.glob(f"{_PART_PREFIX}*{_PART_SUFFIX}"):
+            text = part.name[len(_PART_PREFIX):-len(_PART_SUFFIX)]
+            try:
+                identity = int(text, 16)
+            except ValueError:
+                continue
+            if part == keep or self._protected("incoming", identity):
+                continue
+            candidates.append((part.stat().st_mtime, part, identity))
+        if not candidates:
+            return False
+        _time, part, identity = min(candidates)
+        # Сначала удаляем proof: interruption оставит orphan, а не ложный resume.
+        self.incoming_manifest(identity).unlink(missing_ok=True)
+        part.unlink(missing_ok=True)
+        return True
+
+    def _part_bytes(self) -> int:
+        total = 0
+        for part in self.root.parent.glob(f"{_PART_PREFIX}*{_PART_SUFFIX}"):
+            try:
+                int(part.name[len(_PART_PREFIX):-len(_PART_SUFFIX)], 16)
+            except ValueError:
+                continue
+            total += part.stat().st_size
+        return total
+
+    def with_reclamation(self, operation, *, growth: int = 0, free_bytes: int = 0, keep: Path | None = None):
+        with self.namespace_lock():
+            while (growth and self._part_bytes() + growth > self.max_part_bytes) or shutil.disk_usage(self.root.parent).free < free_bytes:
+                if not self._evict_oldest_part(keep=keep):
+                    raise OSError(errno.ENOSPC, "no inactive partials remain to reclaim storage")
+            while True:
+                try:
+                    return operation()
+                except OSError as exc:
+                    if exc.errno not in {errno.ENOSPC, errno.EDQUOT} or not self._evict_oldest_part(keep=keep):
+                        raise
+                    # Повтор разрешён только после реального удаления. Operation
+                    # обязана быть идемпотентной: тот же offset или atomic replace.
+
+    def write_part(self, transfer_id: int, offset: int, payload: bytes) -> None:
+        part = self.incoming_part(transfer_id)
+        with self.namespace_lock():
+            growth = max(0, offset + len(payload) - part.stat().st_size)
+            def write():
+                with part.open("r+b") as handle:
+                    handle.seek(offset)
+                    if handle.write(payload) != len(payload):
+                        raise OSError(errno.ENOSPC, "short partial write")
+                    handle.flush()
+            self.with_reclamation(write, growth=growth, free_bytes=len(payload), keep=part)
+
     def cleanup(self) -> None:
         if not self.root.exists() and not any(self.root.parent.glob(f"{_PART_PREFIX}*{_PART_SUFFIX}")):
             return
@@ -416,7 +513,7 @@ class ResumeStateStore:
             self._cleanup_dir(self.completed_dir, DEFAULT_MAX_COMPLETED, with_parts=False)
             self._cleanup_part_budget()
 
-    def _cleanup_dir(self, directory: Path, maximum: int, *, with_parts: bool) -> None:
+    def _cleanup_dir(self, directory: Path, maximum: int, *, with_parts: bool, keep: Path | None = None) -> None:
         now = time.time()
         entries: list[tuple[float, Path]] = []
         for path in directory.glob("*.json"):
@@ -438,6 +535,8 @@ class ResumeStateStore:
             entries.append((updated, path))
         entries.sort(reverse=True)
         for index, (updated, path) in enumerate(entries):
+            if path == keep:
+                continue
             if directory != self.completed_dir:
                 try:
                     transfer_id = int(path.stem, 16)

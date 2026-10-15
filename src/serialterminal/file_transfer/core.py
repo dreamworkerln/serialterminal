@@ -1542,10 +1542,7 @@ class FileTransferManager:
                     check_insert(message.chunk_index)
                 except ValueError as exc:
                     raise FileTransferError("storage_failed", str(exc), phase="receiving") from exc
-            with incoming.wire_path.open("r+b") as file:
-                file.seek(offset)
-                file.write(message.payload)
-                file.flush()
+            self._write_chunk(incoming, offset, message.payload)
             incoming.received[message.chunk_index] = len(message.payload)
             bytes_completed = incoming.record.bytes_completed + len(message.payload)
             incoming.record.set_progress(
@@ -1554,6 +1551,15 @@ class FileTransferManager:
             )
         except FileTransferError as exc:
             self._fail_incoming(incoming, exc)
+
+    def _write_chunk(self, incoming, offset, payload):
+        with incoming.wire_path.open("r+b") as file:
+            file.seek(offset)
+            file.write(payload)
+            file.flush()
+
+    def _write_original_block(self, incoming, file, block):
+        file.write(block)
 
     def _handle_end(self, message: EndMessage) -> None:
         incoming = self._incoming_for(message.transfer_id)
@@ -1822,7 +1828,7 @@ class FileTransferManager:
                                 phase="decompressing",
                             )
                         digest.update(block)
-                        temporary.write(block)
+                        self._write_original_block(incoming, temporary, block)
             return output_path, digest.digest(), size
         except FileTransferError:
             output_path.unlink(missing_ok=True)

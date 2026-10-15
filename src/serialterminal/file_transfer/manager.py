@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import os
+import errno
 from pathlib import Path
 import time
 from typing import Any
@@ -251,7 +252,7 @@ def _checkpoint_incoming(
         )
     try:
         with incoming.wire_path.open("rb") as handle:
-            os.fsync(handle.fileno())
+            self._resume_store.with_reclamation(lambda: os.fsync(handle.fileno()), keep=incoming.wire_path)
     except OSError as exc:
         raise core.FileTransferError(
             "storage_failed",
@@ -420,3 +421,23 @@ def _expire_stale_incoming(self) -> None:
         durable=True,
     )
     self._terminal_record(incoming.record, "failed", failure=failure)
+
+
+def _write_chunk(self, incoming, offset, payload):
+    try:
+        self._resume_store.write_part(incoming.record.transfer_id, offset, payload)
+    except OSError as exc:
+        raise core.FileTransferError("storage_failed", str(exc), phase="receiving") from exc
+
+
+def _write_original_block(self, incoming, file, block):
+    offset = file.tell()
+    def write():
+        file.seek(offset)
+        if file.write(block) != len(block):
+            raise OSError(errno.ENOSPC, "short materialization write")
+        file.flush()
+    try:
+        self._resume_store.with_reclamation(write, free_bytes=len(block), keep=incoming.wire_path)
+    except OSError as exc:
+        raise core.FileTransferError("storage_failed", str(exc), phase="decompressing") from exc

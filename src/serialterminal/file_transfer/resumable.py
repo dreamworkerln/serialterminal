@@ -591,9 +591,14 @@ def _start_new_incoming(self, meta: MetaMessage) -> None:
                 phase="receiving",
             )
         self._resume_store.claim("incoming", meta.transfer_id)
-        with part.open("xb"):
-            pass
-        created = True
+        def create():
+            nonlocal created
+            with part.open("xb"):
+                created = True
+        def retryable_create():
+            if not created:
+                create()
+        self._resume_store.with_reclamation(retryable_create, keep=part)
         record = self._reserve_record(
             meta.transfer_id, direction="RX", filename=filename
         )
@@ -736,9 +741,9 @@ def _publish_verified(self, incoming, end: EndMessage, final_temp: Path) -> Path
             )
         # Даже writer вне ST lock не может быть перезаписан: link требует
         # отсутствующего destination. Оба path находятся на одной filesystem.
-        os.link(final_temp, destination)
+        self._resume_store.with_reclamation(lambda: os.link(final_temp, destination), keep=incoming.wire_path)
         final_temp.unlink()
-        self._fsync_directory(destination.parent)
+        self._resume_store.with_reclamation(lambda: self._fsync_directory(destination.parent), keep=incoming.wire_path)
         self._resume_store.save_completed(meta=incoming.meta, end=end, final_path=destination)
         incoming._publication_committed = True
         return destination

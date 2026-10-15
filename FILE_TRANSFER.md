@@ -1607,3 +1607,21 @@ Within a live ROOT each creator allocates monotonic child IDs from a random seed
 ROOT receiver uses odd IDs and ROOT sender even IDs. Durable IDs and live contexts
 are skipped, and creation is protected by namespace lock plus outgoing lease.
 This permits bounded replay history without reusing evicted child identities.
+
+## Live cyclic partial retention
+
+Cyclic retention runs on durable saves/checkpoints, admission and ownership release;
+partial growth checks the shared logical byte budget before writing. Defaults:
+7 days since state update,32 incoming,32 outgoing,64 completed tombstones and1 GiB
+of `.part` files per receive directory. Count/TTL eviction skips active leases,
+including another process and the pre-manifest window. Counts include live
+identities without a manifest; a new admission fails explicitly if all slots are live.
+Under byte-budget or filesystem-free-space pressure, the oldest inactive parts
+and their manifests are removed automatically. ENOSPC/EDQUOT during an idempotent
+write/checkpoint/publication is retried only after an actual eviction, so retry
+is finite. The namespace lock covers capacity checks and the write across processes.
+If nothing eligible remains, the transfer fails with storage_failed; it retains
+the last useful partial and received proof. Partial writes never advance that proof.
+Final downloaded files and user source files are never eviction candidates.
+No periodic cleanup timer or `/clean` command is added. Active data alone can
+exhaust the budget; the1 GiB storage budget still applies to growing wire files.

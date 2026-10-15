@@ -54,6 +54,8 @@ class FileTransferManager(core.FileTransferManager):
     _terminal_record = manager._terminal_record
     _valid_publishing_destination = resumable._valid_publishing_destination
     _validated_sender_candidate = manager._validated_sender_candidate
+    _write_chunk = manager._write_chunk
+    _write_original_block = manager._write_original_block
     _verify_resume_wire = staticmethod(manager._verify_resume_wire)
     close = recursive.close
     display_snapshot = recursive.display_snapshot

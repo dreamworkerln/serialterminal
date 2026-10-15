@@ -121,6 +121,7 @@ def _release(self, transfer_id, direction):
     self._resume_store.release("incoming" if direction == "RX" else "outgoing", transfer_id)
     if frame is not None:
         frame.settled = True
+    self._resume_store.cleanup()
 
 
 def _incoming_for(self, transfer_id):
@@ -271,7 +272,10 @@ def _start_list(self, parent, ranges):
             path = self._resume_store.root / 'recursive' / f'{transfer_id_text(child_id)}.missing'
             try:
                 path.parent.mkdir(parents=True, exist_ok=True)
-                total = write_missing_list(path, parent.record.transfer_id, ranges)
+                total = self._resume_store.with_reclamation(
+                    lambda: write_missing_list(path, parent.record.transfer_id, ranges),
+                    free_bytes=_LIST_HEADER.size + len(ranges) * _LIST_RANGE.size,
+                )
                 self._fsync_directory(path.parent)
             except Exception:
                 path.unlink(missing_ok=True)
