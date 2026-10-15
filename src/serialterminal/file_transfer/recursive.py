@@ -160,6 +160,11 @@ def _send_message_direct(self, message, *, cancel_event, deadline=None):
 
 
 def _handle_meta(self, meta):
+    try:
+        self._chunk_count(meta)
+    except FileProtocolError as exc:
+        self._reject_incoming(meta.transfer_id, 'invalid_metadata', str(exc))
+        return
     with self._control_admission_scope():
         existing_frame = self._recursive_frames.get(meta.transfer_id)
         if (existing_frame is not None and existing_frame.meta == meta and

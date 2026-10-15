@@ -398,3 +398,8 @@ chunk. Превышение range budget сохраняет полезный par
 и итоговые файлы защищены. Если освободить нечего — storage_failed с последним
 пригодным partial/proof. Defaults:7 суток, incoming32/outgoing32/completed64,1 GiB
 partial на receive_dir. Это не `/clean` и не удаление готовых пользовательских файлов.
+
+META с derived chunk_count выше0xffffffff отвергается до RX admission через
+invalid_metadata; sender проверяет подготовленный wire до journal/META. Последний
+DATA index при максимальном числе chunks —0xfffffffe. Это wire bound, отдельно
+от host RAM/storage budgets; не создавать большие тестовые файлы для этой границы.

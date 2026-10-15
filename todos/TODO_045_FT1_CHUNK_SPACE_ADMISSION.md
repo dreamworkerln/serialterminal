@@ -1,11 +1,11 @@
 # FT1: допустимость META в uint32 chunk space
 
 TODO-ID: TODO_045
-Status: OPEN
+Status: IMPLEMENTED / LOCAL VALIDATION PASS / CI AND RE-REVIEW OPEN
 Priority: HIGH
 Created: 2026-10-14
-Implementation: NOT STARTED
-Validation: REVIEW FINDING RECORDED / FIX VALIDATION OPEN
+Implementation: INTEGER CHUNK VALIDATION AND REGRESSIONS IMPLEMENTED
+Validation: HOST SOFTWARE 748 PASS / CI AND RE-REVIEW OPEN
 Source review: [REVIEW_001/F016](../reviews/REVIEW_001_DEV_TUI_EXP_RECURSIVE_MISSING.md#f016--high-receiver-admits-meta-identities-that-cannot-be-represented-by-endresume-uint32-chunk-space)
 Reviewed commit: [db740af94c700c7c4e6d96abef7e809dadfcaf1c](https://github.com/dreamworkerln/serialterminal/commit/db740af94c700c7c4e6d96abef7e809dadfcaf1c)
 Regression attribution: pre-existing at `fd94bdeb1fd878e072b0f852b3e8f461d928e3cd` по addendum ревью.
@@ -63,3 +63,25 @@ Evidence/repro и ограничения сохранены в исходном 
 TODO repro не запускался повторно, fixes и source/tests не изменялись.
 Status: OPEN; implementation, regression validation и re-review остаются открыты.
 Это task record; hardware, firmware changes, commit/push не выполнялись.
+
+## Implementation checkpoint — 2026-10-15
+
+Base4d732aa. One protocol helper computes exact integer ceiling division and
+validates uint64 wire_size/uint16 chunk_size/uint32 derived chunk_count. META
+encoding, RX admission, sender prepared-stream metadata and candidate validation
+use the same arithmetic. Receiver rejects invalid count before recursive frame,
+record, claim or filesystem allocation, while preserving an existing ROOT. The
+decoder still exposes a structurally valid received META to admission, allowing
+an explicit normalized invalid_metadata RESULT rather than silent packet loss.
+
+Permanent synthetic tests cover zero, rounding, uint32 max and above for chunks
+1/227/65535, uint64 max, largest valid RX without sparse allocation, last DATA
+index and END/RESUME max cursor round trips. Raw invalid META bypasses the local
+encoder to verify receiver rejection. Synthetic oversized prepared sender stream
+fails before journal/META and removes its temporary wire while retaining source.
+Targeted protocol/recursive/journal/boundary suite59 PASS/9.18s. Final full suite
+in progress; independent re-review, CI and hardware remain OPEN. No firmware,
+push or hardware run.
+
+Final isolated-cache full suite748 PASS/85.11s; compileall and diff-check PASS.
+Exact implementation trees: src `36d98807a5b63c5ab0df8890f47431359e888c42`; tests `61f5a3c0e4a7c9ec4800d2dd0bbe6a10d121ee95`.

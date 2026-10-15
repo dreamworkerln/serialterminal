@@ -19,6 +19,7 @@ from .protocol import (
     MetaMessage,
     ResultMessage,
     ResumeMessage,
+    checked_chunk_count,
     data_payload_capacity,
     decode_message,
     encode_message,
@@ -272,7 +273,7 @@ def _load_received(self, meta: MetaMessage, payload: dict[str, Any]):
     )
 
 def _chunk_count(meta: MetaMessage) -> int:
-    return 0 if meta.wire_size == 0 else math.ceil(meta.wire_size / meta.chunk_size)
+    return checked_chunk_count(meta.wire_size, meta.chunk_size)
 
 def _earliest_missing(incoming) -> int:
     if isinstance(incoming.received, ReceivedRanges):
@@ -935,11 +936,10 @@ def _send_worker(self, record, path: Path) -> None:
     try:
         prepared = self._prepare_source(path, record)
         chunk_size = data_payload_capacity(self.transport.payload_capacity)
-        chunks_total = (
-            0
-            if prepared.wire_size == 0
-            else math.ceil(prepared.wire_size / chunk_size)
-        )
+        try:
+            chunks_total = checked_chunk_count(prepared.wire_size, chunk_size)
+        except FileProtocolError as exc:
+            raise core.FileTransferError("invalid_metadata", str(exc), phase="preparing") from exc
         record.set_sizes(
             original_bytes=prepared.original_size,
             wire_bytes=prepared.wire_size,

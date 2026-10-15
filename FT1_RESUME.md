@@ -585,3 +585,14 @@ the last useful partial and received proof. Partial writes never advance that pr
 Final downloaded files and user source files are never eviction candidates.
 No periodic cleanup timer or `/clean` command is added. Active data alone can
 exhaust the budget; the1 GiB storage budget still applies to growing wire files.
+
+## FT1 chunk-space admission
+
+META-derived chunk_count is computed with integer ceiling division and must fit
+0..0xffffffff, matching END.chunk_count and RESUME.next_chunk. Invalid wire_size
+or chunk_size is rejected before RX records, leases, part files or recursive frame
+admission with RESULT invalid_metadata. The sender checks its actual prepared
+wire stream before journal/META and reports invalid_metadata if unrepresentable.
+Exactly0xffffffff chunks is representable (last DATA index0xfffffffe); larger
+counts are rejected without allocating a chunk bitmap. No smaller protocol file
+limit or new wire layout is introduced; separate storage/RAM budgets still apply.

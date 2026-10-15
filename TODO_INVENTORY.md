@@ -556,7 +556,7 @@ and live owners remain protected. Final isolated-cache full suite739 PASS/104.94
 
 ### TODO_045 — [todos/TODO_045_FT1_CHUNK_SPACE_ADMISSION.md](todos/TODO_045_FT1_CHUNK_SPACE_ADMISSION.md)
 
-Status: OPEN / HIGH / IMPLEMENTATION AND FIX VALIDATION OPEN
+Status: IMPLEMENTED / LOCAL VALIDATION PASS / CI AND RE-REVIEW OPEN
 
 Source: REVIEW_001/F016 at `db740af94c700c7c4e6d96abef7e809dadfcaf1c`,
 pre-existing at `fd94bdeb1fd878e072b0f852b3e8f461d928e3cd`.
@@ -564,6 +564,10 @@ Goal: reject META-derived chunk counts above uint32 before RX admission and enfo
 the same representability during sender preparation. Boundary regression tests must
 cover `0xffffffff` and `0x100000000` without huge allocations. No new wire format
 or arbitrary smaller file limit is selected; remaining TODO_043/S2 bounds stay open.
+
+Current implementation (2026-10-15, base4d732aa): exact integer derived-count
+validation before RX admission and TX journal/META; max count and last index
+verified with synthetic metadata only. Full isolated-cache suite748 PASS/85.11s; compileall/diff-check PASS.
 
 ### TODO_046 — [todos/TODO_046_FT1_PEER_SCOPED_SENDER_JOURNALS.md](todos/TODO_046_FT1_PEER_SCOPED_SENDER_JOURNALS.md)
 

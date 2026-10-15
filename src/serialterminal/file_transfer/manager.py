@@ -7,7 +7,7 @@ import time
 from typing import Any
 
 from . import core
-from .protocol import EndMessage, MetaMessage, ResultMessage, transfer_id_text
+from .protocol import EndMessage, MetaMessage, ResultMessage, transfer_id_text, checked_chunk_count, FileProtocolError
 from .resume_source import prepare_source
 from .resume_store import ResumeStateStore
 from . import resumable
@@ -148,6 +148,10 @@ def _validated_sender_candidate(
     if canonical != value:
         return None
 
+    try:
+        checked_chunk_count(wire_size, chunk_size)
+    except FileProtocolError:
+        return None
     candidate = dict(value)
     candidate["parsed_transfer_id"] = transfer_id
     return candidate

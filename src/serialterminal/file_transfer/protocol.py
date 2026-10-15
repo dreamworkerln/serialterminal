@@ -245,6 +245,17 @@ def _common(message_type: MessageType, transfer_id: int) -> bytes:
     return _COMMON.pack(MAGIC, VERSION, int(message_type), transfer_id)
 
 
+def checked_chunk_count(wire_size: int, chunk_size: int) -> int:
+    if type(wire_size) is not int or not 0 <= wire_size <= 0xFFFFFFFFFFFFFFFF:
+        raise FileProtocolError("wire_size is out of uint64 range")
+    if type(chunk_size) is not int or not 1 <= chunk_size <= 0xFFFF:
+        raise FileProtocolError("chunk_size is out of uint16 range")
+    count = (wire_size + chunk_size - 1) // chunk_size
+    if count > 0xFFFFFFFF:
+        raise FileProtocolError("derived chunk_count is out of uint32 range")
+    return count
+
+
 def encode_meta(message: MetaMessage, capacity: int) -> bytes:
     filename = message.filename.encode("utf-8")
     if not 0 <= message.parent_transfer_id <= 0xFFFFFFFFFFFFFFFF:
@@ -263,6 +274,7 @@ def encode_meta(message: MetaMessage, capacity: int) -> bytes:
         raise FileProtocolError("META wire_size is out of range")
     if not 1 <= message.chunk_size <= 0xFFFF:
         raise FileProtocolError("META chunk_size is out of range")
+    checked_chunk_count(message.wire_size, message.chunk_size)
     max_filename = capacity - _COMMON.size - _META_FIXED.size
     if not filename or len(filename) > min(255, max_filename):
         raise FileProtocolError("META filename does not fit one binary USER")

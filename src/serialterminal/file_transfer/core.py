@@ -27,6 +27,7 @@ from .protocol import (
     MissingMessage,
     ResultMessage,
     canonical_missing_ranges,
+    checked_chunk_count,
     data_payload_capacity,
     decode_message,
     encode_message,
@@ -966,11 +967,10 @@ class FileTransferManager:
         try:
             prepared = self._prepare_source(path, record)
             chunk_size = data_payload_capacity(self.transport.payload_capacity)
-            chunks_total = (
-                0
-                if prepared.wire_size == 0
-                else math.ceil(prepared.wire_size / chunk_size)
-            )
+            try:
+                chunks_total = checked_chunk_count(prepared.wire_size, chunk_size)
+            except FileProtocolError as exc:
+                raise FileTransferError("invalid_metadata", str(exc), phase="preparing") from exc
             record.set_sizes(
                 original_bytes=prepared.original_size,
                 wire_bytes=prepared.wire_size,
@@ -1360,6 +1360,11 @@ class FileTransferManager:
         )
 
     def _handle_meta(self, meta: MetaMessage) -> None:
+        try:
+            checked_chunk_count(meta.wire_size, meta.chunk_size)
+        except FileProtocolError as exc:
+            self._reject_incoming(meta.transfer_id, "invalid_metadata", str(exc))
+            return
         with self._lock:
             existing = self._records.get(meta.transfer_id)
             active = self._active_id
@@ -1444,11 +1449,7 @@ class FileTransferManager:
         record.set_sizes(
             original_bytes=meta.original_size,
             wire_bytes=meta.wire_size,
-            chunks_total=(
-                0
-                if meta.wire_size == 0
-                else math.ceil(meta.wire_size / meta.chunk_size)
-            ),
+            chunks_total=checked_chunk_count(meta.wire_size, meta.chunk_size),
         )
         record.set_state("receiving")
         with self._lock:
