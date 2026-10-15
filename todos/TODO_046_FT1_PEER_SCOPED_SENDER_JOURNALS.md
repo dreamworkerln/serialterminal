@@ -1,11 +1,11 @@
 # FT1: изоляция sender journals по peer identity
 
 TODO-ID: TODO_046
-Status: OPEN
+Status: IMPLEMENTED / LOCAL VALIDATION PASS / CI AND RE-REVIEW OPEN
 Priority: BLOCKER
 Created: 2026-10-14
-Implementation: NOT STARTED
-Validation: REVIEW FINDING RECORDED / FIX VALIDATION OPEN
+Implementation: PEER-SCOPED JOURNALS, LEASES AND REGRESSIONS IMPLEMENTED
+Validation: HOST SOFTWARE 765 PASS / CI AND RE-REVIEW OPEN
 Source review: [REVIEW_001/F017](../reviews/REVIEW_001_DEV_TUI_EXP_RECURSIVE_MISSING.md#f017--blocker-persistent-sender-journals-are-shared-across-sessions-without-peer-identity)
 Reviewed commit: [db740af94c700c7c4e6d96abef7e809dadfcaf1c](https://github.com/dreamworkerln/serialterminal/commit/db740af94c700c7c4e6d96abef7e809dadfcaf1c)
 Regression attribution: pre-existing at `fd94bdeb1fd878e072b0f852b3e8f461d928e3cd` по addendum ревью.
@@ -73,3 +73,36 @@ Evidence/repro и ограничения сохранены в исходном 
 TODO repro не запускался повторно, fixes и source/tests не изменялись.
 Status: OPEN; implementation, regression validation и re-review остаются открыты.
 Это task record; hardware, firmware changes, commit/push не выполнялись.
+
+## Selected design and implementation — 2026-10-15
+
+Base07ada40. Proposed device_key binding is used after the operator's affirmative
+continuation. Agent passes discovery/open device_key, TUI selected transport key.
+The key is opaque to generic code. Under the two fixed radios this identifies
+the local radio path, not an independently authenticated RF peer; no topology
+migration or USB/BLE merge is inferred. An explicit same key persists across
+reconnect/restart. Old unbound journals are never assigned a key automatically.
+Anonymous managers get a volatile per-instance key and cannot appropriate another
+anonymous instance's journal. Incoming storage and wire layouts are unchanged.
+
+SHA-256 scope prefixes outgoing filenames and lease paths. The JSON document
+also carries the peer_key, checked for candidate selection, update and deletion.
+Same ID/source for different keys is independent; same-key live claims conflict.
+Retention count remains global across outgoing namespaces and protection resolves
+each filename's corresponding lease namespace, including pre-manifest ownership.
+Cancelling a journal with invalid binding reports local_ownership_unsettled and
+retains ownership until close. Every successful journal write refreshes updated.
+
+Permanent regressions exercise complete/cancel/failure/close of B without touching
+A with the same source and ID, same-key restart, anonymous/unbound state, wrong
+binding mutation/deletion, same-key ownership conflicts, another process with the
+same ID/different key, scoped TTL/live-count protection, aggregate retained-count
+bounds and Agent/TUI identity propagation. Existing restart fixtures now explicitly
+name their simulated peer and use scoped outgoing_manifest paths; invalid journal
+tests retain a matching peer so their original rejection predicate stays meaningful.
+Targeted peer/restart/journal/ownership suite41 PASS/6.88s before final count/input
+cases. Full suite in progress. Dependency direction reviewed in ARCHITECTURE.md;
+no firmware, physical run, push or merge. CI and independent re-review remain OPEN.
+
+Final isolated-cache full suite765 PASS/83.31s; compileall and diff-check PASS.
+Exact implementation trees: src `35256dd26be01976e4b5c1af04a9d76784e0b470`; tests `db6aee65fb6b5a5783a7d9f3be3301899b064b50`.

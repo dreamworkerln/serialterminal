@@ -76,7 +76,7 @@ def _pair(tmp_path, *, sender_kwargs=None, receiver_kwargs=None):
         id_factory=lambda: 0xAABBCCDD,
         result_timeout_s=2.0,
         resume_handshake_timeout_s=0.2,
-        **(sender_kwargs or {}),
+        peer_key="fixture-peer", **(sender_kwargs or {}),
     )
     receiver = FileTransferManager(
         right,
@@ -84,7 +84,7 @@ def _pair(tmp_path, *, sender_kwargs=None, receiver_kwargs=None):
         id_factory=lambda: 0x11223344,
         result_timeout_s=2.0,
         resume_handshake_timeout_s=0.2,
-        **(receiver_kwargs or {}),
+        peer_key="fixture-peer", **(receiver_kwargs or {}),
     )
     return sender, receiver, left, right
 
@@ -138,7 +138,7 @@ def test_receiver_manifest_survives_manager_restart_and_reports_resume_cursor(tm
     manager = FileTransferManager(
         transport,
         receive_dir=receive_dir,
-        incoming_idle_timeout_s=30.0,
+        incoming_idle_timeout_s=30.0, peer_key="fixture-peer",
     )
     payload = random.Random(2).randbytes(900)
     chunk_size = data_payload_capacity(transport.payload_capacity)
@@ -174,7 +174,7 @@ def test_receiver_manifest_survives_manager_restart_and_reports_resume_cursor(tm
     manager2 = FileTransferManager(
         transport2,
         receive_dir=receive_dir,
-        incoming_idle_timeout_s=30.0,
+        incoming_idle_timeout_s=30.0, peer_key="fixture-peer",
     )
     try:
         manager2.feed_binary(encode_message(meta, transport2.payload_capacity))
@@ -240,14 +240,14 @@ def test_sender_and_receiver_restart_resume_same_transfer_id(tmp_path):
         receive_dir=tmp_path / "left",
         id_factory=lambda: 0xDEADBEEF,
         result_timeout_s=2.0,
-        resume_handshake_timeout_s=0.2,
+        resume_handshake_timeout_s=0.2, peer_key="fixture-peer",
     )
     receiver2 = FileTransferManager(
         right2,
         receive_dir=tmp_path / "right",
         id_factory=lambda: 0xCAFEBABE,
         result_timeout_s=2.0,
-        resume_handshake_timeout_s=0.2,
+        resume_handshake_timeout_s=0.2, peer_key="fixture-peer",
     )
     try:
         second = sender2.start_send(source)
@@ -314,8 +314,6 @@ def test_completed_tombstone_avoids_duplicate_full_resend_after_restart(tmp_path
 
     # Recreate a sender journal representing a lost local completion record. The
     # receiver tombstone should answer the replayed META with RESULT OK before DATA.
-    left_state = tmp_path / "left" / ".serialterminal-state" / "outgoing"
-    left_state.mkdir(parents=True, exist_ok=True)
     digest = hashlib.sha256(source.read_bytes()).hexdigest()
     journal = {
         "schema": 1,
@@ -332,9 +330,10 @@ def test_completed_tombstone_avoids_duplicate_full_resend_after_restart(tmp_path
         "chunk_size": data_payload_capacity(200),
         "updated": time.time(),
     }
-    import json
-
-    (left_state / f"{transfer_id}.json").write_text(json.dumps(journal), encoding="utf-8")
+    sender._resume_store.atomic_json(
+        sender._resume_store.outgoing_manifest(int(transfer_id, 16)),
+        {**journal, "peer_key": sender.peer_key},
+    )
 
     left = _PairTransport()
     right = _PairTransport()
@@ -344,13 +343,13 @@ def test_completed_tombstone_avoids_duplicate_full_resend_after_restart(tmp_path
         left,
         receive_dir=tmp_path / "left",
         result_timeout_s=2.0,
-        resume_handshake_timeout_s=0.2,
+        resume_handshake_timeout_s=0.2, peer_key="fixture-peer",
     )
     receiver2 = FileTransferManager(
         right,
         receive_dir=tmp_path / "right",
         result_timeout_s=2.0,
-        resume_handshake_timeout_s=0.2,
+        resume_handshake_timeout_s=0.2, peer_key="fixture-peer",
     )
     try:
         restarted = sender2.start_send(source)

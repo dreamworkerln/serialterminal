@@ -1636,3 +1636,27 @@ wire stream before journal/META and reports invalid_metadata if unrepresentable.
 Exactly0xffffffff chunks is representable (last DATA index0xfffffffe); larger
 counts are rejected without allocating a chunk bitmap. No smaller protocol file
 limit or new wire layout is introduced; separate storage/RAM budgets still apply.
+
+## Outgoing peer binding
+
+Outgoing journals and leases are scoped by a stable `peer_key`, stored in each
+journal and represented by a SHA-256 filename prefix. Agent uses the selected
+`open.device_key`; TUI uses the selected transport's device_key. Generic layers
+pass an opaque identity string and do not recognize controller names or key
+prefixes. In the fixed two-radio topology this binds work to the local radio path;
+it does not discover or authenticate a remote RF peer. Changing remote topology
+requires a new binding rather than assuming this key proves remote identity.
+The same explicit key supports reconnect/process-restart resume; different keys,
+including USB/BLE paths with distinct keys, never merge automatically.
+
+Candidate selection, journal update and deletion verify the binding. Two peer
+keys can use the same source and transfer_id without sharing a journal or lease.
+Same-key concurrent owners of one identity are rejected until the lease releases.
+Global outgoing count/TTL still applies across namespaces and preserves live
+scoped leases. Old unbound journals are retained for normal retention/inspection
+but are not automatically assigned to a peer. Standalone managers without an
+explicit key get a per-instance volatile binding: same-instance retry works,
+but another instance cannot claim that anonymous sender journal for restart resume.
+A cancellation that cannot safely delete its bound journal reports
+local_ownership_unsettled and keeps admission until close rather than deleting
+foreign state. Incoming wire layout and firmware behavior are unchanged.

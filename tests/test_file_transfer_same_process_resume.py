@@ -46,7 +46,7 @@ def test_timed_out_receiver_reopens_same_transfer_in_same_process(tmp_path):
     manager = FileTransferManager(
         transport,
         receive_dir=tmp_path,
-        incoming_idle_timeout_s=0.05,
+        incoming_idle_timeout_s=0.05, peer_key="fixture-peer",
     )
     payload = random.Random(20).randbytes(700)
     chunk_size = data_payload_capacity(transport.payload_capacity)

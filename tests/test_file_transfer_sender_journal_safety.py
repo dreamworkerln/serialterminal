@@ -25,6 +25,7 @@ def _journal(source, *, transfer_id, wire_chunk_size=184):
     payload = source.read_bytes()
     digest = hashlib.sha256(payload).hexdigest()
     return {
+        "peer_key": "fixture-peer",
         "schema": 1,
         "kind": "outgoing",
         "transfer_id": f"{transfer_id:016x}",
@@ -49,7 +50,7 @@ def test_zero_transfer_id_journal_is_not_reused(tmp_path):
         transport,
         receive_dir=tmp_path / "state",
         id_factory=lambda: 0xBEEF,
-        resume_handshake_timeout_s=0.05,
+        resume_handshake_timeout_s=0.05, peer_key="fixture-peer",
     )
     journal_path = manager._resume_store.outgoing_manifest(0)
     manager._resume_store.atomic_json(journal_path, _journal(source, transfer_id=0))
@@ -70,7 +71,7 @@ def test_manifest_filename_and_embedded_transfer_id_must_agree(tmp_path):
         transport,
         receive_dir=tmp_path / "state",
         id_factory=lambda: 0xCAFE,
-        resume_handshake_timeout_s=0.05,
+        resume_handshake_timeout_s=0.05, peer_key="fixture-peer",
     )
     wrong_path = manager._resume_store.outgoing_manifest(0x1111)
     manager._resume_store.atomic_json(
@@ -90,7 +91,7 @@ def test_manifest_filename_and_embedded_transfer_id_must_agree(tmp_path):
 def test_malformed_timestamp_is_skipped_before_candidate_selection(tmp_path, timestamp):
     source = tmp_path / "source.bin"
     source.write_bytes(b"checked source")
-    manager = FileTransferManager(_CaptureTransport(), receive_dir=tmp_path / "state")
+    manager = FileTransferManager(_CaptureTransport(), receive_dir=tmp_path / "state", peer_key="fixture-peer")
     try:
         valid = _journal(source, transfer_id=0x1111)
         malformed = {**_journal(source, transfer_id=0x2222), "updated": timestamp}
@@ -110,10 +111,10 @@ def test_reopened_store_handles_bad_timestamp_without_deleting_recent_journal(tm
     source = tmp_path / "source.bin"
     source.write_bytes(b"source identity")
     root = tmp_path / "state" / ".serialterminal-state"
-    store = ResumeStateStore(root)
+    store = ResumeStateStore(root, peer_key="fixture-peer")
     path = store.outgoing_manifest(0x2222)
     malformed = {**_journal(source, transfer_id=0x2222), "updated": timestamp}
     store.atomic_json(path, malformed)
-    reopened = ResumeStateStore(root)
+    reopened = ResumeStateStore(root, peer_key="fixture-peer")
     assert path.is_file()
     assert reopened.find_outgoing_for_source(source) == []

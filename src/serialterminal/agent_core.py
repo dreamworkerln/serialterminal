@@ -689,6 +689,7 @@ class SessionManager:
             FileTransferManager(
                 binary_adapter,
                 receive_dir=self.receive_dir,
+                peer_key=device_key,
                 claim_transfer=lambda transfer_id, direction: self._claim_file_transfer(
                     session_id,
                     transfer_id,

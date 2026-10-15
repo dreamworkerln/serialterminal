@@ -571,7 +571,7 @@ verified with synthetic metadata only. Full isolated-cache suite748 PASS/85.11s;
 
 ### TODO_046 — [todos/TODO_046_FT1_PEER_SCOPED_SENDER_JOURNALS.md](todos/TODO_046_FT1_PEER_SCOPED_SENDER_JOURNALS.md)
 
-Status: OPEN / BLOCKER / IMPLEMENTATION AND FIX VALIDATION OPEN
+Status: IMPLEMENTED / LOCAL VALIDATION PASS / CI AND RE-REVIEW OPEN
 
 Source: REVIEW_001/F017 at `db740af94c700c7c4e6d96abef7e809dadfcaf1c`,
 pre-existing at `fd94bdeb1fd878e072b0f852b3e8f461d928e3cd`.
@@ -579,6 +579,11 @@ Goal: prevent independent peers/sessions sending one local source from selecting
 deleting each other's outgoing journals. Stable peer key, reconnect/restart semantics
 and old journal compatibility require an explicit design before implementation.
 Preserve generic discovery/profile dependency boundaries and valid same-peer resume.
+
+Current implementation (2026-10-15, base07ada40): opaque device_key binding
+from frontends, scoped outgoing filename/lease and document verification. Same-key
+restart is retained; old unbound/anonymous instances cannot claim another peer.
+Aggregate retention honors scoped live leases. Full isolated-cache suite765 PASS/83.31s; compileall/diff-check PASS.
 
 ### TODO_047 — [todos/TODO_047_TIMING_APPEND_EVENT_IDENTITY.md](todos/TODO_047_TIMING_APPEND_EVENT_IDENTITY.md)
 

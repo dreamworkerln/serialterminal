@@ -3,6 +3,7 @@ from __future__ import annotations
 from contextlib import contextmanager
 
 import errno
+import hashlib
 import json
 import math
 import os
@@ -37,7 +38,10 @@ class ResumeStateStore:
         max_part_bytes: int = DEFAULT_MAX_PART_BYTES,
         max_received_ranges: int = DEFAULT_MAX_RECEIVED_RANGES,
         max_manifest_bytes: int = DEFAULT_MAX_MANIFEST_BYTES,
+        peer_key: str | None = None,
     ) -> None:
+        self.peer_key = peer_key
+        self.peer_namespace = hashlib.sha256(peer_key.encode("utf-8")).hexdigest() if peer_key is not None else ""
         self.max_received_ranges = max_received_ranges
         self.max_manifest_bytes = max_manifest_bytes
         self.root = root
@@ -83,10 +87,12 @@ class ResumeStateStore:
 
     publication_lock = namespace_lock
 
-    def _lease_path(self, kind: str, transfer_id: int) -> Path:
+    def _lease_path(self, kind: str, transfer_id: int, *, namespace: str | None = None) -> Path:
         if kind not in {"incoming", "outgoing"}:
             raise ValueError("unknown durable ownership kind")
-        return self.root / "leases" / f"{kind}-{transfer_id_text(transfer_id)}.lock"
+        scope = self.peer_namespace if namespace is None else namespace
+        prefix = f"{kind}-{scope}" if kind == "outgoing" and scope else kind
+        return self.root / "leases" / f"{prefix}-{transfer_id_text(transfer_id)}.lock"
 
     def claim(self, kind: str, transfer_id: int) -> bool:
         import fcntl
@@ -122,10 +128,10 @@ class ResumeStateStore:
         for kind, transfer_id in list(self._owned_leases):
             self.release(kind, transfer_id)
 
-    def _protected(self, kind: str, transfer_id: int) -> bool:
+    def _protected(self, kind: str, transfer_id: int, *, namespace: str | None = None) -> bool:
         import fcntl
 
-        path = self._lease_path(kind, transfer_id)
+        path = self._lease_path(kind, transfer_id, namespace=namespace)
         if not path.exists():
             return False
         descriptor = os.open(path, os.O_RDWR | getattr(os, "O_NOFOLLOW", 0))
@@ -206,7 +212,8 @@ class ResumeStateStore:
         )
 
     def outgoing_manifest(self, transfer_id: int) -> Path:
-        return self.outgoing_dir / f"{transfer_id_text(transfer_id)}.json"
+        prefix = f"{self.peer_namespace}-" if self.peer_namespace else ""
+        return self.outgoing_dir / f"{prefix}{transfer_id_text(transfer_id)}.json"
 
     def completed_manifest(self, transfer_id: int) -> Path:
         return self.completed_dir / f"{transfer_id_text(transfer_id)}.json"
@@ -299,7 +306,7 @@ class ResumeStateStore:
         if len(encoded) > self.max_manifest_bytes:
             raise OSError(errno.ENOSPC, "manifest resource limit exceeded")
         with self.namespace_lock():
-            self._make_count_room(path.parent.name, int(path.stem, 16))
+            self._make_count_room(path.parent.name, int(path.stem.rsplit("-", 1)[-1], 16))
             for kind, maximum in (("incoming", DEFAULT_MAX_INCOMING), ("outgoing", DEFAULT_MAX_OUTGOING), ("completed", DEFAULT_MAX_COMPLETED)):
                 if kind != path.parent.name:
                     self._cleanup_dir(self.root / kind, maximum, with_parts=kind == "incoming")
@@ -383,22 +390,38 @@ class ResumeStateStore:
             "schema": STATE_SCHEMA,
             "kind": "outgoing",
             "transfer_id": transfer_id_text(transfer_id),
-            "updated": time.time(),
             **payload,
+            "peer_key": self.peer_key,
+            "updated": time.time(),
         }
-        self._save_document(self.outgoing_manifest(transfer_id), document)
+        with self.namespace_lock():
+            self._check_outgoing_owner(transfer_id)
+            self._save_document(self.outgoing_manifest(transfer_id), document)
+
+    def _check_outgoing_owner(self, transfer_id):
+        path = self.outgoing_manifest(transfer_id)
+        if path.exists() or path.is_symlink():
+            value = None if path.is_symlink() else self.read_json(path)
+            if value is None or value.get("peer_key") != self.peer_key:
+                raise OSError(errno.EACCES, "outgoing journal binding does not match owner")
 
     def delete_outgoing(self, transfer_id: int) -> None:
-        self.outgoing_manifest(transfer_id).unlink(missing_ok=True)
+        with self.namespace_lock():
+            self._check_outgoing_owner(transfer_id)
+            self.outgoing_manifest(transfer_id).unlink(missing_ok=True)
 
     def find_outgoing_for_source(self, source_path: Path) -> list[dict[str, Any]]:
         resolved = str(source_path.resolve())
         result: list[dict[str, Any]] = []
-        for path in self.outgoing_dir.glob("*.json"):
+        prefix = f"{self.peer_namespace}-" if self.peer_namespace else ""
+        for path in self.outgoing_dir.glob(f"{prefix}*.json"):
+            if not self.peer_namespace and "-" in path.stem:
+                continue
             value = self.read_json(path)
             if (
                 value is not None
                 and value.get("schema") == STATE_SCHEMA
+                and value.get("peer_key") == self.peer_key
                 and value.get("source_path") == resolved
             ):
                 updated = value.get("updated")
@@ -414,10 +437,23 @@ class ResumeStateStore:
         result.sort(key=lambda item: item["updated"], reverse=True)
         return result
 
+    @staticmethod
+    def _stored_identity(kind, stem):
+        namespace = ""
+        if kind == "outgoing" and "-" in stem:
+            namespace, stem = stem.rsplit("-", 1)
+            if len(namespace) != 64:
+                raise ValueError("invalid outgoing namespace")
+            int(namespace, 16)
+        identity = int(stem, 16)
+        if not 0 <= identity <= 0xFFFFFFFFFFFFFFFF:
+            raise ValueError("invalid stored transfer identity")
+        return namespace, identity
+
     def _make_count_room(self, kind: str, transfer_id: int) -> None:
         limits = {"incoming": DEFAULT_MAX_INCOMING, "outgoing": DEFAULT_MAX_OUTGOING, "completed": DEFAULT_MAX_COMPLETED}
         directory = self.root / kind
-        target = directory / f"{transfer_id_text(transfer_id)}.json"
+        target = self.outgoing_manifest(transfer_id) if kind == "outgoing" else directory / f"{transfer_id_text(transfer_id)}.json"
         maximum = limits[kind]
         self._cleanup_dir(directory, maximum, with_parts=kind == "incoming", keep=target)
         entries = {path.stem: path for path in directory.glob("*.json") if path != target}
@@ -427,20 +463,20 @@ class ResumeStateStore:
                 if text == target.stem:
                     continue
                 try:
-                    identity = int(text, 16)
+                    namespace, identity = self._stored_identity(kind, text)
                 except ValueError:
                     continue
-                if self._protected(kind, identity):
+                if self._protected(kind, identity, namespace=namespace):
                     entries.setdefault(text, None)
         ordered = sorted((path for path in entries.values() if path is not None), key=lambda path: path.stat().st_mtime)
         for path in ordered:
             if len(entries) < maximum:
                 return
             try:
-                identity = int(path.stem, 16)
+                namespace, identity = self._stored_identity(kind, path.stem)
             except ValueError:
                 identity = None
-            if kind != "completed" and identity is not None and self._protected(kind, identity):
+            if kind != "completed" and identity is not None and self._protected(kind, identity, namespace=namespace):
                 continue
             path.unlink(missing_ok=True)
             if kind == "incoming" and identity is not None:
@@ -539,10 +575,10 @@ class ResumeStateStore:
                 continue
             if directory != self.completed_dir:
                 try:
-                    transfer_id = int(path.stem, 16)
+                    namespace, transfer_id = self._stored_identity(directory.name, path.stem)
                 except ValueError:
                     transfer_id = None
-                if transfer_id is not None and self._protected(directory.name, transfer_id):
+                if transfer_id is not None and self._protected(directory.name, transfer_id, namespace=namespace):
                     continue
             if index < maximum and now - updated <= self.ttl_s:
                 continue

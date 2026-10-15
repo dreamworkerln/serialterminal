@@ -72,14 +72,14 @@ def test_lost_initial_resume_still_completes_between_current_peers(tmp_path):
         receive_dir=tmp_path / "sender",
         id_factory=lambda: 0x1001,
         result_timeout_s=2.0,
-        resume_handshake_timeout_s=0.05,
+        resume_handshake_timeout_s=0.05, peer_key="fixture-peer",
     )
     right.drop_resume_once = True
     receiver = FileTransferManager(
         right,
         receive_dir=tmp_path / "receiver",
         id_factory=lambda: 0x2002,
-        result_timeout_s=2.0,
+        result_timeout_s=2.0, peer_key="fixture-peer",
     )
 
     try:
@@ -119,9 +119,9 @@ def test_current_peers_repair_more_ranges_than_one_packet(tmp_path):
     left.holes = holes.copy()
     ids = itertools.count(0x3003)
     sender = FileTransferManager(left, receive_dir=tmp_path / "sender",
-                                 id_factory=lambda: next(ids), control_replay_interval_s=.2)
+                                 id_factory=lambda: next(ids), control_replay_interval_s=.2, peer_key="fixture-peer")
     receiver = FileTransferManager(right, receive_dir=tmp_path / "receiver",
-                                   id_factory=lambda: next(ids), control_replay_interval_s=.2)
+                                   id_factory=lambda: next(ids), control_replay_interval_s=.2, peer_key="fixture-peer")
     try:
         started = sender.start_send(source)
         done = _wait_terminal(sender)

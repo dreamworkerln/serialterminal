@@ -354,6 +354,7 @@ class TerminalTui:
             FileTransferManager(
                 adapter,
                 receive_dir=self.receive_dir,
+                peer_key=session._current_transport().device_key,
                 claim_transfer=self._claim_file_transfer,
                 release_transfer=self._release_file_transfer,
                 event_sink=(

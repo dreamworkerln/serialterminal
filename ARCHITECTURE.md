@@ -368,3 +368,12 @@ RESUME progress and owns one destination from publishing intent through complete
 tombstone. RESULT OK follows the durable commit; generic transport/session code
 does not interpret this file-storage evidence. [FT1_RESUME.md](FT1_RESUME.md) owns
 the ordering, filesystem limitations and restart contract.
+
+## FT1 persistent sender ownership
+
+Frontends pass the selected generic device_key as an opaque peer_key to the file
+manager. FT1 owns bound journal/lease namespaces and validation; discovery,
+ManagedSession and transports do not learn FT1 or controller-specific identity
+rules. No concrete profile branch, controller alias or USB/BLE identity inference
+is added to generic mechanics. See FT1_RESUME.md for same-key restart and volatile
+anonymous bindings in the fixed two-radio topology.

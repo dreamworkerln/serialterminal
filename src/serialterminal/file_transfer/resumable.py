@@ -5,6 +5,7 @@ from .received import ReceivedRanges, DEFAULT_MAX_RECEIVED_RANGES, DEFAULT_MAX_M
 from collections import deque
 import os
 import queue
+import uuid
 import math
 from pathlib import Path
 import threading
@@ -49,6 +50,7 @@ def initialize(
     resume_handshake_timeout_s: float | None = None,
     resume_checkpoint_chunks: int = FILE_RESUME_CHECKPOINT_CHUNKS,
     resume_checkpoint_s: float = FILE_RESUME_CHECKPOINT_S,
+    peer_key: str | None = None,
     max_received_ranges: int = DEFAULT_MAX_RECEIVED_RANGES,
     max_manifest_bytes: int = DEFAULT_MAX_MANIFEST_BYTES,
     **kwargs: Any,
@@ -61,6 +63,11 @@ def initialize(
         raise ValueError("resume checkpoint policy must be positive")
     if type(max_received_ranges) is not int or max_received_ranges < 1 or type(max_manifest_bytes) is not int or max_manifest_bytes < 1:
         raise ValueError("metadata resource limits must be positive integers")
+    if peer_key is not None and (not isinstance(peer_key, str) or not peer_key):
+        raise ValueError("peer_key must be a non-empty stable identity")
+    # Без явной identity anonymous manager не присваивает journals другого
+    # экземпляра; volatile binding живёт только до закрытия этого manager.
+    self.peer_key = peer_key if peer_key is not None else f"volatile:{uuid.uuid4().hex}"
     self.max_received_ranges = max_received_ranges
     self.max_manifest_bytes = max_manifest_bytes
     self.local_recovery_timeout_s = float(local_recovery_timeout_s)
@@ -72,7 +79,7 @@ def initialize(
     core.FileTransferManager.__init__(self, transport, **kwargs)
     self._resume_store = ResumeStateStore(
         self.receive_dir / ".serialterminal-state",
-        max_received_ranges=max_received_ranges, max_manifest_bytes=max_manifest_bytes,
+        max_received_ranges=max_received_ranges, max_manifest_bytes=max_manifest_bytes, peer_key=self.peer_key,
     )
 
 # TODO_035: same-process local controller recovery -----------------
@@ -1024,7 +1031,14 @@ def _handle_sender_cancel(self, record, exc) -> None:
             ),
         )
     else:
-        self._resume_store.delete_outgoing(record.transfer_id)
+        try:
+            self._resume_store.delete_outgoing(record.transfer_id)
+        except OSError as cleanup:
+            record.event("sender_journal_cleanup_failed", error=str(cleanup))
+            record.terminal("failed", failure=core.FileTransferError(
+                "local_ownership_unsettled", str(cleanup), phase="settling",
+            ))
+            return
         self._terminal_record(record, "cancelled", failure=exc)
 
 # lifecycle / display ------------------------------------------------

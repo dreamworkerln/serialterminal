@@ -67,7 +67,7 @@ def _manager(transport, receive_dir, *, transfer_id, **kwargs):
         id_factory=lambda: transfer_id,
         result_timeout_s=2.0,
         resume_handshake_timeout_s=0.2,
-        **kwargs,
+        **kwargs, peer_key="fixture-peer",
     )
 
 
@@ -163,13 +163,7 @@ def test_gzip_wire_is_deterministic_across_sender_restart(tmp_path):
     assert partial
     first_id = first["transfer_id"]
 
-    journal_path = (
-        tmp_path
-        / "left"
-        / ".serialterminal-state"
-        / "outgoing"
-        / f"{first_id}.json"
-    )
+    journal_path = sender1._resume_store.outgoing_manifest(int(first_id, 16))
     journal = json.loads(journal_path.read_text(encoding="utf-8"))
     assert journal["compression"] == int(Compression.GZIP)
     first_wire_hash = journal["wire_sha256"]

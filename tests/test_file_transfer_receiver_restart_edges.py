@@ -78,7 +78,7 @@ def test_sparse_receiver_map_survives_restart_and_repairs_from_earliest_hole(tmp
     receive_dir = tmp_path / "rx"
     payload = random.Random(41).randbytes(760)
     transport1 = _CaptureTransport()
-    manager1 = FileTransferManager(transport1, receive_dir=receive_dir)
+    manager1 = FileTransferManager(transport1, receive_dir=receive_dir, peer_key="fixture-peer")
     meta, chunks, end = _fixture(transport1, payload, 0x4101)
 
     try:
@@ -99,7 +99,7 @@ def test_sparse_receiver_map_survives_restart_and_repairs_from_earliest_hole(tmp
         manager1.close()
 
     transport2 = _CaptureTransport()
-    manager2 = FileTransferManager(transport2, receive_dir=receive_dir)
+    manager2 = FileTransferManager(transport2, receive_dir=receive_dir, peer_key="fixture-peer")
     try:
         manager2.feed_binary(encode_message(meta, transport2.payload_capacity))
         assert _wait_until(
@@ -138,7 +138,7 @@ def test_restore_never_infers_uncheckpointed_chunk_from_part_file_size(tmp_path)
     receive_dir = tmp_path / "rx"
     payload = random.Random(42).randbytes(500)
     transport = _CaptureTransport()
-    manager = FileTransferManager(transport, receive_dir=receive_dir)
+    manager = FileTransferManager(transport, receive_dir=receive_dir, peer_key="fixture-peer")
     meta, chunks, _end = _fixture(transport, payload, 0x4202)
     part = manager._resume_store.incoming_part(meta.transfer_id)
     part.parent.mkdir(parents=True, exist_ok=True)
@@ -154,7 +154,7 @@ def test_restore_never_infers_uncheckpointed_chunk_from_part_file_size(tmp_path)
     manager.close()
 
     transport2 = _CaptureTransport()
-    manager2 = FileTransferManager(transport2, receive_dir=receive_dir)
+    manager2 = FileTransferManager(transport2, receive_dir=receive_dir, peer_key="fixture-peer")
     try:
         manager2.feed_binary(encode_message(meta, transport2.payload_capacity))
         assert _wait_until(
@@ -174,7 +174,7 @@ def test_conflicting_duplicate_after_restart_is_still_fatal(tmp_path):
     receive_dir = tmp_path / "rx"
     payload = random.Random(43).randbytes(500)
     transport1 = _CaptureTransport()
-    manager1 = FileTransferManager(transport1, receive_dir=receive_dir)
+    manager1 = FileTransferManager(transport1, receive_dir=receive_dir, peer_key="fixture-peer")
     meta, chunks, _end = _fixture(transport1, payload, 0x4303)
 
     try:
@@ -194,7 +194,7 @@ def test_conflicting_duplicate_after_restart_is_still_fatal(tmp_path):
         manager1.close()
 
     transport2 = _CaptureTransport()
-    manager2 = FileTransferManager(transport2, receive_dir=receive_dir)
+    manager2 = FileTransferManager(transport2, receive_dir=receive_dir, peer_key="fixture-peer")
     try:
         manager2.feed_binary(encode_message(meta, transport2.payload_capacity))
         assert _wait_until(lambda: manager2.display_snapshot())
@@ -221,7 +221,7 @@ def test_conflicting_duplicate_after_restart_is_still_fatal(tmp_path):
 
 def test_idle_sweep_failure_is_visible_retains_partial_and_keeps_rx_alive(tmp_path, monkeypatch):
     transport = _CaptureTransport()
-    manager = FileTransferManager(transport, receive_dir=tmp_path)
+    manager = FileTransferManager(transport, receive_dir=tmp_path, peer_key="fixture-peer")
     payload = random.Random(7).randbytes(400)
     meta, chunks, _ = _fixture(transport, payload, 0xF001)
     try:

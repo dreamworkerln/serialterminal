@@ -60,7 +60,7 @@ def initialize(self, *args: Any, **kwargs: Any) -> None:
     resumable.initialize(self, *args, **kwargs)
     self._resume_store = _DurableResumeStateStore(
         self.receive_dir / ".serialterminal-state",
-        max_received_ranges=self.max_received_ranges, max_manifest_bytes=self.max_manifest_bytes,
+        max_received_ranges=self.max_received_ranges, max_manifest_bytes=self.max_manifest_bytes, peer_key=self.peer_key,
     )
     core.FileTransferManager._start_workers(self)
 
@@ -127,6 +127,7 @@ def _validated_sender_candidate(
 
     if (
         value.get("kind") != "outgoing"
+        or value.get("peer_key") != self.peer_key
         or value.get("status") != "active"
         or transfer_id == 0
         or transfer_text != transfer_id_text(transfer_id)

@@ -403,3 +403,10 @@ META с derived chunk_count выше0xffffffff отвергается до RX ad
 invalid_metadata; sender проверяет подготовленный wire до journal/META. Последний
 DATA index при максимальном числе chunks —0xfffffffe. Это wire bound, отдельно
 от host RAM/storage budgets; не создавать большие тестовые файлы для этой границы.
+
+Outgoing journals/leases изолированы по выбранному device_key: agent передаёт key
+из open, TUI — key выбранного transport. Для двух фиксированных радионод это
+привязка к локальной ноде, не discovery удалённого RF peer. Same-key restart
+сохраняет ID; разные USB/BLE keys и старые unbound journals не объединяются.
+Anonymous library manager без peer_key имеет только volatile instance binding.
+Не менять identity вручную ради resume и не удалять чужой journal при cancel.

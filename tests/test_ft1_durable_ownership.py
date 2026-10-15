@@ -100,7 +100,7 @@ def test_adapter_close_failure_still_releases_storage_lease_after_workers_stop(t
     transport.close = fail
     manager = FileTransferManager(transport, receive_dir=tmp_path)
     manager._reserve_record(801, direction="TX", filename="source")
-    store = ResumeStateStore(tmp_path / ".serialterminal-state")
+    store = ResumeStateStore(tmp_path / ".serialterminal-state", peer_key=manager.peer_key)
     try:
         with pytest.raises(OSError):
             store.claim("outgoing", 801)
