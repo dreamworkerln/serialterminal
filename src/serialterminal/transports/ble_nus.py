@@ -3,11 +3,15 @@ from __future__ import annotations
 import asyncio
 from concurrent.futures import TimeoutError as FutureTimeoutError
 from dataclasses import dataclass
+import json
 import queue
+import sys
 import threading
 from typing import Any
 
+from ..application_log import report_event, report_exception
 from ..settings import DEFAULTS
+from .bluez_release import verify_release
 from .base import (
     ReceivedChunk,
     Transport,
@@ -118,6 +122,10 @@ class BleNusTransport(Transport):
         self._default_stream = configured_streams[0].stream
 
         self._connected = threading.Event()
+        self._closing = threading.Event()
+        self._connect_futures: set[Any] = set()
+        self._lifecycle_lock: asyncio.Lock | None = None
+        self._release_report: dict[str, Any] | None = None
         self._state_lock = threading.Lock()
         self._client: Any | None = None
         self._address: str | None = self.target_address
@@ -152,6 +160,11 @@ class BleNusTransport(Transport):
         return self._connected.is_set()
 
     @property
+    def release_report(self) -> dict[str, Any] | None:
+        with self._state_lock:
+            return dict(self._release_report) if self._release_report is not None else None
+
+    @property
     def device_key(self) -> str:
         if self.target_address:
             return f"ble-address:{self.target_address.lower()}"
@@ -182,6 +195,7 @@ class BleNusTransport(Transport):
         loop = asyncio.new_event_loop()
         asyncio.set_event_loop(loop)
         self._loop = loop
+        self._lifecycle_lock = asyncio.Lock()
         self._loop_ready.set()
         loop.run_forever()
 
@@ -267,20 +281,67 @@ class BleNusTransport(Transport):
         ]
         return matches[0] if len(matches) == 1 else None
 
+    def _publish_release_report(self, report: dict[str, Any]) -> None:
+        with self._state_lock:
+            self._release_report = report
+        self._record_timing("ble_release", **report)
+        text = json.dumps({"device_key": self.device_key, **report}, ensure_ascii=False)
+        report_event("BLE release " + text)
+        if report["result"] != "disconnected":
+            report_exception(TransportError(text), "BLE release unconfirmed")
+            print("ST BLE release unconfirmed: " + text, file=sys.stderr)
+
     async def _cleanup_client_async(self, client: Any) -> None:
+        # Отмена connect не должна потерять клиента, уже снятого с self._client.
+        # Ждём bounded cleanup под тем же lifecycle lock, прежде чем пропустить
+        # закрытие или новую generation; один shield без ожидания этого не даёт.
+        cleanup = asyncio.create_task(self._release_client_async(client))
+        try:
+            await asyncio.shield(cleanup)
+        except asyncio.CancelledError:
+            await cleanup
+            raise
+
+    async def _release_client_async(self, client: Any) -> None:
+        backend = self._bluez_backend(client)
+        path = getattr(backend, "_device_path", None)
+        try:
+            force_allowed = bool(client.is_connected)
+        except Exception:
+            force_allowed = False
+        errors = []
         # stop_notify() is best-effort because an abrupt peripheral power loss
         # means the GATT link may already be gone. The generation guard above is
         # still the correctness boundary if the backend retains a stale callback.
-        for receive_stream in self.receive_streams:
-            try:
-                await client.stop_notify(receive_stream.uuid)
-            except Exception:
-                pass
+        async def stop_notifications():
+            for receive_stream in self.receive_streams:
+                try:
+                    await client.stop_notify(receive_stream.uuid)
+                except Exception as exc:
+                    errors.append(f"stop_notify: {type(exc).__name__}: {exc}")
 
         try:
-            await client.disconnect()
-        except Exception:
-            pass
+            await asyncio.wait_for(stop_notifications(), DEFAULTS.ble_cleanup.notify_timeout_s)
+        except asyncio.TimeoutError:
+            errors.append("stop_notify: TimeoutError")
+        try:
+            await asyncio.wait_for(client.disconnect(), DEFAULTS.ble_cleanup.disconnect_timeout_s)
+        except Exception as exc:
+            errors.append(f"disconnect: {type(exc).__name__}: {exc}")
+
+        if backend is not None:
+            report = await verify_release(path, force_allowed=force_allowed,
+                                          timeout=DEFAULTS.ble_cleanup.bluez_timeout_s)
+        else:
+            try:
+                connected = bool(client.is_connected)
+                report = {"backend": "bleak", "result": "failed" if connected else "disconnected",
+                          "connected_after": connected, "forced": False}
+            except Exception as exc:
+                report = {"backend": "bleak", "result": "unknown", "forced": False,
+                          "error": f"{type(exc).__name__}: {exc}"}
+        report.update(generation=self._connection_generation, cleanup_errors=errors)
+        self._publish_release_report(report)
 
     def _has_client(self) -> bool:
         with self._state_lock:
@@ -288,7 +349,7 @@ class BleNusTransport(Transport):
 
     async def _retire_stale_client_async(self) -> None:
         if self._has_client():
-            await self._disconnect_async()
+            await self._disconnect_locked_async()
 
     def _begin_connection(self, device: Any) -> tuple[Any, int]:
         with self._state_lock:
@@ -308,6 +369,7 @@ class BleNusTransport(Transport):
 
         with self._state_lock:
             self._client = client
+            self._release_report = None
         return client, generation
 
     async def _connect_receive_streams_async(
@@ -599,7 +661,7 @@ class BleNusTransport(Transport):
         available_streams: set[str],
     ) -> bool:
         with self._state_lock:
-            if self._client is not client:
+            if self._closing.is_set() or self._client is not client:
                 return False
             if self._active_generation != generation:
                 return False
@@ -642,13 +704,25 @@ class BleNusTransport(Transport):
         return False
 
     async def _connect_async(self) -> bool:
+        # Один lifecycle lock исключает поздний cleanup старого клиента поверх
+        # нового подключения; close также запрещает новые попытки до отмены waits.
+        async with self._lifecycle_lock:
+            if self._closing.is_set():
+                return False
+            try:
+                return await self._connect_locked_async()
+            except asyncio.CancelledError:
+                await self._disconnect_locked_async()
+                raise
+
+    async def _connect_locked_async(self) -> bool:
         if self._connected.is_set():
             return True
 
         await self._retire_stale_client_async()
 
         device = await self._find_target_device()
-        if device is None:
+        if device is None or self._closing.is_set():
             return False
 
         client, generation = self._begin_connection(device)
@@ -674,23 +748,40 @@ class BleNusTransport(Transport):
 
         return True
 
-    def connect(self) -> bool:
-        if self._connected.is_set():
-            return True
+    def _forget_connect(self, future) -> None:
+        with self._state_lock:
+            self._connect_futures.discard(future)
 
+    def _cancel_connects(self) -> None:
+        with self._state_lock:
+            futures = tuple(self._connect_futures)
+        for future in futures:
+            future.cancel()
+
+    def connect(self) -> bool:
+        future = None
         try:
-            future = self._submit(self._connect_async())
-            return bool(
-                future.result(
-                    timeout=self.scan_timeout + self.connect_timeout + 2.0
-                )
-            )
-        except (FutureTimeoutError, TransportError):
+            with self._state_lock:
+                if self._closing.is_set():
+                    return False
+                if self._connected.is_set():
+                    return True
+                future = self._submit(self._connect_async())
+                self._connect_futures.add(future)
+            future.add_done_callback(self._forget_connect)
+            return bool(future.result(timeout=self.scan_timeout + self.connect_timeout + 2.0))
+        except FutureTimeoutError:
+            if future is not None:
+                future.cancel()
             return False
         except Exception:
             return False
 
     async def _disconnect_async(self) -> None:
+        async with self._lifecycle_lock:
+            await self._disconnect_locked_async()
+
+    async def _disconnect_locked_async(self) -> None:
         with self._state_lock:
             client = self._client
             self._client = None
@@ -704,7 +795,11 @@ class BleNusTransport(Transport):
             await self._cleanup_client_async(client)
 
     def disconnect(self) -> None:
+        self._cancel_connects()
         if self._loop is None or not self._loop.is_running():
+            if self._has_client():
+                self._publish_release_report({"backend": "bleak", "result": "unknown",
+                                              "forced": False, "error": "BLE event loop is not running"})
             self._connected.clear()
             self._available_streams.clear()
             with self._state_lock:
@@ -715,8 +810,10 @@ class BleNusTransport(Transport):
 
         try:
             future = self._submit(self._disconnect_async())
-            future.result(timeout=5.0)
-        except Exception:
+            future.result(timeout=DEFAULTS.ble_cleanup.shutdown_timeout_s)
+        except Exception as exc:
+            self._publish_release_report({"backend": "bleak", "result": "unknown",
+                                          "forced": False, "error": f"{type(exc).__name__}: {exc}"})
             self._connected.clear()
             self._available_streams.clear()
             with self._state_lock:
@@ -725,6 +822,7 @@ class BleNusTransport(Transport):
                 self._clear_write_size_state_locked()
 
     def close(self) -> None:
+        self._closing.set()
         self.disconnect()
         loop = self._loop
         if loop is not None and loop.is_running():

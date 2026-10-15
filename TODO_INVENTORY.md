@@ -132,7 +132,9 @@ Remaining work: align the primary `NODE_OBSERVATION_RECORDING_POLICY.md` and nod
 
 TODO_026 logging-contract investigation is also OPEN and may be scheduled independently when log-format work is selected.
 
-Current operator order (2026-10-14): TODO_040, then TODO_041 through TODO_047 numerically, with regression tests and one implementation commit per task. Physical hardware runs and firmware changes are excluded; push is not requested. Deferred protocol designs require explicit agreement before dependent implementation. Earlier priority guidance below is historical and does not override this order.
+Current operator task (2026-10-15): TODO_048 graceful BLE release implementation and local validation completed; physical validation remains OPEN. Orphan discovery/recovery is DEFERRED. No commit/push requested.
+
+Previous operator order (2026-10-14): TODO_040, then TODO_041 through TODO_047 numerically, with regression tests and one implementation commit per task. Physical hardware runs and firmware changes are excluded; push is not requested. Deferred protocol designs require explicit agreement before dependent implementation. Earlier priority guidance below is historical.
 
 Historical suggested next work: after a separate operator start, resolve REVIEW_001 software blockers before hardware/merge acceptance: triage TODO_043 findings 7–14 and remaining S2 memory/queue bounds, agree the peer-ownership design in TODO_046 and safe live-retention boundaries in TODO_044 together with TODO_043/F012, include TODO_045 chunk-space admission and TODO_047 timing identities/documentation in implementation and re-review, then implement and validate critical TODO_043 review fixes on dev_tui_exp_recursive_missing: original recursive findings 3+4+5, restore/retry findings 1+2, bounded processed history 6 plus the additional findings, deterministic regression/stress tests, full software validation and independent re-review of the diff from cb891540451df7c864a40d06618213f10235477a. That reviewed checkpoint is RED / not merge-ready. Then continue TODO_042 broad hardware acceptance for recursive missing-list files: depth8, ROOT missing-percent default30% with service-file exemption, and three consecutive no-progress cycles per file with reset on any decrease. Preserve stage8 evidence and merge into dev_tui only after acceptance and operator instruction. Then address TODO_041's remaining FT1 failure/recovery and RX observability scope, retaining the existing throughput evidence and without enabling TODO_038. Then finish the current firmware/BlueZ throughput characterization without enabling TODO_038, so the pre-progress-checkpoint baseline remains clean. Then physically validate the implemented TODO_033 child workstream at the exact current `dev_tui` checkpoint: `TODO_034` BLE/USB controller lifecycle, `TODO_035` same-process FT1 reboot/reconnect recovery, `TODO_036` receiver process-restart durability, and `TODO_037` sender/receiver/both-process persistent resume plus lost-RESULT tombstone behavior. After the current firmware/baud work settles, implement TODO_040's centralized settings/single-source foundation together with TODO_039's discoverable F9 menu and profile-aware/runtime baud policy, so the UI does not introduce another independent set of defaults. After that, implement/validate `TODO_038` as the rare FT1 ST-to-ST remote application-progress watchdog, measuring its overhead against the preserved baseline. Then rerun the broader TODO_029 two-node reconnect/MISSING validation against the recovery stack. Independently finish the HCI boundary isolation in TODO_024; then continue correctness/evidence boundaries (`TODO_011`, `TODO_013`, `TODO_016`, `TODO_017`, `TODO_021`, remaining `TODO_025` docs), lifecycle/API robustness (`TODO_019`, `TODO_022`, `TODO_023`), and consistency/docs follow-ups (`TODO_012`, `TODO_014`, `TODO_015`, `TODO_020`). Re-evaluate ordering if physical validation exposes a regression.
 
@@ -286,6 +288,12 @@ checked DATA and remote progress stay deferred. REVIEW_001 fixes remain TODO_043
 ## Closed
 
 ### TODO_028 — `todos/TODO_028_GENERIC_SWEEP_AGENT_API.md`
+
+Bundled adapter follow-up (2026-10-15): `chatter.reliable_user` is deprecated and
+rejected before device mutations with `deprecated_sweep_adapter`; its echo preflight
+is incompatible with current firmware. Generic sweep API remains implemented.
+Replacement hardware USER scenarios are specified in luna_runs/007_user_ack;
+no replacement adapter or physical acceptance is implied.
 
 Status: CLOSED
 
@@ -600,6 +608,33 @@ POSIX serialized batch append and separation of truncated legacy tails. Actual
 TUI profile replacement and concurrent process writes covered; LOGGING.md/API/
 skill synchronized. Final cumulative suite775 PASS/97.88s; compileall/diff-check PASS. Exact F015 checkpoint
 repro and candidate TTL received a dedicated TODO_044 follow-up.
+
+### TODO_048 — [todos/TODO_048_BLE_SHUTDOWN_RELEASE_VERIFICATION.md](todos/TODO_048_BLE_SHUTDOWN_RELEASE_VERIFICATION.md)
+
+Status: IMPLEMENTED / LOCAL SOFTWARE VALIDATION PASS / HARDWARE OPEN
+
+Goal: verify release of this ST instance's BLE connections during graceful close/
+EOF/TUI shutdown; if BlueZ still reports Connected, perform a bounded exact-device
+Disconnect and verify the outcome. Preserve explicit failure/unknown and logs;
+never equate local session closure with confirmed host disconnection.
+Source: operator request after luna_runs `003_restart/20261015T143812Z_a2e627`;
+crash observation is not proof of a graceful-shutdown failure.
+Future discovery of connected/non-advertising devices and orphan ownership/recovery
+are explicitly DEFERRED; discovery must not disconnect other programs' devices.
+
+Current implementation (2026-10-15, uncommitted on `6fdeb00`): bounded Bleak
+cleanup plus independent exact-path BlueZ post-check/Disconnect, serialized lifecycle
+and cancellation-safe retirement. Generic close.transport_release and forensic/
+timing/application reports distinguish local closed from host release. New module
+29 PASS; final isolated-cache full pytest804 PASS/84.71s; compileall/diff-check PASS.
+Physical smoke remains OPEN; no firmware, commit/push or CI action. Future orphan
+discovery/recovery stays DEFERRED. Exact source/test digest and evidence in TODO.
+2026-10-15 physical observation: two 003_restart BLE sender SIGKILL attempts left
+1B44 Connected=yes in BlueZ after ST exit, preventing discovery. UNRESOLVED by
+graceful cleanup; manual exact-device disconnect restored Connected=no. In the
+second run, companion B graceful EOF did exercise forced BlueZ release successfully
+(ordinary disconnect timeout -> Connected=false). See TODO for exact runs/fingerprint;
+this does not close the crash-recovery or complete physical-validation gates.
 
 ## Current validation posture
 

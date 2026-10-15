@@ -1025,7 +1025,11 @@ class SessionManager:
             self._file_managers.pop(session_id, None)
             if device_key is not None:
                 self._device_sessions.pop(device_key, None)
-        return {"session": session_id, "state": "closed"}
+        result = {"session": session_id, "state": "closed"}
+        report = session.transport.release_report
+        if report is not None:
+            result["transport_release"] = report
+        return result
 
     def close(self, session_id: str) -> dict[str, Any]:
         session = self._begin_external_mutation(session_id)

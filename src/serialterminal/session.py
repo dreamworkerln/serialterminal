@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import codecs
+import json
 from collections import deque
 from dataclasses import dataclass, field
 import queue
@@ -849,7 +850,16 @@ class ManagedSession:
             tx.join(timeout=1.0)
 
         self._abort_pending_tx()
-        self._current_transport().close()
+        transport = self._current_transport()
+        transport.close()
+        report = transport.release_report
+        if report is not None:
+            self._record_event(
+                "state" if report["result"] == "disconnected" else "error",
+                state="transport-release", text=json.dumps(report, ensure_ascii=False),
+                error=None if report["result"] == "disconnected" else "transport release unconfirmed",
+                device_key=transport.device_key, description=transport.description,
+            )
         self._reset_event_decoders()
         self._record_event(
             "state",

@@ -195,3 +195,16 @@ across machine reboots nor complete SIGKILL evidence is promised.
 
 Platforms without flock/pread retain the single-writer import/append path;
 cross-process batch serialization is a POSIX guarantee.
+
+
+## BLE release at shutdown
+
+Graceful BLE cleanup records `ble_release` in the timing companion and a JSON
+`BLE release` entry in the application log, including backend, exact BlueZ device
+path where available, generation, `result`, `forced`, property observations and
+intermediate cleanup errors. Session shutdown adds a `transport-release` state or
+error event to the agent forensic log before its logger is stopped. A failed or
+unknown release is also reported on stderr and durably in the application error
+log. Successful local session closure and process exit do not by themselves prove
+host disconnection; inspect the release result. SIGKILL may leave no final report.
+See [AGENT_API.md](AGENT_API.md#verified-ble-release-on-close) for the contract.

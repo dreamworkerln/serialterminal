@@ -651,6 +651,9 @@ A sweep executes exactly the requested ordered Cartesian plan and repetition cou
 
 ### Start a sweep
 
+Examples below require an adapter supplied by a participating profile. The old
+`chatter.reliable_user` is deprecated and rejected before device operations.
+
 Participating sessions must already be open. Discovery and `open` remain ordinary caller-owned API steps.
 
 Generic request shape:
@@ -659,7 +662,7 @@ Generic request shape:
 {
   "id":100,
   "op":"sweep_start",
-  "adapter":"chatter.reliable_user",
+  "adapter":"project.measurement",
   "sessions":["s1","s2"],
   "plan":{
     "constants":{
@@ -866,78 +869,17 @@ Terminal jobs are also globally bounded to the advertised `max_retained_terminal
 
 Closing/evicting a job does not remove its already-written forensic `[SWEEP]` records.
 
-### Bundled Chatter reliable-USER adapter
+### Deprecated Chatter reliable-USER adapter
 
-The bundled `chatter` profile registers:
-
-```text
-chatter.reliable_user
-```
-
-The generic agent/sweep engine does not special-case this name; it resolves adapters through the selected session profiles.
-
-This adapter requires exactly two distinct, already-connected `profile:"chatter"` sessions. Its plan must define these coordinate fields across `constants` and/or axes:
-
-```text
-frequency_hz
-power_dbm
-bandwidth_hz
-sf
-payload_bytes
-direction
-```
-
-Current accepted values follow the Chatter firmware contract:
-
-```text
-frequency_hz   470000000..510000000 in 1 kHz steps
-power_dbm      2..17 or 20
-bandwidth_hz   7800, 10400, 15600, 20800, 31250, 41700,
-               62500, 125000, 250000, 500000
-sf             7..12
-payload_bytes  1..200
-direction      "<session-a>session-b>" or reverse
-```
-
-`plan.options` is currently empty for this adapter.
-
-The Chatter adapter does **not** require a firmware sweep mode. After the generic pre-sweep TX fence has settled, the host-side adapter uses only existing Chatter control commands to establish a quiet diagnostic baseline on both participating sessions:
-
-```text
-/cancel all
-/diag off
-/heartbeat off
-/echo-loop stop
-/echo        only when /help reports echo=ON
-/both
-```
-
-The active `SweepJob` plus SerialTerminal session ownership is the sweep mode: external `send_line`, `send_bytes` and `close` are blocked on participating sessions, while the profile-owned adapter alone may submit control commands and measured USER traffic through its capability-limited context. No firmware command, scheduler state, wire flag or protocol token named "sweep" is required.
-
-This host-side isolation cannot prevent RF generated independently by firmware in response to unrelated over-the-air traffic. The operator/coordinator must therefore use a quiet measurement frequency/environment and keep unrelated nodes quiescent. Third-party RF is measurement contamination, not something SerialTerminal can classify as sweep/non-sweep traffic.
-
-For each coordinate the adapter applies and verifies requested radio configuration before sampling. For each repetition it submits exactly one reliable USER and waits for that operation to settle before any next sample or radio-configuration mutation. Host `queued`/`written` state alone is never treated as device/RF settlement.
-
-The adapter may parse delivery telemetry to synchronize execution, but generic sweep events do not classify ACK/retry/CRC/HDR/RSSI/SNR quality. Detailed interpretation remains a caller/reviewer task using the forensic log.
-
-On normal completion or cancellation cleanup, the adapter sends `/cancel all` to every participating session and waits within the bounded cleanup phase for delivery cancellation/settlement evidence. Background modes that preparation forced OFF are not silently re-enabled; after the job releases session ownership, ordinary SerialTerminal control is available again.
-
-## Concurrent JSONL behavior
-
-`observe` and `sweep_observe` are asynchronous long-polls. Ordinary JSONL requests are handled by the main reader while those waits remain pending; a running sweep also has its own background worker, with participating-session mutations protected by the sweep ownership gate.
-
-Example:
-
-```text
-id=100 sweep_observe(sw1) -> pending
-id=101 status(s1)          -> response 101
-id=102 list_sessions       -> response 102
-... sweep event ...        -> response 100
-```
-
-Multiple `observe`/`sweep_observe` requests may pend under different IDs. stdout JSON lines are serialized and cannot interleave. `[AGENT RESPONSE]` ordering in the forensic log matches stdout response ordering. Completed async observation worker objects are removed from runner bookkeeping; a long-lived process retains only currently active/pending observation workers rather than the historical thread list.
-
-Continuous observation means issuing a new `observe` or `sweep_observe` after each response using the returned cursor(s); there is no unsolicited push.
+`chatter.reliable_user` is **DEPRECATED / disabled**. Its registered factory returns
+`deprecated_sweep_adapter` before creating a job, acquiring mutation ownership or
+sending commands. The old preflight requires `/echo-loop stop` and `echo=...` in
+`/help`, which current firmware no longer provides. There is no bundled replacement.
+Do not bypass the guard by constructing the legacy class. The old implementation
+remains only for comparison; direct-class tests do not establish current-firmware
+compatibility. Generic sweep machinery remains available for supported adapters
+registered by participating profiles. `project.measurement` in the schema example
+is illustrative, not a provided adapter.
 
 ## Close and shutdown
 
@@ -948,6 +890,47 @@ Continuous observation means issuing a new `observe` or `sweep_observe` after ea
 EOF/process shutdown cancels pending session observations, requests cancellation of an active sweep, gives bounded sweep workers a chance to settle, force-closes remaining sessions, then joins sweep/observe workers while logs/stdout are still available. A pending ordinary `observe` cancelled by process shutdown may return structured `agent_stopping`.
 
 For FT1, EOF closes the file manager through its bounded suspension path: receiver partial bytes/durable ranges and sender journal remain eligible for same-transfer resume. It does not invoke `file_transfer_cancel`. Explicit `file_transfer_cancel` retains its cancellation/cleanup semantics. Shutdown failure is reported separately; a manifest alone does not prove retained bytes.
+
+### Verified BLE release on close
+
+For BLE sessions, `close` additionally returns `transport_release`. `state:"closed"`
+means the local session was closed; only `transport_release.result:"disconnected"`
+confirms backend release at the verification boundary. Other transports may omit
+this optional field. Example:
+
+```json
+{"session":"s1","state":"closed","transport_release":{"backend":"bluez","result":"disconnected","device_path":"/org/bluez/hci1/dev_AA_BB_CC_DD_EE_FF","connected_before":true,"connected_after":false,"forced":true,"generation":1,"cleanup_errors":[]}}
+```
+
+BLE cleanup bounds notification shutdown and Bleak disconnect separately. For a
+BlueZ client it then reads `org.bluez.Device1.Connected` through a fresh system-bus
+connection, using the exact client object path captured before cleanup. If still
+connected and the client was connected when cleanup began, it issues one targeted
+`Disconnect` and checks the property again. An already disconnected/stale client
+cannot authorize a forced disconnect of a connection another application may have
+opened. Missing/unusable client path, access errors and timeouts remain explicit
+`failed`/`unknown`; local Bleak flags do not substitute for BlueZ verification.
+A removed Device1 object counts as disconnected. Non-BlueZ backends report the
+client's state under `backend:"bleak"`, without claiming independent host proof.
+
+The report includes intermediate cleanup errors even if the final release succeeds.
+It is saved in a `ble_release` timing event and the application log. Session stop
+also emits a `transport-release` state/error event into the forensic log before
+closing it. On unconfirmed release, stderr and the application error log report the
+failure. Other sessions still receive cleanup. EOF has no `close` response: use the
+saved reports, not process exit code alone, to establish release.
+
+Lifecycle serialization and close admission prevent an old cleanup from releasing
+an ST replacement generation or a late connect from publishing after permanent
+close. Shutdown normally has an 8-second BLE cleanup wait per transport, with
+separate 1-second notification, 2-second disconnect and 3-second BlueZ verification
+budgets; failures remain observable rather than implying success.
+
+This covers graceful shutdown only. SIGKILL/power loss cannot execute Python cleanup.
+Discovering or reclaiming connections left by a dead process, merging connected
+BlueZ devices into discovery, and automatic orphan ownership decisions are deferred.
+Discovery does not disconnect devices. No adapter restart, device removal/unpair,
+or arbitrary-address recovery operation is introduced.
 
 ## Multiple devices
 

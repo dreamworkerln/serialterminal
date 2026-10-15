@@ -40,6 +40,16 @@ python3 serialterminal.py agent
 
 Переиспользуй один agent process и уже открытые sessions. Для большой автономной проверки предпочитай один длинный сценарный проход с явными phases/checkpoints вместо десятков одинаковых `discover/open/close` циклов.
 
+## BLE shutdown
+
+При `close` BLE session проверь optional `transport_release.result`: только
+`disconnected` подтверждает освобождение backend на момент проверки; локальный
+`state:closed` сам по себе этого не доказывает. Для BlueZ проверяется Device1,
+для других backend явно указан `backend:bleak` и состояние клиента. При EOF итог
+остаётся в forensic/timing/application logs; `failed`/`unknown` не считать PASS
+освобождения даже при exit 0. Не отключай устройства самостоятельно при discovery:
+поиск и освобождение соединений от погибшего процесса пока не реализованы.
+
 ## Discovery
 
 BLE discovery capability-based: устройство появляется, если advertising standard NUS или его адрес уже имеет cached confirmed NUS capability. Advertised name и controller profile не являются доказательством capability и не whitelist-ят устройство.
@@ -125,7 +135,7 @@ send_line
 
 Generic ownership не изолирует физический эфир. Неучаствующие sessions/processes/devices generic API не блокирует; project-specific executor обязан держать другие влияющие на эксперимент передатчики quiet.
 
-Для `chatter.reliable_user` sweep mode живёт в SerialTerminal: после host TX fence adapter через существующие команды делает `/cancel all`, выключает diag/heartbeat/echo-loop/manual echo и включает `BOTH`, а generic ownership блокирует конкурирующие external mutations на participating sessions. Никакого firmware `/sweep on|off` prerequisite нет. Третья нода на той же частоте всё ещё может загрязнить эксперимент — frequency/environment isolation остаётся задачей executor/coordinator. Cancel path использует `/cancel all` и отдельный bounded cancel budget.
+`chatter.reliable_user` DEPRECATED: `sweep_start` возвращает `deprecated_sweep_adapter` до firmware commands и ownership. Старый echo/echo-loop preflight несовместим с текущей firmware; не обходи guard ручным созданием legacy class. Замены пока нет; generic sweep API остаётся для зарегистрированных поддерживаемых adapters.
 
 ### Execution vs analysis
 
@@ -150,7 +160,7 @@ Controller adapter может читать protocol lines, чтобы опред
 
 После sweep consuming project skill/reviewer может читать обычный forensic log и анализировать protocol/RF evidence по своим правилам. `[SWEEP] event_seq` в forensic `.log` коррелирует с `sweep_observe.events[].seq` и остаётся после `sweep_close`.
 
-Для bundled `chatter.reliable_user` adapter не делай вручную конкурирующие radio/config commands. Adapter сам приводит participating sessions в quiet diagnostic baseline существующими Chatter-командами, применяет/проверяет coordinate и сериализует reliable USER samples. Его конкретные plan fields/limits смотри в `AGENT_API.md`; interpretation ACK/retry/CRC/RSSI/SNR остаётся в LoRa-Chatter consuming skill.
+Старый bundled `chatter.reliable_user` использовать нельзя. Для новых USER-прогонов нужен отдельный согласованный сценарий через актуальный ST JSONL; deprecated adapter не является его заменой.
 
 ## File transfer
 

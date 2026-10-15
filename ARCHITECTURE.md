@@ -67,6 +67,18 @@ Transports do not import profiles. Omitted baud is retained through discovery so
 agent `open` and human startup apply the same profile-aware rule. Explicit CLI or
 runtime baud remains selector/object state and survives profile recreation.
 
+### BLE shutdown ownership
+
+BLE transport owns bounded client cleanup and backend release verification. Its
+optional `release_report` uses the generic Transport interface; ManagedSession and
+agent close only publish that report and do not learn BlueZ paths, BLE device names
+or controller commands. Linux Device1 checks/Disconnect live in `bluez_release.py`,
+whose system-bus imports are lazy. The exact path belongs to the client being
+closed; discovery/cache enumeration is not used to choose a cleanup target.
+Lifecycle serialization excludes cleanup of a replacement ST generation. Failed
+release remains explicit while other sessions continue to close. Orphan discovery
+and cross-process ownership after SIGKILL remain deferred.
+
 ### Generic session core
 
 `ManagedSession` owns controller-independent lifecycle and data mechanics:

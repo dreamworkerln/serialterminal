@@ -71,6 +71,11 @@ class Transport(ABC):
         return None
 
     @property
+    def release_report(self) -> dict[str, Any] | None:
+        """Последний результат освобождения backend; None, если не предоставлен."""
+        return None
+
+    @property
     def stream_capabilities(self) -> tuple[str, ...]:
         """Logical receive streams exposed by this transport."""
         return ("main",)

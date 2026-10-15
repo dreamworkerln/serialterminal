@@ -788,3 +788,42 @@ def test_cleanup_attempts_exit_on_both_sessions_before_waiting():
 
     assert ("s1", "/cancel all") in base.commands
     assert ("s2", "/cancel all") in base.commands
+
+
+def test_deprecated_adapter_factory_rejects_without_touching_context():
+    class ForbiddenContext:
+        def __getattr__(self, name):
+            pytest.fail("deprecated factory must not access context: " + name)
+    plan = normalize_sweep_plan({"constants": {}, "axes": [], "repetitions": 1})
+    with pytest.raises(SweepError) as caught:
+        chatter_sweep.create_reliable_user_sweep_adapter(ForbiddenContext(), ("s1", "s2"), plan)
+    assert caught.value.code == "deprecated_sweep_adapter"
+    assert caught.value.details["replacement"] is None
+
+
+def test_profile_registered_factory_is_deprecation_guard():
+    from serialterminal.profiles import resolve_profile
+    factory = resolve_profile("chatter").sweep_adapters()["chatter.reliable_user"]
+    with pytest.raises(SweepError) as caught:
+        factory(None, (), None)
+    assert caught.value.code == "deprecated_sweep_adapter"
+
+
+def test_agent_deprecation_error_precedes_commands_and_ownership():
+    from serialterminal.agent import AgentError, SessionManager
+    from test_agent import FakeSelectorFactory
+    factory = FakeSelectorFactory()
+    manager = SessionManager(selector_factory=factory, reconnect_delay=.01)
+    try:
+        manager.discover()
+        a = manager.open("ble:a", profile="chatter", wait_connected_ms=500)
+        b = manager.open("serial:b", profile="chatter", wait_connected_ms=500)
+        before = {k: list(t.writes) for k, t in factory.transports.items()}
+        with pytest.raises(AgentError) as caught:
+            manager.sweep_start("chatter.reliable_user", [a["session"], b["session"]],
+                                {"constants": {}, "axes": [], "repetitions": 1})
+        assert caught.value.code == "deprecated_sweep_adapter"
+        assert {k: list(t.writes) for k, t in factory.transports.items()} == before
+        assert not manager._session_sweep_owners
+    finally:
+        manager.close_all()

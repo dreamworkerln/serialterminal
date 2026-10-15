@@ -16,6 +16,17 @@ FT1 отрицательный RESULT прерывает cancellation-aware ож
 pipeline, сохраняя `remote_failed` и sender journal. Явный operator cancel остаётся
 отдельным действием. Неопределённый drain удерживает ownership до закрытия session.
 
+При штатном закрытии BLE session ST проверяет освобождение соединения. На
+Linux/BlueZ оставшееся соединение своего клиента адресно отключается и проверяется
+повторно; отказ или неизвестный итог сохраняются в логах. Agent `close` возвращает
+`transport_release`, а при EOF итог остаётся в логах. Это не восстановление после
+SIGKILL: обнаружение соединений от погибшего ST при следующем поиске отложено.
+Подробности: [close и BLE release](AGENT_API.md#verified-ble-release-on-close).
+
+`chatter.reliable_user` deprecated и отключён: его legacy echo preflight
+несовместим с текущей firmware. Вызов получает `deprecated_sweep_adapter` до
+обращения к нодам. Новый USER-набор не должен использовать этот adapter.
+
 ## Инженерные ревью
 
 Отчёты хранятся в [reviews/](reviews/README.md). Точки входа:

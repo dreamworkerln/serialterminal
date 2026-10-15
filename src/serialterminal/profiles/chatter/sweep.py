@@ -1,3 +1,8 @@
+"""Deprecated reliable_user implementation kept only as a comparison reference.
+
+The registered factory rejects use before any device mutation. Direct legacy-class
+tests are historical algorithm regressions, not support for current firmware.
+"""
 from __future__ import annotations
 
 from collections.abc import Mapping
@@ -793,8 +798,11 @@ def create_reliable_user_sweep_adapter(
     sessions: tuple[str, ...],
     plan: SweepPlan,
 ) -> ChatterReliableUserSweepAdapter:
-    return ChatterReliableUserSweepAdapter(
-        context,
-        sessions,
-        plan,
+    # Старый preflight требует удалённые firmware echo-команды. Отказываем
+    # до создания job/ownership и любых команд, вместо заведомого timeout.
+    raise SweepError(
+        "deprecated_sweep_adapter",
+        "chatter.reliable_user is deprecated: its echo/echo-loop preflight does not "
+        "match current firmware; use a separately specified ST JSONL scenario",
+        {"adapter": "chatter.reliable_user", "replacement": None},
     )

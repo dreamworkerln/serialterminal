@@ -24,10 +24,19 @@ class SessionDefaults:
 
 
 @dataclass(frozen=True)
+class BleCleanupDefaults:
+    notify_timeout_s: float = 1.0
+    disconnect_timeout_s: float = 2.0
+    bluez_timeout_s: float = 3.0
+    shutdown_timeout_s: float = 8.0
+
+
+@dataclass(frozen=True)
 class TerminalDefaults:
     serial: SerialDefaults = SerialDefaults()
     discovery: DiscoveryDefaults = DiscoveryDefaults()
     session: SessionDefaults = SessionDefaults()
+    ble_cleanup: BleCleanupDefaults = BleCleanupDefaults()
 
 
 DEFAULTS = TerminalDefaults()
