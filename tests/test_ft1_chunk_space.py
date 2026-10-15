@@ -1,9 +1,8 @@
 from dataclasses import replace
-import hashlib
 
 import pytest
 
-from serialterminal.file_transfer import Compression, DataMessage, EndMessage, FileTransferManager, MetaMessage, ResultMessage, ResumeMessage, encode_message
+from serialterminal.file_transfer import Compression, EndMessage, FileTransferManager, MetaMessage, ResultMessage, ResumeMessage, encode_message
 from serialterminal.file_transfer import core
 from serialterminal.file_transfer.protocol import FileProtocolError, checked_chunk_count, decode_message
 from test_file_transfer_failure_retention import CaptureTransport, fixture, wait_until

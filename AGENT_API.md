@@ -1180,3 +1180,18 @@ but another instance cannot claim that anonymous sender journal for restart resu
 A cancellation that cannot safely delete its bound journal reports
 local_ownership_unsettled and keeps admission until close rather than deleting
 foreign state. Incoming wire layout and firmware behavior are unchanged.
+
+## Timing correlation across appended sessions
+
+Timing rows now contain an authoritative UUID `segment_id` per TimingTrace
+instance. Correlate with `(segment_id, seq)`; seq is monotonic within that segment,
+not across the whole appended file. TUI session/profile replacement and process
+reopen preserve old records and create a new segment. Cooperating POSIX writers
+serialize each batch through flush. A truncated historical tail is preserved and
+separated by LF so it cannot absorb the next valid JSON record; malformed old
+fragments remain evidence gaps. Legacy rows without segment_id are unchanged and
+do not acquire a fabricated unique key. Clocks, bounded256/8 batching, close-tail
+flush and application-log error reporting remain as described in LOGGING.md.
+
+On platforms without POSIX flock/pread, the single-writer path remains available;
+cooperating cross-process serialization is guaranteed on POSIX only.

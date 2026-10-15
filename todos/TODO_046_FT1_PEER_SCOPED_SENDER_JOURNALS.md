@@ -48,26 +48,26 @@ ARCHITECTURE.md. Не добавлять firmware/API flags для обхода 
 
 ## Implementation
 
-- [ ] Закрепить peer identity и backward-state policy без молчаливой атрибуции
+- [x] Закрепить peer identity и backward-state policy без молчаливой атрибуции
   старого journal произвольному peer.
-- [ ] Применить binding/namespace во всех outgoing candidate/write/delete paths.
-- [ ] Согласовать cleanup ownership с TODO_043/F012 и TODO_044.
-- [ ] Согласовать FT1_RESUME.md, FILE_TRANSFER.md, AGENT_API.md и agent skill
+- [x] Применить binding/namespace во всех outgoing candidate/write/delete paths.
+- [x] Согласовать cleanup ownership с TODO_043/F012 и TODO_044.
+- [x] Согласовать FT1_RESUME.md, FILE_TRANSFER.md, AGENT_API.md и agent skill
   с реализованными resume/identity semantics.
 
 ## Validation / acceptance
 
-- [ ] Два managers A/B с общим store и одним source получают изолированный
+- [x] Два managers A/B с общим store и одним source получают изолированный
   durable work; completion, failure, cancel и close B не затрагивают journal A.
-- [ ] Concurrent sessions/processes сохраняют это свойство.
-- [ ] Reconnect и process restart того же peer сохраняют корректный same-ID resume;
+- [x] Concurrent sessions/processes сохраняют это свойство.
+- [x] Reconnect и process restart того же peer сохраняют корректный same-ID resume;
   другой peer и mismatched peer key не получают этот candidate.
-- [ ] Проверить выбранную USB/BLE identity policy и старые journals без key.
+- [x] Проверить выбранную USB/BLE identity policy и старые journals без key.
 - [ ] Existing lost-RESULT, source validation и integrity quarantine semantics
   сохраняются; relevant tests, full pytest, compileall, diff --check и independent
   numbered re-review на exact implementation SHA.
 
-## Evidence и Result
+## История: evidence при создании задачи
 
 Evidence/repro и ограничения сохранены в исходном finding ревью. При оформлении
 TODO repro не запускался повторно, fixes и source/tests не изменялись.

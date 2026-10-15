@@ -41,23 +41,23 @@ Protocol validation, sender preparation и receiver admission. Требуемы�
 
 ## Implementation
 
-- [ ] Проверить согласованную representability до изменения RX/TX state.
-- [ ] Закрепить error semantics, не обходя existing normalized API errors.
-- [ ] Согласовать FT1_RESUME.md, FILE_TRANSFER.md, AGENT_API.md и agent skill
+- [x] Проверить согласованную representability до изменения RX/TX state.
+- [x] Закрепить error semantics, не обходя existing normalized API errors.
+- [x] Согласовать FT1_RESUME.md, FILE_TRANSFER.md, AGENT_API.md и agent skill
   с admission contract.
 
 ## Validation / acceptance
 
-- [ ] Boundary cases `0xffffffff` и `0x100000000` derived chunks, а также больше:
+- [x] Boundary cases `0xffffffff` и `0x100000000` derived chunks, а также больше:
   первый representable, остальные отклонены без resource admission.
-- [ ] Проверить rounding wire_size/chunk_size, zero-length и последний index.
-- [ ] Sender preparation и receiver META дают согласованный результат.
-- [ ] Большие synthetic identities тестируются без многогигабайтных allocations;
+- [x] Проверить rounding wire_size/chunk_size, zero-length и последний index.
+- [x] Sender preparation и receiver META дают согласованный результат.
+- [x] Большие synthetic identities тестируются без многогигабайтных allocations;
   отсутствие state/lease/files после rejected META проверяется явно.
 - [ ] Existing ordinary/recursive/resume paths, relevant tests, full pytest,
   compileall, diff --check и numbered re-review на exact implementation SHA.
 
-## Evidence и Result
+## История: evidence при создании задачи
 
 Evidence/repro и ограничения сохранены в исходном finding ревью. При оформлении
 TODO repro не запускался повторно, fixes и source/tests не изменялись.

@@ -410,3 +410,13 @@ Outgoing journals/leases изолированы по выбранному device
 сохраняет ID; разные USB/BLE keys и старые unbound journals не объединяются.
 Anonymous library manager без peer_key имеет только volatile instance binding.
 Не менять identity вручную ради resume и не удалять чужой journal при cancel.
+
+Timing correlation key — `(segment_id, seq)`: новый UUID segment_id на экземпляр
+trace/session replacement, seq локален segment. Append сохраняет прежние rows;
+legacy без segment_id не имеет этой гарантии. Оборванный fragment сохраняется
+отдельной строкой и считается evidence gap, последующие JSON rows читаются
+независимо. Batches сериализуются до flush между POSIX writers; подробности
+reopen/concurrency/clock semantics и incremental writer находятся в LOGGING.md.
+
+Без flock/pread остаётся single-writer path; межпроцессная сериализация batch
+гарантируется на POSIX. Это не требует POSIX-модуля для импорта generic terminal.

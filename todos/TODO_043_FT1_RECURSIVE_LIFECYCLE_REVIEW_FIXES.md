@@ -599,17 +599,17 @@ coverage для новых findings отсутствует, verdict остаёт
 
 ### Follow-up checklist собственного ревью
 
-- [ ] 7: rejected ROOT META сохраняет frame/repair/child/incoming для TX и RX.
-- [ ] 8: parent idle elapsed не включает child; valid META обновляет activity.
-- [ ] 9: failed/cancelled foreground negotiation не оставляет negotiating без owner.
-- [ ] 10: atomic destination ownership, concurrent publication без overwrite/false OK.
-- [ ] 11: cleanup всех workers проигравшего concurrent SessionManager.open.
-- [ ] 12: shared-store cleanup не удаляет live admission/partial другого manager.
-- [ ] 13: invalid file_transfer_cancel ID → invalid_transfer_id, без side effects.
-- [ ] 14: безопасный malformed updated/candidate validation и явный error policy.
-- [ ] S1/S2: закрепить live retention, representability и memory/queue invariants;
+- [x] 7: rejected ROOT META сохраняет frame/repair/child/incoming для TX и RX.
+- [x] 8: parent idle elapsed не включает child; valid META обновляет activity.
+- [x] 9: failed/cancelled foreground negotiation не оставляет negotiating без owner.
+- [x] 10: atomic destination ownership, concurrent publication без overwrite/false OK.
+- [x] 11: cleanup всех workers проигравшего concurrent SessionManager.open.
+- [x] 12: shared-store cleanup не удаляет live admission/partial другого manager.
+- [x] 13: invalid file_transfer_cancel ID → invalid_transfer_id, без side effects.
+- [x] 14: безопасный malformed updated/candidate validation и явный error policy.
+- [x] S1/S2: закрепить live retention, representability и memory/queue invariants;
   отдельные stress/negative cases, не выдавая static suspicion за выполненный repro.
-- [ ] Сохранить постоянные regression tests и review evidence при реализации;
+- [x] Сохранить постоянные regression tests и review evidence при реализации;
   временные /tmp artifacts не являются долгосрочным regression suite.
 
 Ранее предложенный порядок исправлений 3+4+5 → 1+2 → 6 сохранён как рекомендация
@@ -670,13 +670,13 @@ TODO не является разрешением запускать их, пе�
 
 ## Implementation checklist
 
-- [ ] 3: корректно deferred END при delayed child RESULT и верном repair_id.
-- [ ] 4: безопасный identity validation/admission и точный rollback map.
-- [ ] 5: согласованный ROOT frame retention/cleanup с core и tombstones.
-- [ ] 1: атомарный RX restore относительно durable/runtime/lease state.
-- [ ] 2: классификация resumable/non-resumable failure и outgoing journal policy.
-- [ ] 6: bounded processed history с документированным пределом и replay semantics.
-- [ ] Сверить FT1_RESUME.md, FILE_TRANSFER.md, AGENT_API.md и repo-local
+- [x] 3: корректно deferred END при delayed child RESULT и верном repair_id.
+- [x] 4: безопасный identity validation/admission и точный rollback map.
+- [x] 5: согласованный ROOT frame retention/cleanup с core и tombstones.
+- [x] 1: атомарный RX restore относительно durable/runtime/lease state.
+- [x] 2: классификация resumable/non-resumable failure и outgoing journal policy.
+- [x] 6: bounded processed history с документированным пределом и replay semantics.
+- [x] Сверить FT1_RESUME.md, FILE_TRANSFER.md, AGENT_API.md и repo-local
   serialterminal-agent skill с реально изменёнными semantics; синхронизировать
   TODO_041/TODO_042 и inventory без выдачи старого evidence за новую проверку.
 
@@ -763,7 +763,7 @@ end-to-end delayed RESULT/max_control_replays=0 и физический slow-pro
 Прежние успешные subsets и hardware smoke не отменяют найденных lifecycle дефектов
 и не доказывают пригодность cb891540... к merge.
 
-## Result
+## История: результат до implementation
 
 Status: OPEN / CRITICAL
 Implemented: none; создан task record, runtime не изменён этой задачей.

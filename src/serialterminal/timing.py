@@ -1,11 +1,19 @@
 from __future__ import annotations
 
 import json
+import os
+import uuid
 import queue
 from pathlib import Path
+from contextlib import contextmanager
 import threading
 import time
 from typing import Any, Protocol
+
+try:
+    import fcntl
+except ImportError:
+    fcntl = None
 
 
 class TimingSink(Protocol):
@@ -31,7 +39,9 @@ class TimingTrace:
         self.path = timing_log_path(log_path)
         self.path.parent.mkdir(parents=True, exist_ok=True)
         # Новый TUI session с тем же log path не стирает предыдущую часть run.
-        self._file = self.path.open("a", encoding="utf-8")
+        self._file = self.path.open("a+", encoding="utf-8")
+        self._append_fd = self._file.fileno()
+        self._segment_id = uuid.uuid4().hex
         self._lock = threading.Lock()
         self._events: list[dict[str, Any]] = []
         self._next_seq = 1
@@ -47,11 +57,12 @@ class TimingTrace:
             if self._closed or self._write_error is not None:
                 return
             record = {
+                **fields,
+                "segment_id": self._segment_id,
                 "seq": self._next_seq,
                 "event": event,
                 "perf_ns": time.perf_counter_ns(),
                 "timestamp": time.time(),
-                **fields,
             }
             self._next_seq += 1
             self._events.append(record)
@@ -60,6 +71,29 @@ class TimingTrace:
                 # Bounded queue сохраняет порядок и не теряет строки молча.
                 # Если диск отстаёт на восемь пачек, producer ждёт worker.
                 self._queue.put(batch)
+
+    @contextmanager
+    def _append_guard(self):
+        if fcntl is None:
+            # Без POSIX flock сохраняется обычный single-writer append path.
+            yield
+            return
+        fcntl.flock(self._append_fd, fcntl.LOCK_EX)
+        try:
+            yield
+        finally:
+            fcntl.flock(self._append_fd, fcntl.LOCK_UN)
+
+    def _last_byte(self):
+        size = os.fstat(self._append_fd).st_size
+        if not size:
+            return b"\n"
+        read_at = getattr(os, "pread", None)
+        if read_at is not None:
+            return read_at(self._append_fd, 1, size - 1)
+        with self.path.open("rb") as handle:
+            handle.seek(-1, os.SEEK_END)
+            return handle.read(1)
 
     def _write_batches(self) -> None:
         from .application_log import report_exception
@@ -72,10 +106,15 @@ class TimingTrace:
                         return
                     if self._write_error is None:
                         try:
-                            for event in batch:
-                                self._file.write(json.dumps(event, ensure_ascii=False, separators=(",", ":"), sort_keys=True) + "\n")
-                            # flush отдаёт пачку ядру; fsync каждого batch не нужен.
-                            self._file.flush()
+                            with self._append_guard():
+                                if self._last_byte() != b"\n":
+                                    # После crash сохраняем оборванный fragment,
+                                    # но следующая JSON запись получает свою строку.
+                                    self._file.write("\n")
+                                for event in batch:
+                                    self._file.write(json.dumps(event, ensure_ascii=False, separators=(",", ":"), sort_keys=True) + "\n")
+                                # flush отдаёт пачку ядру; fsync каждого batch не нужен.
+                                self._file.flush()
                         except Exception as exc:
                             self._write_error = exc
                             report_exception(exc, "timing log writer")

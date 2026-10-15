@@ -22,10 +22,13 @@ logs/serialterminal-YYYYMMDD-HHMMSS-ffffff-pPID.fttiming.jsonl
 
 If `--log <path>` is supplied, that path names the primary `.log`; companion paths are derived from the same basename.
 
-The timing companion is deliberately deferred. SerialTerminal records its timing points
-in memory with `time.perf_counter_ns()` while the run is active and writes
-`.fttiming.jsonl` only during clean log shutdown. This keeps timing-trace disk I/O out
-of the measured file-transfer path. The trace includes session/FT1 boundaries plus
+The timing companion is incremental. SerialTerminal captures timing points with
+`time.perf_counter_ns()` and wall-clock timestamp, then writes batches of256 events
+on a background worker (bounded queue of8 batches). Close appends the remaining
+partial batch. If the writer falls behind, producers can block on that bounded queue;
+there is no claim of zero logging overhead. Flushed batches survive process death,
+but an unflushed tail may be lost. Write/close failure is reported in the application
+log and timing completeness must not be assumed. The trace includes session/FT1 boundaries plus
 logical BLE write start/done, per-GATT-fragment write start/done, BLE notify, BINARY
 submit/presentation/return, FT1 events and ordinary log-write start/done markers. It
 contains metadata and sizes, not BINARY/base64 payload bytes.
@@ -170,3 +173,25 @@ retain `forensic_gap` semantics unchanged.
 
 The shared companion remains a filtered presentation/audit view and does not pretend
 to be raw forensic evidence.
+
+## Timing event identity and append
+
+Each TimingTrace instance generates a fresh UUID segment_id. The correlation key
+is `(segment_id, seq)`, where seq starts at1 and increases within that segment.
+Session/profile replacement and process reopen append new segments without
+truncating earlier events; seq alone is not file-global. Reserved identity and
+clock fields cannot be overridden by caller-supplied metadata.
+
+Cooperating POSIX writers lock each batch through flush, preserving complete JSON
+lines even across concurrent instances/processes. A non-newline tail from a crash
+is preserved and terminated before the next JSON record. That historical fragment
+may remain invalid JSON/UTF-8 and is an explicit forensic gap, not recovered evidence.
+Existing legacy rows without segment_id remain unchanged and lack the new
+correlation guarantee; do not invent a shared segment for duplicated legacy seq.
+Readers should tolerate/report malformed historical lines and use the pair for
+new rows. perf_ns clock meanings do not change; physical append order across
+segments is not guaranteed to match capture order. Neither a monotonic clock
+across machine reboots nor complete SIGKILL evidence is promised.
+
+Platforms without flock/pread retain the single-writer import/append path;
+cross-process batch serialization is a POSIX guarantee.

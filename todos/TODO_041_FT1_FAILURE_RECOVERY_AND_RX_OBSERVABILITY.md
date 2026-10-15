@@ -845,3 +845,11 @@ Validated Git content trees: `src=a4114706bdb6a5a7f9f07c2fbdc45d20f552df5f`,
 `tests=14ac3715dd261d7724661a75a7dccb77c2ea7620`.
 Implementation commit is the commit containing this dated host-only record,
 parent `316177a`; no hardware/push/CI/re-review acceptance claimed.
+
+## Host repair-series follow-up — 2026-10-15
+
+Host implementations for TODO_043–TODO_046 are committed (45f4042,4d732aa,
+07ada40,5f35441); the exact checkpoint-budget follow-up and TODO_047 timing
+correlation passed the final cumulative775-test suite (97.88s). Current review/CI/physical
+acceptance gates stay OPEN; historical RED verdicts/results above retain their
+original revision scope. No firmware, hardware run, push or merge is claimed.

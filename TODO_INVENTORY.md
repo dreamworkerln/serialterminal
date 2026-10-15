@@ -540,13 +540,13 @@ continue as TODO_044 and TODO_045. No hardware/push/merge.
 
 ### TODO_044 — [todos/TODO_044_FT1_LIVE_DURABLE_RETENTION.md](todos/TODO_044_FT1_LIVE_DURABLE_RETENTION.md)
 
-Status: IMPLEMENTED / LOCAL VALIDATION PASS / CI AND RE-REVIEW OPEN / HIGH / IMPLEMENTATION AND FIX VALIDATION OPEN
+Status: IMPLEMENTED / LOCAL VALIDATION PASS / CI AND RE-REVIEW OPEN
 
 Source: REVIEW_001/F015 at `db740af94c700c7c4e6d96abef7e809dadfcaf1c`,
 pre-existing at `fd94bdeb1fd878e072b0f852b3e8f461d928e3cd`.
 Goal: enforce incoming/outgoing/completed count, TTL and partial-byte bounds during
 one long-running process without deleting another manager's active-owned state.
-Ownership and enforcement boundaries need design; coordinate with TODO_043/F012.
+Ownership/enforcement boundaries are implemented with TODO_043/F012 live leases.
 Review repro is supplied evidence; it was not rerun during task creation.
 
 Current implementation (2026-10-15, base45f4042): operator-selected cyclic
@@ -587,7 +587,7 @@ Aggregate retention honors scoped live leases. Full isolated-cache suite765 PASS
 
 ### TODO_047 — [todos/TODO_047_TIMING_APPEND_EVENT_IDENTITY.md](todos/TODO_047_TIMING_APPEND_EVENT_IDENTITY.md)
 
-Status: OPEN / MEDIUM / IMPLEMENTATION AND FIX VALIDATION OPEN
+Status: IMPLEMENTED / LOCAL VALIDATION PASS / CI AND RE-REVIEW OPEN
 
 Source: REVIEW_001/F018 at `db740af94c700c7c4e6d96abef7e809dadfcaf1c`, introduced
 by the implementation after `fd94bdeb1fd878e072b0f852b3e8f461d928e3cd`.
@@ -595,9 +595,15 @@ Goal: unambiguous event identity across timing append/reopen and TUI replacement
 Choose file-global sequence or explicit segment correlation before implementation;
 include reopen/TUI regression coverage and reconcile stale LOGGING.md timing prose.
 
+Current implementation (2026-10-15, base5f35441): UUID segment_id + local seq,
+POSIX serialized batch append and separation of truncated legacy tails. Actual
+TUI profile replacement and concurrent process writes covered; LOGGING.md/API/
+skill synchronized. Final cumulative suite775 PASS/97.88s; compileall/diff-check PASS. Exact F015 checkpoint
+repro and candidate TTL received a dedicated TODO_044 follow-up.
+
 ## Current validation posture
 
-Repository CI is the normal per-change clean-environment gate. Physical-node claims remain separate: do not infer current-head hardware validity from older run bundles. TODO_034 through TODO_037 have completed host implementation/automated validation but remain explicitly open for the required physical BLE/USB/two-node process-restart matrix. TODO_038 is intentionally deferred until the current firmware/BlueZ throughput characterization establishes a stable pre-checkpoint baseline; its later acceptance must include measured overhead and real silent-remote-ST stall/recovery validation. TODO_039 and TODO_040 are coupled UI/config-policy follow-ups: they must begin from the final accepted baud-rate state after the current firmware/speed work, and the F9/runtime baud work must consume the centralized single-source settings policy rather than introducing another copy of the same defaults. For the next build-level validation pass, continue to prefer one long-lived `serialterminal agent` process and a broad scenario matrix over repeated manual operator actions; only UI-specific behavior that the machine API cannot exercise should require a separate human pass.
+Repository CI is the normal per-change clean-environment gate. Physical-node claims remain separate: do not infer current-head hardware validity from older run bundles. TODO_034 through TODO_037 have completed host implementation/automated validation but remain explicitly open for the required physical BLE/USB/two-node process-restart matrix. TODO_038 is intentionally deferred until the current firmware/BlueZ throughput characterization establishes a stable pre-checkpoint baseline; its later acceptance must include measured overhead and real silent-remote-ST stall/recovery validation. TODO_040 central settings/profile baud policy is implemented and locally validated; TODO_039 F9/runtime baud work must consume that policy rather than introduce another copy of the same defaults. For the next build-level validation pass, continue to prefer one long-lived `serialterminal agent` process and a broad scenario matrix over repeated manual operator actions; only UI-specific behavior that the machine API cannot exercise should require a separate human pass.
 
 ## Experimental architecture-repair series
 
@@ -637,3 +643,13 @@ No new commit/push/current-head CI. Work stopped at experimental stage8.
 
 
 Timing/recursive test revision 2026-10-12: актуальные tests проверяют recursive missing service files, >28 isolated ranges, nested loss и bounded control/resume; 571 pytest PASS, compileall/diff-check PASS. Radio deadlines Chatter derived from SPI PHY/LoRa ToA/ACK/retry; no implicit3600s or sweep hour cap. Detailed inventory: TIMING_AUDIT.md. Hardware smoke results and limitations: `журнал экспериментов/ST_TIMING_REVISION_20261012T131217Z`; full topology/reset matrix not claimed. Experimental policy: `/home/dream/coding/AGENTS.md`.
+
+Final host-only repair series checkpoint (2026-10-15): TODO_043–TODO_047
+implementations and local regression validation complete, including the exact
+TODO_044 checkpoint-budget/TTL follow-up. Final isolated-cache pytest775 PASS
+(97.88s), compileall/diff-check PASS. Independent post-fix review and CI remain
+open; no hardware run, firmware change, push or merge. This does not close the
+physical/review acceptance gates of TODO_041/TODO_042.
+
+TODO_044 exact checkpoint-budget/TTL follow-up committed as9f7dc68;
+TODO_047 retains the final cumulative implementation trees and validation evidence.
