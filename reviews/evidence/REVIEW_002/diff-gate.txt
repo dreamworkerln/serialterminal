@@ -1,0 +1,73 @@
+ src/serialterminal/agent_core.py                   |  44 ++-
+ src/serialterminal/ble_discovery.py                |   9 +-
+ src/serialterminal/bluetooth_scanner.py            |  17 +-
+ src/serialterminal/cli.py                          |  59 +++-
+ src/serialterminal/file_transfer/coordinator.py    |   3 +
+ src/serialterminal/file_transfer/core.py           |  89 +++--
+ src/serialterminal/file_transfer/manager.py        |  68 +++-
+ .../file_transfer/pipeline_manager.py              |  25 +-
+ src/serialterminal/file_transfer/protocol.py       |  26 +-
+ src/serialterminal/file_transfer/received.py       | 111 ++++++
+ src/serialterminal/file_transfer/recursive.py      | 175 ++++++++--
+ src/serialterminal/file_transfer/resumable.py      | 180 ++++++++--
+ src/serialterminal/file_transfer/resume_store.py   | 375 ++++++++++++++++++---
+ src/serialterminal/profiles/base.py                |   1 +
+ .../profiles/chatter/machine_client.py             |  54 +--
+ src/serialterminal/profiles/chatter/profile.py     |   2 +
+ src/serialterminal/profiles/generic.py             |   2 +
+ src/serialterminal/session.py                      |   3 +-
+ src/serialterminal/settings.py                     |  45 +++
+ src/serialterminal/terminal.py                     |   3 +-
+ src/serialterminal/timing.py                       |  51 ++-
+ src/serialterminal/transports/ble_nus.py           |   7 +-
+ src/serialterminal/transports/bluetooth_spp.py     |   7 +-
+ src/serialterminal/transports/serial.py            |   3 +-
+ src/serialterminal/tui_core.py                     |   1 +
+ tests/test_agent.py                                |  94 ++++++
+ tests/test_chatter_machine_recovery.py             |  24 ++
+ tests/test_file_transfer_failure_retention.py      | 182 +++++++++-
+ tests/test_file_transfer_protocol.py               |  29 ++
+ tests/test_file_transfer_publication.py            | 120 ++++++-
+ tests/test_file_transfer_receiver_restart_edges.py |  14 +-
+ tests/test_file_transfer_resume.py                 |  25 +-
+ tests/test_file_transfer_resume_atomic.py          | 149 +++++++-
+ tests/test_file_transfer_resume_compat.py          |   8 +-
+ tests/test_file_transfer_resume_edges.py           |  10 +-
+ tests/test_file_transfer_same_process_resume.py    |   2 +-
+ tests/test_file_transfer_sender_journal_safety.py  |  40 ++-
+ tests/test_ft1_chunk_space.py                      |  98 ++++++
+ tests/test_ft1_durable_ownership.py                | 116 +++++++
+ tests/test_ft1_live_retention.py                   | 355 +++++++++++++++++++
+ tests/test_ft1_peer_journals.py                    | 266 +++++++++++++++
+ tests/test_ft1_received_ranges.py                  | 102 ++++++
+ tests/test_ft1_recursive_missing.py                |  81 ++++-
+ tests/test_ft1_recursive_review.py                 | 357 ++++++++++++++++++++
+ tests/test_settings.py                             | 158 +++++++++
+ tests/test_timing.py                               | 146 +++++++-
+ 46 files changed, 3455 insertions(+), 281 deletions(-)
+
+27	17	src/serialterminal/agent_core.py
+6	3	src/serialterminal/ble_discovery.py
+9	8	src/serialterminal/bluetooth_scanner.py
+41	18	src/serialterminal/cli.py
+3	0	src/serialterminal/file_transfer/coordinator.py
+68	21	src/serialterminal/file_transfer/core.py
+61	7	src/serialterminal/file_transfer/manager.py
+19	6	src/serialterminal/file_transfer/pipeline_manager.py
+24	2	src/serialterminal/file_transfer/protocol.py
+111	0	src/serialterminal/file_transfer/received.py
+147	28	src/serialterminal/file_transfer/recursive.py
+143	37	src/serialterminal/file_transfer/resumable.py
+325	50	src/serialterminal/file_transfer/resume_store.py
+1	0	src/serialterminal/profiles/base.py
+32	22	src/serialterminal/profiles/chatter/machine_client.py
+2	0	src/serialterminal/profiles/chatter/profile.py
+2	0	src/serialterminal/profiles/generic.py
+2	1	src/serialterminal/session.py
+45	0	src/serialterminal/settings.py
+2	1	src/serialterminal/terminal.py
+45	6	src/serialterminal/timing.py
+5	2	src/serialterminal/transports/ble_nus.py
+4	3	src/serialterminal/transports/bluetooth_spp.py
+2	1	src/serialterminal/transports/serial.py
+1	0	src/serialterminal/tui_core.py
