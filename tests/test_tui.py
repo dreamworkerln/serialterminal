@@ -312,49 +312,26 @@ class _FenceSession:
         assert timeout == 10.0
 
 
-def test_tui_file_transfer_mutes_session_screen_until_release():
-    import threading
-
+def test_tui_file_transfer_keeps_profile_output_visible():
     from serialterminal.tui import TerminalTui
 
     tui = object.__new__(TerminalTui)
     tui.output = TuiOutputBuffer()
     tui.session = _FenceSession()
-    tui._file_transfer_screen_muted = threading.Event()
-
     tui._write_session_screen("before\n")
     tui._claim_file_transfer(1, "TX")
-    tui._write_session_screen(
-        "DELIVERY ACK user=1234/1 attempts=1/5 elapsed=49ms queue=0\n"
-    )
-    tui._write_session_screen("[SYS] OUTPUT BOTH\n")
-    assert tui.output.snapshot() == ["before"]
-
-    tui._write_session_screen(
-        "[SYS] RADIO FATAL RX_RESTART after TX (-16), rebooting\n"
-    )
-    tui._write_session_screen("ESP-ROM:esp32s3-20210327\n")
+    tui._write_session_screen("DELIVERY ACK user=1234/1\n")
+    tui._write_session_screen("[SYS] OUTPUT TELEMETRY\n")
     tui._write_session_screen("[SYS] CHATTER READY\n")
-    assert tui.output.snapshot() == [
-        "before",
-        "[SYS] RADIO FATAL RX_RESTART after TX (-16), rebooting",
-        "ESP-ROM:esp32s3-20210327",
-        "[SYS] CHATTER READY",
-    ]
-
     tui._release_file_transfer(1, "TX")
     tui._write_session_screen("after\n")
     assert tui.output.snapshot() == [
-        "before",
-        "[SYS] RADIO FATAL RX_RESTART after TX (-16), rebooting",
-        "ESP-ROM:esp32s3-20210327",
-        "[SYS] CHATTER READY",
-        "after",
+        "before", "DELIVERY ACK user=1234/1", "[SYS] OUTPUT TELEMETRY",
+        "[SYS] CHATTER READY", "after",
     ]
 
 
-def test_tui_file_transfer_screen_mute_does_not_block_line_observer():
-    import threading
+def test_tui_file_transfer_output_does_not_block_line_observer():
 
     from serialterminal.session import SessionLine
     from serialterminal.tui import TerminalTui
@@ -375,8 +352,6 @@ def test_tui_file_transfer_screen_mute_does_not_block_line_observer():
 
     tui = object.__new__(TerminalTui)
     tui.output = TuiOutputBuffer()
-    tui._file_transfer_screen_muted = threading.Event()
-    tui._file_transfer_screen_muted.set()
     tui.panel = _Panel()
     tui._binary_adapter = _Adapter()
 
@@ -390,7 +365,7 @@ def test_tui_file_transfer_screen_mute_does_not_block_line_observer():
     tui._observe_line(line)
     tui._write_session_screen(line.text + "\n")
 
-    assert tui.output.snapshot() == []
+    assert tui.output.snapshot() == [line.text]
     assert tui.panel.lines == [("main", line.text)]
     assert tui._binary_adapter.lines == [("main", line.text)]
 
@@ -577,15 +552,12 @@ def test_tui_completed_file_status_shows_only_saved_filename(monkeypatch):
 
 
 
-def test_tui_file_transfer_mute_keeps_reconnect_status_visible():
-    import threading
+def test_tui_file_transfer_keeps_reconnect_and_ordinary_output_visible():
 
     from serialterminal.tui import TerminalTui
 
     tui = object.__new__(TerminalTui)
     tui.output = TuiOutputBuffer()
-    tui._file_transfer_screen_muted = threading.Event()
-    tui._file_transfer_screen_muted.set()
 
     tui._write_session_screen("[disconnected: serial:/dev/fake]\n")
     tui._write_session_screen("ordinary chatter line\n")
@@ -594,6 +566,7 @@ def test_tui_file_transfer_mute_keeps_reconnect_status_visible():
 
     assert tui.output.snapshot() == [
         "[disconnected: serial:/dev/fake]",
+        "ordinary chatter line",
         "[waiting for selected device...]",
         "[connected: serial:/dev/fake]",
     ]
@@ -696,47 +669,40 @@ def test_tui_syncs_panel_identity_from_transport():
 
 
 
-def test_tui_manual_input_preempts_active_file_transfer_instead_of_locking():
+def test_tui_manual_query_preserves_active_file_transfer():
+    from serialterminal.profiles.chatter import CHATTER_PROFILE
     from serialterminal.tui import TerminalTui
 
     submitted = []
-
-    class _Session:
-        def _submit_interactive_line(self, line):
-            submitted.append(line)
-
+    class Session:
+        def _submit_interactive_line(self, line): submitted.append(line)
     tui = object.__new__(TerminalTui)
     tui.input_text = "/config"
     tui.input_cursor = len(tui.input_text)
     tui.command_history = []
     tui.history_index = None
     tui.history_draft = ""
-    tui.scrollback = type("_Scroll", (), {"follow": lambda self: None})()
-    tui.session = _Session()
+    tui.scrollback = type("Scroll", (), {"follow": lambda self: None})()
+    tui.session = Session()
+    tui.profile = CHATTER_PROFILE
+    tui._file_transfer_active = lambda: True
     tui.status = ""
-    tui._abort_and_reconnect_same_target = lambda: True
-
     tui._submit_input()
-
     assert submitted == ["/config"]
     assert tui.input_text == ""
-    assert "File transfer aborted" in tui.status
+    assert tui.status == ""
 
 
-def test_tui_f6_uses_local_abort_path_not_process_exit():
+def test_tui_f6_opens_confirmation_without_cancelling_or_exiting():
     from serialterminal.tui import TerminalTui
-
     tui = object.__new__(TerminalTui)
+    tui.running = True
     tui.status = ""
-    tui._file_transfer_active = lambda: True
-    tui._file_snapshot = lambda: {"state": "sending"}
-    calls = []
-    tui._abort_and_reconnect_same_target = lambda: calls.append("abort") or True
-
+    tui._file_snapshot = lambda: {"state": "sending", "transfer_id": "root"}
     tui._cancel_file()
-
-    assert calls == ["abort"]
-    assert tui.status == "File transfer aborted locally; reconnecting same target"
+    assert tui.running
+    assert tui._file_window().confirmation_id == "root"
+    assert tui._file_window().confirm_yes
 
 
 def test_tui_ctrl_c_keeps_default_quit_semantics():
@@ -750,89 +716,15 @@ def test_tui_ctrl_c_keeps_default_quit_semantics():
 
 
 
-def test_tui_f2_preempts_active_transfer_and_switches_device(monkeypatch):
+def test_tui_f2_and_f3_do_not_implicitly_cancel_active_transfer():
     from serialterminal.tui import TerminalTui
-
-    class _Transport:
-        def __init__(self, key):
-            self.device_key = key
-            self.closed = False
-
-        def close(self):
-            self.closed = True
-
-    class _Session:
-        def __init__(self, transport):
-            self.transport = transport
-
-        def _current_transport(self):
-            return self.transport
-
-    class _Selector:
-        def __init__(self, selected):
-            self.selected = selected
-            self.calls = 0
-
-        def choose_transport_menu(self):
-            self.calls += 1
-            return self.selected
-
-    class _Screen:
-        def refresh(self):
-            pass
-
-    old = _Transport("old")
-    new = _Transport("new")
     tui = object.__new__(TerminalTui)
-    tui.session = _Session(old)
-    tui.selector = _Selector(new)
-    tui.status = ""
     tui._file_transfer_active = lambda: True
-    events = []
-    tui._abort_file_transfer_for_operator = lambda: events.append("abort") or True
-    tui._replace_tui_session = lambda transport: events.append(
-        ("replace", transport.device_key)
-    )
-    monkeypatch.setattr("serialterminal.tui.curses.endwin", lambda: None)
-
-    tui._choose_device(_Screen())
-
-    assert tui.selector.calls == 1
-    assert events == ["abort", ("replace", "new")]
-    assert tui.status == "File transfer aborted; switching device"
-
-
-def test_tui_f2_cancel_keeps_active_transfer_running(monkeypatch):
-    from serialterminal.tui import TerminalTui
-
-    class _Transport:
-        device_key = "old"
-
-    class _Session:
-        def _current_transport(self):
-            return _Transport()
-
-    class _Selector:
-        def choose_transport_menu(self):
-            return None
-
-    class _Screen:
-        def refresh(self):
-            pass
-
-    tui = object.__new__(TerminalTui)
-    tui.session = _Session()
-    tui.selector = _Selector()
     tui.status = ""
-    tui._file_transfer_active = lambda: True
-    tui._abort_file_transfer_for_operator = lambda: (_ for _ in ()).throw(
-        AssertionError("cancelled chooser must not abort transfer")
-    )
-    monkeypatch.setattr("serialterminal.tui.curses.endwin", lambda: None)
-
-    tui._choose_device(_Screen())
-
-    assert tui.status == "Device selection cancelled; file transfer continues"
+    tui._choose_device(None)
+    assert "смена устройства" in tui.status
+    tui._switch_profile()
+    assert "смена профиля" in tui.status
 
 
 def test_tui_action_failure_keeps_ui_running_and_logs_traceback(tmp_path):
@@ -888,7 +780,7 @@ def test_tui_ctrl_c_runs_all_cleanup_and_logs_cleanup_error(tmp_path, monkeypatc
     tui._file_status_lines = lambda width: []
     tui._render = lambda screen: None
     tui.output = SimpleNamespace(write=lambda text: None)
-    tui._file_transfer = SimpleNamespace(close=fail_close)
+    tui._file_transfer = SimpleNamespace(close=fail_close, display_snapshot=lambda: None)
     tui.session = SimpleNamespace(
         stop_event=threading.Event(), start=lambda: None,
         _reveal_sent_presentations=lambda: calls.append("reveal"),
@@ -909,7 +801,6 @@ def test_tui_ctrl_c_runs_all_cleanup_and_logs_cleanup_error(tmp_path, monkeypatc
 
 
 def test_tui_manager_close_keeps_machine_rx_attached_until_drain():
-    import threading
     import time
     from types import SimpleNamespace
     from serialterminal.tui import TerminalTui
@@ -919,7 +810,6 @@ def test_tui_manager_close_keeps_machine_rx_attached_until_drain():
 
     tui = object.__new__(TerminalTui)
     tui.panel = None
-    tui._file_transfer_screen_muted = threading.Event()
     client = ChatterMachineClient(lambda text: None)
     client.mode = "machine"
     client.epoch = 42

@@ -6,22 +6,41 @@ This file is the authoritative current-state index for engineering TODOs in this
 
 ### TODO_052 — [todos/TODO_052_TUI_FILE_TRANSFER_PROGRESS.md](todos/TODO_052_TUI_FILE_TRANSFER_PROGRESS.md)
 
-Status: OPEN
+Status: IMPLEMENTED / hardware validation OPEN
 
-Goal: wide centered Midnight Commander-style TUI progress window without a
-cancel button; resize and long Unicode filenames must preserve layout/state.
-Esc opens a TUI “Cancel file transfer?” dialog: No on the left, Yes on the right,
-←/→ selection, Enter confirmation, default Yes; repeat Esc returns to progress.
-Reject over-budget UTF-8 basenames before starting FT1 with a console message;
-current Chatter META filename budget is 162 bytes including extension.
-Background/return, ordinary Enter and `/tele`/`/chat`/`/both` preserve FT1/progress.
-Current `_submit_input()` unconditionally aborts active FT1 and
-replaces the session, losing the progress snapshot. Operator logs confirm this
-for `/tele`; blank machine delimiters and NUL/curses crashes are separate defects.
-Finding checkpoint: `dev_tui_exp_recursive_missing@ee9e954339f37a541f303aeec98d560b09794758`
-plus existing local changes and supplied `bad_logs/`. Progress/admission redesign
-is OPEN; current display-safety fixes do not implement it. Manual hardware gate
-requires a separate operator run.
+Wide centered internal TUI ROOT progress window, resize/Unicode filename layout
+and dedicated Dracula palette implemented. F10 removed with no replacement key.
+Esc/F6 asks for cancellation: No left / Yes right,
+default Yes, arrows/Enter; repeat Esc continues. F7 hides/shows the frame; F8
+mouse/selection/scroll remains unchanged. Late confirmation cannot cancel a newer
+ROOT. Ordinary Enter/output selection preserves manager/session/transfer identity;
+profile-owned classification rejects radio mutations/RF text/device/profile changes
+until completion/cancel. Filename UTF-8 preflight rejects over-budget names before
+preparation/claim/journal (Chatter: 162 bytes), with a console error.
+Selector redraw regression fixed: linear Unicode layout; 240×60 render 974→22 ms,
+real PTY arrows 29–32 ms. Deterministic regression fails on the old implementation.
+Success automatically closes progress/header. F7 toggles active transfers only;
+terminal windows cannot be reopened.
+TUI `/clear` is the local F4 alias, available during active/settling FT1 without
+controller TX. F9 help includes it; bottom shortcuts start with `F4 Clear`.
+ Each ROOT terminal event writes one white chat
+status (TX/RX, filename, success/failure/user cancel and failure reason), independently
+of window visibility/closure. Recursive service results do not create false success.
+Accepted local cancellation closes progress without a second Esc (TX/RX, including
+asynchronous cleanup); terminal compact headers are hidden. Result stays in chat/history.
+Rejected cancellation and other failed/cancelled outcomes stay visible; cleanup
+failure reopens the overlay. Success during confirmation retains a visible stale-input guard.
+Full pytest after local /clear/F4/help: 1054 PASS / 98.08 s, no skips;
+compile and changed-file Ruff PASS. Selected TUI/window/real curses PTY: 165 PASS.
+An initial unrelated observe-test race (65 RX + one background TX) and successful
+isolated/full reruns are recorded in TODO_052; agent/test code was not changed. Regression first failed on both TX/RX;
+real curses/PTY checks both roles, plus asynchronous RX settlement/error cases.
+Full Ruff has
+three base-HEAD F401; full CI parity remains TODO_051. Exact runtime/test
+fingerprints and PTY/bad_logs replay evidence are in the TODO.
+Luna task: `/home/dream/coding/luna_runs/017_tui_file_transfer`, specification and
+offline plan check ready; PTY hardware harness not implemented, execution guarded.
+Physical TUI TX/RX + RESULT/cancel validation remains OPEN. No hardware run here.
 
 ### TODO_051 — [todos/TODO_051_LOCAL_GITHUB_CI_PARITY.md](todos/TODO_051_LOCAL_GITHUB_CI_PARITY.md)
 
@@ -162,7 +181,7 @@ Remaining work: align the primary `NODE_OBSERVATION_RECORDING_POLICY.md` and nod
 
 TODO_026 logging-contract investigation is also OPEN and may be scheduled independently when log-format work is selected.
 
-Current operator task (2026-10-16): record TODO_052 for MC-style transfer progress and non-destructive display commands. TODO_052 implementation is not started.
+Current operator task (2026-10-16): implement TODO_052 with regression tests and prepare Luna hardware task. Implementation/software evidence recorded; physical TUI validation remains OPEN.
 
 Previous operator task (2026-10-15): implement TODO_050 after REVIEW_002 breakdown.
 TODO_050 is implemented on `ee9e954` + patch; targeted validation66 PASS,
@@ -762,3 +781,15 @@ physical/review acceptance gates of TODO_041/TODO_042.
 
 TODO_044 exact checkpoint-budget/TTL follow-up committed as9f7dc68;
 TODO_047 retains the final cumulative implementation trees and validation evidence.
+
+## Luna preparation and review triage — 2026-10-16
+
+All canonical TODOs from both projects are accounted for in
+[TODO_COVERAGE.md](/home/dream/coding/luna_runs/TODO_COVERAGE.md), including
+software/documentation, CLOSED, SUPERSEDED and DEFERRED gates. New scenarios
+018–027 fill missing physical planning; preparation does not resume deferred work.
+Actual harness/analyzer readiness of every unrun suite is recorded in
+[READINESS_AUDIT.md](/home/dream/coding/luna_runs/READINESS_AUDIT.md).
+[REVIEW_TRIAGE.md](/home/dream/coding/luna_runs/REVIEW_TRIAGE.md) records all
+numbered and legacy review triage; no new review verdict or hardware acceptance.
+No hardware, build, flash, commit or push performed in this preparation task.

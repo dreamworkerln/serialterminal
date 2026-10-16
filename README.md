@@ -82,9 +82,10 @@ profile, потому что BLE stream layout и controller preamble являю
 ```text
 F2       device chooser
 F3       switch generic/chatter profile
-F4       clear screen only (logs are preserved)
+F4       clear chat and scrollback (same as /clear; logs are preserved)
 F5       open filesystem browser and send selected file
-F6       cancel active file transfer
+Esc/F6   request file cancellation (confirmation required)
+F7       hide/show the active file progress window
 F8       toggle application mouse capture
 F9       help
 ↑/↓      previous/next submitted command
@@ -176,13 +177,39 @@ chatter
     BINARY USER + FT1 file-transfer capability
 ```
 
+In the TUI, `/clear` + Enter is a local command equivalent to F4: it clears chat
+and scrollback, returns to FOLLOW and preserves log files. It is available during
+file transfer and terminal settlement, without sending anything to the controller.
+It appears in F9 help; `F4 Clear` is first in the bottom shortcut bar.
+
 File transfer controls appear only for profiles that advertise the binary-message
 capability; generic remains a normal controller-agnostic terminal. Chatter TUI uses
-`F5` to select/send a file and `F6` to cancel, and shows a determinate progress
-bar for both TX and incoming RX transfers. While a Chatter transfer is active, the
-TUI session-output sink is muted so protocol/controller lines do not flood scrollback,
-but file progress/status remains live. FT1 does not change CHAT/TELEMETRY/BOTH and does
-not require DELIVERY telemetry; Chatter local backpressure uses exact `> [BINARY]`
+`F5` to select/send a file and a wide centered internal progress window for TX/RX.
+`Esc`/`F6` opens a confirmation: «Нет» on the left, «Да» on the right, default «Да»;
+←/→ selects, Enter confirms, Esc continues. The transfer runs while choosing.
+Successful completion automatically closes the progress frame and compact header.
+F7 hides/shows only a running transfer; a terminal result cannot reopen its window.
+Every ROOT completion independently writes one white chat line with TX/RX, filename
+and «успешно», «ошибка» with its reason, or «прервано пользователем». This follows
+the terminal event, regardless of window visibility or closure; intermediate RESULT,
+100% progress and recursive service-file completion do not report success.
+Confirming local cancellation closes the frame
+as soon as the request is accepted, including asynchronous RX cleanup. A rejected
+request leaves it open; a later cleanup failure shows the error again. Other
+failed/cancelled outcomes stay visible. While
+a transfer is running, `F7` hides/shows the frame with a compact header. The transfer and
+confirmation use a separate Dracula palette (ANSI-256 approximation), with light
+text on a dark background and purple borders. Both dialogs resize with the terminal;
+filenames wrap/shorten visually without altering the transmitted basename. F10 is
+reserved for the terminal emulator and has no ST action. Ordinary Enter and output selection
+(`/tele`, `/chat`, `/both` or Ctrl+T then 1/2/3) preserve the transfer and session.
+Radio mutations, reboot, diagnostic start, radio text and device/profile changes
+are rejected during transfer; status queries and local viewing controls remain usable.
+Profile presentation filters machine/BINARY lines independently of file activity;
+useful human output remains visible. UTF-8 basename length is checked before file
+preparation or FT1 admission: Chatter currently allows 162 bytes including extension.
+An overlong name prints «Имя файла слишком длинное» without starting or renaming it.
+FT1 does not change CHAT/TELEMETRY/BOTH and does not require DELIVERY telemetry; Chatter local backpressure uses exact `> [BINARY]`
 settlement (protected LINK_OK or explicit legacy first-TxDone presentation), while
 remote completion remains MISSING/RESULT based. DATA chunks
 with an incorrect length are discarded without losing the partial file; END/MISSING

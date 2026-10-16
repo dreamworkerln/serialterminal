@@ -1256,7 +1256,8 @@ For the bundled Chatter profile:
 
 ```text
 F5  choose/start file send
-F6  cancel active file transfer
+Esc/F6  request cancellation; confirm Yes with Enter
+F7      hide/show active progress window
 ```
 
 Incoming transfers use the same progress model.
@@ -1580,19 +1581,55 @@ Typical records include `binary_send_start`, `binary_send_settled`,
 `chunk_index`, but never raw FT1 payload or base64. This makes a stalled transfer
 distinguishable as META/DATA/END local settlement without enabling `--log-base64`.
 
-During an active TUI transfer, ordinary protocol/BINARY scrollback remains muted, but
-critical controller-reset/reconnect lines such as `[SYS] RADIO FATAL ...`,
-`ESP-ROM:`, `[SYS] CHATTER READY`, disconnect and reconnect status bypass that mute.
+Human output filtering belongs to the selected profile and does not change during
+FT1. Machine delimiters/BINARY presentation stay hidden; useful controller output
+remains available, including during repair and reconnect.
+
+## 35. Interactive file-transfer window
+
+The wide centered TUI overlay follows terminal resize and shows ROOT identity/name,
+DATA progress, wire rate, elapsed time and a DATA-only ETA when measurable. Recursive
+missing-list transfers do not replace the ROOT name or imply successful completion.
+Only verified RESULT establishes sender success. Success automatically closes the
+overlay and compact header. F7 hides/shows active transfers only and cannot reopen
+a terminal window. Independently, each ROOT attempt's terminal event writes one
+white chat line with direction, filename and success/failure/user-cancel outcome;
+failure includes the reason. The line is also recorded as LOCAL in the primary log.
+It is not triggered by closing/hiding the window, progress, intermediate RESULT
+or recursive service-file completion. Terminal compact headers are hidden.
+Confirming local
+cancellation closes the overlay on request acceptance without a second Esc, for
+TX and asynchronous RX; its cancelled compact header is also hidden. The retained
+result remains in the chat and retained manager history. A rejected request leaves the window open; a later
+cleanup failure shows it again. Other failed/cancelled outcomes remain visible.
+Success during confirmation leaves a visible terminal
+notice until Enter/Esc, preventing a stale Enter from reaching controller input.
+During a running transfer, F7 hides/shows the overlay with compact progress while hidden. The UTF-8 basename
+wraps inside the window; visual shortening never changes the transmitted name.
+F10 has no ST binding (reserved for the terminal emulator); no replacement key is
+assigned. Transfer/confirmation use dedicated Dracula colors, separate from the rest
+of the TUI: dark background, light text, purple borders and highlighted selection.
+
+Esc/F6 opens «Отменить передачу файла?»: «Нет» left, «Да» right, default «Да».
+Arrows select; Enter on Yes requests cancellation of that exact ROOT; No or Esc
+continues. FT1 runs while the dialog is open. A late confirmation after completion
+or replacement cannot cancel another ROOT. Ordinary Enter and profile output
+selection do not cancel/reconnect. During active/settling FT1, Chatter status queries
+and presentation controls are admitted; radio mutations, RF text and device/profile
+changes are rejected until the operation ends. Ctrl+C/Ctrl+Q retain process exit.
+Agent JSONL mutation ownership remains unchanged.
+
+TUI `/clear` + Enter and F4 share a local chat/scrollback clear and FOLLOW reset.
+They preserve logs and FT1 state/ownership, including active DATA/repair/RESULT and
+terminal settlement, and send nothing to the node. F9 help lists `/clear`; the bottom
+shortcut bar starts with `F4 Clear`. Clearing a terminal summary does not replay it.
 
 
-## 35. Interactive escape path
-
-TUI file transfer never owns the human frontend irreversibly. F6 is a decisive local
-abort/reconnect of the same target. Manual submitted input preempts an active transfer
-and then proceeds, while F2/F3 can preempt the transfer for device/profile changes.
-Target-changing preemption uses a fresh ManagedSession so pending FT1 TX from the old
-target is not retried against the new device. Ctrl+C keeps the terminal's normal quit
-semantics.
+The manager checks the complete basename in UTF-8 before preparation, reservation,
+claim or sender-journal lookup. The limit derives from META and transport capacity
+(current Chatter: 162 bytes including extension). Oversize raises
+`filename_too_long`; TUI prints «Имя файла слишком длинное». No new operation,
+compression, journal or META is created; no silent truncation/rename occurs.
 
 ## FT1 host metadata bounds
 

@@ -346,15 +346,44 @@ To add another controller family:
 If a proposed change requires the generic core to recognize a controller name, advertised-name prefix, alias, command, application identity, or protocol outcome, treat that as an architecture warning: first determine whether the behavior belongs in a profile or a consuming project-specific layer.
 
 
-### Human TUI preemption of file transfer
+### Human TUI and file-transfer controls
 
-The interactive TUI gives explicit operator actions precedence over an active FT1
-transfer. F6, manual submitted input, an explicit device change, or a profile change
-may abort the current TUI file transfer instead of trapping the operator behind
-application ownership. Device/profile preemption creates a fresh ManagedSession so
-reconnect-safe TX queued for the old physical target cannot migrate to a newly selected
-target. Ctrl+C retains its ordinary process-quit meaning and is not repurposed as a
-file-transfer control.
+Output selection belongs to the controller profile and remains independent of FT1.
+The TUI asks `TerminalProfile.human_action_is_non_disruptive` before submitting a
+human action during an active transfer, including its final settlement. Chatter
+classifies presentation controls and read-only queries as non-disruptive. Mutations,
+RF text, device/profile changes are rejected with a message until completion/cancel;
+ordinary input never implicitly cancels, closes or replaces a file/session. The file
+manager does not recognize presentation commands or classify human actions.
+The frontend-local `/clear` is handled before controller action classification and
+FT1 admission checks. It shares F4's output-buffer/scrollback reset, preserves logs,
+manager/session ownership and input history, and sends no device command. F9 help
+lists the alias; the bottom shortcut bar starts with F4 so it remains visible.
+
+
+A frontend-owned wide progress overlay renders the manager's ROOT snapshot, including
+recursive repair status. F7 hides/shows the overlay; filenames wrap within it.
+The overlay/confirmation have their own Dracula color pairs. F10 is unassigned.
+Esc/F6 opens an address-bound cancellation confirmation. No is left, Yes is right,
+Yes is selected initially; arrows select, Enter confirms and repeat Esc continues.
+The transfer keeps running while the modal captures input. A stale confirmation
+cannot cancel a newer ROOT or submit its Enter to the controller. Successful
+completion closes progress and the compact header once. F7 toggles only active
+transfers. Terminal progress headers are hidden; a dismissed terminal window stays
+closed. The frontend event sink announces each ROOT attempt's terminal outcome
+once in normal white chat output and the LOCAL primary log. It uses the bound
+manager's public ROOT snapshot to exclude recursive service-file results, independently
+of rendering/window visibility. An accepted local cancellation dismisses the overlay immediately, bound to
+that ROOT; its terminal compact header is dismissed too. The manager keeps ownership
+until settlement, and an asynchronous cleanup failure makes the overlay visible
+again. Rejected requests and other failed/cancelled outcomes stay visible.
+If success arrives during confirmation,
+a visible terminal notice captures Enter/Esc before dismissing that stale modal.
+Ctrl+C/Ctrl+Q retain process-quit semantics.
+
+FT1 validates the UTF-8 basename against the selected binary transport META budget
+before preparation, reservation, sender-journal lookup or claim. The frontend displays
+the structured failure; it does not duplicate the transport's wire-size calculation.
 
 Before shutdown checkpoints, the file manager detaches incoming binary admission and
 joins its RX worker; explicit cancellation is not converted into durable suspension.

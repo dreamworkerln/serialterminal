@@ -72,7 +72,10 @@ def test_invalid_meta_does_not_change_existing_root(tmp_path):
         manager._handle_meta(replace(meta, wire_size=0x100000000, chunk_size=1))
         assert manager._recursive_frames[meta.transfer_id] is frame
         assert manager._incoming_for(meta.transfer_id) is incoming
-        assert manager._records[meta.transfer_id].snapshot() == before
+        after = manager._records[meta.transfer_id].snapshot()
+        # Живое время растёт, отклонённая META не меняет остальные поля ROOT.
+        assert after.pop("elapsed") >= before.pop("elapsed")
+        assert after == before
     finally:
         manager.close()
 

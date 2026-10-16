@@ -23,6 +23,8 @@ from .protocol import (
     EndMessage,
     FileMessage,
     FileProtocolError,
+    FilenameTooLong,
+    encode_filename,
     MetaMessage,
     MissingMessage,
     ResultMessage,
@@ -288,8 +290,9 @@ class _TransferRecord:
         if self.final_path is not None:
             result["final_path"] = self.final_path
         end = self.ended_monotonic
-        if end is not None:
-            result["elapsed"] = round(end - self.started_monotonic, 3)
+        result["elapsed"] = round(
+            (time.monotonic() if end is None else end) - self.started_monotonic, 3,
+        )
         return result
 
     def snapshot(self) -> dict[str, Any]:
@@ -966,6 +969,21 @@ class FileTransferManager:
                     },
                 ) from exc
 
+    def _validate_source_filename(self, filename: str) -> None:
+        # Имя должно помещаться в META до claim, journal и дорогой подготовки.
+        # Этот же codec проверяет wire message: UI не дублирует его бюджет.
+        try:
+            encode_filename(filename, self.transport.payload_capacity)
+        except FilenameTooLong as exc:
+            raise FileTransferError(
+                "filename_too_long",
+                f"Имя файла слишком длинное: {exc.actual} байт UTF-8, максимум {exc.maximum}",
+                phase="preparing",
+                details={"filename_bytes": exc.actual, "max_filename_bytes": exc.maximum},
+            ) from exc
+        except FileProtocolError as exc:
+            raise FileTransferError("invalid_metadata", str(exc), phase="preparing") from exc
+
     def start_send(self, local_path: str | Path) -> dict[str, Any]:
         path = Path(local_path).expanduser()
         if not path.exists():
@@ -980,6 +998,7 @@ class FileTransferManager:
                 f"local path is not a regular file: {path}",
                 phase="preparing",
             )
+        self._validate_source_filename(path.name)
         with self._lock:
             transfer_id = self._new_transfer_id_locked()
         record = self._reserve_record(
@@ -2021,6 +2040,12 @@ class FileTransferManager:
             "transfer_id": transfer_id_text(parsed),
             "state": "closed",
         }
+
+    @property
+    def busy(self) -> bool:
+        # Terminal snapshot может уже быть виден, пока drain/release ещё идут.
+        with self._lock:
+            return self._active_id is not None
 
     def display_snapshot(self) -> dict[str, Any] | None:
         with self._lock:

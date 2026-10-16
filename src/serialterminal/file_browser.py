@@ -5,6 +5,8 @@ from dataclasses import dataclass
 from datetime import datetime
 from pathlib import Path
 
+from .tui_text import cell_width, fit_cells, screen_safe_text
+
 
 @dataclass(frozen=True)
 class FileBrowserItem:
@@ -37,13 +39,12 @@ def format_date(timestamp: float | None) -> str:
 
 
 def shorten(text: str, width: int) -> str:
+    text = screen_safe_text(text)
     if width <= 0:
         return ""
-    if len(text) <= width:
+    if cell_width(text) <= width:
         return text
-    if width == 1:
-        return "…"
-    return text[: width - 1] + "…"
+    return fit_cells(text, width - 1) + "…"
 
 
 def scan_directory(directory: Path) -> list[FileBrowserItem]:
@@ -293,13 +294,8 @@ class FileBrowser:
         if available <= 0:
             return
         try:
-            stdscr.addnstr(
-                y,
-                x,
-                text,
-                max(1, available - 1),
-                attr,
-            )
+            safe = fit_cells(screen_safe_text(text), max(1, available - 1))
+            stdscr.addnstr(y, x, safe, len(safe), attr)
         except curses.error:
             pass
 
@@ -421,10 +417,9 @@ class FileBrowser:
                 if item.is_dir and not item.is_parent:
                     display_name += "/"
 
-                line = (
-                    f"{marker}{index + 1:>{number_w}}  "
-                    f"{shorten(display_name, name_width):<{name_width}}"
-                )
+                name = shorten(display_name, name_width)
+                line = (f"{marker}{index + 1:>{number_w}}  " + name
+                        + " " * max(0, name_width - cell_width(name)))
                 if show_type:
                     item_type = (
                         "<DIR>"

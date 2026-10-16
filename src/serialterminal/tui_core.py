@@ -14,16 +14,10 @@ from .file_transfer import FileTransferError, FileTransferManager
 from .profiles import PROFILE_NAMES, TerminalProfile, resolve_profile
 from .session import SessionLine, SessionTxFenceTimeout, SessionTxOutcomeUnknown
 from .terminal import TerminalSession
+from .profiles.base import SendLine
+from .tui_file_transfer import TERMINAL_STATES, FileTransferWindow, file_transfer_status_line, init_file_transfer_colors
+from .tui_text import screen_safe_text as _screen_safe_text, fit_cells
 from .transports.base import Transport, TransportError
-
-
-def _screen_safe_text(text: str) -> str:
-    # curses отвергает NUL, а остальные C0/C1 могут двигать курсор или занимать
-    # несколько ячеек. Видимые escapes нужны до wrap и на каждом пути отрисовки.
-    return "".join(
-        ascii(char)[1:-1] if ord(char) < 32 or 127 <= ord(char) < 160 else char
-        for char in text
-    )
 
 
 @dataclass(frozen=True)
@@ -269,17 +263,6 @@ class TuiScrollback:
         self._anchor = self._row_key(rows[bounded])
 
 
-_FILE_TRANSFER_CRITICAL_SCREEN_MARKERS = (
-    "[SYS] RADIO FATAL ",
-    "ESP-ROM:",
-    "rst:0x",
-    "[SYS] CHATTER READY",
-    "[disconnected:",
-    "[connected:",
-    "[waiting for selected device",
-)
-
-
 _FILE_STATE_LABELS = {
     "waiting_result": "waiting for remote verification",
     "repair_requested": "repair requested",
@@ -323,7 +306,8 @@ class TerminalTui:
         self._was_connected = False
         self._binary_adapter = None
         self._file_transfer: FileTransferManager | None = None
-        self._file_transfer_screen_muted = threading.Event()
+        self._transfer_window = FileTransferWindow()
+        self._profile_prefix_pending = False
         self._file_rate_transfer_id: str | None = None
         self._file_rate_samples: deque[tuple[float, int]] = deque()
         self.session = self._make_session(transport, profile)
@@ -360,7 +344,8 @@ class TerminalTui:
             timing_sink=session.record_timing,
         )
         self._binary_adapter = adapter
-        self._file_transfer = (
+        manager = None
+        manager = (
             FileTransferManager(
                 adapter,
                 receive_dir=self.receive_dir,
@@ -372,18 +357,21 @@ class TerminalTui:
                         self._log_file_transfer_event(
                             event,
                             session=bound_session,
+                            manager=manager,
                         )
                 ),
             )
             if adapter is not None
             else None
         )
+        self._file_transfer = manager
 
     def _log_file_transfer_event(
         self,
         event: dict,
         *,
         session: TerminalSession | None = None,
+        manager: FileTransferManager | None = None,
     ) -> None:
         target_session = self.session if session is None else session
         target_session.record_timing("ft1_event", ft1=event)
@@ -400,6 +388,16 @@ class TerminalTui:
                 sort_keys=True,
             ),
         )
+        text = file_transfer_status_line(event)
+        if text is not None:
+            # Event приходит один раз на terminal попытки, независимо от redraw/F7.
+            # Вложенный missing-list имеет свой RESULT, но не является новым файлом.
+            if manager is not None:
+                root = manager.display_snapshot()
+                if root is None or root["transfer_id"] != event["transfer_id"]:
+                    return
+            # Отделяем локальный итог от возможного незавершённого RX fragment.
+            target_session.write_output("\n" + text + "\n")
 
     def _claim_file_transfer(
         self,
@@ -424,33 +422,13 @@ class TerminalTui:
                 details={"tx_id": exc.tx_id},
             ) from exc
 
-        # Во время FT1 protocol/session output остаётся доступен adapter/panel/log,
-        # но BINARY/protocol flood не должен засорять human TUI. Critical reset/
-        # reconnect lines проходят через mute, чтобы recovery не выглядел зависанием.
-        self._file_transfer_screen_muted.set()
+        # Presentation-фильтрация принадлежит профилю и не зависит от FT1.
+        # Приём telemetry и выбор human output продолжаются во время файла.
 
-    def _release_file_transfer(
-        self,
-        transfer_id: int,
-        direction: str,
-    ) -> None:
+    def _release_file_transfer(self, transfer_id: int, direction: str) -> None:
         del transfer_id, direction
-        self._file_transfer_screen_muted.clear()
-
-    @staticmethod
-    def _critical_file_transfer_screen_text(text: str) -> str:
-        kept: list[str] = []
-        for line in text.splitlines(keepends=True):
-            if any(marker in line for marker in _FILE_TRANSFER_CRITICAL_SCREEN_MARKERS):
-                kept.append(line)
-        return "".join(kept)
 
     def _write_session_screen(self, text: str) -> None:
-        if self._file_transfer_screen_muted.is_set():
-            critical = self._critical_file_transfer_screen_text(text)
-            if critical:
-                self.output.write(critical)
-            return
         self.output.write(text)
 
     def _sync_panel_transport_identity(self, transport: Transport) -> None:
@@ -469,15 +447,30 @@ class TerminalTui:
             adapter.feed_line(line.stream, line.text)
 
     def _file_snapshot(self) -> dict | None:
-        manager = self._file_transfer
+        manager = getattr(self, "_file_transfer", None)
         return None if manager is None else manager.display_snapshot()
 
     def _file_transfer_active(self) -> bool:
         snapshot = self._file_snapshot()
-        return (
+        return bool(getattr(getattr(self, "_file_transfer", None), "busy", False)) or (
             snapshot is not None
             and snapshot.get("state") not in {"completed", "failed", "cancelled"}
         )
+
+    def _file_window(self) -> FileTransferWindow:
+        if not hasattr(self, "_transfer_window"):
+            self._transfer_window = FileTransferWindow()
+        return self._transfer_window
+
+    def _file_header_lines(self, width: int) -> tuple[str, ...]:
+        window = self._file_window()
+        snapshot = self._file_snapshot()
+        window.sync(snapshot)
+        if (window.visible and window.transfer_id is not None) or (
+            snapshot is not None and snapshot["state"] in TERMINAL_STATES
+        ):
+            return ()
+        return self._file_status_lines(width)
 
     @staticmethod
     def file_state_label(state: str) -> str:
@@ -569,7 +562,8 @@ class TerminalTui:
         if available <= 0:
             return
         try:
-            stdscr.addnstr(y, x, _screen_safe_text(text), max(1, available - 1), attr)
+            safe = fit_cells(_screen_safe_text(text), max(1, available - 1))
+            stdscr.addnstr(y, x, safe, len(safe), attr)
         except curses.error:
             pass
 
@@ -683,9 +677,12 @@ class TerminalTui:
             "input": curses.color_pair(6),
             "error_badge": curses.color_pair(7) | curses.A_BOLD,
             "dim": curses.color_pair(1) | curses.A_DIM,
+            **getattr(self, "_file_colors", {}),
         }
 
     def _line_attr(self, line: str, colors: dict[str, int]) -> int:
+        if line.startswith("[FT1] "):
+            return colors["normal"]
         upper = line.upper()
         if "ERROR" in upper or "FAILED" in upper:
             return colors["error"]
@@ -745,7 +742,7 @@ class TerminalTui:
                     colors["panel"],
                 )
                 y += 1
-        for line in self._file_status_lines(width):
+        for line in self._file_header_lines(width):
             self._safe_addstr(
                 stdscr,
                 y,
@@ -803,13 +800,13 @@ class TerminalTui:
         )
 
         default_status = (
-            "PgUp/PgDn scroll | ↑↓ history | F2 Device | F3 Profile | "
-            "F4 Clear | F8 Mouse | F9 Help | Ctrl+Q Quit"
+            "F4 Clear | PgUp/PgDn scroll | ↑↓ history | F2 Device | F3 Profile | "
+            "F8 Mouse | F9 Help | Ctrl+Q Quit"
         )
         if self._file_transfer is not None:
             default_status = (
-                "PgUp/PgDn/Wheel scroll | ↑↓ history | F2 Device | F3 Profile | "
-                "F5 Send file | F6 Cancel | F8 Mouse | F9 Help | Ctrl+Q Quit"
+                "F4 Clear | PgUp/PgDn/Wheel scroll | ↑↓ history | F2 Device | F3 Profile | "
+                "F5 Send | Esc/F6 Cancel? | F7 File | F8 Mouse | F9 Help | Ctrl+Q Quit"
             )
         status = self.status or default_status
         if not self.scrollback.follow_tail:
@@ -841,7 +838,20 @@ class TerminalTui:
             colors["dim"],
         )
         cursor_x = len(prompt) + self.input_cursor - input_start
+        snapshot = self._file_snapshot()
+        window = self._file_window()
+        window.draw(
+            stdscr, self._safe_addstr, snapshot, bar=self.render_progress_bar,
+            state_label=self.file_state_label,
+            rate=self._file_wire_rate_kbit_s(snapshot) if snapshot is not None else 0.0,
+            attr=colors.get("file", colors["panel"]),
+            selected=colors.get("file_selected", colors["header"]),
+            border=colors.get("file_border", colors["panel"]),
+        )
+        # Overlay меняет curses cursor; ввод остаётся в command line, а modal
+        # показывает выбор атрибутом кнопки без ложного фокуса в command line.
         try:
+            curses.curs_set(0 if window.confirmation_id is not None else 1)
             stdscr.move(input_sep_y + 1, min(width - 2, max(0, cursor_x)))
         except curses.error:
             pass
@@ -850,7 +860,6 @@ class TerminalTui:
     def _close_file_transfer_manager(self) -> None:
         manager = self._file_transfer
         self._file_transfer = None
-        self._file_transfer_screen_muted.clear()
         report_event("TUI file manager close begin")
         try:
             # Уже принятые M1 tickets и CLOSE завершаются через feed_line.
@@ -871,9 +880,9 @@ class TerminalTui:
         old_session = self.session
         report_event("TUI session replacement begin")
 
-        # Human preemption must create a new ManagedSession. Reusing the old
-        # reconnect-safe TX queue could otherwise deliver an old FT1 /bin to a
-        # newly selected physical target after F2.
+        # Смена профиля создаёт новый ManagedSession: reconnect-safe очередь
+        # прежнего профиля не должна передавать его отложенные команды после
+        # смены protocol/presentation adapter.
         self._close_file_transfer_manager()
         old_session._reveal_sent_presentations()
         old_session.stop()
@@ -890,47 +899,34 @@ class TerminalTui:
         self.session.start()
         report_event("TUI session replacement started")
 
-    def _abort_file_transfer_for_operator(self) -> bool:
+    def _cancel_confirmed_file(self, transfer_id: str) -> None:
         manager = self._file_transfer
         snapshot = self._file_snapshot()
-        if (
-            manager is None
-            or snapshot is None
-            or snapshot.get("state") in {"completed", "failed", "cancelled"}
-        ):
-            return False
-
-        report_event(f"TUI FT1 explicit cancel transfer_id={snapshot['transfer_id']}")
+        if (manager is None or snapshot is None or snapshot["transfer_id"] != transfer_id
+                or snapshot["state"] in {"completed", "failed", "cancelled"}):
+            self.status = "Операция уже завершилась; отмена не выполнена"
+            return
+        # Отмена адресуется ROOT, без закрытия manager и потери его результата.
+        # Даже новая операция между проверкой и вызовом не меняет target ID.
         try:
-            manager.cancel(str(snapshot["transfer_id"]))
+            manager.cancel(transfer_id)
         except FileTransferError as exc:
-            self._report_application_error(exc, "TUI FT1 cancellation")
-        # Mute belongs to FT1 convenience, not to operator ownership. Once the
-        # human preempts the transfer, controller output must be visible at once.
-        self._file_transfer_screen_muted.clear()
-        return True
+            self.status = f"Отмена не выполнена: {exc.message}"
+        else:
+            window = self._file_window()
+            window.dismiss_after_cancel(transfer_id)
+            window.sync(self._file_snapshot())
+            report_event(f"TUI FT1 confirmed cancel transfer_id={transfer_id}")
+            self.status = "Запрошена отмена передачи файла"
 
-    def _abort_and_reconnect_same_target(self) -> bool:
+    def _allow_human_action(self, action) -> bool:
         if not self._file_transfer_active():
-            return False
-
-        old_transport = self.session._current_transport()
-        try:
-            replacement = self.selector.recreate_transport(
-                old_transport,
-                self.profile,
-            )
-        except (TransportError, ValueError) as exc:
-            self._abort_file_transfer_for_operator()
-            self.status = (
-                "File transfer cancellation requested; "
-                f"target reconnect could not be prepared: {exc}"
-            )
             return True
-
-        self._abort_file_transfer_for_operator()
-        self._replace_tui_session(replacement)
-        return True
+        classifier = getattr(self.profile, "human_action_is_non_disruptive", None)
+        if callable(classifier) and classifier(action):
+            return True
+        self.status = "Передача файла продолжается: это действие доступно после её завершения"
+        return False
 
     def _run_connected_actions(self) -> None:
         connected = self.session.connected_event.is_set()
@@ -943,55 +939,52 @@ class TerminalTui:
 
     def _submit_input(self) -> None:
         line = self.input_text
+        if not line:
+            return
+        local_clear = line.strip() == "/clear"
+        # Локальный clear не проходит через controller classifier/TX или FT1 lease.
+        if not local_clear and not self._allow_human_action(SendLine(line)):
+            return
         report_event("TUI manual input submitted")
-        preempted = self._abort_and_reconnect_same_target()
         self._remember_command(line)
         self.input_text = ""
         self.input_cursor = 0
         self.scrollback.follow()
-        self.status = (
-            "File transfer aborted; reconnecting same target for manual input"
-            if preempted
-            else ""
+        if local_clear:
+            self._clear_output()
+        else:
+            self.status = ""
+            self.session._submit_interactive_line(line)
+
+    def _clear_output(self) -> None:
+        self.output.clear()
+        self.scrollback.follow()
+        self.status = "Screen cleared; log files were not changed"
+
+    def _show_tui_help(self) -> None:
+        self.session._show_full_help()
+        self.session.write_output(
+            "\n[SerialTerminal TUI local commands]\n"
+            "  /clear / F4  clear chat and scrollback; logs preserved\n"
+            "               available during file transfer\n\n"
         )
-        self.session._submit_interactive_line(line)
 
     def _choose_device(self, stdscr) -> None:
+        if self._file_transfer_active():
+            self.status = "Передача файла продолжается: смена устройства доступна после завершения"
+            return
         curses.endwin()
         try:
-            if not self._file_transfer_active():
-                self.session._change_device()
-                self._sync_panel_transport_identity(
-                    self.session._current_transport()
-                )
-                self.status = "Device chooser closed"
-                return
-
-            old_transport = self.session._current_transport()
-            try:
-                new_transport = self.selector.choose_transport_menu()
-            except KeyboardInterrupt:
-                raise
-            except Exception as exc:
-                self.status = f"Device chooser failed: {exc}"
-                return
-
-            if new_transport is None:
-                self.status = "Device selection cancelled; file transfer continues"
-                return
-            if new_transport.device_key == old_transport.device_key:
-                new_transport.close()
-                self.status = "Selected the same device; file transfer continues"
-                return
-
-            self._abort_file_transfer_for_operator()
-            self._replace_tui_session(new_transport)
-            self.status = "File transfer aborted; switching device"
+            self.session._change_device()
+            self._sync_panel_transport_identity(self.session._current_transport())
+            self.status = "Device chooser closed"
         finally:
             stdscr.refresh()
 
     def _switch_profile(self) -> None:
-        file_preempt = self._file_transfer_active()
+        if self._file_transfer_active():
+            self.status = "Передача файла продолжается: смена профиля доступна после завершения"
+            return
         current = PROFILE_NAMES.index(self.profile.name)
         next_name = PROFILE_NAMES[(current + 1) % len(PROFILE_NAMES)]
         next_profile = resolve_profile(next_name)
@@ -1005,23 +998,15 @@ class TerminalTui:
             self.status = f"Profile switch failed: {exc}"
             return
 
-        if not file_preempt:
-            fence = self.session.capture_tx_fence()
-            try:
-                self.session.wait_tx_fence(fence, timeout=2.0)
-            except (SessionTxFenceTimeout, SessionTxOutcomeUnknown) as exc:
-                new_transport.close()
-                self.status = f"Profile switch blocked by unsettled TX: {exc}"
-                return
-        else:
-            self._abort_file_transfer_for_operator()
-
+        fence = self.session.capture_tx_fence()
+        try:
+            self.session.wait_tx_fence(fence, timeout=2.0)
+        except (SessionTxFenceTimeout, SessionTxOutcomeUnknown) as exc:
+            new_transport.close()
+            self.status = f"Profile switch blocked by unsettled TX: {exc}"
+            return
         self._replace_tui_session(new_transport, profile=next_profile)
-        self.status = (
-            f"File transfer aborted; profile switched to {next_name}"
-            if file_preempt
-            else f"Profile switched to {next_name}; reconnecting same target"
-        )
+        self.status = f"Profile switched to {next_name}; reconnecting same target"
 
     def _choose_file(self, stdscr) -> None:
         manager = self._file_transfer
@@ -1040,6 +1025,7 @@ class TerminalTui:
             result = manager.start_send(local_path)
         except FileTransferError as exc:
             self.status = f"File send failed to start: {exc.code}: {exc.message}"
+            self.session.write_output(f"[serialterminal] {exc.message}\n")
             return
         self.status = (
             f"File transfer {result['transfer_id']} started: "
@@ -1047,17 +1033,10 @@ class TerminalTui:
         )
 
     def _cancel_file(self) -> None:
-        if not self._file_transfer_active():
-            snapshot = self._file_snapshot()
-            self.status = (
-                "File transfer is already terminal"
-                if snapshot is not None
-                else "No file transfer to cancel"
-            )
-            return
-
-        if self._abort_and_reconnect_same_target():
-            self.status = "File transfer aborted locally; reconnecting same target"
+        snapshot = self._file_snapshot()
+        self._file_window().request_cancel(snapshot)
+        if snapshot is None or snapshot["state"] in {"completed", "failed", "cancelled"}:
+            self.status = "Нет активной передачи файла"
 
     @staticmethod
     def _mouse_wheel_direction(button_state: int) -> int:
@@ -1083,7 +1062,7 @@ class TerminalTui:
 
         height, width = stdscr.getmaxyx()
         panel_rows = len(self.panel.status_lines()) if self.panel else 0
-        file_rows = len(self._file_status_lines(width))
+        file_rows = len(self._file_header_lines(width))
         body_top = 2 + panel_rows + file_rows
         body_bottom = min(height - 4, body_top + body_rows)
         if not body_top <= y < body_bottom:
@@ -1132,6 +1111,29 @@ class TerminalTui:
     def _handle_key(self, stdscr, key, body_rows: int) -> None:
         if key in ("\x11", "\x03"):
             self.running = False
+            return
+        window = self._file_window()
+        snapshot = self._file_snapshot()
+        if window.confirmation_id is not None and stdscr is not None:
+            height, width = stdscr.getmaxyx()
+            if (height < 12 or width < 60) and key != "\x1b":
+                return
+        consumed, cancelled = window.handle_key(key, snapshot)
+        if consumed:
+            if cancelled is not None:
+                self._cancel_confirmed_file(cancelled)
+            return
+        if getattr(self, "_profile_prefix_pending", False):
+            self._profile_prefix_pending = False
+            action_name = dict(self.profile.human_hotkeys()).get(key)
+            action = self.profile.human_actions().get(action_name)
+            if action is not None and self._allow_human_action(action):
+                self.session._queue_profile_action(action)
+                self.status = ""
+            return
+        if key == "\x14":
+            self._profile_prefix_pending = True
+            self.status = "Ctrl+T: выберите клавишу действия профиля"
         elif key in ("\n", "\r") or key == curses.KEY_ENTER:
             self._submit_input()
         elif key == curses.KEY_F2:
@@ -1139,9 +1141,7 @@ class TerminalTui:
         elif key == curses.KEY_F3:
             self._switch_profile()
         elif key == curses.KEY_F4:
-            self.output.clear()
-            self.scrollback.follow()
-            self.status = "Screen cleared; log files were not changed"
+            self._clear_output()
         elif key == curses.KEY_F5:
             self._choose_file(stdscr)
         elif key == curses.KEY_F6:
@@ -1155,7 +1155,7 @@ class TerminalTui:
                 else "Mouse capture OFF: terminal selection/RMB restored"
             )
         elif key == curses.KEY_F9:
-            self.session._show_full_help()
+            self._show_tui_help()
             self.status = "Help added to terminal output"
         elif key == curses.KEY_PPAGE:
             self.scrollback.scroll_up(
@@ -1234,6 +1234,7 @@ class TerminalTui:
             curses.init_pair(5, curses.COLOR_RED, -1)
             curses.init_pair(6, curses.COLOR_GREEN, -1)
             curses.init_pair(7, curses.COLOR_WHITE, curses.COLOR_RED)
+            self._file_colors = init_file_transfer_colors()
 
         try:
             self.session.start()
@@ -1252,7 +1253,7 @@ class TerminalTui:
                 self._run_connected_actions()
                 height, width = stdscr.getmaxyx()
                 panel_rows = len(self.panel.status_lines()) if self.panel else 0
-                file_rows = len(self._file_status_lines(width))
+                file_rows = len(self._file_header_lines(width))
                 body_rows = max(1, height - panel_rows - file_rows - 8)
                 self._render(stdscr)
                 try:

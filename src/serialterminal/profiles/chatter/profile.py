@@ -78,7 +78,7 @@ _HUMAN_HELP_LINES = (
     "/heartbeat and /heartbeat on|off control runtime heartbeat",
     "/diag and /diag on|off control diagnostics; /diag size N uses N=16..255",
     "/bin BASE64 is the local BINARY USER command used by profile applications",
-    "TUI F5 sends a file; F6 cancels the active file transfer",
+    "TUI F5 sends a file; Esc/F6 asks to cancel; F7 background",
     "/help requests Chatter help",
     "Ctrl+T 1/c   Chatter human console: CHAT",
     "Ctrl+T 2/t   Chatter human console: TELEMETRY",
@@ -118,6 +118,19 @@ class ChatterProfile:
 
     def human_actions(self) -> Mapping[str, ProfileAction]:
         return _HUMAN_ACTIONS
+
+    def human_action_is_non_disruptive(self, action: ProfileAction) -> bool:
+        # Классификация принадлежит контроллеру, без знания FT1 или его состояний.
+        if isinstance(action, SendBytes):
+            return action.data in {value.encode("ascii") for value in CHATTER_OUTPUT_MODE_COMMANDS.values()}
+        if isinstance(action, SendLine):
+            command = recognized_chatter_command(action.text)
+            return command in {
+                "/chat", "/tele", "/both", "/help", "/id", "/version", "/firmware",
+                "/config", "/power", "/freq", "/freq-oob", "/sf", "/bw",
+                "/heartbeat", "/diag", "/errors", "/radio read config", "/radio validate config",
+            }
+        return False
 
     def human_help_lines(self) -> tuple[str, ...]:
         return _HUMAN_HELP_LINES

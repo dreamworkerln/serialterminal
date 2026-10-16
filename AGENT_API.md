@@ -551,8 +551,25 @@ bytes_completed
 percentage
 ```
 
-Terminal snapshots may additionally include `final_path`, `elapsed` or structured
-`failure` with stable `code`, human `message`, optional `phase` and details.
+Snapshots include `elapsed` seconds from the current runtime attempt's start;
+it increases while active and freezes when terminal. Terminal snapshots may additionally
+include `final_path` or structured `failure` with stable `code`, human `message`,
+optional `phase` and details.
+
+`file_send_start` rejects a basename exceeding the selected transport's META UTF-8
+budget before preparation, reservation, claim or sender-journal lookup with
+`filename_too_long` (`filename_bytes`, `max_filename_bytes` details). Chatter currently
+allows 162 UTF-8 bytes including extension. The name is never truncated or renamed.
+This adds no exception to agent session mutation ownership. Human TUI presentation
+controls are a separate frontend/profile contract; agent `send_line`/`send_bytes`
+remain rejected while file mutation ownership is held.
+`/clear` is reserved locally by the TUI as F4's chat/scrollback clear, including during
+active FT1. It sends no device command and adds no agent operation or exception to
+agent `send_line` ownership/forwarding semantics.
+
+TUI ROOT terminal events additionally produce a human chat summary and a LOCAL
+primary-log record; this is frontend presentation, not a new JSONL outcome or proof
+beyond the existing FT1 terminal contract.
 
 Exactly `100.0` means `state=completed`. A sender that has delivered every DATA
 chunk but is still waiting for the receiver's final verified RESULT remains below

@@ -813,6 +813,7 @@ def start_send(self, local_path: str | Path) -> dict[str, Any]:
         raise core.FileTransferError(
             "not_a_file", f"local path is not a regular file: {path}", phase="preparing"
         )
+    self._validate_source_filename(path.name)
     candidate = self._sender_resume_candidate(path)
     with self._lock:
         transfer_id = (

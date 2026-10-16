@@ -91,6 +91,9 @@ class TerminalProfile(Protocol):
     def human_actions(self) -> Mapping[str, ProfileAction]:
         ...
 
+    def human_action_is_non_disruptive(self, action: ProfileAction) -> bool:
+        ...
+
     def human_help_lines(self) -> tuple[str, ...]:
         ...
 

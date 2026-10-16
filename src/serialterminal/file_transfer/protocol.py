@@ -57,6 +57,30 @@ class FileProtocolError(ValueError):
     pass
 
 
+class FilenameTooLong(FileProtocolError):
+    def __init__(self, actual: int, maximum: int):
+        self.actual = actual
+        self.maximum = maximum
+        super().__init__(f"META filename is {actual} UTF-8 bytes; maximum is {maximum}")
+
+
+def meta_filename_capacity(capacity: int) -> int:
+    return max(0, min(255, capacity - _COMMON.size - _META_FIXED.size))
+
+
+def encode_filename(filename: str, capacity: int) -> bytes:
+    try:
+        encoded = filename.encode("utf-8")
+    except UnicodeError as exc:
+        raise FileProtocolError("META filename is not valid UTF-8") from exc
+    if not encoded:
+        raise FileProtocolError("META filename is empty")
+    maximum = meta_filename_capacity(capacity)
+    if len(encoded) > maximum:
+        raise FilenameTooLong(len(encoded), maximum)
+    return encoded
+
+
 @dataclass(frozen=True)
 class MetaMessage:
     transfer_id: int
@@ -257,7 +281,7 @@ def checked_chunk_count(wire_size: int, chunk_size: int) -> int:
 
 
 def encode_meta(message: MetaMessage, capacity: int) -> bytes:
-    filename = message.filename.encode("utf-8")
+    filename = encode_filename(message.filename, capacity)
     if not 0 <= message.parent_transfer_id <= 0xFFFFFFFFFFFFFFFF:
         raise FileProtocolError("META parent transfer_id is out of range")
     if not 0 <= message.depth <= 8 or bool(message.parent_transfer_id) != bool(message.depth):
@@ -275,9 +299,6 @@ def encode_meta(message: MetaMessage, capacity: int) -> bytes:
     if not 1 <= message.chunk_size <= 0xFFFF:
         raise FileProtocolError("META chunk_size is out of range")
     checked_chunk_count(message.wire_size, message.chunk_size)
-    max_filename = capacity - _COMMON.size - _META_FIXED.size
-    if not filename or len(filename) > min(255, max_filename):
-        raise FileProtocolError("META filename does not fit one binary USER")
     payload = (
         _common(MessageType.META, message.transfer_id)
         + _META_FIXED.pack(

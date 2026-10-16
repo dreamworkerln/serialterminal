@@ -193,6 +193,12 @@ file_transfer_close
 
 `file_send_start` принимает уже открытую session и локальный path, быстро возвращает `transfer_id`, затем работа идёт в background. Это же operation является явным trigger для same-process и persistent resume после failed attempt (прежний worker должен закончить settling): если существует ровно один валидный journal того же неизменившегося source, manager переиспользует тот же `transfer_id`, а initial result может содержать `resumed:true`. SerialTerminal **не** запускает старые transfer автоматически при старте процесса.
 
+До admission/preparation `file_send_start` проверяет basename целиком в UTF-8:
+при превышении META budget возвращает `filename_too_long` с `filename_bytes` и
+`max_filename_bytes` (Chatter сейчас 162 bytes с extension), без новой передачи
+или silent rename. `progress.elapsed` доступен и во время работы, после terminal
+фиксируется; это время текущей runtime attempt, не всей истории durable resume.
+
 Если matching sender journals несколько, операция должна вернуть `ambiguous_resume_state`. Не выбирай journal сам и не удаляй `.serialterminal-state`/`.part`, чтобы "починить" ситуацию. Если source изменился, old transfer_id не должен использоваться для новых bytes; manager начинает новую identity по текущему contract.
 
 `file_transfer_observe` — pending long-poll с собственным cursor и structured progress; он не блокирует обычный `status`/session `observe`. `status` Chatter session также может содержать structured `controller` lifecycle snapshot.
