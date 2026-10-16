@@ -19,8 +19,13 @@ pipeline, сохраняя `remote_failed` и sender journal. Явный operato
 При штатном закрытии BLE session ST проверяет освобождение соединения. На
 Linux/BlueZ оставшееся соединение своего клиента адресно отключается и проверяется
 повторно; отказ или неизвестный итог сохраняются в логах. Agent `close` возвращает
-`transport_release`, а при EOF итог остаётся в логах. Это не восстановление после
-SIGKILL: обнаружение соединений от погибшего ST при следующем поиске отложено.
+`transport_release`, а при EOF итог остаётся в логах. SIGKILL не выполняет cleanup.
+Прототип discovery показывает все BLE scan results и подключённые устройства
+BlueZ, включая не рекламирующие себя: у последних жёлтый суффикс `(busy)`.
+Явный выбор busy-устройства в меню или agent `open` сначала отключает именно его
+и проверяет освобождение, затем выполняет обычный connect. При ошибке release
+подключение не начинается; остальные адреса не отключаются. Поиск сам ничего
+не отключает. PID registry и определение владельца соединения не используются.
 Подробности: [close и BLE release](AGENT_API.md#verified-ble-release-on-close).
 
 `chatter.reliable_user` deprecated и отключён: его legacy echo preflight
@@ -234,6 +239,11 @@ Chatter BINARY USER presentation не выводит raw base64 в human TUI/cla
 firmware `[BINARY] ...` lines скрыты из normal display, а локальный ручной
 `/bin ...` отображается как `/bin <base64>`. Флаг `--log-base64` этого не меняет —
 он разрешает raw base64 только в log-файлах.
+
+Входящие пустые/whitespace-only Chatter lines, в том числе разделители `/m1`,
+скрыты на human screen; исходные logical lines сохраняются в logs/observe.
+TUI показывает управляющие C0/C1 как видимые escapes (например `\x00`),
+чтобы NUL и другие control bytes не ломали curses и расчёт переносов.
 
 ## Codex hardware-test workspace
 

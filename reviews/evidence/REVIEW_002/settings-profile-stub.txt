@@ -1,0 +1,4 @@
+COMMAND: PYTHONPATH=/tmp/fakeserial:src python -m pytest -q tests/test_settings.py
+NOTE: /tmp/fakeserial is a minimal import stub for unavailable pyserial; this proves settings/profile wiring only, not real serial I/O.
+.................................                                        [100%]
+33 passed in 0.17s

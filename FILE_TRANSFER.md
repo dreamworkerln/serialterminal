@@ -1401,6 +1401,9 @@ manifests and sender journals. `file_send_start` explicitly revalidates an uncha
 source and reuses the matching old transfer_id; ambiguous journals fail rather than
 being guessed. Receiver partials survive timeout/failure; completed tombstones replay
 RESULT without a second publication. Automatic background restart is not performed.
+Matching META received during receiver timeout settlement waits for ownership
+release and recursive cleanup through a coalesced replay; it does not become a
+terminal metadata conflict merely because the previous attempt is still settling.
 See [FT1_RESUME.md](FT1_RESUME.md) for authoritative storage/recovery details and
 separate physical acceptance limits.
 

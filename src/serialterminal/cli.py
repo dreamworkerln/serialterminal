@@ -1,11 +1,13 @@
 from __future__ import annotations
 
 import argparse
+import asyncio
 import sys
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
 from typing import Any
 
 from .settings import DEFAULTS, resolve_serial_baud
+from .application_log import report_exception
 from .device_cache import confirmed_devices
 from .profiles import (
     GENERIC_PROFILE,
@@ -31,6 +33,10 @@ class DeviceCandidate:
     label: str
     detail: str
     identity: Any
+
+    @property
+    def busy(self) -> bool:
+        return self.kind == "ble" and bool(getattr(self.identity, "busy", False))
 
 
 class DeviceSelector:
@@ -89,19 +95,22 @@ class DeviceSelector:
             from .ble_discovery import discover_terminal_ble_devices
 
             return [
-                DeviceCandidate(
-                    kind="ble",
-                    key=item.key,
-                    label=f"BLE  {item.name}",
-                    detail=item.address,
-                    identity=item,
-                )
+                self._ble_candidate(item)
                 for item in discover_terminal_ble_devices(self.scan_seconds)
             ]
         except TransportError:
             if self.scope == "ble":
                 raise
             return []
+
+    @staticmethod
+    def _ble_candidate(identity) -> DeviceCandidate:
+        suffix = " (busy)" if identity.busy else ""
+        return DeviceCandidate(
+            kind="ble", key=identity.key,
+            label=f"BLE  {identity.name}{suffix}",
+            detail=identity.address, identity=identity,
+        )
 
     def _discover_spp_candidates(self) -> list[DeviceCandidate]:
         try:
@@ -209,6 +218,24 @@ class DeviceSelector:
         if "ble" in allowed:
             for candidate in self._cached_ble_candidates():
                 by_key.setdefault(candidate.key, candidate)
+            from .ble_discovery import connected_bluez_identities
+
+            # F2 не запускает scan, но читает актуальный Connected из BlueZ.
+            try:
+                connected = asyncio.run(connected_bluez_identities())
+            except Exception as exc:
+                # Ошибка чтения не доказывает освобождение старых busy targets.
+                report_exception(exc, "BlueZ known-device refresh unavailable")
+            else:
+                for key, candidate in list(by_key.items()):
+                    if candidate.busy:
+                        by_key[key] = self._ble_candidate(
+                            replace(candidate.identity, bluez_path=None)
+                        )
+                for identity in connected:
+                    candidate = self._ble_candidate(identity)
+                    if candidate.key not in by_key or not by_key[candidate.key].busy:
+                        by_key[candidate.key] = candidate
         if "spp" in allowed:
             for candidate in self._cached_spp_candidates():
                 by_key.setdefault(candidate.key, candidate)
@@ -336,6 +363,7 @@ class DeviceSelector:
             identity = BleDeviceIdentity(
                 transport.target_name,
                 transport.target_address,
+                transport.pending_bluez_takeover,
             )
             return builder.make_transport(
                 DeviceCandidate(
@@ -367,10 +395,17 @@ class DeviceSelector:
         )
 
     @staticmethod
+    def _display_label(candidate: DeviceCandidate) -> str:
+        label = candidate.label
+        if candidate.busy and sys.stdout.isatty() and label.endswith(" (busy)"):
+            return label[:-7] + " \033[33m(busy)\033[0m"
+        return label
+
+    @staticmethod
     def _print_menu(candidates: list[DeviceCandidate]) -> None:
         print("Detected devices:")
         for index, candidate in enumerate(candidates, start=1):
-            print(f"  {index}. {candidate.label}")
+            print(f"  {index}. {DeviceSelector._display_label(candidate)}")
             print(f"     {candidate.detail}")
 
     @staticmethod
@@ -454,7 +489,7 @@ class DeviceSelector:
         if not candidates:
             return None
 
-        if auto_single and len(candidates) == 1:
+        if auto_single and len(candidates) == 1 and not candidates[0].busy:
             candidate = candidates[0]
             print(f"Only one device is visible: {candidate.label}")
             print(f"  {candidate.detail}")

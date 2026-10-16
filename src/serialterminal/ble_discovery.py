@@ -5,6 +5,7 @@ from dataclasses import dataclass, field
 from typing import Any, Iterable
 
 from .settings import DEFAULTS
+from .application_log import report_exception
 from .device_cache import capability_confirmed, get_cached_device
 from .transports import ble_nus
 from .transports.ble_nus import (
@@ -15,9 +16,9 @@ from .transports.ble_nus import (
 
 NUS_SERVICE_UUID = "6e400001-b5a3-f393-e0a9-e50e24dcca9e"
 
-# Debug/build policy. Normal discovery keeps unrelated BLE devices hidden.
-# The aggressive scanner ignores this flag and always probes everything it sees.
-SHOW_ALL_BLE_DEVICES = False
+# Прототип chooser показывает все scan results без предположений о NUS.
+# Активный capability scanner по-прежнему отдельно проверяет поддержку сервиса.
+SHOW_ALL_BLE_DEVICES = True
 
 
 @dataclass(frozen=True)
@@ -123,12 +124,40 @@ def _default_visible(item: BleDiscoveryItem) -> bool:
 def discover_terminal_ble_devices(
     timeout: float = DEFAULTS.discovery.terminal_scan_seconds,
 ) -> list[BleDeviceIdentity]:
-    """Safe/default BLE discovery: advertised-NUS or cached-NUS only."""
-    return [
-        item.identity
-        for item in asyncio.run(scan_all_ble_devices(timeout))
-        if _default_visible(item)
-    ]
+    """Scan results плюс подключённые BlueZ devices с отметкой busy."""
+    return asyncio.run(_discover_terminal_ble_devices_async(timeout))
+
+
+async def connected_bluez_identities() -> list[BleDeviceIdentity]:
+    from .transports.bluez_devices import connected_devices
+
+    devices = await connected_devices(DEFAULTS.ble_cleanup.bluez_timeout_s)
+    return [BleDeviceIdentity(item.name, item.address, item.path) for item in devices]
+
+
+async def _discover_terminal_ble_devices_async(timeout: float) -> list[BleDeviceIdentity]:
+    scan_error = None
+    try:
+        scanned = await scan_all_ble_devices(timeout)
+    except Exception as exc:
+        scan_error = exc
+        scanned = []
+    try:
+        connected = await connected_bluez_identities()
+    except Exception as exc:
+        report_exception(exc, "BlueZ connected-device discovery unavailable")
+        connected = []
+    if scan_error is not None:
+        if not connected:
+            raise scan_error
+        report_exception(scan_error, "BLE scan failed; showing connected BlueZ devices")
+    by_key = {item.identity.key: item.identity for item in scanned if _default_visible(item)}
+    # Connected snapshot берём после scan; один адрес не дублируется в списке.
+    for identity in connected:
+        by_key.setdefault(identity.key, identity)
+        if not by_key[identity.key].busy:
+            by_key[identity.key] = identity
+    return sorted(by_key.values(), key=lambda item: (item.name.lower(), item.address.lower()))
 
 
 def _iter_service_objects(services: Any) -> Iterable[Any]:

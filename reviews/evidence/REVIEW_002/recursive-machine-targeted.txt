@@ -1,0 +1,4 @@
+COMMAND: PYTHONPATH=src python -m pytest -q tests/test_ft1_recursive_review.py tests/test_ft1_recursive_missing.py tests/test_ft1_received_ranges.py tests/test_agent_file_transfer.py tests/test_chatter_machine_client.py tests/test_chatter_machine_recovery.py tests/test_ft1_link_fail_repair.py
+........................................................................ [ 78%]
+....................                                                     [100%]
+92 passed in 11.10s

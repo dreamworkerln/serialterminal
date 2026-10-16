@@ -1,0 +1,4 @@
+failed_code remote_sender_timeout
+release_entered True active_id 20817
+results [(False, 'protocol_error', 'conflicting META for existing transfer_id')]
+final_state failed active_id None

@@ -17,6 +17,15 @@ from .terminal import TerminalSession
 from .transports.base import Transport, TransportError
 
 
+def _screen_safe_text(text: str) -> str:
+    # curses отвергает NUL, а остальные C0/C1 могут двигать курсор или занимать
+    # несколько ячеек. Видимые escapes нужны до wrap и на каждом пути отрисовки.
+    return "".join(
+        ascii(char)[1:-1] if ord(char) < 32 or 127 <= ord(char) < 160 else char
+        for char in text
+    )
+
+
 @dataclass(frozen=True)
 class TuiOutputLine:
     line_id: int
@@ -50,6 +59,7 @@ class TuiOutputBuffer:
         if not text:
             return
         normalized = text.replace("\r\n", "\n").replace("\r", "\n")
+        normalized = "\n".join(_screen_safe_text(part) for part in normalized.split("\n"))
         with self._lock:
             combined = self._partial + normalized
             current_id = self._partial_id
@@ -559,7 +569,7 @@ class TerminalTui:
         if available <= 0:
             return
         try:
-            stdscr.addnstr(y, x, text, max(1, available - 1), attr)
+            stdscr.addnstr(y, x, _screen_safe_text(text), max(1, available - 1), attr)
         except curses.error:
             pass
 

@@ -47,12 +47,20 @@ python3 serialterminal.py agent
 `state:closed` сам по себе этого не доказывает. Для BlueZ проверяется Device1,
 для других backend явно указан `backend:bleak` и состояние клиента. При EOF итог
 остаётся в forensic/timing/application logs; `failed`/`unknown` не считать PASS
-освобождения даже при exit 0. Не отключай устройства самостоятельно при discovery:
-поиск и освобождение соединений от погибшего процесса пока не реализованы.
+освобождения даже при exit 0. Discovery ничего не отключает. Явный `open` BLE
+кандидата с `busy:true` сначала адресно отключает выбранный BlueZ Device1 и
+проверяет освобождение, затем выполняет обычный connect. Это затронет и другое
+приложение, использующее ту же ноду; остальные адреса не отключаются.
 
 ## Discovery
 
-BLE discovery capability-based: устройство появляется, если advertising standard NUS или его адрес уже имеет cached confirmed NUS capability. Advertised name и controller profile не являются доказательством capability и не whitelist-ят устройство.
+Прототип BLE discovery показывает все scan results плюс подключённые BlueZ
+устройства, даже без advertising. Последние имеют `busy:true` и ` (busy)` в label;
+JSON не содержит ANSI. Видимость не доказывает NUS capability. PID registry и
+автоматического определения осиротевших соединений нет. Если release при `open`
+не подтверждён, session остаётся reconnecting с `connect-failed`; обычный connect
+не начинается. После подтверждённого release дальнейший reconnect не повторяет
+takeover по старому discovery snapshot.
 
 Transient UNKNOWN probe не означает NO и не должен заставлять scenario считать ранее подтверждённый target неподдерживаемым. Definitive probe result остаётся authoritative.
 

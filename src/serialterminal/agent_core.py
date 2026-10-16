@@ -491,6 +491,7 @@ class SessionManager:
                     "kind": candidate.kind,
                     "label": candidate.label,
                     "detail": candidate.detail,
+                    **({"busy": candidate.busy} if candidate.kind == "ble" else {}),
                 }
                 for candidate in candidates
             ]

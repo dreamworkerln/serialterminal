@@ -1,0 +1,245 @@
+
+==================================== ERRORS ====================================
+________________ ERROR collecting tests/test_application_log.py ________________
+ImportError while importing test module '/mnt/serialterminal/tests/test_application_log.py'.
+Hint: make sure your test modules/packages have valid Python names.
+Traceback:
+/usr/lib/python3.13/importlib/__init__.py:88: in import_module
+    return _bootstrap._gcd_import(name[level:], package, level)
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+tests/test_application_log.py:4: in <module>
+    from serialterminal import cli
+src/serialterminal/cli.py:18: in <module>
+    from .terminal import TerminalSession
+src/serialterminal/terminal.py:29: in <module>
+    from .transports.serial import SerialTransport
+src/serialterminal/transports/serial.py:9: in <module>
+    import serial
+E   ModuleNotFoundError: No module named 'serial'
+_____________ ERROR collecting tests/test_background_telemetry.py ______________
+ImportError while importing test module '/mnt/serialterminal/tests/test_background_telemetry.py'.
+Hint: make sure your test modules/packages have valid Python names.
+Traceback:
+/usr/lib/python3.13/importlib/__init__.py:88: in import_module
+    return _bootstrap._gcd_import(name[level:], package, level)
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+tests/test_background_telemetry.py:1: in <module>
+    import serialterminal.terminal as terminal_module
+src/serialterminal/terminal.py:29: in <module>
+    from .transports.serial import SerialTransport
+src/serialterminal/transports/serial.py:9: in <module>
+    import serial
+E   ModuleNotFoundError: No module named 'serial'
+______________________ ERROR collecting tests/test_cli.py ______________________
+ImportError while importing test module '/mnt/serialterminal/tests/test_cli.py'.
+Hint: make sure your test modules/packages have valid Python names.
+Traceback:
+/usr/lib/python3.13/importlib/__init__.py:88: in import_module
+    return _bootstrap._gcd_import(name[level:], package, level)
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+tests/test_cli.py:3: in <module>
+    import serialterminal.cli as cli_module
+src/serialterminal/cli.py:18: in <module>
+    from .terminal import TerminalSession
+src/serialterminal/terminal.py:29: in <module>
+    from .transports.serial import SerialTransport
+src/serialterminal/transports/serial.py:9: in <module>
+    import serial
+E   ModuleNotFoundError: No module named 'serial'
+___________ ERROR collecting tests/test_controller_observability.py ____________
+ImportError while importing test module '/mnt/serialterminal/tests/test_controller_observability.py'.
+Hint: make sure your test modules/packages have valid Python names.
+Traceback:
+/usr/lib/python3.13/importlib/__init__.py:88: in import_module
+    return _bootstrap._gcd_import(name[level:], package, level)
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+tests/test_controller_observability.py:6: in <module>
+    from serialterminal.tui import TerminalTui
+src/serialterminal/tui.py:3: in <module>
+    from . import tui_core as _core
+src/serialterminal/tui_core.py:16: in <module>
+    from .terminal import TerminalSession
+src/serialterminal/terminal.py:29: in <module>
+    from .transports.serial import SerialTransport
+src/serialterminal/transports/serial.py:9: in <module>
+    import serial
+E   ModuleNotFoundError: No module named 'serial'
+________________ ERROR collecting tests/test_generic_profile.py ________________
+ImportError while importing test module '/mnt/serialterminal/tests/test_generic_profile.py'.
+Hint: make sure your test modules/packages have valid Python names.
+Traceback:
+/usr/lib/python3.13/importlib/__init__.py:88: in import_module
+    return _bootstrap._gcd_import(name[level:], package, level)
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+tests/test_generic_profile.py:3: in <module>
+    import serialterminal.cli as cli_module
+src/serialterminal/cli.py:18: in <module>
+    from .terminal import TerminalSession
+src/serialterminal/terminal.py:29: in <module>
+    from .transports.serial import SerialTransport
+src/serialterminal/transports/serial.py:9: in <module>
+    import serial
+E   ModuleNotFoundError: No module named 'serial'
+___________________ ERROR collecting tests/test_identity.py ____________________
+ImportError while importing test module '/mnt/serialterminal/tests/test_identity.py'.
+Hint: make sure your test modules/packages have valid Python names.
+Traceback:
+/usr/lib/python3.13/importlib/__init__.py:88: in import_module
+    return _bootstrap._gcd_import(name[level:], package, level)
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+tests/test_identity.py:3: in <module>
+    from serialterminal.terminal import TerminalSession
+src/serialterminal/terminal.py:29: in <module>
+    from .transports.serial import SerialTransport
+src/serialterminal/transports/serial.py:9: in <module>
+    import serial
+E   ModuleNotFoundError: No module named 'serial'
+___________________ ERROR collecting tests/test_profiles.py ____________________
+ImportError while importing test module '/mnt/serialterminal/tests/test_profiles.py'.
+Hint: make sure your test modules/packages have valid Python names.
+Traceback:
+/usr/lib/python3.13/importlib/__init__.py:88: in import_module
+    return _bootstrap._gcd_import(name[level:], package, level)
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+tests/test_profiles.py:11: in <module>
+    from serialterminal.terminal import TerminalSession
+src/serialterminal/terminal.py:29: in <module>
+    from .transports.serial import SerialTransport
+src/serialterminal/transports/serial.py:9: in <module>
+    import serial
+E   ModuleNotFoundError: No module named 'serial'
+____________________ ERROR collecting tests/test_serial.py _____________________
+ImportError while importing test module '/mnt/serialterminal/tests/test_serial.py'.
+Hint: make sure your test modules/packages have valid Python names.
+Traceback:
+/usr/lib/python3.13/importlib/__init__.py:88: in import_module
+    return _bootstrap._gcd_import(name[level:], package, level)
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+tests/test_serial.py:8: in <module>
+    from serial import SerialException
+E   ModuleNotFoundError: No module named 'serial'
+___________________ ERROR collecting tests/test_settings.py ____________________
+ImportError while importing test module '/mnt/serialterminal/tests/test_settings.py'.
+Hint: make sure your test modules/packages have valid Python names.
+Traceback:
+/usr/lib/python3.13/importlib/__init__.py:88: in import_module
+    return _bootstrap._gcd_import(name[level:], package, level)
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+tests/test_settings.py:6: in <module>
+    from serialterminal import cli
+src/serialterminal/cli.py:18: in <module>
+    from .terminal import TerminalSession
+src/serialterminal/terminal.py:29: in <module>
+    from .transports.serial import SerialTransport
+src/serialterminal/transports/serial.py:9: in <module>
+    import serial
+E   ModuleNotFoundError: No module named 'serial'
+___________________ ERROR collecting tests/test_terminal.py ____________________
+ImportError while importing test module '/mnt/serialterminal/tests/test_terminal.py'.
+Hint: make sure your test modules/packages have valid Python names.
+Traceback:
+/usr/lib/python3.13/importlib/__init__.py:88: in import_module
+    return _bootstrap._gcd_import(name[level:], package, level)
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+tests/test_terminal.py:3: in <module>
+    import serialterminal.terminal as terminal_module
+src/serialterminal/terminal.py:29: in <module>
+    from .transports.serial import SerialTransport
+src/serialterminal/transports/serial.py:9: in <module>
+    import serial
+E   ModuleNotFoundError: No module named 'serial'
+_____________ ERROR collecting tests/test_terminal_default_view.py _____________
+ImportError while importing test module '/mnt/serialterminal/tests/test_terminal_default_view.py'.
+Hint: make sure your test modules/packages have valid Python names.
+Traceback:
+/usr/lib/python3.13/importlib/__init__.py:88: in import_module
+    return _bootstrap._gcd_import(name[level:], package, level)
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+tests/test_terminal_default_view.py:2: in <module>
+    from serialterminal.terminal import TerminalSession
+src/serialterminal/terminal.py:29: in <module>
+    from .transports.serial import SerialTransport
+src/serialterminal/transports/serial.py:9: in <module>
+    import serial
+E   ModuleNotFoundError: No module named 'serial'
+______________ ERROR collecting tests/test_terminal_visibility.py ______________
+ImportError while importing test module '/mnt/serialterminal/tests/test_terminal_visibility.py'.
+Hint: make sure your test modules/packages have valid Python names.
+Traceback:
+/usr/lib/python3.13/importlib/__init__.py:88: in import_module
+    return _bootstrap._gcd_import(name[level:], package, level)
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+tests/test_terminal_visibility.py:1: in <module>
+    import serialterminal.terminal as terminal_module
+src/serialterminal/terminal.py:29: in <module>
+    from .transports.serial import SerialTransport
+src/serialterminal/transports/serial.py:9: in <module>
+    import serial
+E   ModuleNotFoundError: No module named 'serial'
+______________________ ERROR collecting tests/test_tui.py ______________________
+ImportError while importing test module '/mnt/serialterminal/tests/test_tui.py'.
+Hint: make sure your test modules/packages have valid Python names.
+Traceback:
+/usr/lib/python3.13/importlib/__init__.py:88: in import_module
+    return _bootstrap._gcd_import(name[level:], package, level)
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+tests/test_tui.py:2: in <module>
+    from serialterminal.tui import TuiOutputBuffer, TuiScrollback
+src/serialterminal/tui.py:3: in <module>
+    from . import tui_core as _core
+src/serialterminal/tui_core.py:16: in <module>
+    from .terminal import TerminalSession
+src/serialterminal/terminal.py:29: in <module>
+    from .transports.serial import SerialTransport
+src/serialterminal/transports/serial.py:9: in <module>
+    import serial
+E   ModuleNotFoundError: No module named 'serial'
+_______________ ERROR collecting tests/test_tui_mouse_default.py _______________
+ImportError while importing test module '/mnt/serialterminal/tests/test_tui_mouse_default.py'.
+Hint: make sure your test modules/packages have valid Python names.
+Traceback:
+/usr/lib/python3.13/importlib/__init__.py:88: in import_module
+    return _bootstrap._gcd_import(name[level:], package, level)
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+tests/test_tui_mouse_default.py:1: in <module>
+    from serialterminal import tui as tui_module
+src/serialterminal/tui.py:3: in <module>
+    from . import tui_core as _core
+src/serialterminal/tui_core.py:16: in <module>
+    from .terminal import TerminalSession
+src/serialterminal/terminal.py:29: in <module>
+    from .transports.serial import SerialTransport
+src/serialterminal/transports/serial.py:9: in <module>
+    import serial
+E   ModuleNotFoundError: No module named 'serial'
+_______________ ERROR collecting tests/test_usb_timing_logger.py _______________
+ImportError while importing test module '/mnt/serialterminal/tests/test_usb_timing_logger.py'.
+Hint: make sure your test modules/packages have valid Python names.
+Traceback:
+/usr/lib/python3.13/importlib/__init__.py:88: in import_module
+    return _bootstrap._gcd_import(name[level:], package, level)
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+tests/test_usb_timing_logger.py:13: in <module>
+    SPEC.loader.exec_module(logger)
+usb_timing_logger.py:12: in <module>
+    import serial
+E   ModuleNotFoundError: No module named 'serial'
+=========================== short test summary info ============================
+ERROR tests/test_application_log.py
+ERROR tests/test_background_telemetry.py
+ERROR tests/test_cli.py
+ERROR tests/test_controller_observability.py
+ERROR tests/test_generic_profile.py
+ERROR tests/test_identity.py
+ERROR tests/test_profiles.py
+ERROR tests/test_serial.py
+ERROR tests/test_settings.py
+ERROR tests/test_terminal.py
+ERROR tests/test_terminal_default_view.py
+ERROR tests/test_terminal_visibility.py
+ERROR tests/test_tui.py
+ERROR tests/test_tui_mouse_default.py
+ERROR tests/test_usb_timing_logger.py
+!!!!!!!!!!!!!!!!!!! Interrupted: 15 errors during collection !!!!!!!!!!!!!!!!!!!
+15 errors in 0.69s
+exit_code=2

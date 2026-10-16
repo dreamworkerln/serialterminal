@@ -254,6 +254,8 @@ class _TransferRecord:
         self._next_event_seq = 1
         self._thread: threading.Thread | None = None
         self._event_sink = event_sink
+        self._terminal_job = None
+        self._meta_replay_pending = False
 
     def _percentage_locked(self) -> float:
         if self.state == "completed":
@@ -736,7 +738,8 @@ class FileTransferManager:
         action = lambda: self._terminal_record_settled(record, state, failure=failure, final_path=final_path)
         try:
             if threading.current_thread() is self._rx_thread or getattr(self._control_admission, "depth", 0):
-                self._outbox.submit(action, on_error=lambda exc: self._terminal_outbox_failed(record, exc, final_path))
+                with self._lock:
+                    record._terminal_job = self._outbox.submit(action, on_error=lambda exc: self._terminal_outbox_failed(record, exc, final_path))
             else:
                 self._outbox.call(action)
         except OutboxError as exc:
@@ -766,17 +769,55 @@ class FileTransferManager:
                 )
                 return
         record.terminal(state, failure=failure, final_path=final_path)
-        try:
-            self._release(record.transfer_id, record.direction)
-        finally:
-            with self._lock:
-                if self._active_id == record.transfer_id:
-                    self._active_id = None
-                self._terminal_order.append(record.transfer_id)
-                while len(self._terminal_order) > self.max_retained_terminal:
-                    evicted = self._terminal_order.popleft()
-                    if self._active_id != evicted:
-                        self._records.pop(evicted, None)
+        # Ошибка release не подтверждает снятие ownership; новый admission
+        # остаётся закрыт до завершения session cleanup.
+        self._release(record.transfer_id, record.direction)
+        with self._lock:
+            if self._active_id == record.transfer_id:
+                self._active_id = None
+            self._terminal_order.append(record.transfer_id)
+            while len(self._terminal_order) > self.max_retained_terminal:
+                evicted = self._terminal_order.popleft()
+                if self._active_id != evicted:
+                    self._records.pop(evicted, None)
+
+    def _defer_settling_meta(self, meta: MetaMessage) -> bool:
+        with self._lock:
+            record = self._records.get(meta.transfer_id)
+            if record is None or record.direction != "RX" or record.rx_meta != meta:
+                return False
+            job = record._terminal_job
+            if job is None or job.done.is_set():
+                if (job is None or job.error is None) and not (
+                    record.state == "failed" and self._active_id is not None
+                    and (self._incoming is None or self._incoming.record is not record)
+                ):
+                    return False
+                self._reject_incoming(meta.transfer_id, "busy", "previous receiver ownership is unsettled")
+                return True
+            if record._meta_replay_pending:
+                return True
+            # Terminal state виден до release и удаления recursive context.
+            # Один coalesced replay проходит через outbox barrier обратно в RX;
+            # RX не ждёт transport, а восстановление остаётся в его потоке.
+            record._meta_replay_pending = True
+
+            def replay():
+                with self._lock:
+                    record._meta_replay_pending = False
+                if not self._stopping.is_set():
+                    self._enqueue_rx(meta)
+
+            def failed(exc):
+                with self._lock:
+                    record._meta_replay_pending = False
+                record.event("meta_replay_failed", error=str(exc))
+
+            try:
+                self._outbox.submit(replay, on_error=failed)
+            except OutboxError as exc:
+                failed(exc)
+            return True
 
     def _prepare_source(
         self,
@@ -1257,7 +1298,8 @@ class FileTransferManager:
                 elif isinstance(item, _CancelIncoming):
                     self._cancel_incoming(item.transfer_id)
                 elif isinstance(item, MetaMessage):
-                    self._handle_meta(item)
+                    if not self._defer_settling_meta(item):
+                        self._handle_meta(item)
                 elif isinstance(item, DataMessage):
                     self._handle_data(item)
                 elif isinstance(item, EndMessage):
@@ -1965,10 +2007,11 @@ class FileTransferManager:
                     "unknown_file_transfer",
                     f"unknown file transfer: {transfer_id}",
                 )
-            if record.state not in _TERMINAL_STATES:
+            if (record.state not in _TERMINAL_STATES or self._active_id == parsed
+                    or (record._terminal_job is not None and not record._terminal_job.done.is_set())):
                 raise FileTransferError(
                     "file_transfer_active",
-                    "active transfer cannot be closed",
+                    "active or settling transfer cannot be closed",
                 )
             self._records.pop(parsed, None)
             self._terminal_order = deque(

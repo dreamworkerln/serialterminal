@@ -191,6 +191,16 @@ stable failure rather than an unbounded hang.
 
 Receiver-side same-process timeout no longer destroys resumable state. A matching META
 can reopen retained durable state and continue the same transfer.
+If it arrives while the previous terminal attempt is still draining/releasing
+ownership, identical META replays are coalesced and deferred until the complete
+settlement finishes, including recursive context cleanup. RX remains available.
+Unsettled ownership after drain/release failure, or another active transfer, yields
+`busy` rather than an identity conflict; retained chunks remain available for resume.
+Failure to queue a deferred replay is recorded as `meta_replay_failed`; a later
+matching META can retry admission. Close never reopens a deferred transfer.
+Closing retained runtime history while ownership or terminal settlement is still
+active returns `file_transfer_active`; the record remains available until safe
+retirement. Unresolved ownership requires session close.
 
 ## Durable state location
 

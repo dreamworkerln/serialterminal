@@ -25,7 +25,7 @@ A profile may configure generic mechanisms, but it must not become a second tran
 Generic discovery owns:
 
 - discovery of USB Serial, BLE NUS and Bluetooth SPP transport paths;
-- capability-based BLE visibility (advertised NUS or cached confirmed NUS);
+- prototype BLE visibility of all scan results plus connected BlueZ devices;
 - capability probing/cache mechanics;
 - sticky physical transport identity and reconnect target selection;
 - generic chooser/scanner behavior.
@@ -76,8 +76,12 @@ or controller commands. Linux Device1 checks/Disconnect live in `bluez_release.p
 whose system-bus imports are lazy. The exact path belongs to the client being
 closed; discovery/cache enumeration is not used to choose a cleanup target.
 Lifecycle serialization excludes cleanup of a replacement ST generation. Failed
-release remains explicit while other sessions continue to close. Orphan discovery
-and cross-process ownership after SIGKILL remain deferred.
+release remains explicit while other sessions continue to close. Connected-device
+discovery uses read-only BlueZ Device1 enumeration. Explicit selection of a
+busy candidate authorizes exact-path release before normal scan/connect, shared
+by human and agent frontends. The one-shot takeover is consumed after verified
+release and is not replayed on ordinary reconnect. Cross-process ownership
+arbitration and PID registries remain deferred; connected does not imply orphaned.
 
 ### Generic session core
 
@@ -331,7 +335,7 @@ The following remain generic and must not depend on Chatter naming:
 
 To add another controller family:
 
-1. keep physical discovery generic and capability-based;
+1. keep physical discovery generic and controller-independent; visibility alone is not proof of capability;
 2. implement a new `TerminalProfile` for controller-specific configuration/commands/presentation;
 3. if long-running measurement support is needed, register a profile-owned `SweepAdapter` through the generic adapter interface rather than branching in `agent.py` or `sweep.py`;
 4. pass profile-provided BLE layout/configuration into `BleNusTransport` rather than creating a controller transport;

@@ -129,8 +129,11 @@ class ChatterProfile:
         return redact_binary_human_text(text)
 
     def human_line_visible(self, stream: str, line: str) -> bool:
+        # Firmware отделяет machine frames пустыми строками. Они не несут
+        # human output и не должны прокручивать экран после скрытого /m1.
         return (
             stream in self.human_console_streams()
+            and bool(line.strip())
             and not is_binary_presentation_line(line)
         )
 

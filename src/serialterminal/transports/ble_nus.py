@@ -47,6 +47,11 @@ except ImportError:  # Serial-only imports must still work before BLE is request
 class BleDeviceIdentity:
     name: str
     address: str
+    bluez_path: str | None = None
+
+    @property
+    def busy(self) -> bool:
+        return self.bluez_path is not None
 
     @property
     def key(self) -> str:
@@ -97,6 +102,7 @@ class BleNusTransport(Transport):
         if isinstance(target, BleDeviceIdentity):
             self.target_name = target.name
             self.target_address: str | None = target.address
+            self._busy_bluez_path = target.bluez_path
         else:
             # Name-only construction treats the string as an exact advertised name.
             target_name = target.strip()
@@ -104,6 +110,7 @@ class BleNusTransport(Transport):
                 raise ValueError("BLE target name must not be empty")
             self.target_name = target_name
             self.target_address = None
+            self._busy_bluez_path = None
 
         configured_streams = (
             (BleReceiveStream(NUS_TX_UUID, "main"),)
@@ -126,6 +133,7 @@ class BleNusTransport(Transport):
         self._connect_futures: set[Any] = set()
         self._lifecycle_lock: asyncio.Lock | None = None
         self._release_report: dict[str, Any] | None = None
+        self._connect_error: str | None = None
         self._state_lock = threading.Lock()
         self._client: Any | None = None
         self._address: str | None = self.target_address
@@ -158,6 +166,16 @@ class BleNusTransport(Transport):
     @property
     def is_connected(self) -> bool:
         return self._connected.is_set()
+
+    @property
+    def connect_error(self) -> str | None:
+        with self._state_lock:
+            return self._connect_error
+
+    @property
+    def pending_bluez_takeover(self) -> str | None:
+        with self._state_lock:
+            return self._busy_bluez_path
 
     @property
     def release_report(self) -> dict[str, Any] | None:
@@ -721,6 +739,24 @@ class BleNusTransport(Transport):
 
         await self._retire_stale_client_async()
 
+        # Выбор busy разрешает отключить только сохранённый exact Device1.
+        # Выполняем это после admission сессии, а не при показе/отмене меню.
+        if self._busy_bluez_path is not None:
+            report = await verify_release(
+                self._busy_bluez_path, force_allowed=True,
+                timeout=DEFAULTS.ble_cleanup.bluez_timeout_s,
+            )
+            self._record_timing("ble_busy_release", **report)
+            report_event("BLE busy release " + json.dumps(report, ensure_ascii=False))
+            if report["result"] != "disconnected":
+                raise TransportError(
+                    "cannot release selected busy BLE device: "
+                    + json.dumps(report, ensure_ascii=False)
+                )
+            # Обычный reconnect не должен повторять takeover по старому snapshot.
+            with self._state_lock:
+                self._busy_bluez_path = None
+
         device = await self._find_target_device()
         if device is None or self._closing.is_set():
             return False
@@ -769,12 +805,24 @@ class BleNusTransport(Transport):
                 future = self._submit(self._connect_async())
                 self._connect_futures.add(future)
             future.add_done_callback(self._forget_connect)
-            return bool(future.result(timeout=self.scan_timeout + self.connect_timeout + 2.0))
+            result = bool(future.result(
+                timeout=self.scan_timeout + self.connect_timeout + 2.0
+                + DEFAULTS.ble_cleanup.bluez_timeout_s,
+            ))
+            with self._state_lock:
+                self._connect_error = (
+                    None if result else "BLE target unavailable or connection setup failed"
+                )
+            return result
         except FutureTimeoutError:
             if future is not None:
                 future.cancel()
+            with self._state_lock:
+                self._connect_error = "BLE connect timed out"
             return False
-        except Exception:
+        except Exception as exc:
+            with self._state_lock:
+                self._connect_error = str(exc)
             return False
 
     async def _disconnect_async(self) -> None:

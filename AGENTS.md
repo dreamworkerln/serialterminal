@@ -190,6 +190,15 @@ Do not hard-code device-specific assumptions beyond what is already established 
 
 ## Validation
 
+Запускай тесты с явным запросом повышенных разрешений
+(`sandbox_permissions="require_escalated"`), вне ограничивающего sandbox.
+Это относится как к targeted pytest, так и к полному test suite.
+Sandbox может запрещать `socketpair.send()`, необходимый для пробуждения
+`asyncio` event loop из другого потока, и вызывать ложные BLE connect/cleanup
+timeouts даже с mock transport. Не меняй код или tests ради обхода такого
+ограничения среды. Повышенные разрешения для тестов не разрешают аппаратные
+прогоны: правила раздела Hardware interaction сохраняются.
+
 Use the fastest validation that reasonably covers the requested change before commit.
 
 For routine Python changes, normally run the relevant pytest tests.

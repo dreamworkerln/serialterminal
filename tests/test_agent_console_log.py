@@ -17,6 +17,10 @@ class _Candidate:
     detail: str
     identity: object = None
 
+    @property
+    def busy(self):
+        return bool(getattr(self.identity, "busy", False))
+
 
 class _Transport(Transport):
     def __init__(self, key, streams):

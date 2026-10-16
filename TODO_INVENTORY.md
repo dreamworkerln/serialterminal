@@ -4,6 +4,36 @@ This file is the authoritative current-state index for engineering TODOs in this
 
 ## Active
 
+### TODO_052 — [todos/TODO_052_TUI_FILE_TRANSFER_PROGRESS.md](todos/TODO_052_TUI_FILE_TRANSFER_PROGRESS.md)
+
+Status: OPEN
+
+Goal: wide centered Midnight Commander-style TUI progress window without a
+cancel button; resize and long Unicode filenames must preserve layout/state.
+Esc opens a TUI “Cancel file transfer?” dialog: No on the left, Yes on the right,
+←/→ selection, Enter confirmation, default Yes; repeat Esc returns to progress.
+Reject over-budget UTF-8 basenames before starting FT1 with a console message;
+current Chatter META filename budget is 162 bytes including extension.
+Background/return, ordinary Enter and `/tele`/`/chat`/`/both` preserve FT1/progress.
+Current `_submit_input()` unconditionally aborts active FT1 and
+replaces the session, losing the progress snapshot. Operator logs confirm this
+for `/tele`; blank machine delimiters and NUL/curses crashes are separate defects.
+Finding checkpoint: `dev_tui_exp_recursive_missing@ee9e954339f37a541f303aeec98d560b09794758`
+plus existing local changes and supplied `bad_logs/`. Progress/admission redesign
+is OPEN; current display-safety fixes do not implement it. Manual hardware gate
+requires a separate operator run.
+
+### TODO_051 — [todos/TODO_051_LOCAL_GITHUB_CI_PARITY.md](todos/TODO_051_LOCAL_GITHUB_CI_PARITY.md)
+
+Status: OPEN
+
+Goal: one shared full CI entrypoint and identical local/GitHub checks, arguments,
+dependencies and skip/blocking policy. Current pytest discovers the common suite,
+but local compile/lint docs omit some GitHub paths and GitHub installs dev without
+the local BLE extra; DBus-dependent mock tests can skip when dependencies are absent.
+Finding checkpoint: `dev_tui_exp_recursive_missing@ee9e954339f37a541f303aeec98d560b09794758`
+plus existing local changes. Configuration inspection only; no tests or fixes run.
+
 ### TODO_011 — `todos/TODO_011_CHATTER_PRESENTATION_CORRELATION.md`
 
 Status: OPEN
@@ -132,7 +162,14 @@ Remaining work: align the primary `NODE_OBSERVATION_RECORDING_POLICY.md` and nod
 
 TODO_026 logging-contract investigation is also OPEN and may be scheduled independently when log-format work is selected.
 
-Current operator task (2026-10-15): TODO_048 graceful BLE release implementation and local validation completed; physical validation remains OPEN. Orphan discovery/recovery is DEFERRED. No commit/push requested.
+Current operator task (2026-10-16): record TODO_052 for MC-style transfer progress and non-destructive display commands. TODO_052 implementation is not started.
+
+Previous operator task (2026-10-15): implement TODO_050 after REVIEW_002 breakdown.
+TODO_050 is implemented on `ee9e954` + patch; targeted validation66 PASS,
+entire FT1 suite287 PASS; full suite816 PASS outside sandbox, independent re-review OPEN. Related TODO_041 is unchanged;
+TODO_049 remains DEFERRED. Hardware runs and commit/push are not requested.
+
+Previous operator task (2026-10-15): TODO_048 graceful BLE release implementation and local validation completed; physical validation remains OPEN. Orphan discovery/recovery is DEFERRED. No commit/push requested.
 
 Previous operator order (2026-10-14): TODO_040, then TODO_041 through TODO_047 numerically, with regression tests and one implementation commit per task. Physical hardware runs and firmware changes are excluded; push is not requested. Deferred protocol designs require explicit agreement before dependent implementation. Earlier priority guidance below is historical.
 
@@ -635,6 +672,43 @@ graceful cleanup; manual exact-device disconnect restored Connected=no. In the
 second run, companion B graceful EOF did exercise forced BlueZ release successfully
 (ordinary disconnect timeout -> Connected=false). See TODO for exact runs/fingerprint;
 this does not close the crash-recovery or complete physical-validation gates.
+
+### TODO_049 — [todos/TODO_049_FT1_NON_POSIX_DURABLE_OWNERSHIP.md](todos/TODO_049_FT1_NON_POSIX_DURABLE_OWNERSHIP.md)
+
+Status: DEFERRED / severity BLOCKER
+
+Deferred by operator decision on 2026-10-15; resume only on a separate operator instruction.
+
+Source: REVIEW_002/F001 at `6fdeb00c220b3e27219fb6b5bb34f078f3bb717a`.
+Goal: preserve documented non-POSIX single-process best-effort FT1 admission and
+cleanup without mandatory `fcntl`, retaining POSIX cross-process ownership and
+publication guarantees. Backend/fallback design is not yet selected.
+Required gates: deterministic no-`fcntl` TX/RX/recursive/cleanup coverage, POSIX
+ownership/publication regressions, full pytest/compile and independent re-review.
+Review repro is defect evidence; implementation and acceptance validation are OPEN.
+
+### TODO_050 — [todos/TODO_050_FT1_TIMEOUT_RESUME_SETTLEMENT_RACE.md](todos/TODO_050_FT1_TIMEOUT_RESUME_SETTLEMENT_RACE.md)
+
+Status: IMPLEMENTED / LOCAL VALIDATION PASS / RE-REVIEW OPEN
+
+Source: REVIEW_002/F002 at `6fdeb00c220b3e27219fb6b5bb34f078f3bb717a`.
+Goal: make terminal settlement and ownership/admission coherent so matching timeout
+META can resume the same ID without spurious terminal `invalid_metadata` or sender
+journal terminalization. Separate task, related to TODO_041 stage-4 same-ID revival;
+TODO_041 is unchanged. Required gates: synchronized terminal→release regression,
+retained chunks/cursor and sender journal checks, conflict/ownership/failure-path
+regressions, full pytest/compile and independent re-review.
+Implementation (2026-10-15, `ee9e954` + patch): coalesced matching META replay
+through terminal outbox barrier back into RX after release/recursive cleanup.
+Unsettled/competing ownership returns busy; release failure retains admission.
+Runtime close waits for safe retirement through file_transfer_active.
+Nine new deterministic cases plus adjacent regressions:66 PASS/26.26s;
+entire FT1 + agent file-transfer suite287 PASS/81.71s; compileall/diff-check PASS.
+Full isolated-cache pytest outside sandbox816 PASS/95.99s. Earlier37 BLE failures
+were caused by sandbox denying socketpair.send, preventing asyncio loop wakeup;
+all37 disappeared without BLE source changes.
+Exact source/test digest and evidence in TODO.
+Independent re-review remains OPEN; no hardware, firmware changes, commit/push or CI.
 
 ## Current validation posture
 

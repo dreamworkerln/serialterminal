@@ -1,0 +1,3 @@
+COMMAND: PYTHONPATH=src python -m pytest -q selected broad FT1 files excluding TUI-only pyserial import test
+........................................................................ [ 51%]
+..............

@@ -65,7 +65,7 @@ class Client:
         pass
 
 
-def test_default_visibility_advertised_and_cached(
+def test_default_visibility_includes_all_scanned_devices_regardless_of_nus(
     tmp_path,
     monkeypatch,
 ):
@@ -88,12 +88,23 @@ def test_default_visibility_advertised_and_cached(
         capabilities={"nus": True},
         probe_status="ok",
     )
+    update_cached_device(
+        kind="ble", address="AA:04", name="Headphones",
+        capabilities={"nus": False}, probe_status="ok",
+    )
+    update_cached_device(
+        kind="ble", address="AA:05", name="Cached but absent",
+        capabilities={"nus": True}, probe_status="ok",
+    )
 
     found = ble_discovery.discover_terminal_ble_devices(0.01)
     assert {item.address for item in found} == {
+        "AA:01",
         "AA:02",
         "AA:03",
+        "AA:04",
     }
+    assert all(not item.busy for item in found)
 
 
 def test_probe_nus_resolves_device_fresh(monkeypatch):

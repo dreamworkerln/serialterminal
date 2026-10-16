@@ -100,6 +100,13 @@ def test_definitive_negative_replaces_prior_positive_nus(
     assert record["probe_status"] == "ok"
     assert record["error"] is None
 
+    async def fake_discovery(timeout):
+        return [item]
+
+    monkeypatch.setattr(ble_discovery, "scan_all_ble_devices", fake_discovery)
+    assert ble_discovery.discover_terminal_ble_devices(.01) == [item.identity]
+    assert get_cached_device("ble", item.identity.address, cache_path)["capabilities"]["nus"] is False
+
 
 def test_unknown_probe_without_prior_knowledge_does_not_invent_nus(
     tmp_path,

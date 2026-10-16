@@ -91,3 +91,52 @@ def test_background_system_line_is_transcript_only(tmp_path, monkeypatch):
         assert "[SYS] console-visible status\n" in transcript
     finally:
         session.log_file.close()
+
+
+def test_chatter_machine_separators_do_not_flood_unmuted_screen(tmp_path):
+    from serialterminal.profiles.chatter.machine_codec import Frame, Kind, encode
+    from serialterminal.tui import TuiOutputBuffer
+
+    output = TuiOutputBuffer()
+    observed = []
+    session = TerminalSession(
+        DummyBleLikeTransport(),
+        profile=CHATTER_PROFILE,
+        log_path=tmp_path / "terminal.log",
+        screen_writer=output.write,
+        line_observer=observed.append,
+    )
+    frame = encode(Frame(Kind.STATUS, 1, 0, bytes(10)))
+    try:
+        session.write_received(ReceivedChunk("main", b"before\r\n"))
+        # Как в bad_logs: каждая machine line предваряется пустым delimiter.
+        for _ in range(100):
+            for chunk in (b"\r", b"\n", frame[:3], frame[3:]):
+                session._record_event("rx", stream="main", data=chunk,
+                                      text=session._decode_event_text("main", chunk))
+                session.write_received(ReceivedChunk("main", chunk))
+        session.write_received(ReceivedChunk("main", b"[SYS] OUTPUT TELEMETRY\r\n"))
+        assert output.snapshot() == ["before", "[SYS] OUTPUT TELEMETRY"]
+        assert sum(line.text.startswith("/m1 ") for line in observed) == 100
+        assert session.log_path.read_text().count("/m1 <base64>") == 100
+        assert session.console_path.read_text().count("/m1 <base64>") == 100
+    finally:
+        session.close_logs()
+
+
+def test_generic_blank_lines_remain_visible(tmp_path):
+    from serialterminal.profiles import GENERIC_PROFILE
+    from serialterminal.tui import TuiOutputBuffer
+
+    output = TuiOutputBuffer()
+    session = TerminalSession(
+        DummyBleLikeTransport(),
+        profile=GENERIC_PROFILE,
+        log_path=tmp_path / "terminal.log",
+        screen_writer=output.write,
+    )
+    try:
+        session.write_received(ReceivedChunk("main", b"one\n\ntwo\n"))
+        assert output.snapshot() == ["one", "", "two"]
+    finally:
+        session.close_logs()

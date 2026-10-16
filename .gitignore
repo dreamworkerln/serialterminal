@@ -11,8 +11,10 @@ serialterminal.log
 build/
 dist/
 *.log
+*.fttiming.jsonl
 /files/
 /logs/
 
 # Local gdi settings, verified cache and CI state
 .gdi/
+/bad_logs/

@@ -169,7 +169,9 @@ window and 8-second probe timeout. Shared immutable defaults live in
 
 Discovery returns transport candidates with stable-enough `device_key`, `kind`, `label`, and `detail`. The agent frontend uses the same sticky physical identity as the rest of SerialTerminal.
 
-Default BLE discovery is capability-based. A device is eligible when it advertises standard Nordic UART Service or its address has cached confirmed NUS capability. Advertised name and controller profile do not whitelist a device. A transient scanner/probe result with unknown NUS status does not erase prior definitive cached NUS knowledge; definitive probe YES/NO remains authoritative.
+Prototype BLE discovery returns all devices seen by the active scan, plus currently connected BlueZ Device1 objects on Linux, including devices without fresh advertising. Results are deduplicated by the existing address-based `device_key`. BLE entries include `busy:true|false`; connected BlueZ entries have a plain ` (busy)` suffix in `label`. Human menus render that suffix yellow on a TTY; JSON never contains ANSI styling. Only currently connected BlueZ objects receive this marker; cached disconnected objects are not marked busy. Visibility does not prove NUS capability. The separate capability scanner/prober and its cache retain definitive NUS knowledge; advertised names and controller profiles do not whitelist a device.
+
+Discovery does not disconnect devices. If active scan fails but connected BlueZ objects are available, discovery returns those objects and logs the scan failure. If BlueZ enumeration is unavailable, ordinary scan results remain available and the enumeration failure is logged. The known-device chooser refreshes BlueZ connection state without an active scan.
 
 If an expected BLE target is absent, use the Bluetooth capability scanner/prober, then run `discover` again. Machine clients open the returned `device_key`; there are no BLE name aliases in the JSONL API.
 
@@ -196,6 +198,8 @@ wait_connected_ms=10000
 ```
 
 The returned session is long-lived until `close` or process shutdown. If the target is not connected within `wait_connected_ms`, `open` still returns the live session with `state:"reconnecting"`; reconnect continues in the background against the same physical target.
+
+Selecting a BLE candidate marked `busy` explicitly requests takeover: before its first normal scan/connect, the transport reads the selected exact BlueZ Device1 path, disconnects it if still connected, and verifies release. This also disconnects any other application using that same device. Other device addresses are untouched. If release cannot be confirmed, no normal connect is attempted; the session stays `reconnecting` with an actionable `connect-failed` event, and release may be retried. After confirmed release the takeover marker is consumed: subsequent ordinary reconnects do not repeat it. A busy singleton in the human chooser requires explicit selection. Existing same-process `device_busy` session ownership remains enforced. There is no PID registry or cross-process ownership arbitration.
 
 The `generic` profile sends no controller preamble. Generic BLE uses standard NUS: `0002` write and `0003` receive stream `main`.
 
@@ -576,7 +580,9 @@ final file was atomically published. Sender `completed` means it received remote
 ```
 
 Cancel is cooperative. A terminal transfer can be closed to release retained
-progress/event history. An active transfer cannot be closed.
+progress/event history after ownership and terminal settlement finish. An active
+or still-settling transfer returns `file_transfer_active`; retry close after
+settlement. Unresolved ownership requires session close.
 
 ### FT1 / Chatter boundary
 
@@ -624,6 +630,11 @@ journal/ID. Remote wire/original hash, decompression, invalid_chunk quarantine a
 invalid_metadata identity failures durably mark the journal terminal, so the next
 explicit start allocates a fresh ID. Other resumable timeout/restart outcomes keep
 the existing identity; remote_code is preserved even for early META rejection.
+Matching RX META during timeout settlement is coalesced and retried by RX after
+drain, ownership release and recursive cleanup; RX does not wait for transport.
+Unsettled ownership or a competing active transfer returns `busy`, preserving the
+resumable identity. Queue failure is observable as `meta_replay_failed`; close
+does not reopen deferred transfers. See FT1_RESUME.md for the recovery contract.
 Concurrent final files sharing a basename are published under distinct names through
 POSIX namespace coordination, durable publishing-intent reservation and exclusive
 publication. Existing final files are never overwritten. RX restore rolls durable
@@ -927,10 +938,10 @@ separate 1-second notification, 2-second disconnect and 3-second BlueZ verificat
 budgets; failures remain observable rather than implying success.
 
 This covers graceful shutdown only. SIGKILL/power loss cannot execute Python cleanup.
-Discovering or reclaiming connections left by a dead process, merging connected
-BlueZ devices into discovery, and automatic orphan ownership decisions are deferred.
-Discovery does not disconnect devices. No adapter restart, device removal/unpair,
-or arbitrary-address recovery operation is introduced.
+Connected BlueZ devices are included in discovery as `busy`; explicitly selecting
+one requests the targeted disconnect-before-connect described under Open.
+Discovery does not disconnect devices or classify connections as orphaned. No
+adapter restart, device removal/unpair or PID-based ownership registry is used.
 
 ## Multiple devices
 
