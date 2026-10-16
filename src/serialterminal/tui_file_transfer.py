@@ -7,12 +7,46 @@ import math
 from .tui_text import cell_width, fit_cells, middle_ellipsis, screen_safe_text, wrap_cells
 
 TERMINAL_STATES = {"completed", "failed", "cancelled"}
+ACTIVE_STATES = {"preparing", "compressing", "sending", "receiving", "resuming",
+                 "waiting_result", "repair_requested", "repairing", "verifying",
+                 "decompressing", "recovering_local_node"}
+
+
+def live_transfer(snapshot: dict | None) -> bool:
+    return bool(snapshot is not None and snapshot["state"] in ACTIVE_STATES
+                and snapshot.get("presentation", {}).get("active", False))
+
+
+def attempt_key(snapshot: dict | None):
+    if snapshot is None:
+        return None
+    return snapshot["transfer_id"], snapshot.get("presentation", {}).get("attempt")
+
+
+def transfer_phase(snapshot: dict) -> str:
+    controller = snapshot.get("controller")
+    if live_transfer(snapshot) and controller is not None and not controller.get("ready", False):
+        return "recovering_local_node"
+    return str(snapshot["state"])
 
 
 def file_transfer_status_line(event: dict) -> str | None:
     outcomes = {"transfer_completed": "успешно", "transfer_failed": "ошибка",
-                "transfer_cancelled": "прервано пользователем"}
+                "transfer_cancelled": "прервано пользователем",
+                "transfer_started": "начата", "cancel_requested": "запрошена отмена",
+                "local_recovery_started": "восстановление связи с нодой",
+                "local_recovery_resumed": "передача возобновлена",
+                "resume_state_restored": "возобновлена из сохранённого состояния",
+                "resume_started": "продолжение передачи",
+                "transfer_suspended": "приостановлена; состояние сохранено"}
     outcome = outcomes.get(event.get("kind"))
+    if event.get("kind") == "state":
+        outcome = {"compressing": "подготовка файла", "sending": "передача данных",
+                   "receiving": "приём данных", "resuming": "возобновление передачи",
+                   "repair_requested": "запрошено восстановление пропусков",
+                   "repairing": "восстановление пропусков", "verifying": "проверка файла",
+                   "decompressing": "распаковка файла",
+                   "waiting_result": "ожидание проверки получателем"}.get(event.get("state"))
     if outcome is None:
         return None
     filename = screen_safe_text(str(event.get("filename", "?")))
@@ -50,11 +84,35 @@ def duration(seconds: float | None) -> str:
 class FileTransferWindow:
     def __init__(self) -> None:
         self.transfer_id: str | None = None
-        self.visible = True
+        self.mode = "closed"
         self._state: str | None = None
+        self._attempt = None
+        self._resume = 0
+        self._activity = 0
+        self._controller_key = None
+        self._recovery_activity: int | None = None
         self.cancel_requested_id: str | None = None
         self.confirmation_id: str | None = None
+        self.confirmation_attempt = None
         self.confirm_yes = True
+
+    @property
+    def visible(self) -> bool:
+        return self.mode == "foreground"
+
+    @visible.setter
+    def visible(self, value: bool) -> None:
+        self.mode = "foreground" if value else "closed"
+
+    def cancelling(self, snapshot: dict | None) -> bool:
+        return bool(snapshot is not None and live_transfer(snapshot) and (
+            snapshot.get("presentation", {}).get("cancel_requested", False)
+            or self.cancel_requested_id == snapshot["transfer_id"]))
+
+    def _confirmation_active(self, snapshot: dict | None) -> bool:
+        return (self.confirmation_id is not None and live_transfer(snapshot)
+                and attempt_key(snapshot) == self.confirmation_attempt
+                and not self.cancelling(snapshot))
 
     def sync(self, snapshot: dict | None) -> None:
         if snapshot is None:
@@ -62,32 +120,54 @@ class FileTransferWindow:
             self.visible = False
             self._state = None
             self.cancel_requested_id = None
+            self._attempt = None
+            self._controller_key = None
+            self._recovery_activity = None
             return
         state = snapshot["state"]
-        if snapshot is not None and snapshot["transfer_id"] != self.transfer_id:
+        presentation = snapshot.get("presentation", {})
+        new_attempt = attempt_key(snapshot) != self._attempt
+        resume = presentation.get("resume", 0)
+        activity = presentation.get("activity", 0)
+        if new_attempt:
+            self._attempt = attempt_key(snapshot)
             self.transfer_id = snapshot["transfer_id"]
             self.cancel_requested_id = None
-            self.visible = state != "completed"
+            self.mode = "foreground" if live_transfer(snapshot) else "closed"
+            self._controller_key = None
+            self._recovery_activity = None
             # Уже открытый dialog остаётся привязан к прежней операции.
             # Его запоздалый Enter не должен попасть в input или новый ROOT.
-        elif state == "completed" and self._state != "completed":
-            self.visible = False
-        elif (state == "failed" and self._state != state
-              and self.cancel_requested_id == self.transfer_id):
-            # Принятый запрос отмены ещё не гарантирует успешный cleanup.
-            self.visible = True
+        elif live_transfer(snapshot) and resume != self._resume and not self.cancelling(snapshot):
+            self.mode = "foreground"
+        controller = snapshot.get("controller")
+        if controller is not None and live_transfer(snapshot):
+            key = controller.get("epoch"), controller.get("connection_generation")
+            if ((self._controller_key is not None and key != self._controller_key)
+                    or not controller.get("ready", False)) and self._recovery_activity is None:
+                self._recovery_activity = self._activity
+            # READY без принятого FT1 обмена не является возобновлением файла.
+            if (controller.get("ready", False) and self._recovery_activity is not None
+                    and activity > self._recovery_activity and not self.cancelling(snapshot)):
+                self.mode = "foreground"
+                self._recovery_activity = None
+            self._controller_key = key
+        if state == "completed" or (not live_transfer(snapshot) and state not in {"failed", "cancelled"}):
+            self.mode = "closed"
+        self._resume = resume
+        self._activity = activity
         self._state = state
 
-    def dismiss_after_cancel(self, transfer_id: str) -> None:
+    def mark_cancel_requested(self, transfer_id: str) -> None:
         if transfer_id == self.transfer_id:
-            # Закрываем только UI адресной отмены; сам worker завершится отдельно.
+            # Принятый cancel ещё не завершает worker; показываем ожидание исхода.
             self.cancel_requested_id = transfer_id
-            self.visible = False
 
     def request_cancel(self, snapshot: dict | None) -> None:
         self.sync(snapshot)
-        if snapshot is not None and snapshot["state"] not in TERMINAL_STATES:
+        if live_transfer(snapshot) and not self.cancelling(snapshot):
             self.confirmation_id = snapshot["transfer_id"]
+            self.confirmation_attempt = attempt_key(snapshot)
             self.confirm_yes = True
             self.visible = True
 
@@ -96,8 +176,7 @@ class FileTransferWindow:
         if self.confirmation_id is not None:
             if key in ("\x1b", "\n", "\r", curses.KEY_ENTER):
                 target = self.confirmation_id
-                active = (snapshot is not None and snapshot["transfer_id"] == target
-                          and snapshot["state"] not in TERMINAL_STATES)
+                active = self._confirmation_active(snapshot)
                 self.confirmation_id = None
                 return True, target if key != "\x1b" and self.confirm_yes and active else None
             if key == curses.KEY_LEFT:
@@ -106,14 +185,14 @@ class FileTransferWindow:
                 self.confirm_yes = True
             return True, None
         if key == curses.KEY_F7:
-            if snapshot is not None and snapshot["state"] not in TERMINAL_STATES:
-                self.visible = not self.visible
+            if live_transfer(snapshot) and not self.cancelling(snapshot):
+                self.mode = "background" if self.visible else "foreground"
             return True, None
         if key in ("\x1b", curses.KEY_F6) and snapshot is not None:
             if snapshot["state"] in TERMINAL_STATES:
                 if key == "\x1b":
                     self.visible = False
-            else:
+            elif live_transfer(snapshot):
                 self.request_cancel(snapshot)
             return True, None
         return False, None
@@ -140,15 +219,23 @@ class FileTransferWindow:
     def draw(self, stdscr, draw, snapshot: dict | None, *, bar, state_label, rate: float, attr: int, selected: int, border: int | None = None) -> None:
         self.sync(snapshot)
         rows, columns = stdscr.getmaxyx()
-        if snapshot is None or (not self.visible and self.confirmation_id is None) or rows < 12 or columns < 60:
+        if (not self.visible and self.confirmation_id is None) or rows < 12 or columns < 60:
             return
         border = attr if border is None else border
         width = columns - 4
+        if snapshot is None:
+            # Исчезнувшая session не оставляет невидимый modal-перехват клавиш.
+            self._box(stdscr, draw, 5, width,
+                      ["Операция завершилась или изменилась.", "", "Enter/Esc: закрыть диалог"],
+                      "Подтверждение", attr, border)
+            return
         inner = width - 4
         available = max(1, rows - 7)
         name = screen_safe_text(str(snapshot.get("filename", "?")))
         name_rows = wrap_cells(name, inner)
-        state = str(snapshot.get("state", "?"))
+        state = transfer_phase(snapshot)
+        if state == "recovering_local_node" or self.cancelling(snapshot):
+            rate = 0.0
         percentage = max(0.0, min(100.0, float(snapshot.get("percentage", 0))))
         processed = max(0, int(snapshot.get("bytes_completed", 0)))
         total = max(0, int(snapshot.get("wire_bytes", 0)))
@@ -163,11 +250,15 @@ class FileTransferWindow:
         timing = f"Прошло {duration(elapsed)} | ETA DATA {duration(eta)}"
         repair = snapshot.get("repair")
         stage = f"{snapshot.get('direction', '?')} | {state_label(state)} | ROOT {snapshot['transfer_id']}"
+        if self.cancelling(snapshot):
+            stage = f"{snapshot.get('direction', '?')} | отмена: ожидание завершения | ROOT {snapshot['transfer_id']}"
         if repair and state not in TERMINAL_STATES:
             stage += f" | repair depth={repair.get('depth', '?')} missing={repair.get('missing_total', '?')}"
         footer = "F7: в фон | Esc: запрос отмены"
         if state in TERMINAL_STATES:
             footer = "Esc: закрыть окно"
+        elif self.cancelling(snapshot):
+            footer = "Отмена запрошена; ожидаем результат"
         extra = []
         if snapshot.get("failure"):
             failure = snapshot["failure"]
@@ -186,7 +277,7 @@ class FileTransferWindow:
         if self.visible:
             self._box(stdscr, draw, len(content) + 2, width, content, "Передача файла", attr, border)
         if self.confirmation_id is not None:
-            active = (snapshot["transfer_id"] == self.confirmation_id and state not in TERMINAL_STATES)
+            active = self._confirmation_active(snapshot)
             content = ["Отменить передачу файла?", "", "←/→: выбор | Enter: подтвердить | Esc: продолжить"]
             if not active:
                 content = ["Операция завершилась или изменилась.", "", "Enter/Esc: закрыть диалог"]

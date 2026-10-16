@@ -378,13 +378,26 @@ def _fail_incoming(self, incoming, failure, *, terminal_state='failed'):
     resumable._fail_incoming(self, incoming, failure, terminal_state=terminal_state)
 
 
-def display_snapshot(self):
+def display_snapshot(self, *, include_presentation=False):
     # Вложенный RESULT/cancel не подменяет пользовательский ROOT в TUI/status.
     # После close ROOT внутренние terminal records не показываем как новый файл.
     with self._lock:
-        root = self._records.get(self._recursive_root_id)
+        # Новый TX уже может быть принят до первого запуска его worker.
+        # В этот момент retained ROOT предыдущей передачи не владеет экраном.
+        active = self._records.get(self._active_id)
+        root = active if active is not None else self._records.get(self._recursive_root_id)
         if root is not None:
-            return root.snapshot()
+            with root._condition:
+                snapshot = root._snapshot_locked()
+                if include_presentation:
+                    snapshot["presentation"] = {
+                        "attempt": root._presentation_attempt,
+                        "active": self._active_id == root.transfer_id and not self._stopping.is_set(),
+                        "cancel_requested": root.cancel_event.is_set(),
+                        "resume": root._presentation_resume,
+                        "activity": root._presentation_activity,
+                    }
+                return snapshot
         if self._recursive_root_id is not None:
             return None
     return resumable.display_snapshot(self)
@@ -567,15 +580,18 @@ def _expire_stale_incoming(self):
     manager._expire_stale_incoming(self)
 
 
-def cancel(self, transfer_id):
+def cancel(self, transfer_id, *, expected_attempt=None):
     try:
         parsed = parse_transfer_id(transfer_id)
     except FileProtocolError as exc:
         raise core.FileTransferError('invalid_transfer_id', str(exc)) from exc
-    root = _root_frame(self, parsed)
-    if root is not None:
-        _cancel_descendants(self, root)
-    return core.FileTransferManager.cancel(self, transfer_id)
+    with self._lock:
+        # Не отменяем descendants новой попытки по старому подтверждению ROOT.
+        result = core.FileTransferManager.cancel(self, transfer_id, expected_attempt=expected_attempt)
+        root = _root_frame(self, parsed)
+        if root is not None:
+            _cancel_descendants(self, root)
+        return result
 
 
 def feed_binary(self, payload):

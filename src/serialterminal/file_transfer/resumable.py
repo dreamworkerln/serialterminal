@@ -325,6 +325,7 @@ def _restore_incoming(self, meta: MetaMessage, *, existing=None):
                 "remote_result", "remote_resume", "control_overflow", "state",
                 "rx_meta", "original_bytes", "wire_bytes", "chunks_total",
                 "bytes_completed", "chunks_completed",
+                "_presentation_attempt", "_presentation_resume", "_presentation_activity",
             )
         }
         previous_cancelled = record.cancel_event.is_set()

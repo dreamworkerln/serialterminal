@@ -1,0 +1,51 @@
+F401 [*] `.manager` imported but unused
+  --> src/serialterminal/file_transfer/pipeline_manager.py:8:15
+   |
+ 7 | from . import core
+ 8 | from . import manager, resumable
+   |               ^^^^^^^
+ 9 | from .protocol import DataMessage, encode_message
+10 | from .transport import BinaryUserCancelled, BinaryUserError
+   |
+help: Remove unused import: `.manager`
+  |
+7 | from . import core
+  - from . import manager, resumable
+8 + from . import resumable
+9 | from .protocol import DataMessage, encode_message
+  |
+
+F401 [*] `pathlib.Path` imported but unused
+  --> src/serialterminal/file_transfer/recursive.py:8:21
+   |
+ 6 | import os
+ 7 | import secrets
+ 8 | from pathlib import Path
+   |                     ^^^^
+ 9 | import struct
+10 | import threading
+   |
+help: Remove unused import: `pathlib.Path`
+  |
+7 | import secrets
+  - from pathlib import Path
+8 | import struct
+  |
+
+F401 [*] `time` imported but unused
+ --> tests/test_ft1_outbox.py:2:8
+  |
+1 | import threading
+2 | import time
+  |        ^^^^
+3 | import pytest
+  |
+help: Remove unused import: `time`
+  |
+1 | import threading
+  - import time
+2 | import pytest
+  |
+
+Found 3 errors.
+[*] 3 fixable with `--fix`.

@@ -4,9 +4,36 @@ This file is the authoritative current-state index for engineering TODOs in this
 
 ## Active
 
+### TODO_053 — [todos/TODO_053_TUI_FILE_TRANSFER_WINDOW_LIFECYCLE.md](todos/TODO_053_TUI_FILE_TRANSFER_WINDOW_LIFECYCLE.md)
+
+Status: IMPLEMENTED / operator hardware validation OPEN
+
+Follow-up to TODO_052 and REVIEW_003/F001–F004. Runtime-owned, attempt-bound
+window modes; no F7 for suspended/unowned history; same-ID readmission and real
+recovery restore foreground. One compact background line, one ROOT snapshot per
+redraw, lifecycle chat summaries. Latest operator rule supersedes local-cancel
+autoclose in TODO_052: only success autocloses; cancel/error stay until Esc.
+Original base regressions: 12 FAIL / 7 PASS. Final full software pass: 1081 PASS /
+103.18 s; TUI/PTY subset 197 PASS; compile/diff/comment review PASS. Full Ruff has
+the same 3 baseline F401, no new findings. Exact source/test patch and evidence
+are recorded in TODO_053. Operator performs hardware validation; no hardware run here.
+
+### TODO_054 — [todos/TODO_054_CHATTER_DEVICE_CHOOSER_NUS_FILTER.md](todos/TODO_054_CHATTER_DEVICE_CHOOSER_NUS_FILTER.md)
+
+Status: OPEN
+
+Operator-requested next task: Chatter BLE chooser must filter non-NUS headphones,
+TVs and other unrelated devices across scan, remembered/cache and connected BlueZ
+sources, including F2/profile changes. Existing all-device prototype and F2 merge
+paths identified. Capability/profile boundary and offline regression matrix specified;
+filter implementation/tests not started. No discovery code changed with TODO_053.
+
 ### TODO_052 — [todos/TODO_052_TUI_FILE_TRANSFER_PROGRESS.md](todos/TODO_052_TUI_FILE_TRANSFER_PROGRESS.md)
 
 Status: IMPLEMENTED / hardware validation OPEN
+
+The window lifecycle/cancel/background refinements below are superseded by
+TODO_053's latest operator contract; historical software/hardware evidence remains.
 
 Wide centered internal TUI ROOT progress window, resize/Unicode filename layout
 and dedicated Dracula palette implemented. F10 removed with no replacement key.
@@ -181,7 +208,13 @@ Remaining work: align the primary `NODE_OBSERVATION_RECORDING_POLICY.md` and nod
 
 TODO_026 logging-contract investigation is also OPEN and may be scheduled independently when log-format work is selected.
 
-Current operator task (2026-10-16): implement TODO_052 with regression tests and prepare Luna hardware task. Implementation/software evidence recorded; physical TUI validation remains OPEN.
+Current operator order (2026-10-16): finish TODO_053 window lifecycle fix and tests,
+then create TODO_054 for Chatter NUS chooser filtering and its regression matrix.
+After full software PASS, operator explicitly requests a full task commit and push
+to current GitHub branch and GDI. Hardware is operator-owned. TODO_054 filter
+implementation is a separate next task; its TODO and regression matrix are prepared.
+
+Previous operator task: implement TODO_052 with regression tests and prepare Luna hardware task. Implementation/software evidence recorded; physical TUI validation remains OPEN.
 
 Previous operator task (2026-10-15): implement TODO_050 after REVIEW_002 breakdown.
 TODO_050 is implemented on `ee9e954` + patch; targeted validation66 PASS,

@@ -570,6 +570,10 @@ agent `send_line` ownership/forwarding semantics.
 TUI ROOT terminal events additionally produce a human chat summary and a LOCAL
 primary-log record; this is frontend presentation, not a new JSONL outcome or proof
 beyond the existing FT1 terminal contract.
+The TUI also summarizes ROOT start/phase/recovery/resume/cancel-request/suspension
+events. Its process-local attempt/ownership metadata is supplied separately by the
+manager's `presentation_snapshot()` and is not added to JSONL transfer/status/history
+snapshots. TUI background/close/reopen actions do not change agent mutation ownership.
 
 Exactly `100.0` means `state=completed`. A sender that has delivered every DATA
 chunk but is still waiting for the receiver's final verified RESULT remains below

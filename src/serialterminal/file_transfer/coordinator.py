@@ -6,6 +6,10 @@ from . import core, manager, pipeline_manager, resumable, recursive
 class FileTransferManager(core.FileTransferManager):
     """Единый runtime owner; recovery/storage/pipeline — составные политики."""
 
+    def presentation_snapshot(self):
+        # Process-local UI identity не входит в JSONL snapshots или wire format.
+        return recursive.display_snapshot(self, include_presentation=True)
+
     __init__ = recursive.initialize
     _claim = recursive._claim
     _release = recursive._release

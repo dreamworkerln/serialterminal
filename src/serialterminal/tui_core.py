@@ -15,8 +15,8 @@ from .profiles import PROFILE_NAMES, TerminalProfile, resolve_profile
 from .session import SessionLine, SessionTxFenceTimeout, SessionTxOutcomeUnknown
 from .terminal import TerminalSession
 from .profiles.base import SendLine
-from .tui_file_transfer import TERMINAL_STATES, FileTransferWindow, file_transfer_status_line, init_file_transfer_colors
-from .tui_text import screen_safe_text as _screen_safe_text, fit_cells
+from .tui_file_transfer import FileTransferWindow, file_transfer_status_line, init_file_transfer_colors, live_transfer, transfer_phase
+from .tui_text import screen_safe_text as _screen_safe_text, fit_cells, middle_ellipsis
 from .transports.base import Transport, TransportError
 
 
@@ -267,7 +267,10 @@ _FILE_STATE_LABELS = {
     "waiting_result": "waiting for remote verification",
     "repair_requested": "repair requested",
     "repairing": "repairing",
+    "recovering_local_node": "восстановление связи с нодой",
+    "resuming": "возобновление передачи",
 }
+_SNAPSHOT_UNSET = object()
 
 
 class TerminalTui:
@@ -308,7 +311,7 @@ class TerminalTui:
         self._file_transfer: FileTransferManager | None = None
         self._transfer_window = FileTransferWindow()
         self._profile_prefix_pending = False
-        self._file_rate_transfer_id: str | None = None
+        self._file_rate_transfer_id: tuple[str, str | None] | None = None
         self._file_rate_samples: deque[tuple[float, int]] = deque()
         self.session = self._make_session(transport, profile)
         self._sync_panel_transport_identity(transport)
@@ -390,7 +393,7 @@ class TerminalTui:
         )
         text = file_transfer_status_line(event)
         if text is not None:
-            # Event приходит один раз на terminal попытки, независимо от redraw/F7.
+            # Lifecycle event выводится независимо от redraw/F7.
             # Вложенный missing-list имеет свой RESULT, но не является новым файлом.
             if manager is not None:
                 root = manager.display_snapshot()
@@ -448,29 +451,29 @@ class TerminalTui:
 
     def _file_snapshot(self) -> dict | None:
         manager = getattr(self, "_file_transfer", None)
-        return None if manager is None else manager.display_snapshot()
+        reader = getattr(manager, "presentation_snapshot", None)
+        snapshot = None if manager is None else (
+            reader() if callable(reader) else manager.display_snapshot())
+        reader = getattr(getattr(self, "_binary_adapter", None), "controller_status", None)
+        if snapshot is not None and callable(reader):
+            snapshot = {**snapshot, "controller": reader()}
+        return snapshot
 
     def _file_transfer_active(self) -> bool:
         snapshot = self._file_snapshot()
-        return bool(getattr(getattr(self, "_file_transfer", None), "busy", False)) or (
-            snapshot is not None
-            and snapshot.get("state") not in {"completed", "failed", "cancelled"}
-        )
+        return bool(getattr(getattr(self, "_file_transfer", None), "busy", False)) or live_transfer(snapshot)
 
     def _file_window(self) -> FileTransferWindow:
         if not hasattr(self, "_transfer_window"):
             self._transfer_window = FileTransferWindow()
         return self._transfer_window
 
-    def _file_header_lines(self, width: int) -> tuple[str, ...]:
+    def _file_header_lines(self, width: int, *, snapshot=_SNAPSHOT_UNSET) -> tuple[str, ...]:
         window = self._file_window()
-        snapshot = self._file_snapshot()
+        if snapshot is _SNAPSHOT_UNSET:
+            snapshot = self._file_snapshot()
         window.sync(snapshot)
-        if (window.visible and window.transfer_id is not None) or (
-            snapshot is not None and snapshot["state"] in TERMINAL_STATES
-        ):
-            return ()
-        return self._file_status_lines(width)
+        return self._file_status_lines(width, snapshot=snapshot if window.mode == "background" else None)
 
     @staticmethod
     def file_state_label(state: str) -> str:
@@ -482,7 +485,8 @@ class TerminalTui:
         *,
         now: float | None = None,
     ) -> float:
-        transfer_id = str(snapshot.get("transfer_id", ""))
+        transfer_id = (str(snapshot.get("transfer_id", "")),
+                       snapshot.get("presentation", {}).get("attempt"))
         current_bytes = max(0, int(snapshot.get("bytes_completed", 0)))
         current_time = time.monotonic() if now is None else float(now)
 
@@ -519,39 +523,21 @@ class TerminalTui:
         filled = min(width, int(round(width * bounded / 100.0)))
         return "█" * filled + "░" * (width - filled)
 
-    def _file_status_lines(self, width: int) -> tuple[str, ...]:
-        snapshot = self._file_snapshot()
-        if snapshot is None:
+    def _file_status_lines(self, width: int, *, snapshot=_SNAPSHOT_UNSET) -> tuple[str, ...]:
+        if snapshot is _SNAPSHOT_UNSET:
+            snapshot = self._file_snapshot()
+        if not live_transfer(snapshot) or self._file_window().cancelling(snapshot):
             return ()
-        bar_width = max(10, min(30, width // 4))
-        bar = self.render_progress_bar(
-            float(snapshot.get("percentage", 0.0)),
-            bar_width,
-        )
-        raw_state = str(snapshot.get("state", "?"))
+        raw_state = transfer_phase(snapshot)
         wire_rate = self._file_wire_rate_kbit_s(snapshot)
-        first = (
-            f" File {snapshot.get('direction', '?')} "
-            f"{snapshot.get('filename', '?')} [{bar}] "
-            f"{float(snapshot.get('percentage', 0.0)):.1f}% "
-            f"{self.file_state_label(raw_state)}"
-        )
-        second = (
-            f"      {snapshot.get('chunks_completed', 0)}/"
-            f"{snapshot.get('chunks_total', 0)} chunks  "
-            f"{snapshot.get('bytes_completed', 0)}/"
-            f"{snapshot.get('wire_bytes', 0)} wire bytes  "
-            f"{wire_rate:.1f} kbit/s"
-        )
-        failure = snapshot.get("failure")
-        if isinstance(failure, dict):
-            second += (
-                f"  ERROR {failure.get('code', '?')}: "
-                f"{failure.get('message', '')}"
-            )
-        elif snapshot.get("final_path"):
-            second += f"  -> {Path(str(snapshot['final_path'])).name}"
-        return (first, second)
+        detail = (f"{float(snapshot.get('percentage', 0.0)):.1f}% · {wire_rate:.1f} kbit/s"
+                  if raw_state in {"sending", "receiving", "resuming"}
+                  else self.file_state_label(raw_state))
+        prefix = f" File {snapshot.get('direction', '?')} "
+        suffix = f" · {detail} · F7: подробнее"
+        name = middle_ellipsis(_screen_safe_text(str(snapshot.get('filename', '?'))),
+                               max(1, width - len(prefix) - len(suffix) - 1))
+        return (fit_cells(prefix + name + suffix, max(1, width - 1)),)
 
     @staticmethod
     def _safe_addstr(stdscr, y: int, x: int, text: str, attr: int = 0) -> None:
@@ -697,7 +683,7 @@ class TerminalTui:
             badge = " ERROR "
             self._safe_addstr(stdscr, 0, max(0, width - len(badge) - 1), badge, colors["error_badge"])
 
-    def _render(self, stdscr) -> None:
+    def _render(self, stdscr) -> int:
         stdscr.erase()
         height, width = stdscr.getmaxyx()
         colors = self._colors()
@@ -708,7 +694,10 @@ class TerminalTui:
                 "Terminal is too small; resize to at least 60x12.",
             )
             stdscr.refresh()
-            return
+            return 1
+
+        # Header, overlay и геометрия одного кадра используют одну runtime truth.
+        snapshot = self._file_snapshot()
 
         transport = self.session._current_transport()
         connected = self.session.connected_event.is_set()
@@ -742,7 +731,7 @@ class TerminalTui:
                     colors["panel"],
                 )
                 y += 1
-        for line in self._file_header_lines(width):
+        for line in self._file_header_lines(width, snapshot=snapshot):
             self._safe_addstr(
                 stdscr,
                 y,
@@ -838,7 +827,6 @@ class TerminalTui:
             colors["dim"],
         )
         cursor_x = len(prompt) + self.input_cursor - input_start
-        snapshot = self._file_snapshot()
         window = self._file_window()
         window.draw(
             stdscr, self._safe_addstr, snapshot, bar=self.render_progress_bar,
@@ -856,6 +844,7 @@ class TerminalTui:
         except curses.error:
             pass
         stdscr.refresh()
+        return body_rows
 
     def _close_file_transfer_manager(self) -> None:
         manager = self._file_transfer
@@ -899,22 +888,25 @@ class TerminalTui:
         self.session.start()
         report_event("TUI session replacement started")
 
-    def _cancel_confirmed_file(self, transfer_id: str) -> None:
+    def _cancel_confirmed_file(self, transfer_id: str, *, expected_attempt: str | None = None) -> None:
         manager = self._file_transfer
         snapshot = self._file_snapshot()
         if (manager is None or snapshot is None or snapshot["transfer_id"] != transfer_id
-                or snapshot["state"] in {"completed", "failed", "cancelled"}):
+                or not live_transfer(snapshot)):
             self.status = "Операция уже завершилась; отмена не выполнена"
             return
         # Отмена адресуется ROOT, без закрытия manager и потери его результата.
         # Даже новая операция между проверкой и вызовом не меняет target ID.
         try:
-            manager.cancel(transfer_id)
+            if expected_attempt is None:
+                manager.cancel(transfer_id)
+            else:
+                manager.cancel(transfer_id, expected_attempt=expected_attempt)
         except FileTransferError as exc:
             self.status = f"Отмена не выполнена: {exc.message}"
         else:
             window = self._file_window()
-            window.dismiss_after_cancel(transfer_id)
+            window.mark_cancel_requested(transfer_id)
             window.sync(self._file_snapshot())
             report_event(f"TUI FT1 confirmed cancel transfer_id={transfer_id}")
             self.status = "Запрошена отмена передачи файла"
@@ -1121,7 +1113,8 @@ class TerminalTui:
         consumed, cancelled = window.handle_key(key, snapshot)
         if consumed:
             if cancelled is not None:
-                self._cancel_confirmed_file(cancelled)
+                target = window.confirmation_attempt
+                self._cancel_confirmed_file(cancelled, expected_attempt=target[1] if target else None)
             return
         if getattr(self, "_profile_prefix_pending", False):
             self._profile_prefix_pending = False
@@ -1251,11 +1244,7 @@ class TerminalTui:
                     self._application_error = True
                     self.status = f"Session stopped: {summary} | App log: {path}"
                 self._run_connected_actions()
-                height, width = stdscr.getmaxyx()
-                panel_rows = len(self.panel.status_lines()) if self.panel else 0
-                file_rows = len(self._file_header_lines(width))
-                body_rows = max(1, height - panel_rows - file_rows - 8)
-                self._render(stdscr)
+                body_rows = self._render(stdscr)
                 try:
                     key = stdscr.get_wch()
                 except curses.error:

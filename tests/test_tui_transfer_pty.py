@@ -52,11 +52,15 @@ class Manager:
                           bytes_completed=85, wire_bytes=200, chunks_completed=2, chunks_total=5)
         self.cancelled = []
         self.event_sink = None
+        self.resumed = 0
 
     def display_snapshot(self):
-        return self.value.copy()
+        return {**self.value, "presentation": {
+            "attempt": self.value["transfer_id"], "active": self.busy, "resume": self.resumed,
+        }}
 
-    def cancel(self, ident):
+    def cancel(self, ident, *, expected_attempt=None):
+        assert expected_attempt == self.value["transfer_id"]
         self.cancelled.append(ident)
         self.finish("cancelled")
 
@@ -97,9 +101,17 @@ def _child(folder, direction):
         assert curses.pair_content(8) == (255, 236)
         assert curses.pair_content(9) == (141, 236)
         def frame(label):
+            reads = []
+            original = manager.display_snapshot
+            def read_once():
+                reads.append(True)
+                return original()
+            manager.display_snapshot = read_once
             tui._render(screen)
+            manager.display_snapshot = original
             rows, columns = screen.getmaxyx()
             if columns >= 60 and rows >= 12:
+                assert len(reads) == 1
                 assert screen.getyx()[0] == rows - 3
             lines = [screen.instr(row, 0).decode("utf-8", errors="replace") for row in range(rows)]
             for line in lines:
@@ -163,17 +175,29 @@ def _child(folder, direction):
         curses.resizeterm(24, 80)
         key("\n")
         assert manager.cancelled == ["0000000000000001"]
-        text = frame("cancel_closed")
-        assert "Передача файла" not in text and f"File {direction}" not in text
+        text = frame("cancel_retained")
+        assert "Передача файла" in text and f"File {direction}" not in text
         assert tui._file_window().confirmation_id is None
         assert "прервано пользователем" in text
         key(curses.KEY_F7)
-        assert "Передача файла" not in frame("cancel_f7_ignored")
+        assert "Передача файла" in frame("cancel_f7_ignored")
+        key("\x1b")
+        assert "Передача файла" not in frame("cancel_closed")
+        key(curses.KEY_F7)
+        assert not tui._file_window().visible
         manager.value.update(transfer_id="0000000000000002", state="sending" if direction == "TX" else "receiving",
                              filename="next.bin")
         manager.busy = True
         assert "Передача файла" in frame("next_active")
         key(curses.KEY_F7)
+        active_state = manager.value["state"]
+        manager.value["state"] = "recovering_local_node"
+        assert "Передача файла" not in frame("recovering_background")
+        manager.value["state"] = active_state
+        manager.resumed += 1
+        assert "Передача файла" in frame("resumed_foreground")
+        key(curses.KEY_F7)
+        assert "Передача файла" not in frame("resumed_background_again")
         manager.finish("completed")
         text = frame("success_background")
         assert "успешно" in text and "Передача файла" not in text
@@ -181,6 +205,8 @@ def _child(folder, direction):
         assert "Передача файла" not in frame("success_f7_ignored")
         manager.value.update(transfer_id="0000000000000003", state="sending" if direction == "TX" else "receiving",
                              filename="ERROR.bin")
+        manager.busy = True
+        assert "Передача файла" in frame("error_next_active")
         manager.finish("failed", {"code": "storage_failed", "message": "FAILED диск полон"})
         lines = [line for line in tui.output.snapshot() if line.startswith("[FT1] ")]
         assert len(lines) == 3
@@ -239,7 +265,7 @@ def test_actual_curses_resize_flood_progress_and_confirmation(tmp_path, directio
         os.close(master)
     assert child.returncode == 0, captured.decode("utf-8", errors="replace")[-6000:]
     frames = json.loads((tmp_path / "frames.json").read_text())
-    assert len(frames) == 21
+    assert len(frames) == 26
     screen = pyte.Screen(200, 48)
     pyte.Stream(screen).feed(captured.decode("utf-8", errors="replace"))
     assert any("[FT1]" in line for line in screen.display)

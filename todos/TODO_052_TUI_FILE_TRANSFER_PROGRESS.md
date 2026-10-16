@@ -4,6 +4,10 @@ TODO-ID: TODO_052
 Status: IMPLEMENTED / hardware validation OPEN
 Recorded: 2026-10-16
 
+Current follow-up: [TODO_053_TUI_FILE_TRANSFER_WINDOW_LIFECYCLE.md](TODO_053_TUI_FILE_TRANSFER_WINDOW_LIFECYCLE.md)
+supersedes the window lifecycle/background/cancel rules below with the operator's
+latest contract. Previous implementation history and physical validation gates remain.
+
 ## Purpose
 
 Сделать нормальный интерфейс передачи файла по образцу Midnight Commander:

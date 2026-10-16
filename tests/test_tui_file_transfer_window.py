@@ -14,7 +14,8 @@ from serialterminal.tui_text import cell_width, fit_cells, middle_ellipsis, scre
 def snapshot(**changes):
     return {"transfer_id": "0000000000000001", "state": "sending", "filename": "файл.bin",
             "direction": "TX", "percentage": 40, "bytes_completed": 40, "wire_bytes": 100,
-            "chunks_completed": 1, "chunks_total": 3, "elapsed": 4.0, **changes}
+            "chunks_completed": 1, "chunks_total": 3, "elapsed": 4.0,
+            "presentation": {"active": True}, **changes}
 
 
 class Manager:
@@ -230,6 +231,7 @@ def test_terminal_window_keeps_result_and_no_fake_eta_during_repair():
         value = snapshot(state=state)
         if state == "failed": value["failure"] = {"code": "remote_failed", "message": "remote storage"}
         view = FileTransferWindow()
+        view.sync(snapshot())
         view.sync(value)
         if state == "completed":
             view.handle_key(curses.KEY_F7, value)
@@ -382,7 +384,7 @@ def test_success_during_confirmation_closes_progress_but_keeps_visible_stale_ent
 
 
 @pytest.mark.parametrize("direction,state", [("TX", "sending"), ("RX", "receiving")])
-def test_confirmed_cancel_closes_progress_and_header_without_second_escape(direction, state):
+def test_confirmed_cancel_keeps_result_until_explicit_escape(direction, state):
     tui = make_tui(snapshot(direction=direction, state=state))
     tui.input_text = "draft"
     tui._handle_key(Canvas(), "\x1b", 10)
@@ -392,17 +394,19 @@ def test_confirmed_cancel_closes_progress_and_header_without_second_escape(direc
     render(view, canvas, tui._file_snapshot())
     assert tui._file_transfer.cancelled == ["0000000000000001"]
     assert tui._file_snapshot()["state"] == "cancelled"
-    assert view.confirmation_id is None and not view.visible and not canvas.calls
+    assert view.confirmation_id is None and view.visible and canvas.calls
     assert tui._file_header_lines(80) == ()
     assert tui.input_text == "draft" and not tui.sent
     tui._handle_key(Canvas(), curses.KEY_F7, 10)
+    assert view.visible
+    tui._handle_key(Canvas(), "\x1b", 10)
     canvas = Canvas()
     render(view, canvas, tui._file_snapshot())
     assert not view.visible and not canvas.calls
 
 
 @pytest.mark.parametrize("outcome", ["cancelled", "failed"])
-def test_confirmed_async_receiver_cancel_closes_once_and_surfaces_failure(outcome):
+def test_confirmed_async_receiver_cancel_keeps_pending_and_terminal_visible(outcome):
     tui = make_tui(snapshot(direction="RX", state="receiving"))
     manager = tui._file_transfer
     # Настоящий RX cancel сначала ставит событие в очередь, worker завершает позже.
@@ -413,23 +417,21 @@ def test_confirmed_async_receiver_cancel_closes_once_and_surfaces_failure(outcom
     canvas = Canvas()
     render(view, canvas, tui._file_snapshot())
     assert manager.busy and tui._file_transfer_active()
-    assert not view.visible and not canvas.calls
+    assert view.visible and any("отмена: ожидание завершения" in call[2] for call in canvas.calls)
     manager.value["state"] = outcome
     manager.busy = False
     canvas = Canvas()
     render(view, canvas, tui._file_snapshot())
-    if outcome == "failed":
-        assert view.visible and any("Передача файла" in c[2] for c in canvas.calls)
-    else:
-        assert not view.visible and not canvas.calls
-        assert tui._file_header_lines(80) == ()
-        tui._handle_key(Canvas(), curses.KEY_F7, 10)
-        canvas = Canvas()
-        render(view, canvas, tui._file_snapshot())
-        assert not view.visible and not canvas.calls
-        manager.value.update(transfer_id="0000000000000002", state="receiving")
-        render(view, Canvas(), tui._file_snapshot())
-        assert view.visible and view.transfer_id == "0000000000000002"
+    assert view.visible and any("Передача файла" in c[2] for c in canvas.calls)
+    assert tui._file_header_lines(80) == ()
+    tui._handle_key(Canvas(), "\x1b", 10)
+    tui._handle_key(Canvas(), curses.KEY_F7, 10)
+    canvas = Canvas()
+    render(view, canvas, tui._file_snapshot())
+    assert not view.visible and not canvas.calls
+    manager.value.update(transfer_id="0000000000000002", state="receiving")
+    render(view, Canvas(), tui._file_snapshot())
+    assert view.visible and view.transfer_id == "0000000000000002"
 
 
 def test_rejected_cancel_keeps_progress_visible():

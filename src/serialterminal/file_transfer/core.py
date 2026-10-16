@@ -136,6 +136,7 @@ class _IncomingState:
 @dataclass(frozen=True)
 class _CancelIncoming:
     transfer_id: int
+    attempt: str | None = None
 
 
 @dataclass(frozen=True)
@@ -258,6 +259,9 @@ class _TransferRecord:
         self._event_sink = event_sink
         self._terminal_job = None
         self._meta_replay_pending = False
+        self._presentation_attempt = secrets.token_hex(16)
+        self._presentation_resume = 0
+        self._presentation_activity = 0
 
     def _percentage_locked(self) -> float:
         if self.state == "completed":
@@ -301,6 +305,13 @@ class _TransferRecord:
 
     def event(self, kind: str, **fields: Any) -> dict[str, Any]:
         with self._condition:
+            # Эти счётчики переживают пропущенные TUI redraw: краткое recovery
+            # не должно теряться между двумя кадрами. Это не wire attempt ID.
+            if kind in {"local_recovery_resumed", "resume_state_restored"}:
+                self._presentation_resume += 1
+            if kind in {"progress", "duplicate_chunk", "meta_replayed", "end_replayed",
+                        "binary_send_settled", "remote_resume"}:
+                self._presentation_activity += 1
             event = {
                 "seq": self._next_event_seq,
                 "kind": kind,
@@ -658,6 +669,9 @@ class FileTransferManager:
             record.final_path = None
             record.ended_monotonic = None
             record.started_monotonic = time.monotonic()
+            record._presentation_attempt = secrets.token_hex(16)
+            record._presentation_resume = 0
+            record._presentation_activity = 0
             record.cancel_event.clear()
             record.remote_result = None
             record.remote_failure_event.clear()
@@ -1315,7 +1329,7 @@ class FileTransferManager:
                     if incoming is not None:
                         self._fail_incoming(incoming, FileTransferError("binary_send_failed", str(item.error), phase="receiving"))
                 elif isinstance(item, _CancelIncoming):
-                    self._cancel_incoming(item.transfer_id)
+                    self._cancel_incoming(item.transfer_id, expected_attempt=item.attempt)
                 elif isinstance(item, MetaMessage):
                     if not self._defer_settling_meta(item):
                         self._handle_meta(item)
@@ -1957,8 +1971,11 @@ class FileTransferManager:
             failure=failure,
         )
 
-    def _cancel_incoming(self, transfer_id: int) -> None:
+    def _cancel_incoming(self, transfer_id: int, *, expected_attempt: str | None = None) -> None:
         incoming = self._incoming_for(transfer_id)
+        if (incoming is not None and expected_attempt is not None
+                and incoming.record._presentation_attempt != expected_attempt):
+            return
         if incoming is not None:
             self._fail_incoming(
                 incoming,
@@ -1994,7 +2011,7 @@ class FileTransferManager:
             timeout_ms=timeout_ms,
         )
 
-    def cancel(self, transfer_id: str | int) -> dict[str, Any]:
+    def cancel(self, transfer_id: str | int, *, expected_attempt: str | None = None) -> dict[str, Any]:
         try:
             parsed = parse_transfer_id(transfer_id)
         except FileProtocolError as exc:
@@ -2004,17 +2021,24 @@ class FileTransferManager:
             ) from exc
         with self._lock:
             record = self._records.get(parsed)
-        if record is None:
-            raise FileTransferError(
-                "unknown_file_transfer",
-                f"unknown file transfer: {transfer_id}",
-            )
-        if record.state in _TERMINAL_STATES:
-            return record.snapshot()
-        record.cancel_event.set()
+            if record is None:
+                raise FileTransferError(
+                    "unknown_file_transfer",
+                    f"unknown file transfer: {transfer_id}",
+                )
+            # Проверка и принятие отмены атомарны с повторным admission того же ID.
+            with record._condition:
+                if expected_attempt is not None and record._presentation_attempt != expected_attempt:
+                    raise FileTransferError("stale_transfer_attempt", "file transfer attempt has changed")
+                if expected_attempt is not None and (self._active_id != parsed or self._stopping.is_set()):
+                    raise FileTransferError("stale_transfer_attempt", "file transfer is no longer active")
+                if record.state in _TERMINAL_STATES:
+                    return record._snapshot_locked()
+                record.cancel_event.set()
+                attempt = record._presentation_attempt
         record.event("cancel_requested")
         if record.direction == "RX":
-            self._enqueue_rx(_CancelIncoming(parsed))
+            self._enqueue_rx(_CancelIncoming(parsed, attempt))
         return record.snapshot()
 
     def close_transfer(self, transfer_id: str | int) -> dict[str, Any]:

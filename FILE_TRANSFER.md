@@ -1597,14 +1597,22 @@ white chat line with direction, filename and success/failure/user-cancel outcome
 failure includes the reason. The line is also recorded as LOCAL in the primary log.
 It is not triggered by closing/hiding the window, progress, intermediate RESULT
 or recursive service-file completion. Terminal compact headers are hidden.
-Confirming local
-cancellation closes the overlay on request acceptance without a second Esc, for
-TX and asynchronous RX; its cancelled compact header is also hidden. The retained
-result remains in the chat and retained manager history. A rejected request leaves the window open; a later
-cleanup failure shows it again. Other failed/cancelled outcomes remain visible.
+Start, phase changes, recovery/resume, cancellation requests and suspension are
+also summarized in human chat without per-chunk protocol noise. Confirming local
+cancellation keeps the overlay visible with an explicit pending state through TX/RX
+cleanup. Only successful completion automatically closes the window; failed/cancelled
+results in an open window remain until explicit Esc. A background result stays in
+chat without reopening the window. Retained manager history is preserved.
 Success during confirmation leaves a visible terminal
 notice until Enter/Esc, preventing a stale Enter from reaching controller input.
-During a running transfer, F7 hides/shows the overlay with compact progress while hidden. The UTF-8 basename
+During a running transfer, F7 switches between the overlay and one compact line:
+direction, filename, DATA percent/rate or current phase, and an F7 details hint.
+There is no second progress bar or chunk/byte counter row in background.
+Runtime ownership and a per-attempt identity distinguish active ROOT work from
+suspended/retained history; neither history nor node boot/READY enables F7.
+Actual FT1 resume after reboot/reconnect automatically returns the window to the
+center, including from background. READINESS alone is not resumed DATA/FT1 activity.
+The UTF-8 basename
 wraps inside the window; visual shortening never changes the transmitted name.
 F10 has no ST binding (reserved for the terminal emulator); no replacement key is
 assigned. Transfer/confirmation use dedicated Dracula colors, separate from the rest
@@ -1613,7 +1621,9 @@ of the TUI: dark background, light text, purple borders and highlighted selectio
 Esc/F6 opens «Отменить передачу файла?»: «Нет» left, «Да» right, default «Да».
 Arrows select; Enter on Yes requests cancellation of that exact ROOT; No or Esc
 continues. FT1 runs while the dialog is open. A late confirmation after completion
-or replacement cannot cancel another ROOT. Ordinary Enter and profile output
+or replacement cannot cancel another ROOT or a new attempt with the same transfer_id.
+The manager atomically checks the attempt when accepting UI cancellation, and
+queued RX cancellation cannot affect a later attempt. Ordinary Enter and profile output
 selection do not cancel/reconnect. During active/settling FT1, Chatter status queries
 and presentation controls are admitted; radio mutations, RF text and device/profile
 changes are rejected until the operation ends. Ctrl+C/Ctrl+Q retain process exit.

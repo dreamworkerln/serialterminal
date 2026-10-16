@@ -189,15 +189,22 @@ capability; generic remains a normal controller-agnostic terminal. Chatter TUI u
 ←/→ selects, Enter confirms, Esc continues. The transfer runs while choosing.
 Successful completion automatically closes the progress frame and compact header.
 F7 hides/shows only a running transfer; a terminal result cannot reopen its window.
+Boot/READY without an admitted FT1 operation never enables a file window. Actual
+recovery/resume returns the progress window to the center, including from background.
 Every ROOT completion independently writes one white chat line with TX/RX, filename
 and «успешно», «ошибка» with its reason, or «прервано пользователем». This follows
 the terminal event, regardless of window visibility or closure; intermediate RESULT,
 100% progress and recursive service-file completion do not report success.
-Confirming local cancellation closes the frame
-as soon as the request is accepted, including asynchronous RX cleanup. A rejected
-request leaves it open; a later cleanup failure shows the error again. Other
-failed/cancelled outcomes stay visible. While
-a transfer is running, `F7` hides/shows the frame with a compact header. The transfer and
+Start, phase changes, recovery/resume and cancellation requests also appear in chat;
+chunk-level protocol traffic does not flood it. Confirming cancellation keeps the
+window open with an explicit pending state until cleanup finishes. Only success
+automatically closes it: failed/cancelled results in an open window remain until Esc.
+A background outcome stays in chat and does not reopen the window. While a transfer
+is running, `F7` switches between the window and one compact line with direction,
+filename, DATA percent/rate or current recovery/verification phase, and an F7 hint.
+The background line has no second progress bar or chunk/byte counters. Confirmation
+is bound to a runtime attempt, so same-ID readmission cannot inherit an old cancel.
+The transfer and
 confirmation use a separate Dracula palette (ANSI-256 approximation), with light
 text on a dark background and purple borders. Both dialogs resize with the terminal;
 filenames wrap/shorten visually without altering the transmitted basename. F10 is

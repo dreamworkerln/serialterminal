@@ -42,8 +42,8 @@ class TerminalTui(_core.TerminalTui):
             f"transport generation {generation}"
         )
 
-    def _file_status_lines(self, width: int) -> tuple[str, ...]:
-        lines = super()._file_status_lines(width)
+    def _file_status_lines(self, width: int, *, snapshot=_core._SNAPSHOT_UNSET) -> tuple[str, ...]:
+        lines = super()._file_status_lines(width, snapshot=snapshot)
         controller = self._controller_status_line()
         if controller is None:
             return lines

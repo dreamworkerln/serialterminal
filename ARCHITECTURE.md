@@ -367,18 +367,33 @@ The overlay/confirmation have their own Dracula color pairs. F10 is unassigned.
 Esc/F6 opens an address-bound cancellation confirmation. No is left, Yes is right,
 Yes is selected initially; arrows select, Enter confirms and repeat Esc continues.
 The transfer keeps running while the modal captures input. A stale confirmation
-cannot cancel a newer ROOT or submit its Enter to the controller. Successful
+cannot cancel a newer ROOT/runtime attempt (including same-ID readmission) or submit
+its Enter to the controller. Successful
 completion closes progress and the compact header once. F7 toggles only active
 transfers. Terminal progress headers are hidden; a dismissed terminal window stays
 closed. The frontend event sink announces each ROOT attempt's terminal outcome
 once in normal white chat output and the LOCAL primary log. It uses the bound
 manager's public ROOT snapshot to exclude recursive service-file results, independently
-of rendering/window visibility. An accepted local cancellation dismisses the overlay immediately, bound to
-that ROOT; its terminal compact header is dismissed too. The manager keeps ownership
-until settlement, and an asynchronous cleanup failure makes the overlay visible
-again. Rejected requests and other failed/cancelled outcomes stay visible.
+of rendering/window visibility. Start, phase, recovery/resume, cancel-request and
+suspension events also produce human chat summaries; per-chunk progress remains
+visual rather than filling chat. An accepted local cancellation keeps the overlay
+with an explicit pending state. The manager keeps ownership until settlement;
+failed/cancelled results in an open window remain until explicit Esc. A background
+terminal result does not reopen the overlay. Only success automatically closes it.
+The manager's `presentation_snapshot()` supplies an atomic ROOT snapshot with runtime
+ownership, an opaque per-attempt identity, cancel status and retained resume/activity
+counters. Its process-local metadata is excluded from JSONL/status/history snapshots.
+Cancellation validates the expected attempt under the admission lock; queued RX
+cancellation retains that identity too. The frontend owns only closed/foreground/
+background modes. One redraw uses one snapshot for overlay/header/body geometry.
+Unowned/suspended history cannot enable F7. Profile-public controller status may
+describe recovery without teaching the frontend boot syntax. READY alone cannot
+create a transfer; actual resumed FT1 activity restores foreground once, including
+when recovery occurred entirely between redraws. Background progress is one short
+line with an F7 hint, without a second progress bar or detailed counters.
 If success arrives during confirmation,
 a visible terminal notice captures Enter/Esc before dismissing that stale modal.
+The same visible guard remains if the snapshot/session disappears.
 Ctrl+C/Ctrl+Q retain process-quit semantics.
 
 FT1 validates the UTF-8 basename against the selected binary transport META budget

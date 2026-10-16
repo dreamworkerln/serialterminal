@@ -408,7 +408,7 @@ def test_tui_file_wire_rate_resets_for_new_transfer():
     assert tui._file_wire_rate_kbit_s(second, now=3.0) == 0.0
 
 
-def test_tui_file_status_shows_wire_rate_right_of_wire_bytes(monkeypatch):
+def test_tui_file_status_is_one_compact_line_with_wire_rate(monkeypatch):
     from collections import deque
 
     from serialterminal.tui import TerminalTui
@@ -422,6 +422,7 @@ def test_tui_file_status_shows_wire_rate_right_of_wire_bytes(monkeypatch):
             "direction": "TX",
             "filename": "Ritta02.webp",
             "percentage": 6.5,
+            "presentation": {"active": True},
             "state": "sending",
             "chunks_completed": 32,
             "chunks_total": 495,
@@ -433,6 +434,7 @@ def test_tui_file_status_shows_wire_rate_right_of_wire_bytes(monkeypatch):
             "direction": "TX",
             "filename": "Ritta02.webp",
             "percentage": 6.5,
+            "presentation": {"active": True},
             "state": "sending",
             "chunks_completed": 32,
             "chunks_total": 495,
@@ -447,7 +449,9 @@ def test_tui_file_status_shows_wire_rate_right_of_wire_bytes(monkeypatch):
     monkeypatch.setattr("serialterminal.tui.time.monotonic", lambda: 11.0)
     lines = tui._file_status_lines(120)
 
-    assert lines[1].endswith("1000/112208 wire bytes  8.0 kbit/s")
+    assert len(lines) == 1
+    assert "6.5% · 8.0 kbit/s · F7: подробнее" in lines[0]
+    assert "chunks" not in lines[0] and "wire bytes" not in lines[0]
 
 
 
@@ -519,7 +523,7 @@ def test_chatter_tui_heartbeat_timeout_refreshes_only_q_ttl():
 
 
 
-def test_tui_completed_file_status_shows_only_saved_filename(monkeypatch):
+def test_tui_completed_file_has_no_background_indicator(monkeypatch):
     from collections import deque
 
     from serialterminal.tui import TerminalTui
@@ -545,10 +549,7 @@ def test_tui_completed_file_status_shows_only_saved_filename(monkeypatch):
 
     lines = tui._file_status_lines(160)
 
-    assert lines[1].endswith(
-        "112208/112208 wire bytes  0.0 kbit/s  -> Ritta02 (1).webp"
-    )
-    assert "/home/dream/" not in lines[1]
+    assert lines == ()
 
 
 
@@ -698,7 +699,7 @@ def test_tui_f6_opens_confirmation_without_cancelling_or_exiting():
     tui = object.__new__(TerminalTui)
     tui.running = True
     tui.status = ""
-    tui._file_snapshot = lambda: {"state": "sending", "transfer_id": "root"}
+    tui._file_snapshot = lambda: {"state": "sending", "transfer_id": "root", "presentation": {"active": True}}
     tui._cancel_file()
     assert tui.running
     assert tui._file_window().confirmation_id == "root"

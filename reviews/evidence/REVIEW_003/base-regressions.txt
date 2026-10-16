@@ -1,0 +1,209 @@
+.FFFFFFFFFF......FF                                                      [100%]
+=================================== FAILURES ===================================
+______ test_unowned_history_cannot_open_window_or_block_input[suspended] _______
+
+state = 'suspended'
+
+    @pytest.mark.parametrize("state", ["suspended", "sending", "recovering_local_node", "unknown"])
+    def test_unowned_history_cannot_open_window_or_block_input(state):
+        tui = make_tui(snapshot(state=state, presentation={"active": False, "attempt": "old"}))
+        tui._file_transfer.busy = False
+        for _ in range(3):
+            tui._handle_key(Canvas(), curses.KEY_F7, 10)
+>           assert not tui._file_transfer_active()
+E           assert not True
+E            +  where True = _file_transfer_active()
+E            +    where _file_transfer_active = <serialterminal.tui.TerminalTui object at 0x777b1d61f620>._file_transfer_active
+
+tests/test_tui_transfer_lifecycle.py:64: AssertionError
+_______ test_unowned_history_cannot_open_window_or_block_input[sending] ________
+
+state = 'sending'
+
+    @pytest.mark.parametrize("state", ["suspended", "sending", "recovering_local_node", "unknown"])
+    def test_unowned_history_cannot_open_window_or_block_input(state):
+        tui = make_tui(snapshot(state=state, presentation={"active": False, "attempt": "old"}))
+        tui._file_transfer.busy = False
+        for _ in range(3):
+            tui._handle_key(Canvas(), curses.KEY_F7, 10)
+>           assert not tui._file_transfer_active()
+E           assert not True
+E            +  where True = _file_transfer_active()
+E            +    where _file_transfer_active = <serialterminal.tui.TerminalTui object at 0x777b1dd81e20>._file_transfer_active
+
+tests/test_tui_transfer_lifecycle.py:64: AssertionError
+_ test_unowned_history_cannot_open_window_or_block_input[recovering_local_node] _
+
+state = 'recovering_local_node'
+
+    @pytest.mark.parametrize("state", ["suspended", "sending", "recovering_local_node", "unknown"])
+    def test_unowned_history_cannot_open_window_or_block_input(state):
+        tui = make_tui(snapshot(state=state, presentation={"active": False, "attempt": "old"}))
+        tui._file_transfer.busy = False
+        for _ in range(3):
+            tui._handle_key(Canvas(), curses.KEY_F7, 10)
+>           assert not tui._file_transfer_active()
+E           assert not True
+E            +  where True = _file_transfer_active()
+E            +    where _file_transfer_active = <serialterminal.tui.TerminalTui object at 0x777b1d700230>._file_transfer_active
+
+tests/test_tui_transfer_lifecycle.py:64: AssertionError
+_______ test_unowned_history_cannot_open_window_or_block_input[unknown] ________
+
+state = 'unknown'
+
+    @pytest.mark.parametrize("state", ["suspended", "sending", "recovering_local_node", "unknown"])
+    def test_unowned_history_cannot_open_window_or_block_input(state):
+        tui = make_tui(snapshot(state=state, presentation={"active": False, "attempt": "old"}))
+        tui._file_transfer.busy = False
+        for _ in range(3):
+            tui._handle_key(Canvas(), curses.KEY_F7, 10)
+>           assert not tui._file_transfer_active()
+E           assert not True
+E            +  where True = _file_transfer_active()
+E            +    where _file_transfer_active = <serialterminal.tui.TerminalTui object at 0x777b1d61e7b0>._file_transfer_active
+
+tests/test_tui_transfer_lifecycle.py:64: AssertionError
+_____________ test_old_confirmation_cannot_cancel_reopened_same_id _____________
+
+tmp_path = PosixPath('/tmp/pytest-of-hatuncevk/pytest-3/test_old_confirmation_cannot_c0')
+
+    def test_old_confirmation_cannot_cancel_reopened_same_id(tmp_path):
+        with receiver(tmp_path) as (tui, manager, _, meta, _, _):
+            tui._handle_key(Canvas(), "\x1b", 10)
+            fail_receiver(manager, meta)
+            tui._file_window().sync(tui._file_snapshot())
+            manager._handle_meta(meta)
+            assert manager._outbox.wait_idle(2)
+            assert manager.busy and manager.display_snapshot()["state"] == "receiving"
+>           assert "Операция завершилась или изменилась" in text(tui)
+E           AssertionError: assert 'Операция завершилась или изменилась' in '┌ Передача файла ──────────────────────────────────────────────────────────┐\n│ retained.bin                         ...                      │\n└──────────────────────────────────────────────────────────────────────────┘\n[ Нет ]\n[ Да ]'
+E            +  where '┌ Передача файла ──────────────────────────────────────────────────────────┐\n│ retained.bin                         ...                      │\n└──────────────────────────────────────────────────────────────────────────┘\n[ Нет ]\n[ Да ]' = text(<serialterminal.tui.TerminalTui object at 0x777b1d7013a0>)
+
+tests/test_tui_transfer_lifecycle.py:76: AssertionError
+__________ test_cancel_checks_attempt_atomically_after_ui_validation ___________
+
+tmp_path = PosixPath('/tmp/pytest-of-hatuncevk/pytest-3/test_cancel_checks_attempt_ato0')
+
+    def test_cancel_checks_attempt_atomically_after_ui_validation(tmp_path):
+        with receiver(tmp_path) as (tui, manager, _, meta, _, _):
+>           previous = tui._file_snapshot()["presentation"]["attempt"]
+                       ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+E           KeyError: 'presentation'
+
+tests/test_tui_transfer_lifecycle.py:85: KeyError
+_____________ test_reopened_same_id_opens_after_dismissed_failure ______________
+
+tmp_path = PosixPath('/tmp/pytest-of-hatuncevk/pytest-3/test_reopened_same_id_opens_af0')
+
+    def test_reopened_same_id_opens_after_dismissed_failure(tmp_path):
+        with receiver(tmp_path) as (tui, manager, _, meta, _, _):
+>           previous = tui._file_snapshot()["presentation"]["attempt"]
+                       ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+E           KeyError: 'presentation'
+
+tests/test_tui_transfer_lifecycle.py:96: KeyError
+________ test_cancel_pending_keeps_window_and_cannot_be_confirmed_again ________
+
+tmp_path = PosixPath('/tmp/pytest-of-hatuncevk/pytest-3/test_cancel_pending_keeps_wind0')
+
+    def test_cancel_pending_keeps_window_and_cannot_be_confirmed_again(tmp_path):
+        with receiver(tmp_path) as (tui, manager, transport, meta, _, _):
+            entered, proceed = threading.Event(), threading.Event()
+            def drain(timeout):
+                entered.set()
+                assert proceed.wait(3)
+                return {}
+            transport.drain_binary = drain
+            try:
+                tui._handle_key(Canvas(), "\x1b", 10)
+                tui._handle_key(Canvas(), "\n", 10)
+                assert entered.wait(2)
+                assert manager.busy
+>               assert "отмена: ожидание завершения" in text(tui)
+E               AssertionError: assert 'отмена: ожидание завершения' in ''
+E                +  where '' = text(<serialterminal.tui.TerminalTui object at 0x777b1d69fe00>)
+
+tests/test_tui_transfer_lifecycle.py:119: AssertionError
+_________ test_real_local_recovery_between_redraws_restores_foreground _________
+
+tmp_path = PosixPath('/tmp/pytest-of-hatuncevk/pytest-3/test_real_local_recovery_betwe0')
+
+    def test_real_local_recovery_between_redraws_restores_foreground(tmp_path):
+        with receiver(tmp_path) as (tui, manager, transport, meta, chunks, _):
+            tui._handle_key(Canvas(), curses.KEY_F7, 10)
+            manager._handle_data(DataMessage(meta.transfer_id, 0, chunks[0]))
+            assert "Передача файла" not in text(tui)
+            count = 0
+            def reset_once(message):
+                nonlocal count
+                count += 1
+                if count == 1:
+                    raise BinaryUserError("local_controller_reset", "offline reset")
+            transport.on_send = reset_once
+            record = manager._records[meta.transfer_id]
+            manager._send_message(ResumeMessage(meta.transfer_id, 0), cancel_event=record.cancel_event)
+            assert count == 2 and record.state == "receiving"
+>           assert "Передача файла" in text(tui)
+E           AssertionError: assert 'Передача файла' in ''
+E            +  where '' = text(<serialterminal.tui.TerminalTui object at 0x777b1d69c830>)
+
+tests/test_tui_transfer_lifecycle.py:150: AssertionError
+_________ test_rx_boot_ready_needs_real_ft1_activity_to_restore_window _________
+
+tmp_path = PosixPath('/tmp/pytest-of-hatuncevk/pytest-3/test_rx_boot_ready_needs_real_0')
+
+    def test_rx_boot_ready_needs_real_ft1_activity_to_restore_window(tmp_path):
+        with receiver(tmp_path) as (tui, manager, _, meta, chunks, _):
+            adapter = ChatterBinaryUserAdapter(lambda line: {"tx_id": 1})
+            adapter.feed_line("chat", "[SYS] CHATTER READY")
+            tui._binary_adapter = adapter
+            text(tui)
+            tui._handle_key(Canvas(), curses.KEY_F7, 10)
+            adapter.feed_line("chat", "ESP-ROM:esp32s3-20210327")
+            assert "Передача файла" not in text(tui)
+            adapter.feed_line("chat", "[SYS] CHATTER READY")
+            assert "Передача файла" not in text(tui)
+            manager._handle_data(DataMessage(meta.transfer_id, 0, chunks[0]))
+>           assert "Передача файла" in text(tui)
+E           AssertionError: assert 'Передача файла' in ''
+E            +  where '' = text(<serialterminal.tui.TerminalTui object at 0x777b1d69ec30>)
+
+tests/test_tui_transfer_lifecycle.py:170: AssertionError
+___________ test_confirmation_remains_visible_if_snapshot_disappears ___________
+
+    def test_confirmation_remains_visible_if_snapshot_disappears():
+        view = FileTransferWindow()
+        view.request_cancel(snapshot())
+        canvas = Canvas()
+        render(view, canvas, None)
+>       assert any("Операция завершилась или изменилась" in call[2] for call in canvas.calls)
+E       assert False
+E        +  where False = any(<generator object test_confirmation_remains_visible_if_snapshot_disappears.<locals>.<genexpr> at 0x777b1d8d0e10>)
+
+tests/test_tui_transfer_lifecycle.py:206: AssertionError
+______ test_background_is_one_line_with_shortened_name_and_no_second_bar _______
+
+    def test_background_is_one_line_with_shortened_name_and_no_second_bar():
+        tui = make_tui(snapshot(filename="界" * 120 + ".bin"))
+        tui._handle_key(Canvas(), curses.KEY_F7, 10)
+        lines = tui._file_header_lines(80)
+>       assert len(lines) == 1
+E       AssertionError: assert 2 == 1
+E        +  where 2 = len((' File TX 界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界界.bin [████████░░░░░░░░░░░░] 40.0% sending', '      1/3 chunks  40/100 wire bytes  0.0 kbit/s'))
+
+tests/test_tui_transfer_lifecycle.py:215: AssertionError
+=========================== short test summary info ============================
+FAILED tests/test_tui_transfer_lifecycle.py::test_unowned_history_cannot_open_window_or_block_input[suspended]
+FAILED tests/test_tui_transfer_lifecycle.py::test_unowned_history_cannot_open_window_or_block_input[sending]
+FAILED tests/test_tui_transfer_lifecycle.py::test_unowned_history_cannot_open_window_or_block_input[recovering_local_node]
+FAILED tests/test_tui_transfer_lifecycle.py::test_unowned_history_cannot_open_window_or_block_input[unknown]
+FAILED tests/test_tui_transfer_lifecycle.py::test_old_confirmation_cannot_cancel_reopened_same_id
+FAILED tests/test_tui_transfer_lifecycle.py::test_cancel_checks_attempt_atomically_after_ui_validation
+FAILED tests/test_tui_transfer_lifecycle.py::test_reopened_same_id_opens_after_dismissed_failure
+FAILED tests/test_tui_transfer_lifecycle.py::test_cancel_pending_keeps_window_and_cannot_be_confirmed_again
+FAILED tests/test_tui_transfer_lifecycle.py::test_real_local_recovery_between_redraws_restores_foreground
+FAILED tests/test_tui_transfer_lifecycle.py::test_rx_boot_ready_needs_real_ft1_activity_to_restore_window
+FAILED tests/test_tui_transfer_lifecycle.py::test_confirmation_remains_visible_if_snapshot_disappears
+FAILED tests/test_tui_transfer_lifecycle.py::test_background_is_one_line_with_shortened_name_and_no_second_bar
+12 failed, 7 passed in 2.34s
