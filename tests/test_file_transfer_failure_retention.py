@@ -327,7 +327,8 @@ def test_remote_failure_and_operator_cancel_interrupt_binary_wait_with_distinct_
     try:
         started = manager.start_send(source)
         transfer_id = int(started["transfer_id"], 16)
-        assert entered.wait(1)
+        # Подготовка gzip/journal имеет отдельный бюджет; stop latency ниже — 0.5 s.
+        assert entered.wait(5), manager.display_snapshot()
         record = manager._records[transfer_id]
         if stop_reason == "remote_result":
             record.set_remote_result(ResultMessage(transfer_id, False, "storage_failed", "disk full"))

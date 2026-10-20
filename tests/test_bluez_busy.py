@@ -84,7 +84,6 @@ class Bus:
 
 @pytest.fixture
 def lab(monkeypatch, tmp_path):
-    pytest.importorskip("dbus_fast")
     monkeypatch.setattr(bluez_devices.sys, "platform", "linux")
     monkeypatch.setenv("SERIALTERMINAL_CACHE_FILE", str(tmp_path / "cache.json"))
     bus = Bus()

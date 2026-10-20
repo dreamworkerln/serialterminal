@@ -17,6 +17,8 @@ dependencies = [
 [project.optional-dependencies]
 ble = ["bleak>=0.22"]
 dev = [
+    # Полный software suite включает BlueZ/D-Bus mocks.
+    "bleak>=0.22",
     "pytest>=8",
     "pyte>=0.8.2",
     "ruff>=0.12",

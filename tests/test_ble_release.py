@@ -55,7 +55,6 @@ class FakeBus:
 
 
 def install_bus(monkeypatch, bus):
-    pytest.importorskip("dbus_fast")
     async def connect():
         return bus
     monkeypatch.setattr(bluez_release, "_system_bus", connect)
@@ -71,7 +70,6 @@ def install_bus(monkeypatch, bus):
     ("unavailable", True, "unknown", False),
 ])
 def test_actual_bluez_messages_and_postcondition(monkeypatch, mode, connected, result, forced):
-    pytest.importorskip("dbus_fast")
     bus = FakeBus(connected=connected, mode=mode)
     install_bus(monkeypatch, bus)
     start = time.monotonic()
@@ -351,7 +349,7 @@ def test_shutdown_during_stale_client_cleanup_does_not_lose_client(monkeypatch):
 
 
 def test_cancelled_system_bus_connect_closes_its_socket(monkeypatch):
-    aio = pytest.importorskip("dbus_fast.aio")
+    from dbus_fast import aio
     bus = SimpleNamespace(closed=False)
     async def connect():
         await asyncio.Event().wait()
