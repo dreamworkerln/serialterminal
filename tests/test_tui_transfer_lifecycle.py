@@ -104,7 +104,7 @@ def test_reopened_same_id_opens_after_dismissed_failure(tmp_path):
         assert "Передача файла" in text(tui)
 
 
-def test_cancel_pending_keeps_window_and_cannot_be_confirmed_again(tmp_path):
+def test_cancel_pending_closes_window_and_cannot_be_confirmed_again(tmp_path):
     with receiver(tmp_path) as (tui, manager, transport, meta, _, _):
         entered, proceed = threading.Event(), threading.Event()
         def drain(timeout):
@@ -117,18 +117,17 @@ def test_cancel_pending_keeps_window_and_cannot_be_confirmed_again(tmp_path):
             tui._handle_key(Canvas(), "\n", 10)
             assert entered.wait(2)
             assert manager.busy
-            assert "отмена: ожидание завершения" in text(tui)
+            assert "Передача файла" not in text(tui)
             for key in (curses.KEY_F7, curses.KEY_F6, "\x1b"):
                 tui._handle_key(Canvas(), key, 10)
-                assert tui._file_window().visible
+                assert not tui._file_window().visible
                 assert tui._file_window().confirmation_id is None
                 assert tui._file_header_lines(80) == ()
         finally:
             proceed.set()
         assert manager._outbox.wait_idle(2)
         assert manager.display_snapshot()["state"] == "cancelled"
-        assert "Передача файла" in text(tui)
-        tui._handle_key(Canvas(), "\x1b", 10)
+        assert "Передача файла" not in text(tui)
         tui._handle_key(Canvas(), curses.KEY_F7, 10)
         assert "Передача файла" not in text(tui)
 
@@ -196,7 +195,7 @@ def test_terminal_window_policy_and_chat(tmp_path, foreground, outcome):
         for _ in range(2):
             tui._handle_key(Canvas(), curses.KEY_F7, 10)
             assert "Передача файла" not in text(tui)
-        expected = {"completed": "успешно", "failed": "ошибка", "cancelled": "прервано пользователем"}[outcome]
+        expected = {"completed": "успешно", "failed": "ошибка", "cancelled": "отменена пользователем"}[outcome]
         assert sum(expected in line for line in tui.output.snapshot()) == 1
 
 

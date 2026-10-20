@@ -7,6 +7,7 @@ from typing import Any, Callable, Protocol, TypeAlias
 from ..file_transfer.transport import BinaryUserTransport
 from ..sweep import SweepAdapterFactory
 from ..timing import TimingSink
+from ..transports.base import Transport
 
 
 @dataclass(frozen=True)
@@ -33,6 +34,7 @@ class ReceiveCharacteristic:
 class BleProfileConfig:
     write_characteristic: str
     receive_streams: tuple[ReceiveCharacteristic, ...]
+    chooser_requires_nus: bool = False
 
 
 class ProfileBinaryUserAdapter(BinaryUserTransport, Protocol):
@@ -48,6 +50,11 @@ BinaryConnectionGeneration: TypeAlias = Callable[[], int]
 
 class TuiProfilePanel(Protocol):
     def connected_actions(self) -> tuple[ProfileAction, ...]:
+        ...
+
+    def poll_actions(
+        self, transport: Transport, *, connected: bool, connection_generation: int,
+    ) -> tuple[ProfileAction, ...]:
         ...
 
     def consume_line(self, stream: str, line: str) -> None:

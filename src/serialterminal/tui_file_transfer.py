@@ -32,14 +32,17 @@ def transfer_phase(snapshot: dict) -> str:
 
 def file_transfer_status_line(event: dict) -> str | None:
     outcomes = {"transfer_completed": "успешно", "transfer_failed": "ошибка",
-                "transfer_cancelled": "прервано пользователем",
+                "transfer_cancelled": "отменена пользователем",
                 "transfer_started": "начата", "cancel_requested": "запрошена отмена",
                 "local_recovery_started": "восстановление связи с нодой",
                 "local_recovery_resumed": "передача возобновлена",
                 "resume_state_restored": "возобновлена из сохранённого состояния",
+                "resume_state_reset": "сохранённые данные отсутствуют; приём с начала",
                 "resume_started": "продолжение передачи",
                 "transfer_suspended": "приостановлена; состояние сохранено"}
     outcome = outcomes.get(event.get("kind"))
+    if event.get("kind") == "transfer_cancelled" and event.get("cancelled_by_peer"):
+        outcome = "отменена отправителем" if event.get("direction") == "RX" else "отменена получателем"
     if event.get("kind") == "state":
         outcome = {"compressing": "подготовка файла", "sending": "передача данных",
                    "receiving": "приём данных", "resuming": "возобновление передачи",
@@ -95,6 +98,7 @@ class FileTransferWindow:
         self.confirmation_id: str | None = None
         self.confirmation_attempt = None
         self.confirm_yes = True
+        self._dismissed_confirmation = False
 
     @property
     def visible(self) -> bool:
@@ -125,6 +129,13 @@ class FileTransferWindow:
             self._recovery_activity = None
             return
         state = snapshot["state"]
+        if (self.confirmation_id is not None
+                and (state == "cancelled" or self.cancelling(snapshot))):
+            # Удалённая отмена снимает вопрос, но оставляет остановленный
+            # progress. Уже нажатый Enter не должен попасть в command input.
+            self.confirmation_id = None
+            self.confirmation_attempt = None
+            self._dismissed_confirmation = True
         presentation = snapshot.get("presentation", {})
         new_attempt = attempt_key(snapshot) != self._attempt
         resume = presentation.get("resume", 0)
@@ -160,8 +171,11 @@ class FileTransferWindow:
 
     def mark_cancel_requested(self, transfer_id: str) -> None:
         if transfer_id == self.transfer_id:
-            # Принятый cancel ещё не завершает worker; показываем ожидание исхода.
+            # Принятый cancel ещё не завершает worker и не освобождает ownership.
             self.cancel_requested_id = transfer_id
+            # Оператор уже подтвердил отмену: cleanup продолжается в manager,
+            # но progress не требует второго Esc и не возвращается после drain.
+            self.mode = "closed"
 
     def request_cancel(self, snapshot: dict | None) -> None:
         self.sync(snapshot)
@@ -173,6 +187,10 @@ class FileTransferWindow:
 
     def handle_key(self, key, snapshot: dict | None) -> tuple[bool, str | None]:
         self.sync(snapshot)
+        if self._dismissed_confirmation:
+            self._dismissed_confirmation = False
+            if key in ("\n", "\r", curses.KEY_ENTER):
+                return True, None
         if self.confirmation_id is not None:
             if key in ("\x1b", "\n", "\r", curses.KEY_ENTER):
                 target = self.confirmation_id
@@ -189,7 +207,9 @@ class FileTransferWindow:
                 self.mode = "background" if self.visible else "foreground"
             return True, None
         if key in ("\x1b", curses.KEY_F6) and snapshot is not None:
-            if snapshot["state"] in TERMINAL_STATES:
+            if key == "\x1b" and self.cancelling(snapshot):
+                self.visible = False
+            elif snapshot["state"] in TERMINAL_STATES:
                 if key == "\x1b":
                     self.visible = False
             elif live_transfer(snapshot):
@@ -250,6 +270,9 @@ class FileTransferWindow:
         timing = f"Прошло {duration(elapsed)} | ETA DATA {duration(eta)}"
         repair = snapshot.get("repair")
         stage = f"{snapshot.get('direction', '?')} | {state_label(state)} | ROOT {snapshot['transfer_id']}"
+        if state == "cancelled" and snapshot.get("presentation", {}).get("cancelled_by_peer"):
+            origin = "отменено отправителем" if snapshot.get("direction") == "RX" else "отменено получателем"
+            stage = f"{snapshot.get('direction', '?')} | {origin} | ROOT {snapshot['transfer_id']}"
         if self.cancelling(snapshot):
             stage = f"{snapshot.get('direction', '?')} | отмена: ожидание завершения | ROOT {snapshot['transfer_id']}"
         if repair and state not in TERMINAL_STATES:

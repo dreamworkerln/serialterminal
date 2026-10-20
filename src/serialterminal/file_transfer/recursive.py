@@ -5,7 +5,6 @@ from dataclasses import dataclass, field, replace
 import errno
 import os
 import secrets
-from pathlib import Path
 import struct
 import threading
 import time
@@ -394,6 +393,7 @@ def display_snapshot(self, *, include_presentation=False):
                         "attempt": root._presentation_attempt,
                         "active": self._active_id == root.transfer_id and not self._stopping.is_set(),
                         "cancel_requested": root.cancel_event.is_set(),
+                        "cancelled_by_peer": root._cancelled_by_peer,
                         "resume": root._presentation_resume,
                         "activity": root._presentation_activity,
                     }
@@ -423,6 +423,12 @@ def _terminal_record_settled(self, record, state, *, failure=None, final_path=No
     frame = self._recursive_frames.get(record.transfer_id)
     if frame is not None and not frame.parent_id and state != 'completed':
         _cancel_descendants(self, frame)
+    if (frame is not None and not frame.parent_id and frame.meta is not None and state == 'cancelled'
+            and record.direction == 'TX' and not record._cancelled_by_peer):
+        # Отмена ROOT должна попасть удалённому RX до освобождения локального
+        # ownership. Радио-ретраи выполняет transport; отказ остаётся в events,
+        # а peer без уведомления сможет отменить приём вручную.
+        self._send_result(record, ResultMessage(record.transfer_id, False, 'cancelled', 'cancelled by sender'))
     core.FileTransferManager._terminal_record_settled(self, record, state, failure=failure, final_path=final_path)
     if record.state not in core._TERMINAL_STATES or frame is None:
         return
@@ -457,7 +463,7 @@ def _terminal_record_settled(self, record, state, *, failure=None, final_path=No
                     parent.requests.append(frame.service_request)
                 with parent.record._condition:
                     parent.record._condition.notify_all()
-            if record.state != 'completed':
+            if record.state != 'completed' and not parent.record.cancel_event.is_set():
                 self._abort_recursive(failure or core.FileTransferError('remote_failed', 'missing-list transfer failed'), record.transfer_id)
             elif parent.deferred_end is not None:
                 end = parent.deferred_end
@@ -493,6 +499,7 @@ def _cancel_descendants(self, root):
             continue
         if frame.record.state in core._TERMINAL_STATES:
             continue
+        frame.record._cancelled_by_peer = root.record._cancelled_by_peer
         frame.record.cancel_event.set()
         with frame.record._condition:
             frame.record._condition.notify_all()
@@ -598,6 +605,18 @@ def feed_binary(self, payload):
     try:
         message = decode_message(payload)
     except FileProtocolError:
+        return
+    if isinstance(message, ResultMessage) and not message.ok and message.code == 'cancelled':
+        with self._lock:
+            root = _root_frame(self, message.transfer_id)
+            if (root is not None and not self._stopping.is_set()
+                    and root.record.state not in core._TERMINAL_STATES
+                    and not root.record._cancelled_by_peer):
+                # RESULT cancelled симметричен: относится к тому же ROOT,
+                # останавливает descendants и не вызывает ответный cancel loop.
+                root.record._cancelled_by_peer = True
+                root.record.event('remote_cancel_received')
+                self.cancel(root.record.transfer_id)
         return
     if isinstance(message, MissingMessage):
         # В текущем протоколе запрос принимается только из проверенного

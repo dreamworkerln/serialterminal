@@ -927,6 +927,16 @@ class TerminalTui:
                 if not self.session._queue_profile_action(action):
                     self.status = "Profile status refresh could not be queued"
                     break
+        poller = getattr(self.panel, "poll_actions", None)
+        if callable(poller):
+            for action in poller(
+                self.session._current_transport(),
+                connected=connected,
+                connection_generation=self.session.connection_generation(),
+            ):
+                if not self.session._queue_profile_action(action):
+                    self.status = "Profile status refresh could not be queued"
+                    break
         self._was_connected = connected
 
     def _submit_input(self) -> None:
@@ -967,8 +977,9 @@ class TerminalTui:
             return
         curses.endwin()
         try:
-            self.session._change_device()
-            self._sync_panel_transport_identity(self.session._current_transport())
+            self.session._change_device(
+                before_resume=self._sync_panel_transport_identity,
+            )
             self.status = "Device chooser closed"
         finally:
             stdscr.refresh()
@@ -1210,6 +1221,10 @@ class TerminalTui:
             self._report_application_error(exc, "TUI action")
 
     def run(self, stdscr) -> None:
+        # Esc ждёт продолжения escape sequence; обычный timeout окна этот
+        # таймер не ограничивает. Короткое ожидание сохраняет разбор F-клавиш
+        # и стрелок без секундной паузы на одиночном Esc.
+        curses.set_escdelay(25)
         curses.curs_set(1)
         stdscr.keypad(True)
         stdscr.timeout(100)

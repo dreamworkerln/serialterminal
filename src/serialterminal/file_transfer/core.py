@@ -245,6 +245,7 @@ class _TransferRecord:
         self.failure: dict[str, Any] | None = None
         self.final_path: str | None = None
         self.cancel_event = threading.Event()
+        self._cancelled_by_peer = False
         self.remote_result: ResultMessage | None = None
         self.remote_failure_event = threading.Event()
         self.remote_missing: deque[MissingMessage] = deque()
@@ -399,7 +400,8 @@ class _TransferRecord:
                 self.final_path = str(final_path)
             snapshot = self._snapshot_locked()
             self._condition.notify_all()
-        self.event("transfer_" + state, progress=snapshot)
+        origin = {"cancelled_by_peer": self._cancelled_by_peer} if state == "cancelled" else {}
+        self.event("transfer_" + state, progress=snapshot, **origin)
 
     def set_remote_result(self, result: ResultMessage) -> None:
         with self._condition:
@@ -673,6 +675,7 @@ class FileTransferManager:
             record._presentation_resume = 0
             record._presentation_activity = 0
             record.cancel_event.clear()
+            record._cancelled_by_peer = False
             record.remote_result = None
             record.remote_failure_event.clear()
             record.remote_missing.clear()
@@ -1936,35 +1939,36 @@ class FileTransferManager:
                 self._incoming = None
         # Claimed incoming transfer держит session ownership до локального
         # BINARY submission RESULT; remote loss чинится повторным FT1 control replay.
-        self._send_result(
-            incoming.record,
-            ResultMessage(
-                transfer_id=incoming.record.transfer_id,
-                ok=False,
-                code=(
-                    failure.code
-                    if failure.code in {
-                        "busy",
-                        "invalid_metadata",
-                        "invalid_chunk",
-                        "missing_chunks",
-                        "wire_hash_mismatch",
-                        "decompression_failed",
-                        "original_hash_mismatch",
-                        "storage_failed",
-                        "repair_too_large",
-                        "missing_percent_exceeded",
-                        "recursion_depth_limit",
-                        "repair_no_progress",
-                        "remote_sender_timeout",
-                        "cancelled",
-                        "protocol_error",
-                    }
-                    else "protocol_error"
+        if not (terminal_state == "cancelled" and incoming.record._cancelled_by_peer):
+            self._send_result(
+                incoming.record,
+                ResultMessage(
+                    transfer_id=incoming.record.transfer_id,
+                    ok=False,
+                    code=(
+                        failure.code
+                        if failure.code in {
+                            "busy",
+                            "invalid_metadata",
+                            "invalid_chunk",
+                            "missing_chunks",
+                            "wire_hash_mismatch",
+                            "decompression_failed",
+                            "original_hash_mismatch",
+                            "storage_failed",
+                            "repair_too_large",
+                            "missing_percent_exceeded",
+                            "recursion_depth_limit",
+                            "repair_no_progress",
+                            "remote_sender_timeout",
+                            "cancelled",
+                            "protocol_error",
+                        }
+                        else "protocol_error"
+                    ),
+                    reason=failure.message,
                 ),
-                reason=failure.message,
-            ),
-        )
+            )
         self._terminal_record(
             incoming.record,
             terminal_state,
@@ -2035,6 +2039,7 @@ class FileTransferManager:
                 if record.state in _TERMINAL_STATES:
                     return record._snapshot_locked()
                 record.cancel_event.set()
+                record._condition.notify_all()
                 attempt = record._presentation_attempt
         record.event("cancel_requested")
         if record.direction == "RX":

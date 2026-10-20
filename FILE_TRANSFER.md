@@ -30,7 +30,7 @@ The current recursive protocol uses FT1 version 3, expanded META/END and interna
 missing-list files. DATA capacity remains unchanged. Midstream repair and the
 FT1 FLOW/CAPS/QUERY extension remain deferred. Machine QUERY is local.
 
-A negative remote RESULT also interrupts cancellation-aware binary send,
+A negative remote RESULT other than explicit `code:"cancelled"` also interrupts cancellation-aware binary send,
 controller-readiness and pipeline submit/settle waits. It does not set the operator
 cancel event: the outcome stays `remote_failed` and the sender journal is retained.
 Owned pipeline cleanup/drain still runs; an ambiguous drain retains the lease and
@@ -1402,6 +1402,11 @@ manifests and sender journals. `file_send_start` explicitly revalidates an uncha
 source and reuses the matching old transfer_id; ambiguous journals fail rather than
 being guessed. Receiver partials survive timeout/failure; completed tombstones replay
 RESULT without a second publication. Automatic background restart is not performed.
+On explicit same-ID resume, an exactly matching receiving/suspended manifest whose
+`.part` is absent recovers automatically: checkpoint zero received proof before
+creating an empty part, then send `RESUME 0`. Reset failures cannot restore the old
+map beside that empty file. Existing partials, quarantine/publishing state and
+unsafe paths are preserved; the reset is logged as `resume_state_reset`.
 Matching META received during receiver timeout settlement waits for ownership
 release and recursive cleanup through a coalesced replay; it does not become a
 terminal metadata conflict merely because the previous attempt is still settling.
@@ -1585,6 +1590,16 @@ Human output filtering belongs to the selected profile and does not change durin
 FT1. Machine delimiters/BINARY presentation stay hidden; useful controller output
 remains available, including during repair and reconnect.
 
+
+The existing negative `RESULT` with `code:"cancelled"` is an explicit peer abort,
+accepted symmetrically from TX or RX and mapped to the matching ROOT and descendants.
+It uses cooperative cancellation/cleanup, is idempotent and is not echoed back.
+Unknown or already-terminal transfers ignore it. Other negative RESULT codes retain
+`remote_failed` semantics and resumable sender journals. No new wire message or
+firmware command is required. A `transfer_cancelled` event includes optional
+`cancelled_by_peer:true|false`; process-local presentation carries the same origin
+for TUI wording. Local acceptance still does not prove peer receipt.
+
 ## 35. Interactive file-transfer window
 
 The wide centered TUI overlay follows terminal resize and shows ROOT identity/name,
@@ -1599,10 +1614,14 @@ It is not triggered by closing/hiding the window, progress, intermediate RESULT
 or recursive service-file completion. Terminal compact headers are hidden.
 Start, phase changes, recovery/resume, cancellation requests and suspension are
 also summarized in human chat without per-chunk protocol noise. Confirming local
-cancellation keeps the overlay visible with an explicit pending state through TX/RX
-cleanup. Only successful completion automatically closes the window; failed/cancelled
-results in an open window remain until explicit Esc. A background result stays in
-chat without reopening the window. Retained manager history is preserved.
+cancellation closes the question and progress window immediately, with cleanup and
+ownership settlement continuing in the manager. Received peer cancellation stops
+work and dismisses any question while retaining stopped progress; Esc closes it
+directly. A stale Enter from that question is consumed. Both directions use this
+contract. Failed results remain visible until Esc; success closes automatically.
+A background result stays in chat without reopening the window. Retained manager
+history is preserved. If the cancellation notice is lost despite transport retries,
+the still-active peer can be cancelled manually through Esc/Yes.
 Success during confirmation leaves a visible terminal
 notice until Enter/Esc, preventing a stale Enter from reaching controller input.
 During a running transfer, F7 switches between the overlay and one compact line:

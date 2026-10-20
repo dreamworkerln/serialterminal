@@ -433,7 +433,9 @@ class TerminalSession(ManagedSession):
         if action is not None and not self._queue_profile_action(action):
             self.write_output("[serialterminal] device help request was not queued\n\n")
 
-    def _change_device(self) -> None:
+    def _change_device(
+        self, *, before_resume: Callable[[Transport], None] | None = None,
+    ) -> None:
         if self.device_chooser is None:
             self.write_output("\n[device chooser is not available]\n\n")
             return
@@ -468,7 +470,13 @@ class TerminalSession(ManagedSession):
                 "[future reconnects will only retry this target]\n\n"
             )
 
-        self.connection_paused.clear()
+        try:
+            if before_resume is not None:
+                # Seed панели задаётся до нового RX: быстрый identity response
+                # не должен затем затираться пустым USB identity label.
+                before_resume(self._current_transport())
+        finally:
+            self.connection_paused.clear()
 
     def _run_bluetooth_scanner(self) -> None:
         transport = self._current_transport()

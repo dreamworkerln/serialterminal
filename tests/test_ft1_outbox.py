@@ -1,5 +1,4 @@
 import threading
-import time
 import pytest
 
 from serialterminal.file_transfer import FileTransferManager, DataMessage, encode_message

@@ -64,6 +64,14 @@ takeover по старому discovery snapshot.
 
 Transient UNKNOWN probe не означает NO и не должен заставлять scenario считать ранее подтверждённый target неподдерживаемым. Definitive probe result остаётся authoritative.
 
+Human `--profile chatter` фильтрует BLE chooser по advertised/confirmed NUS,
+включая F2 после смены профиля. JSONL `discover` сохраняет all-device список;
+`profile` в `open` выбирает поведение session, а не фильтр discovery.
+
+Human Chatter TUI отдельно делает до 3 повторных USB `/id` при отсутствии
+canonical NODE, с интервалом 1 s. Это не поведение JSONL `open`; не считать
+успешный preamble write доказательством полученной canonical identity.
+
 Если target отсутствует, используй Bluetooth capability scanner/prober и повтори `discover`. После discovery открывай возвращённый `device_key`; не используй BLE name aliases.
 
 Для Serial явный `baud` в `discover` сохраняется как override. Если его нет,
@@ -235,7 +243,10 @@ Controller lifetime отделён от transport generation. USB tty может
 
 Generic `tx_state=unknown` по-прежнему нельзя blind-retry через обычный `send_line`; recovery authority здесь существует только потому, что FT1 message identity/idempotence определены приложением.
 
-Отрицательный RESULT прерывает cancellation-aware binary send/readiness и
+Явный `RESULT(ok=false, code="cancelled")` симметрично отменяет ROOT и descendants
+на peer без ответного cancel loop; неизвестный/terminal ID игнорируется.
+`transfer_cancelled` может содержать `cancelled_by_peer` для происхождения отмены.
+Остальной отрицательный RESULT прерывает cancellation-aware binary send/readiness и
 pipeline waits. Это `remote_failed`, не operator cancel: sender journal остаётся.
 При cleanup/drain error исходный remote code сохраняется, а неопределённый drain
 удерживает lease до session close. Backend, игнорирующий stop signal, сохраняет
@@ -260,6 +271,12 @@ EOF agent закрывает FT manager через suspension и сохраня�
 Chatter получает radio-dependent deadlines из проверенного `/config` + `/radio read config` и LoRa ToA/ACK/retry, а не из фиксированных SF7 таймаутов. `radio_timing_unavailable` требует разобраться с отсутствующим или расходящимся readback; не обходи его ручным `/bin`. `timeout_ms` у observe — только long-poll, не предел длительности файла. У ROOT нет общего часового deadline; idle/control/drain используют бюджеты profile. При local boot control/idle могут оцениваться по последнему проверенному PHY; RF admission всё равно ждёт READY и fresh readback. После failed ROOT перед явным resume дождись settlement обеих сторон: поздний RESULT ещё активного remote child может совпасть с новой попыткой того же ROOT ID.
 
 Receiver timeout может оставить durable suspended partial и освободить runtime ownership. Не интерпретируй `remote_sender_timeout` как обязательное удаление partial state. Durable received ranges, а не размер `.part`, являются доказательством того, какие chunks можно пропустить после restart.
+
+При matching META и корректном receiving/suspended manifest без `.part` receiver
+сам сбрасывает durable/runtime proof до нуля и отвечает `RESUME 0` с тем же ID.
+Событие `resume_state_reset` содержит reason=missing_partial, previous_chunks и
+next_chunk=0. Ручная чистка journals не нужна. Это не разрешает сбрасывать
+существующие partial, publishing/quarantined state, чужой owner или unsafe paths.
 
 Не удаляй `.part`/manifest вручную во время recovery. Completed tombstone позволяет повторно подтвердить уже опубликованный transfer после потерянного RESULT без создания duplicate final file.
 
@@ -393,7 +410,8 @@ Permission errors Bluetooth/D-Bus/sandbox не означают отсутств
 - собирай один run bundle после полного сценария вместо множества ручных повторов, если project policy это допускает;
 - UI-only hotkeys/visual presentation не пытайся доказывать machine API, если для них нет отдельного PTY/UI harness.
 - не перечитывай накопленный stdout background agent process после того, как его JSON responses уже были обработаны; после clean close/EOF проверяй только нужный final state или finalized logs;
-- finalized `.log`/`.console.log` проверяй targeted search/count/summary; не загружай целиком большой forensic log обратно в model context без конкретной forensic необходимости.
+- finalized ST-логи анализируй Python-скриптом `scripts/analyze_file_transfer.py`; в контекст получай сводки, не сырые записи;
+- при уже явно обнаруженном отказе/баге/ошибке используй ограниченный `--excerpt-at <ISO-время-с-timezone>` с `--before`/`--after`, при необходимости `--excerpt-log application` и явным `--show-excerpt`; не собирай полный лог последовательными фрагментами. Подробности лимитов и provenance — `LOGGING.md`.
 
 Firmware-specific команды, RSSI/SNR/Q, radio collision rules, reboot/cancel semantics и acceptance criteria остаются в project-specific skill, а не здесь.
 
@@ -403,8 +421,10 @@ Firmware-specific команды, RSSI/SNR/Q, radio collision rules, reboot/canc
 
 ## Application errors and incremental timing
 
-CLI создаёт отдельный `logs/serialterminal-application-<timestamp>-p<pid>.log`:
-traceback ошибки записывается сразу, с flush/fsync. Не путай его с транспортным
+При `--log /path/test.log` CLI создаёт рядом все четыре файла: `test.log`,
+`test.console.log`, `test.fttiming.jsonl` и `test.application.log`. Без `--log`
+application log использует `logs/serialterminal-application-<timestamp>-p<pid>.log`
+относительно рабочего каталога. Traceback ошибки записывается сразу, с flush/fsync. Не путай его с транспортным
 `.log`. Ошибка не должна нарушать JSONL stdout. TUI показывает красную ERROR плашку;
 Ctrl+C завершает работу без traceback в терминал. Timing `.fttiming.jsonl` пишется
 пачками256 отдельным writer (очередь максимум8), close дописывает остаток. После

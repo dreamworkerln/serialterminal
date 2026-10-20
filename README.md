@@ -12,7 +12,7 @@ baud разрешается по профилю из `open`. При смене �
 Общие immutable defaults определены в `src/serialterminal/settings.py`;
 профили выбирают свой Serial default, transports получают разрешённое значение.
 
-FT1 отрицательный RESULT прерывает cancellation-aware ожидания send/readiness и
+FT1 отрицательный RESULT (кроме явной peer-отмены `code="cancelled"`) прерывает cancellation-aware ожидания send/readiness и
 pipeline, сохраняя `remote_failed` и sender journal. Явный operator cancel остаётся
 отдельным действием. Неопределённый drain удерживает ownership до закрытия session.
 
@@ -20,8 +20,11 @@ pipeline, сохраняя `remote_failed` и sender journal. Явный operato
 Linux/BlueZ оставшееся соединение своего клиента адресно отключается и проверяется
 повторно; отказ или неизвестный итог сохраняются в логах. Agent `close` возвращает
 `transport_release`, а при EOF итог остаётся в логах. SIGKILL не выполняет cleanup.
-Прототип discovery показывает все BLE scan results и подключённые устройства
+Generic discovery показывает все BLE scan results и подключённые устройства
 BlueZ, включая не рекламирующие себя: у последних жёлтый суффикс `(busy)`.
+В human chooser профиля `chatter` BLE-список ограничен NUS evidence:
+advertised NUS service UUID либо ранее подтверждённая NUS capability из cache.
+Это действует и для F2 после смены профиля; имя устройства и `(busy)` не дают допуск.
 Явный выбор busy-устройства в меню или agent `open` сначала отключает именно его
 и проверяет освобождение, затем выполняет обычный connect. При ошибке release
 подключение не начинается; остальные адреса не отключаются. Поиск сам ничего
@@ -136,6 +139,14 @@ python3 serialterminal.py --profile chatter
 
 Human `chatter` profile сохраняет Chatter-aware presentation/hotkeys и для USB Serial отправляет `/id` как connect/reconnect preamble. Для BLE актуальная Chatter firmware сама один раз на каждое соединение публикует canonical identity после подписки клиента на human-console characteristic `0003`; TUI не дублирует этот identity запросом `/id`.
 
+Если при USB-подключении TUI не получил canonical `CHATTER NODE`, профиль
+повторяет read-only `/id` раз в секунду, максимум 3 раза сверх connect preamble.
+После ответа повторы прекращаются; при исчерпании попыток ID остаётся неизвестным.
+Успешная запись в порт сама по себе не считается получением ID. При выборе через
+F2 transport seed панели устанавливается до возобновления RX, чтобы не стереть
+уже пришедший ответ. BLE, generic, classic frontend и JSONL agent не получают
+этот дополнительный TUI retry.
+
 По умолчанию каждый отдельный запуск human terminal создаёт связанную пару:
 
 ```text
@@ -145,7 +156,7 @@ logs/serialterminal-YYYYMMDD-HHMMSS-ffffff-pPID.console.log
 
 Основной human `.log` теперь является timestamped all-stream timeline: input помечается `[I]`, локальные сообщения `[LOCAL]`, а принятые logical lines — `[O <stream>]`, включая background Chatter telemetry. Старый untimestamped compatibility transcript больше не создаётся. Companion `.console.log` остаётся фильтрованным human-console view с offset-aware ISO timestamp, millisecond precision и process-local session token.
 
-Явный `--log <path>` выбирает путь основного файла; companion автоматически получает тот же basename с суффиксом `.console.log`. Полный общий logging contract описан в `LOGGING.md`.
+Явный `--log <path>` выбирает путь основного файла; рядом автоматически создаются companions с тем же basename и суффиксами `.console.log`, `.fttiming.jsonl`, `.application.log`. Например, `--log /runs/test.log` сохраняет все четыре файла в `/runs/`. Полный общий logging contract описан в `LOGGING.md`.
 
 После запуска terminal показывает выбранный profile и предлагает локальный help:
 
@@ -192,13 +203,15 @@ F7 hides/shows only a running transfer; a terminal result cannot reopen its wind
 Boot/READY without an admitted FT1 operation never enables a file window. Actual
 recovery/resume returns the progress window to the center, including from background.
 Every ROOT completion independently writes one white chat line with TX/RX, filename
-and «успешно», «ошибка» with its reason, or «прервано пользователем». This follows
+and «успешно», «ошибка» with its reason, or «отменена пользователем/отправителем/получателем». This follows
 the terminal event, regardless of window visibility or closure; intermediate RESULT,
 100% progress and recursive service-file completion do not report success.
 Start, phase changes, recovery/resume and cancellation requests also appear in chat;
-chunk-level protocol traffic does not flood it. Confirming cancellation keeps the
-window open with an explicit pending state until cleanup finishes. Only success
-automatically closes it: failed/cancelled results in an open window remain until Esc.
+chunk-level protocol traffic does not flood it. Confirming local cancellation closes
+the window immediately while manager cleanup retains ownership until settlement.
+On the peer, received cancellation stops the transfer but retains the progress window;
+Esc closes it directly without another confirmation. This is symmetric for TX/RX.
+Failed results remain visible until Esc; success closes the window automatically.
 A background outcome stays in chat and does not reopen the window. While a transfer
 is running, `F7` switches between the window and one compact line with direction,
 filename, DATA percent/rate or current recovery/verification phase, and an F7 hint.
@@ -228,6 +241,14 @@ SerialTerminal process restart uses retained manifests and sender journals; see
 retain a suspended or quarantined partial, while explicit cancellation removes it.
 Negative RESULT stops new DATA submissions. RESULT OK follows verified durable
 publication and the completed tombstone.
+
+Если у старой FT1-передачи сохранился корректный manifest, но отсутствует `.part`,
+повторный F5 на том же файле автоматически начинает приём с нулевого чанка под
+прежним ID. Получатель сначала сохраняет пустую карту received ranges и отвечает
+`RESUME 0`; TUI пишет, что сохранённые данные отсутствуют и приём идёт с начала.
+Ручная очистка journals для этого случая не нужна. Существующие partial, quarantine,
+publishing state и чужие активные owners защищены. Контракт: [FT1_RESUME.md](FT1_RESUME.md).
+
 Verified incoming files default to the `files` directory in the SerialTerminal
 source root (next to `pyproject.toml`) when running from a checkout/editable install;
 the directory is created on demand on Linux/Windows. Packaged installs without a
@@ -429,7 +450,8 @@ Generic SerialTerminal API остаётся device-agnostic. Project-specific ph
 
 ## Discovery и reconnect
 
-Обычный запуск не подключается подряд ко всем неизвестным Bluetooth-устройствам. В chooser попадают:
+Обычный запуск не подключается подряд ко всем неизвестным Bluetooth-устройствам.
+В human chooser при `--profile chatter` попадают:
 
 - USB Serial;
 - BLE, рекламирующие NUS service UUID;
@@ -438,11 +460,10 @@ Generic SerialTerminal API остаётся device-agnostic. Project-specific ph
 
 BLE advertised name не является capability signal и не добавляет устройство в chooser. Если ожидаемый BLE target не рекламирует NUS и ещё не находится в capability cache, используй Bluetooth scanner/prober для подтверждения NUS, затем повтори discovery.
 
-Неизвестный BLE по умолчанию скрыт:
-
-```python
-SHOW_ALL_BLE_DEVICES = False
-```
+В профиле `generic` BLE chooser сохраняет все scan results и подключённые BlueZ
+устройства. Capability scanner/prober также исследует все устройства независимо
+от human profile. F2 использует известные targets и read-only BlueZ snapshot,
+без скрытого scan, GATT connect/probe или disconnect.
 
 Выбор:
 

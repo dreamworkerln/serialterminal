@@ -5,6 +5,8 @@ import re
 import time
 
 from ..base import ProfileAction, SendLine
+from ...transports.base import Transport
+from ...transports.serial import SerialTransport
 
 
 _CFG_RADIO_RE = re.compile(
@@ -44,6 +46,8 @@ _BW_RE = re.compile(r"\[SYS\] BW (?P<bw>[0-9.]+) kHz")
 
 
 LINK_METRIC_TTL_S = 15.0
+IDENTITY_RETRY_INTERVAL_S = 1.0
+IDENTITY_RETRY_LIMIT = 3
 
 
 class ChatterTuiPanel:
@@ -60,6 +64,10 @@ class ChatterTuiPanel:
         self._link_metric_ttl_s = float(link_metric_ttl_s)
         self._clock = time.monotonic if clock is None else clock
         self.node = "?"
+        self._identity_confirmed = False
+        self._identity_connection: tuple[str, int] | None = None
+        self._identity_next_query: float | None = None
+        self._identity_attempts = 0
         self.power = "?"
         self.frequency = "?"
         self.sf = "?"
@@ -81,6 +89,10 @@ class ChatterTuiPanel:
         # BLE уже знает advertised peer name до controller /id. Это только
         # UI seed: явная firmware identity ниже остаётся authoritative.
         self.node = label or "?"
+        self._identity_confirmed = False
+        self._identity_connection = None
+        self._identity_next_query = None
+        self._identity_attempts = 0
 
     def connected_actions(self) -> tuple[ProfileAction, ...]:
         # TUI status is refreshed after every reconnect without teaching the
@@ -90,6 +102,35 @@ class ChatterTuiPanel:
         # are subscribed. TUI only refreshes runtime configuration here.
         return (SendLine("/config"),)
 
+    def poll_actions(
+        self, transport: Transport, *, connected: bool, connection_generation: int,
+    ) -> tuple[ProfileAction, ...]:
+        if not connected:
+            self._identity_connection = None
+            self._identity_next_query = None
+            self._identity_attempts = 0
+            return ()
+        if not isinstance(transport, SerialTransport) or self._identity_confirmed:
+            return ()
+        now = self._clock()
+        connection = (transport.device_key, connection_generation)
+        if connection != self._identity_connection:
+            self._identity_connection = connection
+            self._identity_attempts = 0
+            self._identity_next_query = now + IDENTITY_RETRY_INTERVAL_S
+        if (
+            self._identity_attempts >= IDENTITY_RETRY_LIMIT
+            or self._identity_next_query is None
+            or now < self._identity_next_query
+        ):
+            return ()
+        # Успешный USB write не подтверждает исполнение /id: первый запрос
+        # может попасть в остаток console input или прийти до готовности ноды.
+        # Повторяем только read-only query, ограниченно и до canonical NODE.
+        self._identity_attempts += 1
+        self._identity_next_query = now + IDENTITY_RETRY_INTERVAL_S
+        return (SendLine("/id"),)
+
     def consume_line(self, stream: str, line: str) -> None:
         del stream
         text = line.strip()
@@ -97,6 +138,7 @@ class ChatterTuiPanel:
         match = _NODE_RE.search(text)
         if match:
             self.node = match.group("node")
+            self._identity_confirmed = True
 
         match = _CFG_RADIO_RE.search(text)
         if match:

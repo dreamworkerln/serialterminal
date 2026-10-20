@@ -8,14 +8,14 @@ from typing import Any
 
 from .settings import DEFAULTS, resolve_serial_baud
 from .application_log import report_exception
-from .device_cache import confirmed_devices
+from .device_cache import capability_confirmed, confirmed_devices, get_cached_device
 from .profiles import (
     GENERIC_PROFILE,
     PROFILE_NAMES,
     TerminalProfile,
     resolve_profile,
 )
-from .runlog import default_log_path
+from .runlog import application_log_path, default_log_path
 from .startup_controls import InitialControlReader
 from .terminal import TerminalSession
 from .transports.base import Transport, TransportError
@@ -197,6 +197,23 @@ class DeviceSelector:
             )
         return result
 
+    def _eligible_candidates(
+        self, candidates: list[DeviceCandidate],
+    ) -> list[DeviceCandidate]:
+        config = self.profile.ble_config()
+        if config is None or not config.chooser_requires_nus:
+            return candidates
+        from .ble_discovery import NUS_SERVICE_UUID
+
+        return [
+            candidate for candidate in candidates
+            if candidate.kind != "ble"
+            or NUS_SERVICE_UUID in candidate.identity.advertised_services
+            or capability_confirmed(
+                get_cached_device("ble", candidate.identity.address), "nus",
+            )
+        ]
+
     def known_candidates(self) -> list[DeviceCandidate]:
         """Return known terminal targets without active Bluetooth discovery."""
         by_key: dict[str, DeviceCandidate] = {}
@@ -235,12 +252,19 @@ class DeviceSelector:
                 for identity in connected:
                     candidate = self._ble_candidate(identity)
                     if candidate.key not in by_key or not by_key[candidate.key].busy:
+                        previous = by_key.get(candidate.key)
+                        if previous is not None:
+                            # BlueZ Connected не заменяет evidence из advertisement.
+                            candidate = self._ble_candidate(replace(
+                                identity,
+                                advertised_services=previous.identity.advertised_services,
+                            ))
                         by_key[candidate.key] = candidate
         if "spp" in allowed:
             for candidate in self._cached_spp_candidates():
                 by_key.setdefault(candidate.key, candidate)
 
-        result = list(by_key.values())
+        result = self._eligible_candidates(list(by_key.values()))
         result.sort(key=self._candidate_sort_key)
         return result
 
@@ -265,7 +289,7 @@ class DeviceSelector:
 
         candidates.sort(key=self._candidate_sort_key)
         self._remember_candidates(candidates)
-        return candidates
+        return self._eligible_candidates(candidates)
 
     @staticmethod
     def _run_initial_scanner() -> None:
@@ -1062,17 +1086,37 @@ def _dispatch_main(argv: list[str] | None = None) -> int:
     return _run_auto(args, "serialterminal")
 
 
+def _explicit_application_log_path(argv: list[str]):
+    parsers = {
+        "agent": _agent_parser,
+        "scan": _scan_parser,
+        "ble": _ble_parser,
+        "spp": _spp_parser,
+        "serial": _serial_parser,
+        "auto": _auto_parser,
+    }
+    mode = argv[0] if argv and argv[0] in parsers else None
+    parser = parsers[mode](f"serialterminal {mode}") if mode else _auto_parser("serialterminal")
+    # Используем настоящий parser: --log=..., повторные флаги и -- должны
+    # трактоваться точно так же, как при последующем запуске frontend.
+    args = parser.parse_args(argv[1:] if mode else argv)
+    path = getattr(args, "log", None)
+    return application_log_path(path) if path is not None else None
+
+
 def main(argv: list[str] | None = None) -> int:
     from .application_log import ApplicationLog
 
+    args = list(sys.argv[1:] if argv is None else argv)
+    log_path = _explicit_application_log_path(args)
     try:
-        log = ApplicationLog()
+        log = ApplicationLog(log_path)
     except OSError as exc:
         print(f"ST could not open application log: {exc}", file=sys.stderr)
         return 1
     with log:
         try:
-            return _dispatch_main(argv)
+            return _dispatch_main(args)
         except KeyboardInterrupt:
             log.note("Ctrl+C: normal interruption")
             return 130

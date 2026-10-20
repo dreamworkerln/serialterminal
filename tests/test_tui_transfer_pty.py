@@ -176,11 +176,11 @@ def _child(folder, direction):
         key("\n")
         assert manager.cancelled == ["0000000000000001"]
         text = frame("cancel_retained")
-        assert "Передача файла" in text and f"File {direction}" not in text
+        assert "Передача файла" not in text and f"File {direction}" not in text
         assert tui._file_window().confirmation_id is None
-        assert "прервано пользователем" in text
+        assert "отменена пользователем" in text
         key(curses.KEY_F7)
-        assert "Передача файла" in frame("cancel_f7_ignored")
+        assert "Передача файла" not in frame("cancel_f7_ignored")
         key("\x1b")
         assert "Передача файла" not in frame("cancel_closed")
         key(curses.KEY_F7)

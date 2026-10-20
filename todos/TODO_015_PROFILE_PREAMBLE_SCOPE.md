@@ -2,6 +2,11 @@
 
 Status: OPEN
 
+Related narrow startup fix: TODO_055 adds profile-owned human TUI USB identity
+confirmation/retry and fixes F2 identity seeding order. It preserves the existing
+Serial-only human preamble and agent initialization, so it does not resolve this
+TODO's broader cross-frontend preamble applicability decision or CI gate.
+
 ## Purpose
 
 Resolve the ownership mismatch between the architecture rule that a `TerminalProfile` owns connect/reconnect preamble behavior and the human frontend's transport-specific suppression of that preamble.

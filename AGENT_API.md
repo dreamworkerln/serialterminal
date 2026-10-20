@@ -173,6 +173,12 @@ Prototype BLE discovery returns all devices seen by the active scan, plus curren
 
 Discovery does not disconnect devices. If active scan fails but connected BlueZ objects are available, discovery returns those objects and logs the scan failure. If BlueZ enumeration is unavailable, ordinary scan results remain available and the enumeration failure is logged. The known-device chooser refreshes BlueZ connection state without an active scan.
 
+Human `--profile chatter` applies a separate chooser policy: BLE candidates require
+advertised NUS or confirmed NUS cache evidence, including known-device/F2 lists
+after profile switches. `generic` human selection and JSONL `discover` keep the
+all-device behavior above. Selecting `profile:"chatter"` in `open` configures that
+session; it does not filter the process's discovery results.
+
 If an expected BLE target is absent, use the Bluetooth capability scanner/prober, then run `discover` again. Machine clients open the returned `device_key`; there are no BLE name aliases in the JSONL API.
 
 ## Open
@@ -210,6 +216,11 @@ Bundled controller profiles are explicit, for example:
 ```
 
 The Chatter profile supplies its controller preamble (including `/id`) and profile-defined BLE receive layout (`chat` plus optional `telemetry`). Profile selection is per session, not process-global. One process may hold sessions with different profiles simultaneously.
+
+The human Chatter TUI additionally retries a missing USB identity response at
+1-second intervals, at most three times after its Serial preamble, stopping on
+canonical NODE. This is profile-owned human presentation initialization; JSONL
+`open`/session initialization does not add these retries or change its schema.
 
 `open` does not accept the legacy `auto_id` toggle. Unknown profile names return `unknown_profile`.
 
@@ -600,7 +611,17 @@ final file was atomically published. Sender `completed` means it received remote
 {"id":63,"op":"file_transfer_close","session":"s1","transfer_id":"2c0c98db8bfdd7d1"}
 ```
 
-Cancel is cooperative. A terminal transfer can be closed to release retained
+Cancel is cooperative.
+The existing negative `RESULT` with `code:"cancelled"` is an explicit peer abort,
+accepted symmetrically from TX or RX and mapped to the matching ROOT and descendants.
+It uses cooperative cancellation/cleanup, is idempotent and is not echoed back.
+Unknown or already-terminal transfers ignore it. Other negative RESULT codes retain
+`remote_failed` semantics and resumable sender journals. No new wire message or
+firmware command is required. A `transfer_cancelled` event includes optional
+`cancelled_by_peer:true|false`; process-local presentation carries the same origin
+for TUI wording. Local acceptance still does not prove peer receipt.
+
+A terminal transfer can be closed to release retained
 progress/event history after ownership and terminal settlement finish. An active
 or still-settling transfer returns `file_transfer_active`; retry close after
 settlement. Unresolved ownership requires session close.
@@ -636,7 +657,7 @@ Snapshots optionally include repair={missing_total,depth,no_progress}; no_progre
 receiver-owned. The sender learns missing_total from each hash-verified full list.
 A nested negative RESULT preserves its original remote code in the ROOT sender
 failure.details.remote_code; the sender failure.code remains remote_failed.
-A negative remote RESULT also interrupts cancellation-aware binary send,
+A negative remote RESULT other than explicit `code:"cancelled"` also interrupts cancellation-aware binary send,
 controller-readiness and pipeline submit/settle waits. It does not set the operator
 cancel event: the outcome stays `remote_failed` and the sender journal is retained.
 Owned pipeline cleanup/drain still runs; an ambiguous drain retains the lease and
@@ -656,6 +677,11 @@ drain, ownership release and recursive cleanup; RX does not wait for transport.
 Unsettled ownership or a competing active transfer returns `busy`, preserving the
 resumable identity. Queue failure is observable as `meta_replay_failed`; close
 does not reopen deferred transfers. See FT1_RESUME.md for the recovery contract.
+An exactly matching valid receiving/suspended RX manifest with an absent `.part`
+automatically resets to durable zero proof and returns `RESUME 0` for the same ID.
+`resume_state_reset` records `reason:missing_partial`, `previous_chunks` and
+`next_chunk:0`. No client cleanup or new request flag is needed. Existing partials,
+publishing/quarantined state, conflicting identities and unsafe paths are not reset.
 Concurrent final files sharing a basename are published under distinct names through
 POSIX namespace coordination, durable publishing-intent reservation and exclusive
 publication. Existing final files are never overwritten. RX restore rolls durable
@@ -674,6 +700,8 @@ unresolved pipeline tickets block further BINARY with `local_tx_unsettled` until
 observed controller reset changes the epoch. Host drain/reconnect alone is insufficient.
 Restore failures preserve the old terminal record/history; failed lease rollback retains
 admission and reports `local_ownership_unsettled` / `resume_rollback_failed`.
+For a confirmed missing-part reset, preserved history does not restore old progress:
+rollback and shutdown retain zero proof because the old bytes are absent.
 
 ## Sweep jobs
 
@@ -1111,8 +1139,12 @@ identities after a live USB controller reconnect.
 
 ## Application error log and interactive errors
 
-Each CLI process also creates `logs/serialterminal-application-<timestamp>-p<pid>.log`
-in the working directory, independently of session `--log`. It records start/stop, TUI cancel/manager-close/session-replacement phases and
+With `--log /path/test.log`, each CLI process also creates `/path/test.application.log`
+next to the primary, console and timing logs. The same basename rule applies without
+an extension: `--log /path/test` produces `/path/test.application.log`.
+Without `--log`, the application log defaults to
+`logs/serialterminal-application-<timestamp>-p<pid>.log` in the working directory.
+It opens before frontend startup and records start/stop, TUI cancel/manager-close/session-replacement phases and
 application errors with full Python traceback. Error records are immediately flushed
 and fsynced; they do not wait for process close or the timing writer. Unhandled thread
 exceptions and caught session/FT1 worker failures use this same log. A logger I/O

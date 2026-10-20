@@ -623,6 +623,8 @@ class ResumeStateStore:
             transfer_text = part.name[len(_PART_PREFIX) : -len(_PART_SUFFIX)]
             if self._protected("incoming", int(transfer_text, 16)):
                 continue
-            part.unlink(missing_ok=True)
             manifest.unlink(missing_ok=True)
+            # Сначала снимаем proof, затем данные: при interruption останется
+            # orphan .part, а не manifest с уже отсутствующими bytes.
+            part.unlink(missing_ok=True)
             total -= size

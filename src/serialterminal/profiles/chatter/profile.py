@@ -91,6 +91,7 @@ _SWEEP_ADAPTERS: Mapping[str, SweepAdapterFactory] = MappingProxyType(
 )
 _BLE_CONFIG = BleProfileConfig(
     write_characteristic=NUS_RX_UUID,
+    chooser_requires_nus=True,
     receive_streams=(
         ReceiveCharacteristic(NUS_TX_UUID, "chat"),
         # 0004 опционален: отсутствие telemetry characteristic не должно

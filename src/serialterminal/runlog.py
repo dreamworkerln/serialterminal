@@ -31,6 +31,15 @@ def console_log_path(path: str | Path) -> Path:
     return raw_path.with_name(name)
 
 
+def application_log_path(path: str | Path) -> Path:
+    raw_path = Path(path)
+    if raw_path.name.endswith(".log"):
+        name = raw_path.name[:-4] + ".application.log"
+    else:
+        name = raw_path.name + ".application.log"
+    return raw_path.with_name(name)
+
+
 def format_console_record(
     session: str,
     direction: str,

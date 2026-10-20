@@ -243,6 +243,8 @@ def test_idle_sweep_failure_is_visible_retains_partial_and_keeps_rx_alive(tmp_pa
         assert part.read_bytes() == chunks[0]
         assert manifest.is_file()
         assert manager._rx_thread.is_alive()
+        # Terminal state виден до release; новый ROOT ждёт полного settlement.
+        assert manager._outbox.wait_idle(2)
         events = manager._records[meta.transfer_id].observe(cursor=0, window=100, timeout_ms=0)["events"]
         assert any(e["kind"] == "rx_worker_error" for e in events)
         new_meta, _, _ = _fixture(transport, payload, 0xF002)

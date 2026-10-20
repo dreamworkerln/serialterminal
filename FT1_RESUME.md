@@ -116,7 +116,12 @@ range overflow retain a suspended manifest; explicit cancellation removes it.
 Legacy MISSING still carries the full set in one message, at most 28 ranges at
 payload capacity 243; overflow reports `repair_too_large` without pagination.
 
-An observed negative RESULT wakes recovery waits and stops new DATA submissions
+An explicit `RESULT(code="cancelled", ok=false)` is a symmetric peer abort: it
+cancels the matching ROOT and descendants without echoing cancellation. Unknown
+or already-terminal IDs are ignored. Explicit cancellation cleanup applies rather
+than preserving the sender journal as a remote failure.
+
+Any other observed negative RESULT wakes recovery waits and stops new DATA submissions
 in original, pipeline and repair paths, including cancellation-aware send,
 readiness and pipeline submit/settle waits. It does not set operator cancellation or
 issue `/cancel all`. Sender journals remain resumable. Secondary pipeline cleanup
@@ -239,6 +244,22 @@ write DATA bytes
 An active-META RESUME first forces a successful checkpoint, so its cursor cannot
 advance beyond persisted bytes and ranges. A checkpoint failure prevents that cursor
 from being sent.
+
+If an exactly matching valid `receiving`/`suspended` manifest remains but its `.part`
+is absent, receiver admission automatically recovers with the same transfer ID.
+Under its incoming lease it first durably replaces received ranges with an empty
+proof, then exclusively creates an empty `.part`, fsyncs/checkpoints it and replies
+`RESUME 0`. The sender retransmits from chunk zero; final hash verification and
+publication still apply. `resume_state_reset(reason=missing_partial, previous_chunks,
+next_chunk=0)` records the recovery and the TUI reports reception from the start.
+No manual journal cleanup or new transfer ID is required for this case.
+
+Failure during this reset rolls back to zero proof, never to the old received map
+beside a new empty file. Any retained runtime incoming context also loses that map,
+so shutdown cannot republish it. Existing useful `.part` files are not truncated;
+conflicting/corrupt META, publishing intent, quarantine and symlink paths do not
+qualify for this automatic reset. A live owner prevents admission. Storage failure
+still produces an explicit failure; reset does not invent received bytes.
 
 If a crash happens after bytes are written but before the manifest advances, the sender
 may retransmit those bytes. That is safe because duplicate DATA for the same
@@ -593,6 +614,9 @@ is finite. The namespace lock covers capacity checks and the write across proces
 If nothing eligible remains, the transfer fails with storage_failed; it retains
 the last useful partial and received proof. Partial writes never advance that proof.
 Final downloaded files and user source files are never eviction candidates.
+Byte-budget eviction removes a partial's manifest before its bytes. A process
+interruption between those removals can leave an orphan `.part`, which ordinary
+cleanup can remove, rather than a manifest claiming already-deleted bytes.
 No periodic cleanup timer or `/clean` command is added. Active data alone can
 exhaust the budget; the1 GiB storage budget still applies to growing wire files.
 

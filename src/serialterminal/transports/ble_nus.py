@@ -2,7 +2,7 @@ from __future__ import annotations
 
 import asyncio
 from concurrent.futures import TimeoutError as FutureTimeoutError
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 import json
 import queue
 import sys
@@ -48,6 +48,7 @@ class BleDeviceIdentity:
     name: str
     address: str
     bluez_path: str | None = None
+    advertised_services: tuple[str, ...] = field(default=(), compare=False)
 
     @property
     def busy(self) -> bool:

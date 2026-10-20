@@ -355,6 +355,8 @@ class _BlockingBinaryTransport:
         self.receiver = receiver
 
     def send_binary(self, data, *, cancel_event=None):
+        if isinstance(decode_message(data), ResultMessage):
+            return BinarySendReceipt(2)
         self.started.set()
         while cancel_event is None or not cancel_event.wait(0.01):
             pass

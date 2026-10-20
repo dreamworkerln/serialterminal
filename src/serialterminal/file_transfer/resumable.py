@@ -304,8 +304,25 @@ def _restore_incoming(self, meta: MetaMessage, *, existing=None):
 
     part = self._resume_store.incoming_part(meta.transfer_id)
     received = self._load_received(meta, payload)
-    if received is None or not part.is_file():
+    if received is None:
         return None
+    reset_missing_part = False
+    if not part.is_file():
+        if payload.get("status") == "publishing" or part.is_symlink():
+            return None
+        try:
+            part.lstat()
+        except FileNotFoundError:
+            reset_missing_part = True
+        else:
+            return None
+    previous_received_chunks = len(received)
+    if reset_missing_part:
+        received = ReceivedRanges(meta, maximum=self.max_received_ranges)
+        # Отсутствующий .part не подтверждает ни одного старого chunk.
+        # Rollback тоже обязан сохранять нулевой proof: старые ranges рядом
+        # с заново созданным пустым файлом дали бы ложный RESUME cursor.
+        payload = {**payload, "status": "suspended", "received_ranges": []}
 
     with self._lock:
         if self._active_id is not None or self._stopping.is_set():
@@ -354,6 +371,24 @@ def _restore_incoming(self, meta: MetaMessage, *, existing=None):
         if self._stopping.is_set():
             raise core.FileTransferError("local_shutdown", "manager closed during RX restore")
         checkpoint_attempted = True
+        if reset_missing_part:
+            previous_incoming = self._incoming_for(meta.transfer_id)
+            if previous_incoming is not None and previous_incoming.record is record:
+                # Suspended coordinator context тоже больше не владеет bytes.
+                # Close после неудачного restore не должен сохранить его старые
+                # ranges рядом с новым пустым partial.
+                previous_incoming.received = received
+                previous_incoming._checkpoint_count = 0
+                previous_incoming._checkpoint_time = 0.0
+            previous_runtime["bytes_completed"] = 0
+            previous_runtime["chunks_completed"] = 0
+            # Обнуляем durable proof до создания файла; crash между шагами
+            # оставит либо отсутствующий .part, либо безопасный пустой partial.
+            self._resume_store.atomic_json(self._resume_store.incoming_manifest(meta.transfer_id), payload)
+            def create_empty_part():
+                with part.open("xb"):
+                    pass
+            self._resume_store.with_reclamation(create_empty_part, keep=part)
         self._checkpoint_incoming(incoming, force=True)
         if self._stopping.is_set():
             raise core.FileTransferError("local_shutdown", "manager closed during RX checkpoint")
@@ -431,6 +466,11 @@ def _restore_incoming(self, meta: MetaMessage, *, existing=None):
             if self._active_id == meta.transfer_id:
                 self._active_id = None
         raise
+    if reset_missing_part:
+        record.event(
+            "resume_state_reset", reason="missing_partial",
+            previous_chunks=previous_received_chunks, next_chunk=0,
+        )
     record.event(
         "resume_state_restored",
         chunks=len(received),

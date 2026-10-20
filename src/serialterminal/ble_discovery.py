@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 import asyncio
-from dataclasses import dataclass, field
+from dataclasses import dataclass, field, replace
 from typing import Any, Iterable
 
 from .settings import DEFAULTS
@@ -151,12 +151,19 @@ async def _discover_terminal_ble_devices_async(timeout: float) -> list[BleDevice
         if not connected:
             raise scan_error
         report_exception(scan_error, "BLE scan failed; showing connected BlueZ devices")
-    by_key = {item.identity.key: item.identity for item in scanned if _default_visible(item)}
+    by_key = {
+        item.identity.key: replace(
+            item.identity, advertised_services=item.advertised_services,
+        )
+        for item in scanned if _default_visible(item)
+    }
     # Connected snapshot берём после scan; один адрес не дублируется в списке.
     for identity in connected:
         by_key.setdefault(identity.key, identity)
         if not by_key[identity.key].busy:
-            by_key[identity.key] = identity
+            by_key[identity.key] = replace(
+                identity, advertised_services=by_key[identity.key].advertised_services,
+            )
     return sorted(by_key.values(), key=lambda item: (item.name.lower(), item.address.lower()))
 
 

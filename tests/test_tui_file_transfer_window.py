@@ -7,7 +7,7 @@ import pytest
 from serialterminal.profiles import GENERIC_PROFILE
 from serialterminal.profiles.chatter import CHATTER_PROFILE
 from serialterminal.tui import TerminalTui, TuiOutputBuffer, TuiScrollback
-from serialterminal.tui_file_transfer import FileTransferWindow
+from serialterminal.tui_file_transfer import ACTIVE_STATES, FileTransferWindow
 from serialterminal.tui_text import cell_width, fit_cells, middle_ellipsis, screen_safe_text, wrap_cells
 
 
@@ -384,7 +384,7 @@ def test_success_during_confirmation_closes_progress_but_keeps_visible_stale_ent
 
 
 @pytest.mark.parametrize("direction,state", [("TX", "sending"), ("RX", "receiving")])
-def test_confirmed_cancel_keeps_result_until_explicit_escape(direction, state):
+def test_confirmed_cancel_closes_window_without_second_escape(direction, state):
     tui = make_tui(snapshot(direction=direction, state=state))
     tui.input_text = "draft"
     tui._handle_key(Canvas(), "\x1b", 10)
@@ -394,22 +394,19 @@ def test_confirmed_cancel_keeps_result_until_explicit_escape(direction, state):
     render(view, canvas, tui._file_snapshot())
     assert tui._file_transfer.cancelled == ["0000000000000001"]
     assert tui._file_snapshot()["state"] == "cancelled"
-    assert view.confirmation_id is None and view.visible and canvas.calls
+    assert view.confirmation_id is None and not view.visible and not canvas.calls
     assert tui._file_header_lines(80) == ()
     assert tui.input_text == "draft" and not tui.sent
     tui._handle_key(Canvas(), curses.KEY_F7, 10)
-    assert view.visible
-    tui._handle_key(Canvas(), "\x1b", 10)
-    canvas = Canvas()
-    render(view, canvas, tui._file_snapshot())
-    assert not view.visible and not canvas.calls
+    assert not view.visible
 
 
+@pytest.mark.parametrize("direction", ["TX", "RX"])
 @pytest.mark.parametrize("outcome", ["cancelled", "failed"])
-def test_confirmed_async_receiver_cancel_keeps_pending_and_terminal_visible(outcome):
-    tui = make_tui(snapshot(direction="RX", state="receiving"))
+def test_confirmed_async_cancel_stays_closed_during_and_after_cleanup(direction, outcome):
+    tui = make_tui(snapshot(direction=direction, state="sending" if direction == "TX" else "receiving"))
     manager = tui._file_transfer
-    # Настоящий RX cancel сначала ставит событие в очередь, worker завершает позже.
+    # Worker ещё владеет операцией, когда принятый запрос уже убрал окно.
     manager.cancel = manager.cancelled.append
     tui._handle_key(Canvas(), "\x1b", 10)
     tui._handle_key(Canvas(), "\n", 10)
@@ -417,21 +414,49 @@ def test_confirmed_async_receiver_cancel_keeps_pending_and_terminal_visible(outc
     canvas = Canvas()
     render(view, canvas, tui._file_snapshot())
     assert manager.busy and tui._file_transfer_active()
-    assert view.visible and any("отмена: ожидание завершения" in call[2] for call in canvas.calls)
+    assert not view.visible and not canvas.calls
     manager.value["state"] = outcome
     manager.busy = False
     canvas = Canvas()
     render(view, canvas, tui._file_snapshot())
-    assert view.visible and any("Передача файла" in c[2] for c in canvas.calls)
-    assert tui._file_header_lines(80) == ()
-    tui._handle_key(Canvas(), "\x1b", 10)
-    tui._handle_key(Canvas(), curses.KEY_F7, 10)
-    canvas = Canvas()
-    render(view, canvas, tui._file_snapshot())
     assert not view.visible and not canvas.calls
+    assert tui._file_header_lines(80) == ()
     manager.value.update(transfer_id="0000000000000002", state="receiving")
     render(view, Canvas(), tui._file_snapshot())
     assert view.visible and view.transfer_id == "0000000000000002"
+
+
+@pytest.mark.parametrize("direction", ["TX", "RX"])
+@pytest.mark.parametrize("pending", [False, True])
+def test_peer_cancel_keeps_stopped_progress_but_escape_never_asks_again(direction, pending):
+    tui = make_tui(snapshot(direction=direction, state="sending" if direction == "TX" else "receiving"))
+    view = tui._file_window()
+    view.sync(tui._file_snapshot())
+    tui._file_transfer.value.update(
+        state=("sending" if direction == "TX" else "receiving") if pending else "cancelled",
+        presentation={"active": pending, "cancel_requested": True, "cancelled_by_peer": True},
+    )
+    render(view, Canvas(), tui._file_snapshot())
+    assert view.visible and view.confirmation_id is None
+    tui._handle_key(Canvas(), "\x1b", 10)
+    assert not view.visible and view.confirmation_id is None
+    assert not tui._file_transfer.cancelled and not tui.sent
+
+
+@pytest.mark.parametrize("direction", ["TX", "RX"])
+def test_peer_cancel_dismisses_open_question_and_consumes_its_late_enter(direction):
+    tui = make_tui(snapshot(direction=direction))
+    tui.input_text = "draft"
+    tui._handle_key(Canvas(), "\x1b", 10)
+    tui._file_transfer.value.update(state="cancelled", presentation={"active": False, "cancelled_by_peer": True})
+    canvas = Canvas()
+    render(tui._file_window(), canvas, tui._file_snapshot())
+    assert tui._file_window().visible and tui._file_window().confirmation_id is None
+    assert not any("Подтверждение" in c[2] for c in canvas.calls)
+    tui._handle_key(Canvas(), "\n", 10)
+    assert not tui.sent and not tui._file_transfer.cancelled and tui.input_text == "draft"
+    tui._handle_key(Canvas(), "\x1b", 10)
+    assert not tui._file_window().visible
 
 
 def test_rejected_cancel_keeps_progress_visible():
@@ -450,7 +475,7 @@ def test_rejected_cancel_keeps_progress_visible():
 
 @pytest.mark.parametrize("direction", ["TX", "RX"])
 @pytest.mark.parametrize("state,text", [("completed", "успешно"), ("failed", "ошибка"),
-                                        ("cancelled", "прервано пользователем")])
+                                        ("cancelled", "отменена пользователем")])
 @pytest.mark.parametrize("visible", [True, False])
 def test_terminal_record_writes_one_white_status_without_render_or_window_close(direction, state, text, visible):
     from serialterminal.file_transfer.core import _TransferRecord, FileTransferError
@@ -594,3 +619,44 @@ def test_local_clear_does_not_release_settling_transfer_ownership():
     assert tui.output.snapshot() == []
     assert tui._file_transfer.busy and tui._file_transfer_active()
     assert not tui.sent and not tui._file_transfer.cancelled
+
+
+@pytest.mark.parametrize("direction", ["TX", "RX"])
+@pytest.mark.parametrize("phase", sorted(ACTIVE_STATES))
+def test_window_state_machine_exhausts_four_key_sequences(direction, phase):
+    from itertools import product
+
+    # Независимый автомат пользовательского контракта: F/B — progress,
+    # Y/N — выбранная кнопка, C — принятая отмена с закрытым окном.
+    keys = {"esc": "\x1b", "f6": curses.KEY_F6, "f7": curses.KEY_F7,
+            "left": curses.KEY_LEFT, "right": curses.KEY_RIGHT, "enter": "\n"}
+    transitions = {
+        "F": {"esc": "Y", "f6": "Y", "f7": "B"},
+        "B": {"esc": "Y", "f6": "Y", "f7": "F"},
+        "Y": {"esc": "F", "left": "N", "enter": "C"},
+        "N": {"esc": "F", "right": "Y", "enter": "F"},
+        "C": {},
+    }
+    for sequence in product(keys, repeat=4):
+        value = snapshot(direction=direction, state=phase)
+        view = FileTransferWindow()
+        view.sync(value)
+        expected, cancellations = "F", 0
+        for action in sequence:
+            previous = expected
+            expected = transitions[expected].get(action, expected)
+            _, target = view.handle_key(keys[action], value)
+            if previous == "Y" and action == "enter":
+                assert target == value["transfer_id"], sequence
+                cancellations += 1
+                view.mark_cancel_requested(target)
+                value["presentation"] = {"active": True, "cancel_requested": True}
+            else:
+                assert target is None, sequence
+            view.sync(value)
+            assert view.mode == {"F": "foreground", "B": "background", "Y": "foreground",
+                                 "N": "foreground", "C": "closed"}[expected], sequence
+            assert (view.confirmation_id is not None) == (expected in {"Y", "N"}), sequence
+            if expected in {"Y", "N"}:
+                assert view.confirm_yes == (expected == "Y"), sequence
+            assert cancellations <= 1, sequence

@@ -4,6 +4,52 @@ This file is the authoritative current-state index for engineering TODOs in this
 
 ## Active
 
+### TODO_057 — [todos/TODO_057_NODE_RUNTIME_STATUS.md](todos/TODO_057_NODE_RUNTIME_STATUS.md)
+
+Status: OPEN / external firmware implementation / hardware validation OPEN
+
+Operator requested a full read-only node readiness/current-work query before file
+runs. Existing M1 STATUS exposes interface credits/counters, not radio readiness or
+scheduler activity. Runner records this gate as SKIPPED with its evidence boundary;
+SF/BW/power/frequency config and register validation remain separate mandatory gates.
+Firmware implementation requires a separate firmware task. No firmware changes or
+physical-node status validation in this SerialTerminal source task.
+
+### TODO_056 — [todos/TODO_056_FT1_MISSING_PARTIAL_RECOVERY.md](todos/TODO_056_FT1_MISSING_PARTIAL_RECOVERY.md)
+
+Status: IMPLEMENTED / SOFTWARE VALIDATION PASS / HARDWARE VALIDATION OPEN
+
+Operator's paired BLE 2.png attempt hit a valid suspended RX manifest whose .part
+was absent; restored sender ID remained trapped in storage_failed on each retry.
+Matching receiving/suspended missing-part recovery now durably resets proof before
+creating an empty part and returns RESUME 0 under the same ID. Rollback and cached
+suspended runtime progress cannot resurrect old received ranges; existing useful
+partials, quarantine/publishing, unsafe paths and live owners remain protected.
+Byte-budget cleanup now removes manifest before bytes; the prior process-interruption
+window is source-confirmed, but not proven as the cause in the historical log.
+13 new cases: baseline 9 FAIL / 4 PASS; fixed relevant subset 212 PASS; full suite
+1131 PASS / 110.48 s, no skips. Compile/changed-file Ruff/diff/comment review PASS;
+full Ruff retains 3 baseline F401. Exact cumulative source/test patch, logs and
+software evidence are recorded in the TODO/journal. Restart both ST and retry F5
+without manual journal cleanup for physical acceptance. No hardware run, firmware
+change, source commit/push/merge or CI; TODO remains open for hardware validation.
+
+### TODO_055 — [todos/TODO_055_CHATTER_USB_STARTUP_IDENTITY.md](todos/TODO_055_CHATTER_USB_STARTUP_IDENTITY.md)
+
+Status: IMPLEMENTED / SOFTWARE VALIDATION PASS / HARDWARE VALIDATION OPEN
+
+Intermittent human Chatter TUI USB startup identity: saved logs show an initial
+`gB/id` concatenation and another preamble-written/no-NODE startup; manual `/id`
+recovers canonical identity. Profile-owned polling now retries the read-only query
+at 1-second intervals, up to 3 times after the preamble, stopping on NODE. BLE,
+generic, classic and JSONL initialization retain their behavior. F2 identity seeding
+runs before receive resumes, fixing a separate fast-response overwrite race.
+New regressions: 8 FAIL / 2 PASS at baseline; fixed subset 93 PASS; final full suite
+1118 PASS / 109.85 s, no skips. Changed-file Ruff/compile/diff/comment review PASS;
+full Ruff has the same 3 baseline F401. Exact cumulative source/test patch SHA256
+and copied historical log evidence are recorded in the TODO/journal. No physical
+startup revalidation, firmware work, commit, push or CI; hardware gate remains open.
+
 ### TODO_053 — [todos/TODO_053_TUI_FILE_TRANSFER_WINDOW_LIFECYCLE.md](todos/TODO_053_TUI_FILE_TRANSFER_WINDOW_LIFECYCLE.md)
 
 Status: IMPLEMENTED / operator hardware validation OPEN
@@ -17,16 +63,6 @@ Original base regressions: 12 FAIL / 7 PASS. Final full software pass: 1081 PASS
 103.18 s; TUI/PTY subset 197 PASS; compile/diff/comment review PASS. Full Ruff has
 the same 3 baseline F401, no new findings. Exact source/test patch and evidence
 are recorded in TODO_053. Operator performs hardware validation; no hardware run here.
-
-### TODO_054 — [todos/TODO_054_CHATTER_DEVICE_CHOOSER_NUS_FILTER.md](todos/TODO_054_CHATTER_DEVICE_CHOOSER_NUS_FILTER.md)
-
-Status: OPEN
-
-Operator-requested next task: Chatter BLE chooser must filter non-NUS headphones,
-TVs and other unrelated devices across scan, remembered/cache and connected BlueZ
-sources, including F2/profile changes. Existing all-device prototype and F2 merge
-paths identified. Capability/profile boundary and offline regression matrix specified;
-filter implementation/tests not started. No discovery code changed with TODO_053.
 
 ### TODO_052 — [todos/TODO_052_TUI_FILE_TRANSFER_PROGRESS.md](todos/TODO_052_TUI_FILE_TRANSFER_PROGRESS.md)
 
@@ -208,11 +244,14 @@ Remaining work: align the primary `NODE_OBSERVATION_RECORDING_POLICY.md` and nod
 
 TODO_026 logging-contract investigation is also OPEN and may be scheduled independently when log-format work is selected.
 
-Current operator order (2026-10-16): finish TODO_053 window lifecycle fix and tests,
-then create TODO_054 for Chatter NUS chooser filtering and its regression matrix.
-After full software PASS, operator explicitly requests a full task commit and push
-to current GitHub branch and GDI. Hardware is operator-owned. TODO_054 filter
-implementation is a separate next task; its TODO and regression matrix are prepared.
+Current operator order (2026-10-16): TODO_056 missing-part recovery has completed
+software validation; next physical acceptance is the operator's paired ST file retry
+without journal cleanup. TODO_055 USB startup identity fix has completed software
+validation; physical startup/reconnect revalidation remains open. TODO_053
+hardware validation remains operator-owned. TODO_054 Chatter-only NUS chooser
+filtering is implemented and CLOSED after full software PASS. No further implementation
+task is selected here. Earlier TODO_053 publication authorization belongs to that
+task; TODO_054–056 work did not commit/push/publish or run hardware.
 
 Previous operator task: implement TODO_052 with regression tests and prepare Luna hardware task. Implementation/software evidence recorded; physical TUI validation remains OPEN.
 
@@ -375,6 +414,23 @@ New regressions: targeted 60 PASS; full isolated-cache suite 647 PASS/65.15s; co
 checked DATA and remote progress stay deferred. REVIEW_001 fixes remain TODO_043–047.
 
 ## Closed
+
+### TODO_054 — [todos/TODO_054_CHATTER_DEVICE_CHOOSER_NUS_FILTER.md](todos/TODO_054_CHATTER_DEVICE_CHOOSER_NUS_FILTER.md)
+
+Status: CLOSED
+
+Chatter-only BLE chooser requires advertised NUS or confirmed NUS cache evidence
+across scan, remembered/cache and connected BlueZ sources, including F2/profile
+switches. Names and busy state do not grant eligibility. Generic human discovery,
+JSONL discover, capability scanner and Serial/SPP eligibility retain their behavior.
+Advertisement metadata survives address deduplication and busy refresh. New suite:
+27 PASS (baseline 15 FAIL / 12 PASS); relevant subset 95 PASS; final full pytest
+1108 PASS / 143.69 s, no skips. Initial full suite had the previously recorded
+observe 66-vs-65 event race; isolated and full reruns PASS, agent/test unchanged.
+Changed-file Ruff/compileall/diff/comment review PASS; full Ruff retains the 3
+baseline F401. Base `3ba8e4bd09efefd34f5cab15d9cfdd46d5a2d545` plus exact
+source/test hashes and commands in the TODO. Offline acceptance only; no hardware,
+commit, push or CI. Physical gates of other TODOs remain open.
 
 ### TODO_028 — `todos/TODO_028_GENERIC_SWEEP_AGENT_API.md`
 

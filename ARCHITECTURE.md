@@ -39,6 +39,15 @@ specific address is found rather than waiting for a full discovery window.
 
 Generic discovery must not infer controller type from an advertised name and must not contain controller-specific aliases or trusted name prefixes. A profile does not whitelist a device into discovery.
 
+Human chooser eligibility is supplied by `BleProfileConfig.chooser_requires_nus`:
+Chatter requires an advertised NUS service or confirmed NUS cache capability;
+generic keeps all discovered BLE devices. Discovery carries advertised services
+as identity metadata through address deduplication and BlueZ busy-state refresh.
+The selector applies the current profile policy after merging candidates, including
+remembered/cache/connected sources for F2. Names and busy state are not capability
+evidence. This filter performs no probe/connect/disconnect, changes no Serial/SPP
+eligibility and does not restrict the all-device capability scanner or JSONL discover.
+
 ### Controller profiles
 
 A `TerminalProfile` owns controller-specific configuration and convenience behavior, including when applicable:
@@ -249,6 +258,15 @@ semantics. If a richer profile needs a radio-specific panel or action, the capab
 and data/action contract belongs to the profile boundary; generic TUI layout and focus
 mechanics may render it without learning Chatter commands or protocol rules.
 
+Profile panels may expose `poll_actions(transport, connected, connection_generation)`
+to return bounded frontend refresh actions. Generic TUI only dispatches those
+actions through the existing session queue; it does not interpret commands or
+responses. Chatter owns USB identity confirmation, canonical NODE parsing and
+three rate-limited read-only identity retries after the initial Serial preamble.
+BLE does not use that retry. Device-selection identity seeding runs while receive
+is paused, before connection resumes, so a fast response cannot be overwritten
+by a later transport hint. JSONL and classic initialization retain their contract.
+
 Frontends may expose explicit profile selection, but they must not recreate controller semantics outside the selected profile. A compatibility option that overrides only one piece of profile behavior is not a substitute for a profile and should not be added to the generic API.
 
 ### Project-specific skills and firmware semantics
@@ -376,10 +394,12 @@ once in normal white chat output and the LOCAL primary log. It uses the bound
 manager's public ROOT snapshot to exclude recursive service-file results, independently
 of rendering/window visibility. Start, phase, recovery/resume, cancel-request and
 suspension events also produce human chat summaries; per-chunk progress remains
-visual rather than filling chat. An accepted local cancellation keeps the overlay
-with an explicit pending state. The manager keeps ownership until settlement;
-failed/cancelled results in an open window remain until explicit Esc. A background
-terminal result does not reopen the overlay. Only success automatically closes it.
+visual rather than filling chat. Accepted local cancellation closes both the question
+and progress overlay immediately; the manager retains ownership until settlement.
+Received peer cancellation dismisses any question but retains stopped progress; Esc
+closes it without confirmation. A stale Enter from the dismissed question is consumed.
+These transitions are symmetric for TX/RX. Failed results remain until Esc; a
+background terminal result never reopens the overlay. Success closes it automatically.
 The manager's `presentation_snapshot()` supplies an atomic ROOT snapshot with runtime
 ownership, an opaque per-attempt identity, cancel status and retained resume/activity
 counters. Its process-local metadata is excluded from JSONL/status/history snapshots.

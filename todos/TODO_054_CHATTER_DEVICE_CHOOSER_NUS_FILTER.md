@@ -1,7 +1,7 @@
 # Chatter device chooser: NUS capability filtering TODO
 
 TODO-ID: TODO_054
-Status: OPEN
+Status: CLOSED
 Recorded: 2026-10-16
 
 ## Purpose
@@ -55,23 +55,83 @@ Source inspection при HEAD
 
 ## Implementation
 
-- [ ] Выбрать минимальный profile-owned capability contract для chooser.
-- [ ] Применить eligibility ко всем candidate sources и повторному F2/profile switch.
-- [ ] Убрать/сузить действие all-device prototype для Chatter, сохранив discovery boundary.
-- [ ] Согласовать README/ARCHITECTURE/AGENT_API/runtime skill с итоговым scope.
+- [x] Выбрать минимальный profile-owned capability contract для chooser.
+- [x] Применить eligibility ко всем candidate sources и повторному F2/profile switch.
+- [x] Убрать/сузить действие all-device prototype для Chatter, сохранив discovery boundary.
+- [x] Согласовать README/ARCHITECTURE/AGENT_API/runtime skill с итоговым scope.
 
 ## Validation / acceptance
 
-- [ ] Mock advertisement: настоящий NUS остаётся; headphones/TV без NUS исчезают.
-- [ ] Device без имени и без Chatter prefix с NUS допускается; названный Nordic
+- [x] Mock advertisement: настоящий NUS остаётся; headphones/TV без NUS исчезают.
+- [x] Device без имени и без Chatter prefix с NUS допускается; названный Nordic
   или Chatter без NUS evidence не получает автоматический допуск.
-- [ ] Проверить remembered/cache/connected-only пути и duplicates одного адреса;
+- [x] Проверить remembered/cache/connected-only пути и duplicates одного адреса;
   connected non-NUS/busy headphones не появляются в F2.
-- [ ] Проверить known confirmed NUS без текущего advertisement; UNKNOWN/NO cases.
-- [ ] Проверить переключение generic → chatter на одном selector с накопленными
+- [x] Проверить known confirmed NUS без текущего advertisement; UNKNOWN/NO cases.
+- [x] Проверить переключение generic → chatter на одном selector с накопленными
   candidates: старый all-device cache не обходит новую eligibility.
-- [ ] F2 regression доказывает отсутствие scan/connect/disconnect/probe side effects.
-- [ ] Полный pytest при изменении shared scanner/selector behavior по AGENTS.md.
+- [x] F2 regression доказывает отсутствие scan/connect/disconnect/probe side effects.
+- [x] Полный pytest при изменении shared scanner/selector behavior по AGENTS.md.
 
-Implementation: NOT STARTED. Tests for the new filter: NOT WRITTEN / NOT RUN.
-Hardware: NOT RUN. Существующие all-device tests не закрывают этот TODO.
+## Implementation / software evidence — 2026-10-16
+
+`BleProfileConfig.chooser_requires_nus` включён только у Chatter. Selector
+проверяет advertised NUS или confirmed cache capability после объединения
+candidates, при discovery и каждом F2. Generic discovery/scanner остаются
+all-device; JSONL discover использует generic selector и сохраняет свой контракт.
+USB Serial/SPP eligibility не меняется. `BleDeviceIdentity.advertised_services`
+сохраняет advertisement evidence при scan/BlueZ deduplication и F2 busy refresh;
+metadata не меняет физическое equality/key адреса. Имена и busy не дают допуск.
+Generic core не импортирует Chatter profile и не сравнивает имена профилей.
+
+Новый `tests/test_chatter_chooser.py`: 27 cases, включая modern/legacy Bleak,
+UNKNOWN/NO, cache-only/remembered/connected sources, повторный F2 и round-trip
+смену профиля, сохранение Serial/SPP. На исходном HEAD эти tests: 15 FAIL /
+12 PASS; на изменённом source: все 27 PASS. Совместный discovery/selector/profile
+subset: 95 PASS / 1.00 s. Software tests используют fake scanner/BlueZ/client;
+запрещённые connect/probe вызывают явный test failure.
+
+Первый полный запуск остановился на отсутствующей объявленной dev-зависимости
+pyte; она и Ruff установлены в отдельный `/tmp/serialterminal-todo054-venv`.
+Первый полный выполненный suite: 1107 PASS / 1 FAIL / 102.00 s — ранее записанная
+в TODO_052 гонка `test_observe_default_avoids_raw_event_payload_amplification`
+(66 events вместо 65). Isolated rerun: 1 PASS / 0.29 s. Этот тест и agent code
+не изменялись. Финальный full rerun с отдельным device cache:
+**1108 PASS / 143.69 s, без skips**.
+
+Команды финальной проверки:
+
+```bash
+SERIALTERMINAL_CACHE_FILE=/tmp/serialterminal-todo054-venv/devices.json /tmp/serialterminal-todo054-venv/bin/python -m pytest -q
+/tmp/serialterminal-todo054-venv/bin/python -m pytest -q tests/test_chatter_chooser.py tests/test_ble_discovery.py tests/test_ble_discovery_generic.py tests/test_ble_cache_unknown.py tests/test_bluez_busy.py tests/test_cli.py tests/test_profiles.py tests/test_generic_profile.py
+```
+
+Offline replay списка оператора из 13 устройств при смоделированном NUS
+advertisement двух нод оставляет только LoRa-Chatter-1B44 и LoRa-Chatter-72E0.
+Это проверка chooser/render path на fake input, не подтверждение advertising
+реальных устройств.
+
+Changed-file Ruff, compileall (`src serialterminal.py usb_timing_logger.py tools
+scripts`) и diff/comment review PASS. Full Ruff: те же 3 baseline F401 в
+`pipeline_manager.py`, `recursive.py`, `test_ft1_outbox.py`; эти файлы не изменялись.
+Новые tests входят в общий локальный/GitHub `pytest -q` без feature flags/skips.
+TODO_051 CI parity остаётся отдельным открытым scope.
+
+Implementation / validation checkpoint: base
+`3ba8e4bd09efefd34f5cab15d9cfdd46d5a2d545` плюс следующие SHA256 source/test:
+
+```text
+30dc55fd5543e1cf5eb4f831b25a2f5a9794825567c318c5ed6af1da59fe5714  src/serialterminal/ble_discovery.py
+0f067bacd9209a996e392da6eca1faaf8c8e1bc0cf659e4084b7e43b524f2bd1  src/serialterminal/cli.py
+7515ba88f4539bf77794c601d677a84d3af1bd59cd7da1d4b91560145e7ab6b2  src/serialterminal/profiles/base.py
+8a93e6010f6c25dfdef3bfce5b32b39350083d2f06506adcc119b29ac6fdd33b  src/serialterminal/profiles/chatter/profile.py
+1252e88803f532eefbd26ad5d8ad0e043ba42c4f0fd23a057891f55e746fcf81  src/serialterminal/transports/ble_nus.py
+0e6a667e0153bffa89592d072888f14bf9da07e9672cb15950e63aae21699b6d  tests/test_chatter_chooser.py
+```
+
+AGENT_API и runtime skill проверены и уточняют только human chooser policy;
+machine schema/open semantics сохранены. Observation executor работает через
+generic JSONL discovery, поэтому его operating policy не требует изменения.
+Hardware: NOT RUN; эта offline capability-filter задача не устанавливает physical
+gate и не закрывает аппаратные gates других TODO. Commit/push/CI: NOT RUN.
+Remaining follow-ups in this TODO: none. Status: CLOSED / software acceptance PASS.

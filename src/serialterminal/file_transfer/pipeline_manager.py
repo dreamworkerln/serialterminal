@@ -5,7 +5,7 @@ from dataclasses import dataclass
 from typing import Any, Callable
 
 from . import core
-from . import manager, resumable
+from . import resumable
 from .protocol import DataMessage, encode_message
 from .transport import BinaryUserCancelled, BinaryUserError
 
