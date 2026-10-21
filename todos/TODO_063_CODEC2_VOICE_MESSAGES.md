@@ -5,6 +5,7 @@ Status: OPEN
 Priority: P2
 Created: 2026-10-21
 Planning checkpoint: `dev_tui_exp_recursive_missing@184fabfb8088b5b3568a26883c0a71159468864e`.
+Plan revision: 2026-10-21 по [REVIEW_005](../reviews/REVIEW_005_CODEC2_VOICE_FILE_INTEGRATION.md), findings F001–F003; implementation и validation остаются OPEN.
 Codec2 SDK dependency checkpoint: `codec2-sdk/dev@5ef71a1a0aee504752090015a114d9f24f52ef53`, pinned upstream Codec2 `310777b1c6f1af0bc7c72f5b32f80f6fd9136962` (Codec2 1.2.0).
 
 ## Purpose
@@ -25,8 +26,9 @@ RX: existing FT1 -> verified durable final_path -> voice recognizer
     -> Codec2 decode -> PCM S16_LE mono 8 kHz -> speaker
 ```
 
-Это фундамент для последующего realtime half-duplex voice, но realtime transport
-в scope этого TODO не входит.
+Голосовое сообщение здесь — обычный файл FT1. Encoding во время записи не означает
+передачу во время записи: FT1 получает только завершённый `.c2`. В scope нет отдельного
+режима радио, voice packets, voice ACK/retry/resume или realtime transport.
 
 ## Current architecture / facts at planning checkpoint
 
@@ -48,6 +50,11 @@ RX: existing FT1 -> verified durable final_path -> voice recognizer
   `codec2-sdk` отдельно предоставляет portable shared `libcodec2` и manifest; runtime
   integration должна использовать shared library напрямую через `ctypes`, а не
   `c2enc`/`c2dec` subprocess как основной codec API.
+* `start_send()` не является полностью неблокирующим API: поиск resume source и
+  claim синхронны; TUI TX fence допускает ожидание до 10 секунд. Sender worker может
+  выдать terminal event до возврата `start_send()` и получения вызывающим TX-ID.
+* Event sink — process-local уведомление, не durable audio inbox. Completed tombstone
+  после restart отвечает на повторные META/END без нового `transfer_completed`.
 
 ## Target behavior
 
@@ -74,7 +81,9 @@ budget.
 TX encoder пишет header сразу и затем append'ит 8-byte Codec2 frames по мере
 поступления PCM. Полный PCM файл на диске не создаётся. Последний неполный PCM frame
 при остановке детерминированно дополняется тишиной до 160 samples; это может добавить
-не более одного 20-ms frame.
+не более одного 20-ms frame. Read fragments сначала собираются в PCM samples/frames;
+padding применяется только один раз после завершения capture и drain, не к каждому
+короткому read. Header-only запись без encoded frames не отправляется.
 
 RX parser сначала проверяет стандартный `.c2` header/magic, version/mode/flags и
 целостность frame body. В первом этапе проигрывается только поддерживаемый 3200 mode;
@@ -140,8 +149,17 @@ playback: decoded raw S16_LE / 8 kHz / mono -> aplay stdin
 
 Запускать argv напрямую, без shell. `shutil.which()` проверяет наличие tools.
 Процессы должны иметь bounded stop/terminate/kill cleanup, не оставлять zombies и
-не блокировать curses event loop. Ошибки процесса идут в application log и краткий
-human diagnostic; raw PCM не пишется в application/primary logs.
+не блокировать curses event loop. Штатный stop capture сначала останавливает источник
+и дочитывает stdout до EOF в ограниченный срок; затем кодируется остаток и закрывается
+`.c2`. Terminate/kill используются как fallback, а expected exit от нашего stop
+отличается от самопроизвольного отказа процесса. При недоказанном корректном завершении
+файл автоматически не отправляется.
+
+Ошибки процесса идут в application log и краткий human diagnostic; raw PCM не пишется
+в application/primary logs. Playback читает/decode-ит frames потоком, без полного PCM
+файла или неограниченного PCM buffer в памяти. Audio device selection принадлежит
+backend/frontend и не меняет radio profile; первый backend может использовать системный
+default, а документация должна объяснять выбор input/output, в том числе Bluetooth.
 
 Backend API должен позволять позднее заменить `arecord`/`aplay` на PortAudio,
 miniaudio или platform-specific implementation без изменения Codec2/FT1 логики.
@@ -184,19 +202,33 @@ cross-terminal key-release contract, поэтому настоящий press/rel
 
 ```text
 IDLE
-  F12 -> RECORDING
+  F12 -> предварительная проверка FT1/audio -> RECORDING
 
 RECORDING
-  F12 -> FINALIZING -> FileTransferManager.start_send(c2_path)
-                       -> обычный FT1 lifecycle/progress
+  F12 -> FINALIZING -> готовый .c2 -> ADMITTING (worker: start_send(path))
+                                       |
+                                       +-> принято: обычный FT1 lifecycle/progress
+                                       +-> отказ: READY_FILE (сохранён path; ручной retry)
 
 shutdown / codec/audio failure
-  -> local capture cleanup; никогда не отправлять незавершённый файл автоматически
+  -> bounded cleanup; partial удаляется, finalized/resumable file сохраняется
+  -> незавершённый файл никогда не отправляется автоматически
 ```
 
-Во время RECORDING/FINALIZING:
+READY_FILE — локальное состояние сохранённого файла, не отдельный режим передачи
+или вторая очередь доставки. Повторная отправка выполняется обычным F5 с тем же path,
+чтобы существующий FT1 мог использовать свой resume journal. F12 не запускает скрытый
+retry: новая запись может начаться только после освобождения текущей local operation;
+ранее сохранённые finalized files при этом не удаляются.
 
-* F2 profile/device target changes и F5 arbitrary file send блокируются;
+Ранняя проверка FT1 busy не резервирует manager: пока идёт запись, входящий FT1
+остаётся разрешён. Если он занял manager до stop/send, READY_FILE сохраняет запись
+и показывает причину отказа и path. Capture/SDK initialization failure и отказ admission
+после готовой записи — разные исходы.
+
+Во время RECORDING/FINALIZING/ADMITTING:
+
+* F2 device changes, F3 profile changes и F5 arbitrary file send блокируются;
 * controller actions, которые profile классифицирует disruptive, также блокируются;
 * viewing/scroll/clear/help/mouse и profile-classified non-disruptive actions остаются;
 * после передачи ownership полностью переходит обычному FT1, и действуют его уже
@@ -209,7 +241,40 @@ terminal не получает ложную доступность. Во вре�
 `VOICE REC <duration> · F12 send` status; отдельный второй progress overlay для
 voice transfer не создавать — после stop используется существующее FT1 окно.
 
-F10 остаётся без ST binding.
+F10 остаётся без ST binding. Числовой предел длительности записи/локального playback
+оператором пока не выбран. До реализации согласовать этот параметр и поведение при
+его достижении; не вводить произвольный лимит или неявный auto-send. Этот открытый
+пункт не требует нового TODO. Время radio delivery не обещается равным длительности
+записи: 3200 mode даёт 400 payload bytes/s плюс header и FT1 overhead.
+
+### Асинхронный переход к FT1 и lifetime (REVIEW_005/F002)
+
+Blocking capture, stop/drain/finalize и вызов `start_send()` выполняются вне curses
+thread. Voice state меняет один serialized owner; frontend handler только принимает
+действие и показывает snapshot/status. Нельзя вызывать `start_send()` из FT1 callback.
+
+До вызова `start_send()` service регистрирует pending operation с finalized path,
+local job identity и конкретным manager/session lifetime. События коррелируются
+с этим lifetime и TX-ID; ручной retry того же FT1 ID также различает local attempt
+и старые event seq/cursors, чтобы запоздалый terminal не удалил файл новой попытки.
+
+FT1 callback передаёт короткое событие в bounded dispatch без audio/decode/storage
+работы и без ожидания voice worker. Ранний terminal event до return не теряется; после
+возврата service связывает TX-ID и учитывает returned snapshot, который уже может быть
+terminal. Event и snapshot применяются идемпотентно: cleanup/retention ровно один раз.
+Нельзя молча терять terminal TX outcome при overflow: нужен явный diagnostic и
+reconciliation через public manager snapshot/status до решения о судьбе temp.
+
+Logging и voice delivery получают событие независимо, с изолированными exception
+boundaries. Исключение logger не отключает voice observer и наоборот. Playback error
+не меняет FT1 result. Нельзя использовать private recursive state как новый voice API.
+
+Shutdown запрещает новые admission, останавливает capture/playback и учитывает уже
+начатый `start_send()`: pending source нельзя удалить, пока callback/return/settlement
+ещё способны подтвердить принятый TX. Late result прежнего manager не привязывается к
+новой session. Уже принятый файл завершает/приостанавливает существующий FT1 по своему
+контракту; finalized resumable source сохраняется. Незавершённый admission не превращает
+Ctrl+C/Ctrl+Q в неограниченное ожидание и не оставляет неучтённый worker/file owner.
 
 ### TX temporary-file lifecycle
 
@@ -218,12 +283,21 @@ F10 остаётся без ST binding.
 Не использовать receive directory как TX scratch.
 
 * capture failure/truncated initialization удаляет незавершённый temp;
-* после `start_send()` temp нельзя удалять до terminal TX outcome;
+* с момента начала admission temp нельзя удалять до разрешения pending operation и,
+  если TX принят, его terminal outcome; ранний terminal учитывается после привязки ID;
+* отказ `start_send()` до появления TX-ID (busy, claim/fence/initialization error)
+  сохраняет finalized `.c2`, показывает path и причину, возвращает READY_FILE;
+  автоматического voice retry нет;
 * успешный TX удаляет generated temp;
 * failed/cancelled TX сохраняет finalized `.c2` и сообщает путь для диагностики/
   возможного ручного retry, вместо молчаливой потери записи;
-* service shutdown закрывает handles/processes и не оставляет partial file,
-  выглядящий как успешно сформированный voice message.
+* service shutdown закрывает handles/processes, удаляет незавершённый partial,
+  сохраняет finalized/READY_FILE/resumable source и сообщает retained paths;
+  partial никогда не выглядит как успешно сформированный voice message.
+
+Ручной retry использует тот же finalized path/bytes, без переименования или повторного
+encode. Успех старого TX не разрешает удалить файл, уже принадлежащий новой local
+attempt; lifetime/identity проверяются перед cleanup.
 
 ### RX recognition and playback
 
@@ -253,6 +327,40 @@ magic/header, unsupported mode и обычные `.c2`/не-voice файлы н�
 Playback выполняется вне FT1 worker/event callback и вне curses redraw. Один
 background playback worker сериализует сообщения; очередь должна быть bounded с
 явным overflow policy, чтобы серия входящих файлов не создала неограниченный backlog.
+Первый вариант при заполнении очереди отклоняет новую заявку на autoplay, сохраняет
+полученный файл и выдаёт bounded diagnostic с path; предыдущие заявки не вытесняются,
+FT1 completion остаётся успешным. Размер очереди — centralized backend setting,
+а не новая FT1 wire настройка.
+
+### Capture/playback admission (REVIEW_005/F003)
+
+Локальные microphone capture и playback не работают одновременно. Во время
+RECORDING/FINALIZING входящие verified voice files только ставятся в очередь;
+playback начинается после освобождения audio owner. Начало записи блокирует запуск
+очередного playback атомарно, не через несогласованные check-then-act проверки.
+
+Если playback уже идёт, F12 не прерывает его и не начинает capture: TUI сообщает
+«воспроизведение продолжается; повторите F12 после окончания». Эта консервативная
+политика не требует нового управления radio/FT1. Во время ADMITTING микрофон уже
+закрыт: локальный playback допустим, если audio owner свободен.
+
+### Autoplay identity, повторное прослушивание и restart
+
+Autoplay допускается не более одного раза для одного root receive completion в
+текущем service/manager lifetime; duplicate/late events и reconciliation не создают
+повторное воспроизведение. Корреляция учитывает manager/session, direction и transfer
+identity, а не только basename. Ручной replay — отдельное явное действие пользователя.
+
+Полученный `.c2` не удаляется после playback error, overflow или успешного прослушивания.
+Показывать сохранённый path и документировать повторное локальное воспроизведение через
+SDK `c2dec`/`aplay`; отдельный inbox/player UI в первом этапе не обязателен.
+
+Гарантия durable FT1 delivery не означает exactly-once playback через process crash.
+После restart не выполнять автосканирование старых файлов для autoplay и не считать
+META/END tombstone replay новым audio event. При crash между публикацией и callback
+файл может остаться непрослушанным; он доступен вручную. Durable played/unplayed inbox
+в этот этап не входит. Reconnect в том же процессе до первого verified completion
+сохраняет обычное правило однократного autoplay.
 
 ## Implementation plan
 
@@ -271,24 +379,39 @@ background playback worker сериализует сообщения; очере
 
 ### Phase 3 — VoiceMessageService
 
-- [ ] Реализовать `IDLE -> RECORDING -> FINALIZING -> FT1` TX state machine.
+- [ ] Реализовать capture/finalize/admission с явным READY_FILE при отказе старта FT1;
+  сохранить finalized path и обычный F5 retry без отдельной delivery state machine.
 - [ ] Генерировать collision-resistant short `*.stvoice.c2` filename и temp lifecycle.
-- [ ] Bind generated TX temp к returned FT1 transfer ID для success cleanup и failure retention.
-- [ ] Реализовать RX terminal-event recognition и bounded playback queue.
+- [ ] Зарегистрировать pending source до admission; связать local job/manager lifetime
+  с TX-ID, учесть ранний terminal и returned terminal snapshot ровно один раз.
+- [ ] Выполнять blocking admission вне TUI; оградить shutdown и late manager results.
+- [ ] Сохранить failed/cancelled/READY_FILE/resumable source; success cleanup только
+  для соответствующей local attempt, без удаления файла другого owner.
+- [ ] Реализовать RX terminal-event recognition, session-scoped deduplication,
+  bounded playback queue и reject-new autoplay overflow с сохранением файла.
+- [ ] Сериализовать audio owner: playback ждёт capture/finalize; F12 во время playback
+  сообщает busy; входящий FT1 продолжает обычную файловую доставку.
 - [ ] Сделать close/shutdown idempotent и безопасным при recording/playback/finalizing.
 
 ### Phase 4 — TUI integration
 
 - [ ] Добавить F12 toggle через canonical TUI action, без concrete-profile branch.
-- [ ] Добавить recording/finalizing admission guard для F2/F3/F5 и disruptive human actions.
+- [ ] Добавить recording/finalizing/admitting guard для F2/F3/F5 и disruptive human actions.
+- [ ] Показать READY_FILE path/reason и возможность обычного ручного F5 retry.
 - [ ] Сохранить existing F4/F6/F7/F8/F9/F10/Ctrl+C/Ctrl+Q semantics.
 - [ ] Добавить capability-aware footer/help/status; не создавать второй transfer progress UI.
-- [ ] Разделить FT1 event dispatch и logging так, чтобы playback не жил в log function.
+- [ ] Разделить FT1 event dispatch и logging с независимыми exception boundaries;
+  callback только enqueue, playback не живёт в log function; terminal outcome
+  не теряется молча при bounded dispatch overflow.
 
 ### Phase 5 — configuration/docs
 
 - [ ] Протянуть explicit codec2 SDK directory через human CLI -> TUI; classic/agent APIs не менять без отдельного решения.
 - [ ] При необходимости добавить configurable voice temp directory через centralized settings/CLI ownership, без mutable globals.
+- [ ] До реализации согласовать числовую duration/bytes policy для записи и playback
+  и поведение при лимите; bounded queue и streaming не заменяют этого решения.
+- [ ] Документировать retained paths, default/Bluetooth audio route и ручной local
+  replay без повторной отправки файла; не обещать durable autoplay через restart.
 - [ ] Обновить README/INSTALL/ARCHITECTURE и коротко FILE_TRANSFER: voice является application consumer verified FT1 completion, не новым FT1 protocol.
 - [ ] По AGENTS.md отдельно проверить AGENT_API и `.agents/skills/serialterminal-agent/SKILL.md`; ожидаемое решение — JSONL schema не меняется в первом этапе.
 
@@ -299,20 +422,34 @@ background playback worker сериализует сообщения; очере
 - [ ] Codec2 wrapper tests: load/provenance failures, ABI signatures, geometry,
   create/destroy ownership, encode/decode exact buffer sizes and invalid input.
 - [ ] `.c2` tests: header roundtrip, truncated/invalid magic, unsupported mode,
-  body not divisible by frame size, final-frame padding.
+  body not divisible by frame size, final-frame padding один раз после EOF,
+  empty/header-only capture не отправляется.
 - [ ] Reference interoperability against exact `codec2-sdk` checkpoint:
   ST-produced `.c2` decodes with SDK `c2dec`; SDK `c2enc` file is accepted/decoded
   by ST. Record SDK manifest and exact commit in evidence.
 - [ ] AudioBackend tests with fake processes/streams: fragmented reads, process exit,
-  stop during blocked read, stderr/error, bounded terminate/kill and no zombies.
+  stop during blocked read, graceful stdout/EOF drain, expected stop vs unexpected
+  exit, stderr/error, bounded terminate/kill и отсутствие zombies.
 - [ ] Voice service TX tests: start/stop/send, FT1 busy, codec/audio unavailable,
   start_send failure, success temp cleanup, failure/cancel retention, shutdown while recording.
+- [ ] REVIEW_005/F001: входящий META во время capture -> stop -> FT1 busy -> сохранённый
+  valid .c2/path; обычный F5 retry тем же source после освобождения manager.
+- [ ] REVIEW_005/F002: claim delay не блокирует curses; terminal success/failure до
+  start_send return; terminal returned snapshot + event не дублируют cleanup.
+- [ ] REVIEW_005/F002: logger exception, dispatch overflow с reconciliation, shutdown
+  во время admission, late event старого manager и stale terminal предыдущей local
+  attempt того же resumed TX-ID не теряют/не удаляют чужой файл.
 - [ ] Voice service RX tests: root verified RX exactly once; wire filename vs uniquified
   final_path; invalid header; unsupported mode; failed/cancelled transfer; recursive child;
-  playback failure cannot change FT1 completion.
+  playback failure/overflow cannot change FT1 completion; published file остаётся.
+- [ ] REVIEW_005/F003: RX completion during recording/finalizing ждёт audio owner; F12
+  during playback не начинает capture; конкурентный старт не открывает оба backend.
+- [ ] Duplicate completion/reconnect дают один autoplay в текущем lifetime; completed
+  tombstone replay после restart не запускает autoplay; retained path пригоден для
+  ручного replay после audio failure/overflow без повторного FT1 send.
 - [ ] TUI unit + curses/PTY: F12 mapping/status, F2/F3/F5/disruptive guard during record,
   existing F6/F7/F8/F9 behavior, F10 remains unbound, Ctrl+C/Ctrl+Q shutdown,
-  generic profile unchanged.
+  generic profile unchanged; READY_FILE diagnostic/F5 retry и playback busy status.
 - [ ] Existing FT1/core/TUI regressions plus full `pytest -q`; compileall and changed-file
   Ruff according to AGENTS.md. Source tests run outside restrictive sandbox as required.
 
@@ -322,6 +459,9 @@ background playback worker сериализует сообщения; очере
   -> local decode/play smoke; no full PCM temp file.
 - [ ] Two SerialTerminal/Chatter endpoints: F12 record/stop, existing FT1 transfer,
   receiver waits for verified durable completion and auto-plays once.
+- [ ] Проверить входящий voice файл во время записи: без звука в microphone capture,
+  файл доставлен FT1, затем проигран локально. Проверить busy admission и ручной retry
+  сохранённой записи без повторного encode.
 - [ ] Repeat with FT1 repair/resume/reconnect: voice layer does not invent additional
   retry semantics and only plays after final verified ROOT completion.
 - [ ] Measure recorded duration, encoded bytes and transfer time; 3200 mode should be
@@ -343,14 +483,38 @@ Not part of TODO_063:
 * firmware changes or a new BINARY USER wire type;
 * replacing FT1 reliable file delivery for store-and-forward messages;
 * automatic system/distro Codec2 discovery;
-* cross-platform audio backend beyond the abstraction needed for a later implementation.
+* cross-platform audio backend beyond the abstraction needed for a later implementation;
+* durable played/unplayed inbox, automatic replay после process crash и отдельная
+  voice delivery/retry queue; это не требуется для передачи обычных `.c2` через FT1.
 
 Realtime half-duplex should become a separate TODO after this store-and-forward path
 proves Codec2/audio/UI ownership. It should reuse `Codec2Library`/`Codec2Codec` and
 `AudioBackend`, but use a latency-oriented transport where late speech frames may be
 dropped rather than retransmitted until reliable delivery.
 
+## REVIEW_005 disposition — 2026-10-21
+
+Все actionable findings остаются внутри TODO_063:
+
+| Finding | Исправление плана | Обязательный validation |
+| --- | --- | --- |
+| F001 | READY_FILE, retention до admission, обычный F5 retry того же source | incoming FT1 during capture, admission failure, retained file + retry |
+| F002 | worker admission, pending operation до вызова, early terminal/snapshot idempotence, lifetime/shutdown и isolated logging | ранний success/failure, delayed claim, overflow, stale manager/attempt, shutdown |
+| F003 | audio owner исключает capture/playback overlap; deferred playback, F12 busy | RX during record, F12 during playback, concurrent audio admission |
+
+Дополнительные замечания приняты как EOF/final-padding, streaming playback, overflow
+retention, manual replay, restart boundary и явная открытая duration policy.
+Отдельный TODO не создаётся: для текущего store-and-forward feature это одна задача.
+Durable inbox/realtime не заведены в работу и не получили новые номера.
+
+[REVIEW_005 contract probe](../reviews/evidence/REVIEW_005/probe-results.json)
+подтверждает свойства существующего FT1 API, не реализацию voice feature. Исторический
+RED verdict ревью сохраняется; изменение плана само по себе не является re-review или
+доказательством исправленной runtime реализации.
+
 ## Planning result
 
+Plan revised по REVIEW_005, implementation не начата; duration/bytes policy требует
+явного решения до реализации. Все implementation, host audio и paired radio gates OPEN.
 Plan only. No SerialTerminal source, tests, runtime behavior, firmware, hardware,
 Codec2 SDK or FT1 wire changes are implemented by this TODO creation checkpoint.

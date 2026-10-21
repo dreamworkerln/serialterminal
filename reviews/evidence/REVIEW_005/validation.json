@@ -1,0 +1,17 @@
+{
+  "target": "957032f3a9019e69dcbcda0821b965fcb2ffc939",
+  "reviewed_inputs_unchanged": true,
+  "evidence_checksums_match": true,
+  "broken_links": [],
+  "probe_syntax": "PASS",
+  "probe_contracts": "5 PASS",
+  "production_and_todo_changes": false,
+  "tracked_changes": [
+    "REVIEW_INVENTORY.md"
+  ],
+  "diff_check": "PASS",
+  "full_tests_ci_audio_radio": "NOT RUN",
+  "report_sha256": "0fc582775509c4308eaf4c3154c873ff1a5a40a51929b9d4cf13124fb3808434",
+  "new_review_id": "REVIEW_005",
+  "next_review_id": "REVIEW_006"
+}

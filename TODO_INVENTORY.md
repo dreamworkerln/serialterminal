@@ -54,7 +54,7 @@ DEFERRED по решению оператора сохранён. Next new thema
 
 ### TODO_063 — [todos/TODO_063_CODEC2_VOICE_MESSAGES.md](todos/TODO_063_CODEC2_VOICE_MESSAGES.md)
 
-Status: OPEN / PLAN COMPLETE / IMPLEMENTATION NOT STARTED
+Status: OPEN / PLAN REVISED AFTER REVIEW_005 / IMPLEMENTATION NOT STARTED / DURATION POLICY OPEN
 
 Operator-selected next integration: store-and-forward Codec2 voice messages in the
 human TUI. F12 toggle records 8 kHz mono PCM directly into standard Codec2 3200
@@ -63,7 +63,12 @@ completion uses the original wire filename plus validated `.c2` content and dura
 `final_path` before asynchronous playback. Codec/audio stay in an application layer;
 no concrete-profile branch, firmware change, FT1 wire change or realtime voice is in
 this TODO. Planning checkpoint `184fabfb8088b5b3568a26883c0a71159468864e`;
-implementation/host audio/hardware acceptance remain OPEN.
+implementation/host audio/hardware acceptance remain OPEN. REVIEW_005/F001–F003
+incorporated into this plan: retained READY_FILE on admission failure and normal F5
+retry; worker admission with early-terminal/snapshot/lifetime handling; mutually
+exclusive local capture/playback, deferred autoplay and F12 busy during playback.
+No FT1 wire/radio mode changes and no new TODO. Numeric duration/bytes policy remains
+an explicit decision before implementation; autoplay across process crash is excluded.
 
 ### TODO_057 — [todos/TODO_057_NODE_RUNTIME_STATUS.md](todos/TODO_057_NODE_RUNTIME_STATUS.md)
 

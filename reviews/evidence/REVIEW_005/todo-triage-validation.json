@@ -1,0 +1,24 @@
+{
+  "findings_mapped": [
+    "F001",
+    "F002",
+    "F003"
+  ],
+  "new_todo_ids": [],
+  "next_todo": "TODO_064",
+  "next_review": "REVIEW_006",
+  "todo_status": "OPEN; implementation NOT STARTED; duration policy OPEN",
+  "historical_review_body_target_verdict_preserved": true,
+  "original_review_snapshot_sha256": "0fc582775509c4308eaf4c3154c873ff1a5a40a51929b9d4cf13124fb3808434",
+  "production_inputs_unchanged": true,
+  "broken_links": [],
+  "trailing_whitespace": [],
+  "diff_check": "PASS",
+  "validation_type": "documentation diff, links, hashes and cross-reference checks; no runtime tests needed or run",
+  "file_sha256": {
+    "todos/TODO_063_CODEC2_VOICE_MESSAGES.md": "708f8a6ce7c5f48e1d954436b9c317c37d48a44b05cc47f5e0673bc0145314b4",
+    "TODO_INVENTORY.md": "b9c028098c25b359eb9877ea17ab07d217db7d1c139a20d84fd5588044c6bf9a",
+    "reviews/REVIEW_005_CODEC2_VOICE_FILE_INTEGRATION.md": "21a62177b71dacdb1a4224ea87c86f7f9445cc8e05c089bddec0c80ecee83cac",
+    "REVIEW_INVENTORY.md": "224bdd4de3b43b9e914b9ffd19e3b5970647909452afd7d6d844d8aa4929bbf9"
+  }
+}

@@ -1,0 +1,32 @@
+{
+  "date_utc": "2026-10-21T12:58:58.646919+00:00",
+  "repository": "https://github.com/dreamworkerln/serialterminal",
+  "branch": "dev_tui_exp_recursive_missing",
+  "target": "957032f3a9019e69dcbcda0821b965fcb2ffc939",
+  "base": "184fabfb8088b5b3568a26883c0a71159468864e",
+  "checkout_before_review": "clean",
+  "plan_patch_sha256": "f66a65f1f543db104cae8db3617471294058672e62665b83fd629dee2f799191",
+  "files": {
+    "todos/TODO_063_CODEC2_VOICE_MESSAGES.md": "a43d8b0177eb1d04a293736ec52d8f5fe8a52cc8d66eb7fd8c7ffcb631a85f77",
+    "TODO_INVENTORY.md": "b65a6ea160c98d01caf817c32640e73d711ee683ce952ef4662b9d2d2d84ee1d",
+    "ARCHITECTURE.md": "f486f4cd7b31da02f9b69954e753ac44ea8340c23329e2c81db43dc1bd0060df",
+    "FT1_RESUME.md": "bb1257a7b1cbcb6dca24fca1f1379d90e069562a80d7fe4ba3a66287f6c17529",
+    "FILE_TRANSFER.md": "75cbe5945b15582025226345813e5f0134814bd961d3740c05f93f836661538b",
+    "src/serialterminal/tui_core.py": "4b786377a532af2485390702b913bbb19d7c9b68f3eaff2050b9279b53b1b5c1",
+    "src/serialterminal/tui_file_transfer.py": "1620adee125707b712705e98508f1bbaa28db56fa793eb30791f94e6e3503586",
+    "src/serialterminal/file_transfer/core.py": "3ae4c50943368a7276b67fc1cce4be65494dfc3009e5e252094ede6c85a799b6",
+    "src/serialterminal/file_transfer/resumable.py": "78eb8523b4acf27a3d8ed4b29cf03777515a20264b7f1bea0c79002c2b0e7fe1",
+    "src/serialterminal/file_transfer/manager.py": "069b89fb4605e65859cc076afcb8c9c4e05549ce74f02cd6d93d939c6faaf2b1",
+    "src/serialterminal/file_transfer/recursive.py": "7c513bc9ec25a8686ea0167449b558771d4210d2a4299fb28554184dcc15b1b2",
+    "src/serialterminal/file_transfer/coordinator.py": "bd4a1ca2849f1e5ad55e41ed50180b31ecf56602119b34f48f65c8506b2d074c",
+    "src/serialterminal/file_transfer/resume_source.py": "e3b11bde11f71445fa84937a4788dbebbeeb40f60222055d64724e2c5b58ebc6"
+  },
+  "scope": "Design review of store-and-forward voice messages; no implementation or hardware acceptance",
+  "review_completed_at_utc": "2026-10-21T13:04:31.504025+00:00",
+  "evidence_sha256": {
+    "integration_probe.py": "d051ab09e796f5f944e4c608b04350d495d81c5c1dfbb382f136660a8cac1d17",
+    "probe-results.json": "181823f09c00ef483fe8b8e82f4726b7d1472cb661ea3eb8123abef23290340c",
+    "sdk-manifest.json": "17cbe59b3d5c8fa37e10fd73684d4ff283f28add95145995ba91dc3bf11e7ff1",
+    "plan-change.patch": "f66a65f1f543db104cae8db3617471294058672e62665b83fd629dee2f799191"
+  }
+}

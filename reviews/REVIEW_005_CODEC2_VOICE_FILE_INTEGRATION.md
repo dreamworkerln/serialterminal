@@ -1,0 +1,251 @@
+# TODO_063: интеграция голосовых сообщений как файлов FT1
+
+REVIEW-ID: REVIEW_005
+Разобрано в TODO: TODO_063
+Status: COMPLETE
+Verdict: RED
+Date UTC: 2026-10-21
+Reviewer: Codex; independent review of a design plan, not author implementation acceptance.
+
+## Reviewed state
+
+Repository: https://github.com/dreamworkerln/serialterminal
+Branch: `dev_tui_exp_recursive_missing`
+Reviewed commit: [957032f3a9019e69dcbcda0821b965fcb2ffc939](https://github.com/dreamworkerln/serialterminal/commit/957032f3a9019e69dcbcda0821b965fcb2ffc939).
+Base commit: [184fabfb8088b5b3568a26883c0a71159468864e](https://github.com/dreamworkerln/serialterminal/commit/184fabfb8088b5b3568a26883c0a71159468864e).
+Base selection: planning checkpoint explicitly named by TODO_063.
+Range: `184fabfb8088b5b3568a26883c0a71159468864e..957032f3a9019e69dcbcda0821b965fcb2ffc939`.
+Checkout before review: clean. Review output itself is uncommitted and does not change the reviewed target.
+Changed files in range: TODO_063 and TODO_INVENTORY only; no production source changes or deleted production behavior.
+Previous review: none for TODO_063.
+Task / spec: [TODO_063](../todos/TODO_063_CODEC2_VOICE_MESSAGES.md).
+Exact hashes and reviewed plan diff: [checkpoint](evidence/REVIEW_005/checkpoint.json), [patch](evidence/REVIEW_005/plan-change.patch).
+
+## Scope
+
+Проверено только store-and-forward: записать голос в стандартный `.c2`, отправить
+этот обычный файл существующим FT1, открыть проверенный опубликованный файл и
+проиграть его. Голосовые сообщения не требуют отдельного режима радио, voice wire
+packets, своего ACK/retry/resume или realtime transport. Оператор отдельно подтвердил
+эту границу во время ревью.
+
+Это design review ещё не реализованной функции. Findings ниже — недоопределённые
+контракты интеграции и доказанные свойства существующего API, а не утверждение,
+что отсутствующий VoiceMessageService уже содержит эти bugs. RED относится к
+полноте плана перед реализацией, не к исправности существующего FT1.
+
+Прочитаны TODO и inventory, ARCHITECTURE, применимые FT1/FT1_RESUME и runtime
+реализации TUI, coordinator, records/events, sender admission/source, publication,
+recursive completion и shutdown. Прошивка и physical transport не проверялись.
+
+## Findings
+
+### F001 — MEDIUM: не определена судьба готовой записи, если FT1 не принял отправку
+
+Where: TODO_063:185–205, 214–226, 274–277, 307–309;
+`file_transfer/resumable.py:start_send`, строки 847–872;
+`file_transfer/core.py:_reserve_record`, строки 683–689.
+
+Verified behavior: recording/FINALIZING блокирует локальные F2/F3/F5 и disruptive
+actions, но не резервирует FT1 и не запрещает входящий META. `start_send()` может
+выбросить `file_transfer_busy` до создания TX. План сохраняет файл для failed/cancelled
+TX, но для отказа admission до появления TX-ID конечное состояние не определено.
+Test `start_send failure` назван, однако его обязательный результат не описан.
+
+Failure scenario: пользователь записывает речь; за это время приходит обычный файл;
+пользователь останавливает запись; finalized `.c2` готов, но FT1 занят RX. Вариант
+реализации «ошибка → общий cleanup → IDLE» может удалить запись либо оставить
+невидимый temp. Это интеграционный риск, не дефект FT1 busy policy.
+
+Impact: потеря уже записанного сообщения или неясный ручной retry.
+Evidence: composed probe `incoming_admission` получил `file_transfer_busy` на реальном
+FileTransferManager при активном входящем файле; исходный файл FT1 сам не удаляет.
+Test gap: будущий тест должен проверять не только exception, но и сохранённый valid
+файл, visible path, повторную отправку и отсутствие скрытого auto retry.
+Confidence: HIGH для API и отсутствующей спецификации; ошибки voice-кода пока нет.
+Required acceptance: ввести явный исход «готовый файл сохранён, отправка не началась»
+(условно READY_FILE, отдельный экран не требуется). После busy/claim/start failure
+сохранить тот же finalized path и предложить ручной send; не записывать голос заново,
+не создавать собственный delivery retry и не менять FT1. Перед началом записи
+проверять занятость, но считать это только ранней проверкой, не гарантией admission.
+Follow-up TODO: существующий TODO_063; сам файл TODO этим ревью не изменён.
+
+### F002 — MEDIUM: переход к FT1 требует контракта потока и ранних terminal events
+
+Where: TODO_063:189–191, 221–224, 232–255, 274–278;
+`tui_core.py:_claim_file_transfer`, строки 405–426;
+`file_transfer/resumable.py:start_send`, строки 858–899;
+`file_transfer/core.py:_TransferRecord.event`, строки 326–338.
+
+Verified behavior: `start_send()` синхронно ищет sender journal/хеширует source и
+вызывает claim; TUI claim может ждать TX fence до 10 секунд. После `thread.start()`
+реальный sender уже работает, а результат вызова и TX-ID ещё не возвращены voice
+service. Event sink вызывается непосредственно из породившего событие worker;
+исключения callback FT1 проглатывает, сохраняя своё correctness ownership.
+
+Failure scenarios: прямой вызов из F12 handler замораживает curses на admission;
+привязка temp только после return пропускает быстрый `transfer_failed/completed`;
+вызов logger первым без изолированных ошибок может не доставить событие voice.
+Поздний return после shutdown/session replacement может привязать файл к устаревшему
+manager, если lifetime операции не ограждён.
+
+Impact: зависший UI, пропущенные cleanup/retention/diagnostics, неверный lifetime temp.
+Evidence: `synchronous_admission` подтвердил, что start_send не возвращается до release
+claim; `early_terminal` при допустимом scheduler interleaving получил completed event
+до return и уже terminal snapshot в return. Это штатно допустимое поведение API.
+Test gap: ранний success и failure до return, claim delay, logger exception, shutdown
+во время admission и late event старого manager отсутствуют в явном acceptance.
+Confidence: HIGH; scheduler probe подтверждает возможность, не частоту на hardware.
+Required acceptance: stop/finalize/admission вне curses thread; один owner обрабатывает
+состояние voice. Callback только передаёт короткий immutable event в bounded dispatch,
+не делает audio/decode/start_send. Pending job известен до вызова; событие, пришедшее
+раньше TX-ID, не теряется; после return учитывается и returned terminal snapshot.
+Корреляция включает конкретный manager/session lifetime и TX-ID. Shutdown запрещает
+новые send и учитывает уже начатый admission. Logging и voice dispatch изолируют ошибки.
+Не нужен новый FT1 API или модификация transport для решения этого стыка.
+Follow-up TODO: TODO_063, без редактирования задачи в этом review pass.
+
+### F003 — MEDIUM: сериализация playback не исключает попадание входящего голоса в запись
+
+Where: TODO_063:185–205, 236–255, 307–313.
+
+Verified behavior: план сериализует несколько playback, но не задаёт взаимное
+исключение playback и microphone capture. Recording не выключает входящий FT1.
+
+Failure scenario: во время RECORDING принимается и проверяется чужое голосовое
+сообщение; autoplay включает динамик и его звук попадает в микрофон исходящей
+записи. Обратный порядок — F12 во время уже играющего сообщения — тоже не описан.
+Impact: чужая речь/эхо попадает в отправляемый файл; начало своей записи маскируется.
+Это локальный audio lifecycle, а не требование realtime/half-duplex RF режима.
+Evidence: source/design inspection; акустический сценарий не запускался. Конкретное
+попадание звука зависит от гарнитуры/динамика; гарантировать его отсутствие нельзя.
+Test gap: RX completion during recording/finalizing; F12 during playback; shutdown
+with pending playback and capture; FT1 completion must remain completed throughout.
+Confidence: HIGH для отсутствующего правила, CONDITIONAL для акустического эффекта.
+Required acceptance: выбрать простую локальную политику. Рекомендуется отложить
+playback до завершения записи; новый capture во время playback либо явно остановит
+playback, либо будет отклонён с понятным статусом. Зафиксировать выбранный вариант,
+не менять при этом FT1 admission, RESULT или радиопротокол. Deferred playback хранит
+ссылку на уже принятый файл, а не повторную radio operation.
+Follow-up TODO: TODO_063, решение продукта ещё не внесено в исходный план.
+
+## Что в плане уже правильно
+
+* Encoding по мере записи не превращает передачу в realtime: радио начинает обычную
+  файловую доставку только после завершения `.c2`. Полный PCM temp не нужен.
+* Стандартный 7-byte Codec2 header и payload, отдельный ctypes codec wrapper и
+  AudioBackend дают правильные границы. `arecord/aplay` допустимы для первого Linux
+  backend, Codec2 CLI остаётся reference, не runtime зависимостью.
+* FT1 остаётся единственным владельцем compression/hash/chunks/repair/resume/RESULT.
+  Одинаковая доставка подходит и документу, и аудиофайлу; feature не требует firmware.
+* Проверенный ROOT RX completion — правильное место для autoplay. 100% DATA,
+  локальный TX_DONE и промежуточный missing-list недостаточны.
+* Recognition по исходному wire filename, не по filesystem basename, корректно.
+  Probe действительно получил `voice-probe.stvoice (1).c2` при wire filename
+  `voice-probe.stvoice.c2`, сохранив точные bytes.
+* `.stvoice.c2` — договорённость приложения для автоматического playback. Обычный
+  `.c2` или неподдерживаемый mode должен остаться обычным полученным файлом.
+* Сбой декодирования/звука не может отменить успешную файловую доставку.
+
+## Дополнительные решения, не требующие нового протокола
+
+1. **Ограничение записи и проигрывания.** Bounded queue в плане есть, но duration/bytes
+   одного сообщения не ограничены. Разумно выбрать верхнюю длительность, правила при
+   достижении лимита и admission слишком длинного входящего файла. Значение — решение
+   оператора, не скрытая константа reviewer. Декодировать streaming, не весь PCM в RAM.
+   При 3200 payload равен 400 B/s: 10 s дают 4007 B, 60 s — 24007 B до FT1 compression
+   и protocol overhead. Время доставки определяется текущим FT1/link; оно не обязано
+   равняться длительности речи. Контейнер не хранит точное число исходных samples;
+   padding может добавить менее/до одного 20-ms frame, что план уже допускает.
+2. **Завершение capture.** Сначала запросить штатный stop, bounded drain stdout/EOF,
+   затем encode остатка и final padding один раз. Произвольный read fragment не равен
+   codec frame. Terminate/kill — fallback с отдельной классификацией; nonzero exit от
+   нашего stop не должен автоматически означать потерю всей корректной записи.
+   Header-only/пустую запись лучше не посылать. Это уточнение backend implementation,
+   а не доказанный bug пока отсутствующего кода.
+3. **Повторное прослушивание и restart.** Сохранённый полученный `.c2` должен оставаться
+   доступным после audio error/queue overflow. Полезен простой локальный replay, без
+   повторной передачи файла. FT1 event sink не является durable inbox: probe после
+   restart получил два OK на META/END replay и **ноль новых completion events**.
+   Поэтому delivery durability не даёт exactly-once playback через crash. Для первого
+   этапа достаточно явно ограничить autoplay текущим процессом и сохранить ручное
+   воспроизведение; durable played/unplayed inbox — отдельное осознанное расширение.
+   Обычный reconnect до первого completion не является этим crash gap.
+4. **Retry и shutdown.** Failed TX оставляет тот же finalized path; existing FT1 journal
+   способен продолжить его через `start_send(path)`. Не переименовывать/перекодировать
+   запись ради retry и не добавлять voice retry scheduler. При shutdown незавершённый
+   capture удаляется, finalized/resumable source сохраняется; это разные состояния.
+5. **Audio routes.** Для Bluetooth уже применённый явный capture device полезен и в
+   backend; default может следовать системному выбору. Device input/output settings
+   относятся к audio frontend, не к профилю радионоды. Это удобство, не blocker плана.
+
+## Рекомендуемая реализация
+
+Сохранить общий замысел TODO. В приложении достаточно небольшого VoiceMessageService:
+он владеет capture/encode и generated file до передачи ownership существующему FT1,
+а на RX — очередью локального playback. Отдельный frontend dispatcher изолирует
+logging от voice events; состояние меняет один owner, workers выполняют blocking I/O.
+
+```text
+F12 -> capture+encode -> finalized .c2 -> existing start_send(path)
+                                      -> FT1 обычный transfer window
+                                      -> admission error: файл сохранён, ручной retry
+
+verified ROOT RX -> validated .c2 -> local playback queue -> decode+aplay
+                                    (ждёт, пока микрофон не записывает)
+```
+
+Ранние terminal events и lifetime manager должны быть закрыты тестами до TUI wiring.
+После этого проверить реальную SDK interop и host audio, затем существующий FT1 между
+двумя endpoints. Раздельно фиксировать software, host audio и radio evidence.
+Новых режимов отправки, voice пакетов, priority scheduler или firmware changes нет.
+
+## Previous findings recheck
+
+N/A — первый review плана TODO_063. REVIEW_001–004 относятся к другим scopes.
+
+## Validation and evidence
+
+| Check / command | Exact checkpoint | Result | Evidence type / limitations |
+| --- | --- | --- | --- |
+| Full planning diff + relevant current FT1/TUI bodies | ST 957032f3a9019e69dcbcda0821b965fcb2ffc939; base 184fabfb8088b5b3568a26883c0a71159468864e | REVIEWED | Source/design inspection; no voice implementation exists |
+| `python3 reviews/evidence/REVIEW_005/integration_probe.py` | Same ST target | PASS, 5 contract probes | Real FileTransferManager on loopback boundary; controlled thread schedule and admission gate; no physical I/O; [results](evidence/REVIEW_005/probe-results.json) |
+| Existing clean SDK build/ctypes/container/relocation | SDK 5ef71a1a0aee504752090015a114d9f24f52ef53, Codec2 310777b1c6f1af0bc7c72f5b32f80f6fd9136962 | Supplied earlier local PASS | [SDK report](../../../journal_of_experiments/20261021T123019Z_codec2_sdk_clean_build/report.md); not ST wrapper interoperability |
+| Operator microphone -> CLI encode/decode -> playback | Same local SDK; no canonical RUN | Operator reports intelligible speech | Supplied manual result, not a voice-in-ST acceptance run |
+| ST voice codec/audio/TUI end-to-end, paired nodes, repair/resume audio | Not implemented | NOT RUN | No audio recording, BLE/USB session, radio or flash initiated by this review |
+| Full pytest / CI | Reviewed source unchanged | NOT RUN | Design review only; probe is not the full suite or a CI gate |
+
+The probe payload has a structurally valid 3200 header and opaque synthetic bytes;
+its purpose is FT1 lifecycle/identity, not codec quality/interoperability.
+[Probe source](evidence/REVIEW_005/integration_probe.py). Snapshot/input/probe hashes
+and final validation are saved in the evidence directory. No production source,
+existing TODO, TODO inventory, Codec2 SDK or firmware was modified.
+
+## Assessment
+
+Основная архитектура пригодна: голосовое сообщение действительно является файлом.
+Перепроектировать FT1 или заводить realtime mode не нужно. До реализации следует
+уточнить три стыка: retained finalized file при отказе admission, асинхронный lifetime
+и ранние события start_send, локальное сосуществование capture/playback. Остальные
+пункты — небольшие продуктовые/implementation решения, не новые radio требования.
+
+## Result
+
+Status: COMPLETE
+Verdict: RED
+Verdict scope: design completeness for store-and-forward integration in TODO_063 only.
+Remaining gates: F001–F003 contract decisions; implementation; automated integration,
+SDK interop, real host audio and paired radio scenarios per TODO_063.
+Follow-up: дать оператору review; TODO_063 и его acceptance в этом проходе не изменять;
+новые TODO не созданы, commit/push/GDI operations не выполнялись.
+
+## TODO disposition — 2026-10-21 (после исходного review pass)
+
+По отдельному поручению оператора план TODO_063 дополнен F001–F003 и применимыми
+implementation notes. Все findings оформлены в существующей задаче, новых TODO нет.
+F001: retained READY_FILE до admission, обычный F5 retry; F002: worker admission,
+early-event/snapshot correlation, dispatch isolation и lifetime/shutdown; F003:
+local audio ownership, deferred playback и F12 busy во время воспроизведения.
+Duration/bytes policy явно оставлена открытым решением до реализации. Исходные
+reviewed target/base, findings, Status COMPLETE и RED verdict не изменены.
+Это разбор в TODO, не новое ревью и не подтверждение runtime fixes.

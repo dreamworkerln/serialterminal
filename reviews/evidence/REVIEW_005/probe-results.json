@@ -1,0 +1,32 @@
+{
+  "result": "PASS",
+  "evidence_type": "composed FT1 contract probe; no voice implementation/audio/radio",
+  "checks": {
+    "early_terminal": {
+      "terminal_before_start_send_return": true,
+      "returned_state": "completed"
+    },
+    "filename_collision": {
+      "wire_filename": "voice-probe.stvoice.c2",
+      "published_basename": "voice-probe.stvoice (1).c2",
+      "bytes_equal": true,
+      "completion_count": 1,
+      "event_has_parent_field": false
+    },
+    "completed_replay": {
+      "durable_file_exists": true,
+      "new_ok_results": 2,
+      "new_completion_events": 0,
+      "note": "FT1 tombstone replay does not constitute an autoplay inbox"
+    },
+    "incoming_admission": {
+      "receiver_busy": true,
+      "local_voice_send_error": "file_transfer_busy",
+      "finalized_source_preserved": true
+    },
+    "synchronous_admission": {
+      "claim_entered": true,
+      "start_send_returned_before_claim_release": false
+    }
+  }
+}

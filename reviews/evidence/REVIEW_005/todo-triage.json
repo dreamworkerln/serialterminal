@@ -1,0 +1,21 @@
+{
+  "date_utc": "2026-10-21T13:43:44.425607+00:00",
+  "review_id": "REVIEW_005",
+  "reviewed_target": "957032f3a9019e69dcbcda0821b965fcb2ffc939",
+  "todo_ids": [
+    "TODO_063"
+  ],
+  "new_todo_ids": [],
+  "findings": {
+    "F001": "TODO_063 plan/implementation/acceptance amended",
+    "F002": "TODO_063 plan/implementation/acceptance amended",
+    "F003": "TODO_063 plan/implementation/acceptance amended"
+  },
+  "original_report_sha256": "0fc582775509c4308eaf4c3154c873ff1a5a40a51929b9d4cf13124fb3808434",
+  "original_report_snapshot": "report-before-todo-triage.txt",
+  "todo_before_sha256": "a43d8b0177eb1d04a293736ec52d8f5fe8a52cc8d66eb7fd8c7ffcb631a85f77",
+  "todo_after_sha256": "708f8a6ce7c5f48e1d954436b9c317c37d48a44b05cc47f5e0673bc0145314b4",
+  "remaining_decision": "numeric recording/playback duration/bytes policy before implementation",
+  "historical_verdict": "RED unchanged; no re-review",
+  "source_tests_runtime_hardware_changes": false
+}

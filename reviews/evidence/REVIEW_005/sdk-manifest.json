@@ -1,0 +1,22 @@
+{
+  "build": {
+    "cmake": "cmake version 3.22.1",
+    "compiler": "cc (Ubuntu 11.4.0-1ubuntu1~22.04.3) 11.4.0",
+    "lpcnet": false,
+    "shared_library": true,
+    "type": "Release",
+    "unittest": false
+  },
+  "generated_at_utc": "2026-10-21T12:30:40.586581+00:00",
+  "host": {
+    "machine": "x86_64",
+    "system": "Linux"
+  },
+  "platform": "linux-x86_64",
+  "sdk_format": 1,
+  "upstream": {
+    "codec2_version": "1.2.0",
+    "commit": "310777b1c6f1af0bc7c72f5b32f80f6fd9136962",
+    "repository": "https://github.com/drowe67/codec2.git"
+  }
+}
