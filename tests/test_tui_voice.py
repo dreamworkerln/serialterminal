@@ -40,7 +40,7 @@ class FakeVoice:
 
 class FakeProfile:
     def human_action_is_non_disruptive(self, action):
-        return isinstance(action, SendLine) and action.line == "/safe"
+        return isinstance(action, SendLine) and action.text == "/safe"
 
 
 def make_tui(voice):

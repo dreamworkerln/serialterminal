@@ -381,8 +381,9 @@ class TerminalTui:
             else None
         )
         self._file_transfer = manager
-        if self._voice_service is not None:
-            self._voice_service.bind_manager(manager)
+        voice_service = getattr(self, "_voice_service", None)
+        if voice_service is not None:
+            voice_service.bind_manager(manager)
 
     def _dispatch_file_transfer_event(
         self,
