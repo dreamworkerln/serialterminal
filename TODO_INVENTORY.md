@@ -48,9 +48,22 @@ Status: OPEN / P2; REVIEW_004/F008 = Chatter REVIEW_006/F008.
 Implementation/acceptance OPEN; validation gates перечислены в задаче.
 
 SPP F004 дополняет OPEN TODO_013. Windows FT1 F006 дополняет TODO_049;
-DEFERRED по решению оператора сохранён. Next new thematic TODO ID: `TODO_063`.
+DEFERRED по решению оператора сохранён. Next new thematic TODO ID: `TODO_064`.
 
 ## Active
+
+### TODO_063 — [todos/TODO_063_CODEC2_VOICE_MESSAGES.md](todos/TODO_063_CODEC2_VOICE_MESSAGES.md)
+
+Status: OPEN / PLAN COMPLETE / IMPLEMENTATION NOT STARTED
+
+Operator-selected next integration: store-and-forward Codec2 voice messages in the
+human TUI. F12 toggle records 8 kHz mono PCM directly into standard Codec2 3200
+`*.stvoice.c2`; the finalized file is sent by the existing FT1 manager. Verified RX
+completion uses the original wire filename plus validated `.c2` content and durable
+`final_path` before asynchronous playback. Codec/audio stay in an application layer;
+no concrete-profile branch, firmware change, FT1 wire change or realtime voice is in
+this TODO. Planning checkpoint `184fabfb8088b5b3568a26883c0a71159468864e`;
+implementation/host audio/hardware acceptance remain OPEN.
 
 ### TODO_057 — [todos/TODO_057_NODE_RUNTIME_STATUS.md](todos/TODO_057_NODE_RUNTIME_STATUS.md)
 
