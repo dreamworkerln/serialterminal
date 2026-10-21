@@ -71,3 +71,19 @@ Status: DEFERRED. Отложено по решению оператора 2026-1
 возврат к работе — по отдельной команде оператора.
 Implementation и acceptance validation не выполнены.
 Physical hardware validation этим разбором не выполнялась и не авторизована.
+
+## Imported REVIEW_004/F006 — 2026-10-21
+
+[Ревью](../reviews/REVIEW_004_IMPORTED_FIRMWARE_CLIENT_2026-10-21.md) = Chatter REVIEW_006/F006,
+client `a34631e861d1477c48f5ad2bc15dad15564f73f6`. Supplied repro публичного start_send на настоящем Windows
+CPython 3.12 получил ModuleNotFoundError fcntl до передачи. Это дополняет прежний
+Linux no-fcntl repro; локально Windows проверка не выполнялась.
+[Repro](../../../c++/lora-sack/chatter/reviews/evidence/REVIEW_006/repro_client_failures.py),
+[команды/exit codes](../../../c++/lora-sack/chatter/reviews/evidence/REVIEW_006/checks.json).
+
+Status: DEFERRED по решению оператора 2026-10-15. Разбор ревью не возобновляет
+реализацию и не согласует снятие Windows поддержки.
+
+- [ ] При отдельном возобновлении: реальный Windows TX/RX/resume/cleanup и
+  сохранение POSIX cross-process ownership/publication guarantees.
+- [ ] Не подавлять ImportError с потерей защиты ownership/publication.

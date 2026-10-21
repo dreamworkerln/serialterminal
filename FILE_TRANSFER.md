@@ -20,6 +20,9 @@ An idle receiver restores this channel after reconnect without a new file-send c
 Pending old tickets are never reported successful by a new epoch; the old host writes
 must settle, and reset/new WELCOME epoch proof permits FT1's idempotent recovery.
 No controller reboot or RF SUBMIT replay is performed merely to obtain that proof.
+Lifecycle markers inside USER/echo text are not proof: the Chatter profile matches
+standalone local boot/reset/READY lines using its shared grammar. Such text cannot
+release a pending machine identity, invalidate verified PHY or authorize replay.
 
 The `/bin`, human BINARY-presentation and TELEMETRY-only limitations described below
 apply to **explicit legacy compatibility** after old-firmware rejection. They do not

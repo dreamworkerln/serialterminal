@@ -1,0 +1,69 @@
+{
+  "changed_functions": [
+    {
+      "file": "src/serialterminal/profiles/chatter/binary_user.py",
+      "function": "feed_line",
+      "before": {
+        "cc": 18,
+        "nloc": 70,
+        "parameters": 3
+      },
+      "after": {
+        "cc": 17,
+        "nloc": 71,
+        "parameters": 3
+      }
+    },
+    {
+      "file": "src/serialterminal/profiles/chatter/machine_client.py",
+      "function": "feed_line",
+      "before": {
+        "cc": 50,
+        "nloc": 59,
+        "parameters": 3
+      },
+      "after": {
+        "cc": 49,
+        "nloc": 59,
+        "parameters": 3
+      }
+    },
+    {
+      "file": "src/serialterminal/profiles/chatter/presentation.py",
+      "function": "_is_controller_epoch_boundary",
+      "before": {
+        "cc": 3,
+        "nloc": 5,
+        "parameters": 1
+      },
+      "after": {
+        "cc": 1,
+        "nloc": 2,
+        "parameters": 1
+      }
+    },
+    {
+      "file": "src/serialterminal/profiles/chatter/radio_timing.py",
+      "function": "feed_line",
+      "before": {
+        "cc": 16,
+        "nloc": 24,
+        "parameters": 2
+      },
+      "after": {
+        "cc": 15,
+        "nloc": 24,
+        "parameters": 2
+      }
+    }
+  ],
+  "new_functions": [
+    {
+      "name": "parse_controller_lifecycle_line",
+      "cc": 3,
+      "nloc": 7,
+      "parameters": 1
+    }
+  ],
+  "new_threshold_violations": []
+}

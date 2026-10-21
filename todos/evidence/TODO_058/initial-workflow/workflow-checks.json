@@ -1,0 +1,51 @@
+{
+  "plan_source": ".github/workflows/ci.yml",
+  "workflow_sha256": "7e9eca857253c2be0c115a8b0a49884200e485ba8f675189e45599c19bf35b11",
+  "execution": "local named run steps from existing workflow; setup/install prepared separately",
+  "python": "Python 3.10.12",
+  "checks": [
+    {
+      "name": "Compile",
+      "blocking": true,
+      "command": "python -m compileall -q src serialterminal.py usb_timing_logger.py tools scripts",
+      "exit_code": 0,
+      "seconds": 0.03,
+      "log": "todos/evidence/TODO_058/workflow-00.log"
+    },
+    {
+      "name": "Static analysis",
+      "blocking": true,
+      "command": "ruff check src tests serialterminal.py usb_timing_logger.py tools scripts",
+      "exit_code": 0,
+      "seconds": 0.01,
+      "log": "todos/evidence/TODO_058/workflow-01.log"
+    },
+    {
+      "name": "Complexity",
+      "blocking": false,
+      "command": "lizard -l python -C 10 -L 80 -a 5 src serialterminal.py usb_timing_logger.py tools scripts",
+      "exit_code": 1,
+      "seconds": 0.55,
+      "log": "todos/evidence/TODO_058/workflow-02.log"
+    },
+    {
+      "name": "Tests",
+      "blocking": true,
+      "command": "pytest -q",
+      "exit_code": 0,
+      "seconds": 113.16,
+      "log": "todos/evidence/TODO_058/workflow-03.log",
+      "summary": [
+        "1373 passed in 112.76s (0:01:52)"
+      ]
+    }
+  ],
+  "mandatory_dependencies_checked": [
+    "pytest",
+    "bleak",
+    "dbus_fast",
+    "pyte"
+  ],
+  "status": "PASS",
+  "limitations": "Not a GitHub run; CI infrastructure TODO_051 remains separate"
+}

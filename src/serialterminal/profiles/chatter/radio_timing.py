@@ -7,6 +7,7 @@ import threading
 import time
 
 from ...file_transfer.transport import BinaryUserCancelled, BinaryUserError
+from .controller_lifecycle import parse_controller_lifecycle_line
 
 
 # Размеры ProtocolFrame, retry policy и UART guard соответствуют Chatter.
@@ -102,7 +103,7 @@ class RadioTimingReader:
 
     def feed_line(self, line: str):
         with self.condition:
-            if any(marker in line for marker in ("ESP-ROM:", "rst:", "[SYS] CHATTER READY")) or (
+            if parse_controller_lifecycle_line(line) is not None or (
                 line.startswith("[SYS]") and any(marker in line for marker in (" SAVED", "phase=repair", "phase=validate"))
             ):
                 self.revision += 1

@@ -239,6 +239,8 @@ machine_negotiation_retry позволяют отделить это ожида�
 
 Controller lifetime отделён от transport generation. USB tty может остаться открытым во время reboot. Chatter adapter распознаёт controller reset/READY и не превращает обычный transport reconnect без reset evidence в фиктивный reboot.
 
+Lifecycle evidence — только отдельные локальные строки по грамматике Chatter profile. Маркеры в USER/echo (`first:`, `rst:0x…`, `ESP-ROM:`, `[SYS] CHATTER READY`) не меняют controller state, не освобождают pending и не сбрасывают PHY. Цитата ответа о режиме вывода также не доказывает readiness. Не объявляй reset по подстроке в chat.
+
 Для active FT1 recoverable local outcomes (`local_tx_unknown`, `local_disconnect`, `local_controller_reset`) приводят transfer в `recovering_local_node`. File layer сохраняет exact current idempotent META/DATA/END, не выпускает следующие chunks и после восстановления controller может повторить только текущий message при учтённом исходе прежней submission. Lost echo или unresolved pipeline tickets дают `local_tx_unsettled`: reconnect/host drain недостаточны, нужен наблюдаемый controller reset. Recovery bounded общим deadline; endless replay/hang недопустим.
 
 Generic `tx_state=unknown` по-прежнему нельзя blind-retry через обычный `send_line`; recovery authority здесь существует только потому, что FT1 message identity/idempotence определены приложением.

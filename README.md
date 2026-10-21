@@ -202,6 +202,10 @@ Successful completion automatically closes the progress frame and compact header
 F7 hides/shows only a running transfer; a terminal result cannot reopen its window.
 Boot/READY without an admitted FT1 operation never enables a file window. Actual
 recovery/resume returns the progress window to the center, including from background.
+Chatter recognizes controller lifecycle only from standalone local boot/reset/READY
+lines. Ordinary received text or outgoing echo containing `first:`, `ESP-ROM:`,
+`rst:0x…` or `[SYS] CHATTER READY` does not reset the controller state or release
+an unfinished file submission.
 Every ROOT completion independently writes one white chat line with TX/RX, filename
 and «успешно», «ошибка» with its reason, or «отменена пользователем/отправителем/получателем». This follows
 the terminal event, regardless of window visibility or closure; intermediate RESULT,

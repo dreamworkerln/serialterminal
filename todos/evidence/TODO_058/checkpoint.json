@@ -1,0 +1,18 @@
+{
+  "base_commit": "a34631e861d1477c48f5ad2bc15dad15564f73f6",
+  "implementation_patch_sha256": "5c3928df4675203152f3e240e94ca606ba83fe2aa70d61d52433a6439202bbaf",
+  "files": {
+    "src/serialterminal/profiles/chatter/binary_user.py": "7854bb588c34cf83c9746562d87fa1a5e0208baf1850e2b83d2b5d941a7d0edf",
+    "src/serialterminal/profiles/chatter/machine_client.py": "7d929ea2fc41415575db5975de14c6ab032955a6271ea3362b7508200488d8af",
+    "src/serialterminal/profiles/chatter/presentation.py": "c5096d0ccdcc642197feb6e2cc086751e41cd969295730617ab8e360d049f5c0",
+    "src/serialterminal/profiles/chatter/radio_timing.py": "5eeb08c47d98aaf67d7030ce26a012e0ca889b4d4a77fe0119c2004de3142bff",
+    "README.md": "e8e5e04f6eab7779b2a50d654e6ff682a17bef54374b2f646638872f50765724",
+    "ARCHITECTURE.md": "f486f4cd7b31da02f9b69954e753ac44ea8340c23329e2c81db43dc1bd0060df",
+    "FT1_RESUME.md": "bb1257a7b1cbcb6dca24fca1f1379d90e069562a80d7fe4ba3a66287f6c17529",
+    "FILE_TRANSFER.md": "75cbe5945b15582025226345813e5f0134814bd961d3740c05f93f836661538b",
+    "AGENT_API.md": "9cc1fb8d7d7dba19d784f952fba4b8279aca3cdab04dc60253c639637c56f488",
+    ".agents/skills/serialterminal-agent/SKILL.md": "7e84db04ad4b1c2c64f0208141a39b37b4f22785623ae1a01db6ae0d548f96f3",
+    "src/serialterminal/profiles/chatter/controller_lifecycle.py": "d338274391bd4f9ab28c3c259efbcd9877df00de1fb2c4ae3ecc32eb9018759e",
+    "tests/test_chatter_lifecycle_grammar.py": "1d66295c28e9cdc97989926c4af80ed3927be82c149cf6ae7e2afd37b7f38815"
+  }
+}

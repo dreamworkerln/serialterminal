@@ -1,0 +1,1332 @@
+<?xml version="1.0" encoding="utf-8"?><testsuites name="pytest tests"><testsuite name="pytest" errors="0" failures="72" skipped="0" tests="83" time="0.690" timestamp="2026-10-21T11:51:23.026067+03:00" hostname="vostro"><testcase classname="tests.test_chatter_lifecycle_grammar" name="test_chat_and_echo_cannot_invalidate_machine_ticket[first:]" time="0.001"><failure message="AssertionError: assert {'state': 're...n': None, ...} == {'state': 're...n': None, ...}&#10;  &#10;  Omitting 9 identical items, use -vv to show&#10;  Differing items:&#10;  {'machine_mode': 'failed'} != {'machine_mode': 'machine'}&#10;  Use -v to get more diff">line = 'first:'
+
+    @pytest.mark.parametrize("line", USER_LINES)
+    def test_chat_and_echo_cannot_invalidate_machine_ticket(line):
+        client, node, ticket = accepted_client()
+        try:
+            before = client.controller_status()
+            client.feed_line("chat", line)
+&gt;           assert client.controller_status() == before
+E           AssertionError: assert {'state': 're...n': None, ...} == {'state': 're...n': None, ...}
+E             
+E             Omitting 9 identical items, use -vv to show
+E             Differing items:
+E             {'machine_mode': 'failed'} != {'machine_mode': 'machine'}
+E             Use -v to get more diff
+
+tests/test_chatter_lifecycle_grammar.py:71: AssertionError</failure></testcase><testcase classname="tests.test_chatter_lifecycle_grammar" name="test_chat_and_echo_cannot_invalidate_machine_ticket[&lt; [-30/8 Q0] first:]" time="0.001"><failure message="AssertionError: assert {'state': 're...n': None, ...} == {'state': 're...n': None, ...}&#10;  &#10;  Omitting 9 identical items, use -vv to show&#10;  Differing items:&#10;  {'machine_mode': 'failed'} != {'machine_mode': 'machine'}&#10;  Use -v to get more diff">line = '&lt; [-30/8 Q0] first:'
+
+    @pytest.mark.parametrize("line", USER_LINES)
+    def test_chat_and_echo_cannot_invalidate_machine_ticket(line):
+        client, node, ticket = accepted_client()
+        try:
+            before = client.controller_status()
+            client.feed_line("chat", line)
+&gt;           assert client.controller_status() == before
+E           AssertionError: assert {'state': 're...n': None, ...} == {'state': 're...n': None, ...}
+E             
+E             Omitting 9 identical items, use -vv to show
+E             Differing items:
+E             {'machine_mode': 'failed'} != {'machine_mode': 'machine'}
+E             Use -v to get more diff
+
+tests/test_chatter_lifecycle_grammar.py:71: AssertionError</failure></testcase><testcase classname="tests.test_chatter_lifecycle_grammar" name="test_chat_and_echo_cannot_invalidate_machine_ticket[&lt; [-30/8 Q0] ESP-ROM:esp32s3-20210327]" time="0.001"><failure message="AssertionError: assert {'state': 're...n': None, ...} == {'state': 're...n': None, ...}&#10;  &#10;  Omitting 6 identical items, use -vv to show&#10;  Differing items:&#10;  {'state': 'resetting'} != {'state': 'ready'}&#10;  {'machine_mode': 'failed'} != {'machine_mode': 'machine'}&#10;  {'ready': False} != {'ready': True}&#10;  {'epoch': 1} != {'epoch': 0}&#10;  Use -v to get more diff">line = '&lt; [-30/8 Q0] ESP-ROM:esp32s3-20210327'
+
+    @pytest.mark.parametrize("line", USER_LINES)
+    def test_chat_and_echo_cannot_invalidate_machine_ticket(line):
+        client, node, ticket = accepted_client()
+        try:
+            before = client.controller_status()
+            client.feed_line("chat", line)
+&gt;           assert client.controller_status() == before
+E           AssertionError: assert {'state': 're...n': None, ...} == {'state': 're...n': None, ...}
+E             
+E             Omitting 6 identical items, use -vv to show
+E             Differing items:
+E             {'state': 'resetting'} != {'state': 'ready'}
+E             {'machine_mode': 'failed'} != {'machine_mode': 'machine'}
+E             {'ready': False} != {'ready': True}
+E             {'epoch': 1} != {'epoch': 0}
+E             Use -v to get more diff
+
+tests/test_chatter_lifecycle_grammar.py:71: AssertionError</failure></testcase><testcase classname="tests.test_chatter_lifecycle_grammar" name="test_chat_and_echo_cannot_invalidate_machine_ticket[&lt; [-30/8 Q0] rst:0x3 (SW_RESET),boot:0x8]" time="0.001"><failure message="AssertionError: assert {'state': 're...n': None, ...} == {'state': 're...n': None, ...}&#10;  &#10;  Omitting 6 identical items, use -vv to show&#10;  Differing items:&#10;  {'state': 'resetting'} != {'state': 'ready'}&#10;  {'machine_mode': 'failed'} != {'machine_mode': 'machine'}&#10;  {'ready': False} != {'ready': True}&#10;  {'epoch': 1} != {'epoch': 0}&#10;  Use -v to get more diff">line = '&lt; [-30/8 Q0] rst:0x3 (SW_RESET),boot:0x8'
+
+    @pytest.mark.parametrize("line", USER_LINES)
+    def test_chat_and_echo_cannot_invalidate_machine_ticket(line):
+        client, node, ticket = accepted_client()
+        try:
+            before = client.controller_status()
+            client.feed_line("chat", line)
+&gt;           assert client.controller_status() == before
+E           AssertionError: assert {'state': 're...n': None, ...} == {'state': 're...n': None, ...}
+E             
+E             Omitting 6 identical items, use -vv to show
+E             Differing items:
+E             {'state': 'resetting'} != {'state': 'ready'}
+E             {'machine_mode': 'failed'} != {'machine_mode': 'machine'}
+E             {'ready': False} != {'ready': True}
+E             {'epoch': 1} != {'epoch': 0}
+E             Use -v to get more diff
+
+tests/test_chatter_lifecycle_grammar.py:71: AssertionError</failure></testcase><testcase classname="tests.test_chatter_lifecycle_grammar" name="test_chat_and_echo_cannot_invalidate_machine_ticket[&lt; [-30/8 Q0] [SYS] RADIO FATAL RX_RESTART (-16), rebooting]" time="0.001"><failure message="AssertionError: assert {'state': 're...n': None, ...} == {'state': 're...n': None, ...}&#10;  &#10;  Omitting 7 identical items, use -vv to show&#10;  Differing items:&#10;  {'state': 'resetting'} != {'state': 'ready'}&#10;  {'ready': False} != {'ready': True}&#10;  {'epoch': 1} != {'epoch': 0}&#10;  Use -v to get more diff">line = '&lt; [-30/8 Q0] [SYS] RADIO FATAL RX_RESTART (-16), rebooting'
+
+    @pytest.mark.parametrize("line", USER_LINES)
+    def test_chat_and_echo_cannot_invalidate_machine_ticket(line):
+        client, node, ticket = accepted_client()
+        try:
+            before = client.controller_status()
+            client.feed_line("chat", line)
+&gt;           assert client.controller_status() == before
+E           AssertionError: assert {'state': 're...n': None, ...} == {'state': 're...n': None, ...}
+E             
+E             Omitting 7 identical items, use -vv to show
+E             Differing items:
+E             {'state': 'resetting'} != {'state': 'ready'}
+E             {'ready': False} != {'ready': True}
+E             {'epoch': 1} != {'epoch': 0}
+E             Use -v to get more diff
+
+tests/test_chatter_lifecycle_grammar.py:71: AssertionError</failure></testcase><testcase classname="tests.test_chatter_lifecycle_grammar" name="test_chat_and_echo_cannot_invalidate_machine_ticket[&lt; [-30/8 Q0] [SYS] CHATTER READY]" time="0.001"><failure message="AssertionError: assert {'state': 're...n': None, ...} == {'state': 're...n': None, ...}&#10;  &#10;  Omitting 9 identical items, use -vv to show&#10;  Differing items:&#10;  {'machine_mode': 'failed'} != {'machine_mode': 'machine'}&#10;  Use -v to get more diff">line = '&lt; [-30/8 Q0] [SYS] CHATTER READY'
+
+    @pytest.mark.parametrize("line", USER_LINES)
+    def test_chat_and_echo_cannot_invalidate_machine_ticket(line):
+        client, node, ticket = accepted_client()
+        try:
+            before = client.controller_status()
+            client.feed_line("chat", line)
+&gt;           assert client.controller_status() == before
+E           AssertionError: assert {'state': 're...n': None, ...} == {'state': 're...n': None, ...}
+E             
+E             Omitting 9 identical items, use -vv to show
+E             Differing items:
+E             {'machine_mode': 'failed'} != {'machine_mode': 'machine'}
+E             Use -v to get more diff
+
+tests/test_chatter_lifecycle_grammar.py:71: AssertionError</failure></testcase><testcase classname="tests.test_chatter_lifecycle_grammar" name="test_chat_and_echo_cannot_invalidate_machine_ticket[&gt; first:]" time="0.001"><failure message="AssertionError: assert {'state': 're...n': None, ...} == {'state': 're...n': None, ...}&#10;  &#10;  Omitting 9 identical items, use -vv to show&#10;  Differing items:&#10;  {'machine_mode': 'failed'} != {'machine_mode': 'machine'}&#10;  Use -v to get more diff">line = '&gt; first:'
+
+    @pytest.mark.parametrize("line", USER_LINES)
+    def test_chat_and_echo_cannot_invalidate_machine_ticket(line):
+        client, node, ticket = accepted_client()
+        try:
+            before = client.controller_status()
+            client.feed_line("chat", line)
+&gt;           assert client.controller_status() == before
+E           AssertionError: assert {'state': 're...n': None, ...} == {'state': 're...n': None, ...}
+E             
+E             Omitting 9 identical items, use -vv to show
+E             Differing items:
+E             {'machine_mode': 'failed'} != {'machine_mode': 'machine'}
+E             Use -v to get more diff
+
+tests/test_chatter_lifecycle_grammar.py:71: AssertionError</failure></testcase><testcase classname="tests.test_chatter_lifecycle_grammar" name="test_chat_and_echo_cannot_invalidate_machine_ticket[&gt; ESP-ROM:esp32s3-20210327]" time="0.001"><failure message="AssertionError: assert {'state': 're...n': None, ...} == {'state': 're...n': None, ...}&#10;  &#10;  Omitting 6 identical items, use -vv to show&#10;  Differing items:&#10;  {'state': 'resetting'} != {'state': 'ready'}&#10;  {'machine_mode': 'failed'} != {'machine_mode': 'machine'}&#10;  {'ready': False} != {'ready': True}&#10;  {'epoch': 1} != {'epoch': 0}&#10;  Use -v to get more diff">line = '&gt; ESP-ROM:esp32s3-20210327'
+
+    @pytest.mark.parametrize("line", USER_LINES)
+    def test_chat_and_echo_cannot_invalidate_machine_ticket(line):
+        client, node, ticket = accepted_client()
+        try:
+            before = client.controller_status()
+            client.feed_line("chat", line)
+&gt;           assert client.controller_status() == before
+E           AssertionError: assert {'state': 're...n': None, ...} == {'state': 're...n': None, ...}
+E             
+E             Omitting 6 identical items, use -vv to show
+E             Differing items:
+E             {'state': 'resetting'} != {'state': 'ready'}
+E             {'machine_mode': 'failed'} != {'machine_mode': 'machine'}
+E             {'ready': False} != {'ready': True}
+E             {'epoch': 1} != {'epoch': 0}
+E             Use -v to get more diff
+
+tests/test_chatter_lifecycle_grammar.py:71: AssertionError</failure></testcase><testcase classname="tests.test_chatter_lifecycle_grammar" name="test_chat_and_echo_cannot_invalidate_machine_ticket[&gt; rst:0x3 (SW_RESET),boot:0x8]" time="0.001"><failure message="AssertionError: assert {'state': 're...n': None, ...} == {'state': 're...n': None, ...}&#10;  &#10;  Omitting 6 identical items, use -vv to show&#10;  Differing items:&#10;  {'state': 'resetting'} != {'state': 'ready'}&#10;  {'machine_mode': 'failed'} != {'machine_mode': 'machine'}&#10;  {'ready': False} != {'ready': True}&#10;  {'epoch': 1} != {'epoch': 0}&#10;  Use -v to get more diff">line = '&gt; rst:0x3 (SW_RESET),boot:0x8'
+
+    @pytest.mark.parametrize("line", USER_LINES)
+    def test_chat_and_echo_cannot_invalidate_machine_ticket(line):
+        client, node, ticket = accepted_client()
+        try:
+            before = client.controller_status()
+            client.feed_line("chat", line)
+&gt;           assert client.controller_status() == before
+E           AssertionError: assert {'state': 're...n': None, ...} == {'state': 're...n': None, ...}
+E             
+E             Omitting 6 identical items, use -vv to show
+E             Differing items:
+E             {'state': 'resetting'} != {'state': 'ready'}
+E             {'machine_mode': 'failed'} != {'machine_mode': 'machine'}
+E             {'ready': False} != {'ready': True}
+E             {'epoch': 1} != {'epoch': 0}
+E             Use -v to get more diff
+
+tests/test_chatter_lifecycle_grammar.py:71: AssertionError</failure></testcase><testcase classname="tests.test_chatter_lifecycle_grammar" name="test_chat_and_echo_cannot_invalidate_machine_ticket[&gt; [SYS] RADIO FATAL RX_RESTART (-16), rebooting]" time="0.001"><failure message="AssertionError: assert {'state': 're...n': None, ...} == {'state': 're...n': None, ...}&#10;  &#10;  Omitting 7 identical items, use -vv to show&#10;  Differing items:&#10;  {'state': 'resetting'} != {'state': 'ready'}&#10;  {'ready': False} != {'ready': True}&#10;  {'epoch': 1} != {'epoch': 0}&#10;  Use -v to get more diff">line = '&gt; [SYS] RADIO FATAL RX_RESTART (-16), rebooting'
+
+    @pytest.mark.parametrize("line", USER_LINES)
+    def test_chat_and_echo_cannot_invalidate_machine_ticket(line):
+        client, node, ticket = accepted_client()
+        try:
+            before = client.controller_status()
+            client.feed_line("chat", line)
+&gt;           assert client.controller_status() == before
+E           AssertionError: assert {'state': 're...n': None, ...} == {'state': 're...n': None, ...}
+E             
+E             Omitting 7 identical items, use -vv to show
+E             Differing items:
+E             {'state': 'resetting'} != {'state': 'ready'}
+E             {'ready': False} != {'ready': True}
+E             {'epoch': 1} != {'epoch': 0}
+E             Use -v to get more diff
+
+tests/test_chatter_lifecycle_grammar.py:71: AssertionError</failure></testcase><testcase classname="tests.test_chatter_lifecycle_grammar" name="test_chat_and_echo_cannot_invalidate_machine_ticket[&gt; [SYS] CHATTER READY]" time="0.001"><failure message="AssertionError: assert {'state': 're...n': None, ...} == {'state': 're...n': None, ...}&#10;  &#10;  Omitting 9 identical items, use -vv to show&#10;  Differing items:&#10;  {'machine_mode': 'failed'} != {'machine_mode': 'machine'}&#10;  Use -v to get more diff">line = '&gt; [SYS] CHATTER READY'
+
+    @pytest.mark.parametrize("line", USER_LINES)
+    def test_chat_and_echo_cannot_invalidate_machine_ticket(line):
+        client, node, ticket = accepted_client()
+        try:
+            before = client.controller_status()
+            client.feed_line("chat", line)
+&gt;           assert client.controller_status() == before
+E           AssertionError: assert {'state': 're...n': None, ...} == {'state': 're...n': None, ...}
+E             
+E             Omitting 9 identical items, use -vv to show
+E             Differing items:
+E             {'machine_mode': 'failed'} != {'machine_mode': 'machine'}
+E             Use -v to get more diff
+
+tests/test_chatter_lifecycle_grammar.py:71: AssertionError</failure></testcase><testcase classname="tests.test_chatter_lifecycle_grammar" name="test_chat_and_echo_cannot_invalidate_machine_ticket[log says first:]" time="0.001"><failure message="AssertionError: assert {'state': 're...n': None, ...} == {'state': 're...n': None, ...}&#10;  &#10;  Omitting 9 identical items, use -vv to show&#10;  Differing items:&#10;  {'machine_mode': 'failed'} != {'machine_mode': 'machine'}&#10;  Use -v to get more diff">line = 'log says first:'
+
+    @pytest.mark.parametrize("line", USER_LINES)
+    def test_chat_and_echo_cannot_invalidate_machine_ticket(line):
+        client, node, ticket = accepted_client()
+        try:
+            before = client.controller_status()
+            client.feed_line("chat", line)
+&gt;           assert client.controller_status() == before
+E           AssertionError: assert {'state': 're...n': None, ...} == {'state': 're...n': None, ...}
+E             
+E             Omitting 9 identical items, use -vv to show
+E             Differing items:
+E             {'machine_mode': 'failed'} != {'machine_mode': 'machine'}
+E             Use -v to get more diff
+
+tests/test_chatter_lifecycle_grammar.py:71: AssertionError</failure></testcase><testcase classname="tests.test_chatter_lifecycle_grammar" name="test_chat_and_echo_cannot_invalidate_machine_ticket[log says ESP-ROM:esp32s3-20210327]" time="0.001"><failure message="AssertionError: assert {'state': 're...n': None, ...} == {'state': 're...n': None, ...}&#10;  &#10;  Omitting 6 identical items, use -vv to show&#10;  Differing items:&#10;  {'state': 'resetting'} != {'state': 'ready'}&#10;  {'machine_mode': 'failed'} != {'machine_mode': 'machine'}&#10;  {'ready': False} != {'ready': True}&#10;  {'epoch': 1} != {'epoch': 0}&#10;  Use -v to get more diff">line = 'log says ESP-ROM:esp32s3-20210327'
+
+    @pytest.mark.parametrize("line", USER_LINES)
+    def test_chat_and_echo_cannot_invalidate_machine_ticket(line):
+        client, node, ticket = accepted_client()
+        try:
+            before = client.controller_status()
+            client.feed_line("chat", line)
+&gt;           assert client.controller_status() == before
+E           AssertionError: assert {'state': 're...n': None, ...} == {'state': 're...n': None, ...}
+E             
+E             Omitting 6 identical items, use -vv to show
+E             Differing items:
+E             {'state': 'resetting'} != {'state': 'ready'}
+E             {'machine_mode': 'failed'} != {'machine_mode': 'machine'}
+E             {'ready': False} != {'ready': True}
+E             {'epoch': 1} != {'epoch': 0}
+E             Use -v to get more diff
+
+tests/test_chatter_lifecycle_grammar.py:71: AssertionError</failure></testcase><testcase classname="tests.test_chatter_lifecycle_grammar" name="test_chat_and_echo_cannot_invalidate_machine_ticket[log says rst:0x3 (SW_RESET),boot:0x8]" time="0.001"><failure message="AssertionError: assert {'state': 're...n': None, ...} == {'state': 're...n': None, ...}&#10;  &#10;  Omitting 6 identical items, use -vv to show&#10;  Differing items:&#10;  {'state': 'resetting'} != {'state': 'ready'}&#10;  {'machine_mode': 'failed'} != {'machine_mode': 'machine'}&#10;  {'ready': False} != {'ready': True}&#10;  {'epoch': 1} != {'epoch': 0}&#10;  Use -v to get more diff">line = 'log says rst:0x3 (SW_RESET),boot:0x8'
+
+    @pytest.mark.parametrize("line", USER_LINES)
+    def test_chat_and_echo_cannot_invalidate_machine_ticket(line):
+        client, node, ticket = accepted_client()
+        try:
+            before = client.controller_status()
+            client.feed_line("chat", line)
+&gt;           assert client.controller_status() == before
+E           AssertionError: assert {'state': 're...n': None, ...} == {'state': 're...n': None, ...}
+E             
+E             Omitting 6 identical items, use -vv to show
+E             Differing items:
+E             {'state': 'resetting'} != {'state': 'ready'}
+E             {'machine_mode': 'failed'} != {'machine_mode': 'machine'}
+E             {'ready': False} != {'ready': True}
+E             {'epoch': 1} != {'epoch': 0}
+E             Use -v to get more diff
+
+tests/test_chatter_lifecycle_grammar.py:71: AssertionError</failure></testcase><testcase classname="tests.test_chatter_lifecycle_grammar" name="test_chat_and_echo_cannot_invalidate_machine_ticket[log says [SYS] RADIO FATAL RX_RESTART (-16), rebooting]" time="0.001"><failure message="AssertionError: assert {'state': 're...n': None, ...} == {'state': 're...n': None, ...}&#10;  &#10;  Omitting 7 identical items, use -vv to show&#10;  Differing items:&#10;  {'state': 'resetting'} != {'state': 'ready'}&#10;  {'ready': False} != {'ready': True}&#10;  {'epoch': 1} != {'epoch': 0}&#10;  Use -v to get more diff">line = 'log says [SYS] RADIO FATAL RX_RESTART (-16), rebooting'
+
+    @pytest.mark.parametrize("line", USER_LINES)
+    def test_chat_and_echo_cannot_invalidate_machine_ticket(line):
+        client, node, ticket = accepted_client()
+        try:
+            before = client.controller_status()
+            client.feed_line("chat", line)
+&gt;           assert client.controller_status() == before
+E           AssertionError: assert {'state': 're...n': None, ...} == {'state': 're...n': None, ...}
+E             
+E             Omitting 7 identical items, use -vv to show
+E             Differing items:
+E             {'state': 'resetting'} != {'state': 'ready'}
+E             {'ready': False} != {'ready': True}
+E             {'epoch': 1} != {'epoch': 0}
+E             Use -v to get more diff
+
+tests/test_chatter_lifecycle_grammar.py:71: AssertionError</failure></testcase><testcase classname="tests.test_chatter_lifecycle_grammar" name="test_chat_and_echo_cannot_invalidate_machine_ticket[log says [SYS] CHATTER READY]" time="0.001"><failure message="AssertionError: assert {'state': 're...n': None, ...} == {'state': 're...n': None, ...}&#10;  &#10;  Omitting 9 identical items, use -vv to show&#10;  Differing items:&#10;  {'machine_mode': 'failed'} != {'machine_mode': 'machine'}&#10;  Use -v to get more diff">line = 'log says [SYS] CHATTER READY'
+
+    @pytest.mark.parametrize("line", USER_LINES)
+    def test_chat_and_echo_cannot_invalidate_machine_ticket(line):
+        client, node, ticket = accepted_client()
+        try:
+            before = client.controller_status()
+            client.feed_line("chat", line)
+&gt;           assert client.controller_status() == before
+E           AssertionError: assert {'state': 're...n': None, ...} == {'state': 're...n': None, ...}
+E             
+E             Omitting 9 identical items, use -vv to show
+E             Differing items:
+E             {'machine_mode': 'failed'} != {'machine_mode': 'machine'}
+E             Use -v to get more diff
+
+tests/test_chatter_lifecycle_grammar.py:71: AssertionError</failure></testcase><testcase classname="tests.test_chatter_lifecycle_grammar" name="test_chat_and_echo_cannot_invalidate_machine_ticket[  first:]" time="0.001"><failure message="AssertionError: assert {'state': 're...n': None, ...} == {'state': 're...n': None, ...}&#10;  &#10;  Omitting 9 identical items, use -vv to show&#10;  Differing items:&#10;  {'machine_mode': 'failed'} != {'machine_mode': 'machine'}&#10;  Use -v to get more diff">line = '  first:'
+
+    @pytest.mark.parametrize("line", USER_LINES)
+    def test_chat_and_echo_cannot_invalidate_machine_ticket(line):
+        client, node, ticket = accepted_client()
+        try:
+            before = client.controller_status()
+            client.feed_line("chat", line)
+&gt;           assert client.controller_status() == before
+E           AssertionError: assert {'state': 're...n': None, ...} == {'state': 're...n': None, ...}
+E             
+E             Omitting 9 identical items, use -vv to show
+E             Differing items:
+E             {'machine_mode': 'failed'} != {'machine_mode': 'machine'}
+E             Use -v to get more diff
+
+tests/test_chatter_lifecycle_grammar.py:71: AssertionError</failure></testcase><testcase classname="tests.test_chatter_lifecycle_grammar" name="test_chat_and_echo_cannot_invalidate_machine_ticket[  ESP-ROM:esp32s3-20210327]" time="0.001"><failure message="AssertionError: assert {'state': 're...n': None, ...} == {'state': 're...n': None, ...}&#10;  &#10;  Omitting 6 identical items, use -vv to show&#10;  Differing items:&#10;  {'state': 'resetting'} != {'state': 'ready'}&#10;  {'machine_mode': 'failed'} != {'machine_mode': 'machine'}&#10;  {'ready': False} != {'ready': True}&#10;  {'epoch': 1} != {'epoch': 0}&#10;  Use -v to get more diff">line = '  ESP-ROM:esp32s3-20210327'
+
+    @pytest.mark.parametrize("line", USER_LINES)
+    def test_chat_and_echo_cannot_invalidate_machine_ticket(line):
+        client, node, ticket = accepted_client()
+        try:
+            before = client.controller_status()
+            client.feed_line("chat", line)
+&gt;           assert client.controller_status() == before
+E           AssertionError: assert {'state': 're...n': None, ...} == {'state': 're...n': None, ...}
+E             
+E             Omitting 6 identical items, use -vv to show
+E             Differing items:
+E             {'state': 'resetting'} != {'state': 'ready'}
+E             {'machine_mode': 'failed'} != {'machine_mode': 'machine'}
+E             {'ready': False} != {'ready': True}
+E             {'epoch': 1} != {'epoch': 0}
+E             Use -v to get more diff
+
+tests/test_chatter_lifecycle_grammar.py:71: AssertionError</failure></testcase><testcase classname="tests.test_chatter_lifecycle_grammar" name="test_chat_and_echo_cannot_invalidate_machine_ticket[  rst:0x3 (SW_RESET),boot:0x8]" time="0.001"><failure message="AssertionError: assert {'state': 're...n': None, ...} == {'state': 're...n': None, ...}&#10;  &#10;  Omitting 6 identical items, use -vv to show&#10;  Differing items:&#10;  {'state': 'resetting'} != {'state': 'ready'}&#10;  {'machine_mode': 'failed'} != {'machine_mode': 'machine'}&#10;  {'ready': False} != {'ready': True}&#10;  {'epoch': 1} != {'epoch': 0}&#10;  Use -v to get more diff">line = '  rst:0x3 (SW_RESET),boot:0x8'
+
+    @pytest.mark.parametrize("line", USER_LINES)
+    def test_chat_and_echo_cannot_invalidate_machine_ticket(line):
+        client, node, ticket = accepted_client()
+        try:
+            before = client.controller_status()
+            client.feed_line("chat", line)
+&gt;           assert client.controller_status() == before
+E           AssertionError: assert {'state': 're...n': None, ...} == {'state': 're...n': None, ...}
+E             
+E             Omitting 6 identical items, use -vv to show
+E             Differing items:
+E             {'state': 'resetting'} != {'state': 'ready'}
+E             {'machine_mode': 'failed'} != {'machine_mode': 'machine'}
+E             {'ready': False} != {'ready': True}
+E             {'epoch': 1} != {'epoch': 0}
+E             Use -v to get more diff
+
+tests/test_chatter_lifecycle_grammar.py:71: AssertionError</failure></testcase><testcase classname="tests.test_chatter_lifecycle_grammar" name="test_chat_and_echo_cannot_invalidate_machine_ticket[  [SYS] RADIO FATAL RX_RESTART (-16), rebooting]" time="0.001"><failure message="AssertionError: assert {'state': 're...n': None, ...} == {'state': 're...n': None, ...}&#10;  &#10;  Omitting 7 identical items, use -vv to show&#10;  Differing items:&#10;  {'state': 'resetting'} != {'state': 'ready'}&#10;  {'ready': False} != {'ready': True}&#10;  {'epoch': 1} != {'epoch': 0}&#10;  Use -v to get more diff">line = '  [SYS] RADIO FATAL RX_RESTART (-16), rebooting'
+
+    @pytest.mark.parametrize("line", USER_LINES)
+    def test_chat_and_echo_cannot_invalidate_machine_ticket(line):
+        client, node, ticket = accepted_client()
+        try:
+            before = client.controller_status()
+            client.feed_line("chat", line)
+&gt;           assert client.controller_status() == before
+E           AssertionError: assert {'state': 're...n': None, ...} == {'state': 're...n': None, ...}
+E             
+E             Omitting 7 identical items, use -vv to show
+E             Differing items:
+E             {'state': 'resetting'} != {'state': 'ready'}
+E             {'ready': False} != {'ready': True}
+E             {'epoch': 1} != {'epoch': 0}
+E             Use -v to get more diff
+
+tests/test_chatter_lifecycle_grammar.py:71: AssertionError</failure></testcase><testcase classname="tests.test_chatter_lifecycle_grammar" name="test_chat_and_echo_cannot_invalidate_machine_ticket[  [SYS] CHATTER READY]" time="0.001"><failure message="AssertionError: assert {'state': 're...n': None, ...} == {'state': 're...n': None, ...}&#10;  &#10;  Omitting 9 identical items, use -vv to show&#10;  Differing items:&#10;  {'machine_mode': 'failed'} != {'machine_mode': 'machine'}&#10;  Use -v to get more diff">line = '  [SYS] CHATTER READY'
+
+    @pytest.mark.parametrize("line", USER_LINES)
+    def test_chat_and_echo_cannot_invalidate_machine_ticket(line):
+        client, node, ticket = accepted_client()
+        try:
+            before = client.controller_status()
+            client.feed_line("chat", line)
+&gt;           assert client.controller_status() == before
+E           AssertionError: assert {'state': 're...n': None, ...} == {'state': 're...n': None, ...}
+E             
+E             Omitting 9 identical items, use -vv to show
+E             Differing items:
+E             {'machine_mode': 'failed'} != {'machine_mode': 'machine'}
+E             Use -v to get more diff
+
+tests/test_chatter_lifecycle_grammar.py:71: AssertionError</failure></testcase><testcase classname="tests.test_chatter_lifecycle_grammar" name="test_chat_and_echo_cannot_invalidate_machine_ticket[[SYS] CHATTER READY trailing text]" time="0.001"><failure message="AssertionError: assert {'state': 're...n': None, ...} == {'state': 're...n': None, ...}&#10;  &#10;  Omitting 9 identical items, use -vv to show&#10;  Differing items:&#10;  {'machine_mode': 'failed'} != {'machine_mode': 'machine'}&#10;  Use -v to get more diff">line = '[SYS] CHATTER READY trailing text'
+
+    @pytest.mark.parametrize("line", USER_LINES)
+    def test_chat_and_echo_cannot_invalidate_machine_ticket(line):
+        client, node, ticket = accepted_client()
+        try:
+            before = client.controller_status()
+            client.feed_line("chat", line)
+&gt;           assert client.controller_status() == before
+E           AssertionError: assert {'state': 're...n': None, ...} == {'state': 're...n': None, ...}
+E             
+E             Omitting 9 identical items, use -vv to show
+E             Differing items:
+E             {'machine_mode': 'failed'} != {'machine_mode': 'machine'}
+E             Use -v to get more diff
+
+tests/test_chatter_lifecycle_grammar.py:71: AssertionError</failure></testcase><testcase classname="tests.test_chatter_lifecycle_grammar" name="test_chat_and_echo_cannot_invalidate_machine_ticket[rst:0x3 invalid reset quotation]" time="0.001"><failure message="AssertionError: assert {'state': 're...n': None, ...} == {'state': 're...n': None, ...}&#10;  &#10;  Omitting 6 identical items, use -vv to show&#10;  Differing items:&#10;  {'state': 'resetting'} != {'state': 'ready'}&#10;  {'machine_mode': 'failed'} != {'machine_mode': 'machine'}&#10;  {'ready': False} != {'ready': True}&#10;  {'epoch': 1} != {'epoch': 0}&#10;  Use -v to get more diff">line = 'rst:0x3 invalid reset quotation'
+
+    @pytest.mark.parametrize("line", USER_LINES)
+    def test_chat_and_echo_cannot_invalidate_machine_ticket(line):
+        client, node, ticket = accepted_client()
+        try:
+            before = client.controller_status()
+            client.feed_line("chat", line)
+&gt;           assert client.controller_status() == before
+E           AssertionError: assert {'state': 're...n': None, ...} == {'state': 're...n': None, ...}
+E             
+E             Omitting 6 identical items, use -vv to show
+E             Differing items:
+E             {'state': 'resetting'} != {'state': 'ready'}
+E             {'machine_mode': 'failed'} != {'machine_mode': 'machine'}
+E             {'ready': False} != {'ready': True}
+E             {'epoch': 1} != {'epoch': 0}
+E             Use -v to get more diff
+
+tests/test_chatter_lifecycle_grammar.py:71: AssertionError</failure></testcase><testcase classname="tests.test_chatter_lifecycle_grammar" name="test_real_local_boot_boundary_still_invalidates_old_epoch[ESP-ROM:esp32s3-20210327]" time="0.001" /><testcase classname="tests.test_chatter_lifecycle_grammar" name="test_real_local_boot_boundary_still_invalidates_old_epoch[rst:0x3 (SW_RESET),boot:0x8]" time="0.001" /><testcase classname="tests.test_chatter_lifecycle_grammar" name="test_real_local_boot_boundary_still_invalidates_old_epoch[[SYS] RADIO FATAL RX_RESTART (-16), rebooting]" time="0.001"><failure message="AssertionError: assert 'machine' == 'failed'&#10;  &#10;  - failed&#10;  + machine">line = '[SYS] RADIO FATAL RX_RESTART (-16), rebooting'
+
+    @pytest.mark.parametrize("line", BOOT_LINES)
+    def test_real_local_boot_boundary_still_invalidates_old_epoch(line):
+        client, node, ticket = accepted_client()
+        try:
+            node.epoch += 1
+            node.outstanding.clear()
+            client.feed_line("chat", line)
+&gt;           assert client.mode == "failed"
+E           AssertionError: assert 'machine' == 'failed'
+E             
+E             - failed
+E             + machine
+
+tests/test_chatter_lifecycle_grammar.py:97: AssertionError</failure></testcase><testcase classname="tests.test_chatter_lifecycle_grammar" name="test_real_local_boot_boundary_still_invalidates_old_epoch[[SYS] CHATTER READY]" time="0.001" /><testcase classname="tests.test_chatter_lifecycle_grammar" name="test_user_text_preserves_legacy_lifecycle_phy_and_human_pending[first:]" time="0.001"><failure message="AssertionError: assert ({'state': 'r...None, None, 1) == ({'state': 'r...5), (0, 1), 0)&#10;  &#10;  At index 1 diff: None != RadioTiming(sf=7, bandwidth_hz=500000, coding_rate=5, preamble=8, crc=True, implicit_header=False, ldro=None, attempts=5)&#10;  Use -v to get more diff">line = 'first:'
+
+    @pytest.mark.parametrize("line", USER_LINES)
+    def test_user_text_preserves_legacy_lifecycle_phy_and_human_pending(line):
+        adapter = ChatterBinaryUserAdapter(lambda text: None, radio_timing=True)
+        reader = adapter._radio_timing
+        reader.snapshot = reader.last_snapshot = RadioTiming(7, 500000)
+        reader.identity = (0, 1)
+        before = adapter.controller_status(), reader.snapshot, reader.identity, reader.revision
+        tracker = ChatterPresentation()
+        assert tracker.submit_payload("owned message")
+        tracker.mark_sent("owned message")
+        adapter.feed_line("chat", line)
+&gt;       assert (adapter.controller_status(), reader.snapshot, reader.identity, reader.revision) == before
+E       AssertionError: assert ({'state': 'r...None, None, 1) == ({'state': 'r...5), (0, 1), 0)
+E         
+E         At index 1 diff: None != RadioTiming(sf=7, bandwidth_hz=500000, coding_rate=5, preamble=8, crc=True, implicit_header=False, ldro=None, attempts=5)
+E         Use -v to get more diff
+
+tests/test_chatter_lifecycle_grammar.py:120: AssertionError</failure></testcase><testcase classname="tests.test_chatter_lifecycle_grammar" name="test_user_text_preserves_legacy_lifecycle_phy_and_human_pending[&lt; [-30/8 Q0] first:]" time="0.001"><failure message="AssertionError: assert ({'state': 'r...None, None, 1) == ({'state': 'r...5), (0, 1), 0)&#10;  &#10;  At index 1 diff: None != RadioTiming(sf=7, bandwidth_hz=500000, coding_rate=5, preamble=8, crc=True, implicit_header=False, ldro=None, attempts=5)&#10;  Use -v to get more diff">line = '&lt; [-30/8 Q0] first:'
+
+    @pytest.mark.parametrize("line", USER_LINES)
+    def test_user_text_preserves_legacy_lifecycle_phy_and_human_pending(line):
+        adapter = ChatterBinaryUserAdapter(lambda text: None, radio_timing=True)
+        reader = adapter._radio_timing
+        reader.snapshot = reader.last_snapshot = RadioTiming(7, 500000)
+        reader.identity = (0, 1)
+        before = adapter.controller_status(), reader.snapshot, reader.identity, reader.revision
+        tracker = ChatterPresentation()
+        assert tracker.submit_payload("owned message")
+        tracker.mark_sent("owned message")
+        adapter.feed_line("chat", line)
+&gt;       assert (adapter.controller_status(), reader.snapshot, reader.identity, reader.revision) == before
+E       AssertionError: assert ({'state': 'r...None, None, 1) == ({'state': 'r...5), (0, 1), 0)
+E         
+E         At index 1 diff: None != RadioTiming(sf=7, bandwidth_hz=500000, coding_rate=5, preamble=8, crc=True, implicit_header=False, ldro=None, attempts=5)
+E         Use -v to get more diff
+
+tests/test_chatter_lifecycle_grammar.py:120: AssertionError</failure></testcase><testcase classname="tests.test_chatter_lifecycle_grammar" name="test_user_text_preserves_legacy_lifecycle_phy_and_human_pending[&lt; [-30/8 Q0] ESP-ROM:esp32s3-20210327]" time="0.001"><failure message="AssertionError: assert ({'state': 'r...None, None, 1) == ({'state': 'r...5), (0, 1), 0)&#10;  &#10;  At index 0 diff: {'state': 'resetting', 'epoch': 1, 'ready': False, 'connection_generation': None, 'reset_generation': None} != {'state': 'ready', 'epoch': 0, 'ready': True, 'connection_generation': None, 'reset_generation': None}&#10;  Use -v to get more diff">line = '&lt; [-30/8 Q0] ESP-ROM:esp32s3-20210327'
+
+    @pytest.mark.parametrize("line", USER_LINES)
+    def test_user_text_preserves_legacy_lifecycle_phy_and_human_pending(line):
+        adapter = ChatterBinaryUserAdapter(lambda text: None, radio_timing=True)
+        reader = adapter._radio_timing
+        reader.snapshot = reader.last_snapshot = RadioTiming(7, 500000)
+        reader.identity = (0, 1)
+        before = adapter.controller_status(), reader.snapshot, reader.identity, reader.revision
+        tracker = ChatterPresentation()
+        assert tracker.submit_payload("owned message")
+        tracker.mark_sent("owned message")
+        adapter.feed_line("chat", line)
+&gt;       assert (adapter.controller_status(), reader.snapshot, reader.identity, reader.revision) == before
+E       AssertionError: assert ({'state': 'r...None, None, 1) == ({'state': 'r...5), (0, 1), 0)
+E         
+E         At index 0 diff: {'state': 'resetting', 'epoch': 1, 'ready': False, 'connection_generation': None, 'reset_generation': None} != {'state': 'ready', 'epoch': 0, 'ready': True, 'connection_generation': None, 'reset_generation': None}
+E         Use -v to get more diff
+
+tests/test_chatter_lifecycle_grammar.py:120: AssertionError</failure></testcase><testcase classname="tests.test_chatter_lifecycle_grammar" name="test_user_text_preserves_legacy_lifecycle_phy_and_human_pending[&lt; [-30/8 Q0] rst:0x3 (SW_RESET),boot:0x8]" time="0.001"><failure message="AssertionError: assert ({'state': 'r...None, None, 1) == ({'state': 'r...5), (0, 1), 0)&#10;  &#10;  At index 0 diff: {'state': 'resetting', 'epoch': 1, 'ready': False, 'connection_generation': None, 'reset_generation': None} != {'state': 'ready', 'epoch': 0, 'ready': True, 'connection_generation': None, 'reset_generation': None}&#10;  Use -v to get more diff">line = '&lt; [-30/8 Q0] rst:0x3 (SW_RESET),boot:0x8'
+
+    @pytest.mark.parametrize("line", USER_LINES)
+    def test_user_text_preserves_legacy_lifecycle_phy_and_human_pending(line):
+        adapter = ChatterBinaryUserAdapter(lambda text: None, radio_timing=True)
+        reader = adapter._radio_timing
+        reader.snapshot = reader.last_snapshot = RadioTiming(7, 500000)
+        reader.identity = (0, 1)
+        before = adapter.controller_status(), reader.snapshot, reader.identity, reader.revision
+        tracker = ChatterPresentation()
+        assert tracker.submit_payload("owned message")
+        tracker.mark_sent("owned message")
+        adapter.feed_line("chat", line)
+&gt;       assert (adapter.controller_status(), reader.snapshot, reader.identity, reader.revision) == before
+E       AssertionError: assert ({'state': 'r...None, None, 1) == ({'state': 'r...5), (0, 1), 0)
+E         
+E         At index 0 diff: {'state': 'resetting', 'epoch': 1, 'ready': False, 'connection_generation': None, 'reset_generation': None} != {'state': 'ready', 'epoch': 0, 'ready': True, 'connection_generation': None, 'reset_generation': None}
+E         Use -v to get more diff
+
+tests/test_chatter_lifecycle_grammar.py:120: AssertionError</failure></testcase><testcase classname="tests.test_chatter_lifecycle_grammar" name="test_user_text_preserves_legacy_lifecycle_phy_and_human_pending[&lt; [-30/8 Q0] [SYS] RADIO FATAL RX_RESTART (-16), rebooting]" time="0.001"><failure message="AssertionError: assert ({'state': 'r...5), (0, 1), 0) == ({'state': 'r...5), (0, 1), 0)&#10;  &#10;  At index 0 diff: {'state': 'resetting', 'epoch': 1, 'ready': False, 'connection_generation': None, 'reset_generation': None} != {'state': 'ready', 'epoch': 0, 'ready': True, 'connection_generation': None, 'reset_generation': None}&#10;  Use -v to get more diff">line = '&lt; [-30/8 Q0] [SYS] RADIO FATAL RX_RESTART (-16), rebooting'
+
+    @pytest.mark.parametrize("line", USER_LINES)
+    def test_user_text_preserves_legacy_lifecycle_phy_and_human_pending(line):
+        adapter = ChatterBinaryUserAdapter(lambda text: None, radio_timing=True)
+        reader = adapter._radio_timing
+        reader.snapshot = reader.last_snapshot = RadioTiming(7, 500000)
+        reader.identity = (0, 1)
+        before = adapter.controller_status(), reader.snapshot, reader.identity, reader.revision
+        tracker = ChatterPresentation()
+        assert tracker.submit_payload("owned message")
+        tracker.mark_sent("owned message")
+        adapter.feed_line("chat", line)
+&gt;       assert (adapter.controller_status(), reader.snapshot, reader.identity, reader.revision) == before
+E       AssertionError: assert ({'state': 'r...5), (0, 1), 0) == ({'state': 'r...5), (0, 1), 0)
+E         
+E         At index 0 diff: {'state': 'resetting', 'epoch': 1, 'ready': False, 'connection_generation': None, 'reset_generation': None} != {'state': 'ready', 'epoch': 0, 'ready': True, 'connection_generation': None, 'reset_generation': None}
+E         Use -v to get more diff
+
+tests/test_chatter_lifecycle_grammar.py:120: AssertionError</failure></testcase><testcase classname="tests.test_chatter_lifecycle_grammar" name="test_user_text_preserves_legacy_lifecycle_phy_and_human_pending[&lt; [-30/8 Q0] [SYS] CHATTER READY]" time="0.001"><failure message="AssertionError: assert ({'state': 'r...None, None, 1) == ({'state': 'r...5), (0, 1), 0)&#10;  &#10;  At index 1 diff: None != RadioTiming(sf=7, bandwidth_hz=500000, coding_rate=5, preamble=8, crc=True, implicit_header=False, ldro=None, attempts=5)&#10;  Use -v to get more diff">line = '&lt; [-30/8 Q0] [SYS] CHATTER READY'
+
+    @pytest.mark.parametrize("line", USER_LINES)
+    def test_user_text_preserves_legacy_lifecycle_phy_and_human_pending(line):
+        adapter = ChatterBinaryUserAdapter(lambda text: None, radio_timing=True)
+        reader = adapter._radio_timing
+        reader.snapshot = reader.last_snapshot = RadioTiming(7, 500000)
+        reader.identity = (0, 1)
+        before = adapter.controller_status(), reader.snapshot, reader.identity, reader.revision
+        tracker = ChatterPresentation()
+        assert tracker.submit_payload("owned message")
+        tracker.mark_sent("owned message")
+        adapter.feed_line("chat", line)
+&gt;       assert (adapter.controller_status(), reader.snapshot, reader.identity, reader.revision) == before
+E       AssertionError: assert ({'state': 'r...None, None, 1) == ({'state': 'r...5), (0, 1), 0)
+E         
+E         At index 1 diff: None != RadioTiming(sf=7, bandwidth_hz=500000, coding_rate=5, preamble=8, crc=True, implicit_header=False, ldro=None, attempts=5)
+E         Use -v to get more diff
+
+tests/test_chatter_lifecycle_grammar.py:120: AssertionError</failure></testcase><testcase classname="tests.test_chatter_lifecycle_grammar" name="test_user_text_preserves_legacy_lifecycle_phy_and_human_pending[&gt; first:]" time="0.001"><failure message="AssertionError: assert ({'state': 'r...None, None, 1) == ({'state': 'r...5), (0, 1), 0)&#10;  &#10;  At index 1 diff: None != RadioTiming(sf=7, bandwidth_hz=500000, coding_rate=5, preamble=8, crc=True, implicit_header=False, ldro=None, attempts=5)&#10;  Use -v to get more diff">line = '&gt; first:'
+
+    @pytest.mark.parametrize("line", USER_LINES)
+    def test_user_text_preserves_legacy_lifecycle_phy_and_human_pending(line):
+        adapter = ChatterBinaryUserAdapter(lambda text: None, radio_timing=True)
+        reader = adapter._radio_timing
+        reader.snapshot = reader.last_snapshot = RadioTiming(7, 500000)
+        reader.identity = (0, 1)
+        before = adapter.controller_status(), reader.snapshot, reader.identity, reader.revision
+        tracker = ChatterPresentation()
+        assert tracker.submit_payload("owned message")
+        tracker.mark_sent("owned message")
+        adapter.feed_line("chat", line)
+&gt;       assert (adapter.controller_status(), reader.snapshot, reader.identity, reader.revision) == before
+E       AssertionError: assert ({'state': 'r...None, None, 1) == ({'state': 'r...5), (0, 1), 0)
+E         
+E         At index 1 diff: None != RadioTiming(sf=7, bandwidth_hz=500000, coding_rate=5, preamble=8, crc=True, implicit_header=False, ldro=None, attempts=5)
+E         Use -v to get more diff
+
+tests/test_chatter_lifecycle_grammar.py:120: AssertionError</failure></testcase><testcase classname="tests.test_chatter_lifecycle_grammar" name="test_user_text_preserves_legacy_lifecycle_phy_and_human_pending[&gt; ESP-ROM:esp32s3-20210327]" time="0.001"><failure message="AssertionError: assert ({'state': 'r...None, None, 1) == ({'state': 'r...5), (0, 1), 0)&#10;  &#10;  At index 0 diff: {'state': 'resetting', 'epoch': 1, 'ready': False, 'connection_generation': None, 'reset_generation': None} != {'state': 'ready', 'epoch': 0, 'ready': True, 'connection_generation': None, 'reset_generation': None}&#10;  Use -v to get more diff">line = '&gt; ESP-ROM:esp32s3-20210327'
+
+    @pytest.mark.parametrize("line", USER_LINES)
+    def test_user_text_preserves_legacy_lifecycle_phy_and_human_pending(line):
+        adapter = ChatterBinaryUserAdapter(lambda text: None, radio_timing=True)
+        reader = adapter._radio_timing
+        reader.snapshot = reader.last_snapshot = RadioTiming(7, 500000)
+        reader.identity = (0, 1)
+        before = adapter.controller_status(), reader.snapshot, reader.identity, reader.revision
+        tracker = ChatterPresentation()
+        assert tracker.submit_payload("owned message")
+        tracker.mark_sent("owned message")
+        adapter.feed_line("chat", line)
+&gt;       assert (adapter.controller_status(), reader.snapshot, reader.identity, reader.revision) == before
+E       AssertionError: assert ({'state': 'r...None, None, 1) == ({'state': 'r...5), (0, 1), 0)
+E         
+E         At index 0 diff: {'state': 'resetting', 'epoch': 1, 'ready': False, 'connection_generation': None, 'reset_generation': None} != {'state': 'ready', 'epoch': 0, 'ready': True, 'connection_generation': None, 'reset_generation': None}
+E         Use -v to get more diff
+
+tests/test_chatter_lifecycle_grammar.py:120: AssertionError</failure></testcase><testcase classname="tests.test_chatter_lifecycle_grammar" name="test_user_text_preserves_legacy_lifecycle_phy_and_human_pending[&gt; rst:0x3 (SW_RESET),boot:0x8]" time="0.001"><failure message="AssertionError: assert ({'state': 'r...None, None, 1) == ({'state': 'r...5), (0, 1), 0)&#10;  &#10;  At index 0 diff: {'state': 'resetting', 'epoch': 1, 'ready': False, 'connection_generation': None, 'reset_generation': None} != {'state': 'ready', 'epoch': 0, 'ready': True, 'connection_generation': None, 'reset_generation': None}&#10;  Use -v to get more diff">line = '&gt; rst:0x3 (SW_RESET),boot:0x8'
+
+    @pytest.mark.parametrize("line", USER_LINES)
+    def test_user_text_preserves_legacy_lifecycle_phy_and_human_pending(line):
+        adapter = ChatterBinaryUserAdapter(lambda text: None, radio_timing=True)
+        reader = adapter._radio_timing
+        reader.snapshot = reader.last_snapshot = RadioTiming(7, 500000)
+        reader.identity = (0, 1)
+        before = adapter.controller_status(), reader.snapshot, reader.identity, reader.revision
+        tracker = ChatterPresentation()
+        assert tracker.submit_payload("owned message")
+        tracker.mark_sent("owned message")
+        adapter.feed_line("chat", line)
+&gt;       assert (adapter.controller_status(), reader.snapshot, reader.identity, reader.revision) == before
+E       AssertionError: assert ({'state': 'r...None, None, 1) == ({'state': 'r...5), (0, 1), 0)
+E         
+E         At index 0 diff: {'state': 'resetting', 'epoch': 1, 'ready': False, 'connection_generation': None, 'reset_generation': None} != {'state': 'ready', 'epoch': 0, 'ready': True, 'connection_generation': None, 'reset_generation': None}
+E         Use -v to get more diff
+
+tests/test_chatter_lifecycle_grammar.py:120: AssertionError</failure></testcase><testcase classname="tests.test_chatter_lifecycle_grammar" name="test_user_text_preserves_legacy_lifecycle_phy_and_human_pending[&gt; [SYS] RADIO FATAL RX_RESTART (-16), rebooting]" time="0.001"><failure message="AssertionError: assert ({'state': 'r...5), (0, 1), 0) == ({'state': 'r...5), (0, 1), 0)&#10;  &#10;  At index 0 diff: {'state': 'resetting', 'epoch': 1, 'ready': False, 'connection_generation': None, 'reset_generation': None} != {'state': 'ready', 'epoch': 0, 'ready': True, 'connection_generation': None, 'reset_generation': None}&#10;  Use -v to get more diff">line = '&gt; [SYS] RADIO FATAL RX_RESTART (-16), rebooting'
+
+    @pytest.mark.parametrize("line", USER_LINES)
+    def test_user_text_preserves_legacy_lifecycle_phy_and_human_pending(line):
+        adapter = ChatterBinaryUserAdapter(lambda text: None, radio_timing=True)
+        reader = adapter._radio_timing
+        reader.snapshot = reader.last_snapshot = RadioTiming(7, 500000)
+        reader.identity = (0, 1)
+        before = adapter.controller_status(), reader.snapshot, reader.identity, reader.revision
+        tracker = ChatterPresentation()
+        assert tracker.submit_payload("owned message")
+        tracker.mark_sent("owned message")
+        adapter.feed_line("chat", line)
+&gt;       assert (adapter.controller_status(), reader.snapshot, reader.identity, reader.revision) == before
+E       AssertionError: assert ({'state': 'r...5), (0, 1), 0) == ({'state': 'r...5), (0, 1), 0)
+E         
+E         At index 0 diff: {'state': 'resetting', 'epoch': 1, 'ready': False, 'connection_generation': None, 'reset_generation': None} != {'state': 'ready', 'epoch': 0, 'ready': True, 'connection_generation': None, 'reset_generation': None}
+E         Use -v to get more diff
+
+tests/test_chatter_lifecycle_grammar.py:120: AssertionError</failure></testcase><testcase classname="tests.test_chatter_lifecycle_grammar" name="test_user_text_preserves_legacy_lifecycle_phy_and_human_pending[&gt; [SYS] CHATTER READY]" time="0.001"><failure message="AssertionError: assert ({'state': 'r...None, None, 1) == ({'state': 'r...5), (0, 1), 0)&#10;  &#10;  At index 1 diff: None != RadioTiming(sf=7, bandwidth_hz=500000, coding_rate=5, preamble=8, crc=True, implicit_header=False, ldro=None, attempts=5)&#10;  Use -v to get more diff">line = '&gt; [SYS] CHATTER READY'
+
+    @pytest.mark.parametrize("line", USER_LINES)
+    def test_user_text_preserves_legacy_lifecycle_phy_and_human_pending(line):
+        adapter = ChatterBinaryUserAdapter(lambda text: None, radio_timing=True)
+        reader = adapter._radio_timing
+        reader.snapshot = reader.last_snapshot = RadioTiming(7, 500000)
+        reader.identity = (0, 1)
+        before = adapter.controller_status(), reader.snapshot, reader.identity, reader.revision
+        tracker = ChatterPresentation()
+        assert tracker.submit_payload("owned message")
+        tracker.mark_sent("owned message")
+        adapter.feed_line("chat", line)
+&gt;       assert (adapter.controller_status(), reader.snapshot, reader.identity, reader.revision) == before
+E       AssertionError: assert ({'state': 'r...None, None, 1) == ({'state': 'r...5), (0, 1), 0)
+E         
+E         At index 1 diff: None != RadioTiming(sf=7, bandwidth_hz=500000, coding_rate=5, preamble=8, crc=True, implicit_header=False, ldro=None, attempts=5)
+E         Use -v to get more diff
+
+tests/test_chatter_lifecycle_grammar.py:120: AssertionError</failure></testcase><testcase classname="tests.test_chatter_lifecycle_grammar" name="test_user_text_preserves_legacy_lifecycle_phy_and_human_pending[log says first:]" time="0.001"><failure message="AssertionError: assert ({'state': 'r...None, None, 1) == ({'state': 'r...5), (0, 1), 0)&#10;  &#10;  At index 1 diff: None != RadioTiming(sf=7, bandwidth_hz=500000, coding_rate=5, preamble=8, crc=True, implicit_header=False, ldro=None, attempts=5)&#10;  Use -v to get more diff">line = 'log says first:'
+
+    @pytest.mark.parametrize("line", USER_LINES)
+    def test_user_text_preserves_legacy_lifecycle_phy_and_human_pending(line):
+        adapter = ChatterBinaryUserAdapter(lambda text: None, radio_timing=True)
+        reader = adapter._radio_timing
+        reader.snapshot = reader.last_snapshot = RadioTiming(7, 500000)
+        reader.identity = (0, 1)
+        before = adapter.controller_status(), reader.snapshot, reader.identity, reader.revision
+        tracker = ChatterPresentation()
+        assert tracker.submit_payload("owned message")
+        tracker.mark_sent("owned message")
+        adapter.feed_line("chat", line)
+&gt;       assert (adapter.controller_status(), reader.snapshot, reader.identity, reader.revision) == before
+E       AssertionError: assert ({'state': 'r...None, None, 1) == ({'state': 'r...5), (0, 1), 0)
+E         
+E         At index 1 diff: None != RadioTiming(sf=7, bandwidth_hz=500000, coding_rate=5, preamble=8, crc=True, implicit_header=False, ldro=None, attempts=5)
+E         Use -v to get more diff
+
+tests/test_chatter_lifecycle_grammar.py:120: AssertionError</failure></testcase><testcase classname="tests.test_chatter_lifecycle_grammar" name="test_user_text_preserves_legacy_lifecycle_phy_and_human_pending[log says ESP-ROM:esp32s3-20210327]" time="0.001"><failure message="AssertionError: assert ({'state': 'r...None, None, 1) == ({'state': 'r...5), (0, 1), 0)&#10;  &#10;  At index 0 diff: {'state': 'resetting', 'epoch': 1, 'ready': False, 'connection_generation': None, 'reset_generation': None} != {'state': 'ready', 'epoch': 0, 'ready': True, 'connection_generation': None, 'reset_generation': None}&#10;  Use -v to get more diff">line = 'log says ESP-ROM:esp32s3-20210327'
+
+    @pytest.mark.parametrize("line", USER_LINES)
+    def test_user_text_preserves_legacy_lifecycle_phy_and_human_pending(line):
+        adapter = ChatterBinaryUserAdapter(lambda text: None, radio_timing=True)
+        reader = adapter._radio_timing
+        reader.snapshot = reader.last_snapshot = RadioTiming(7, 500000)
+        reader.identity = (0, 1)
+        before = adapter.controller_status(), reader.snapshot, reader.identity, reader.revision
+        tracker = ChatterPresentation()
+        assert tracker.submit_payload("owned message")
+        tracker.mark_sent("owned message")
+        adapter.feed_line("chat", line)
+&gt;       assert (adapter.controller_status(), reader.snapshot, reader.identity, reader.revision) == before
+E       AssertionError: assert ({'state': 'r...None, None, 1) == ({'state': 'r...5), (0, 1), 0)
+E         
+E         At index 0 diff: {'state': 'resetting', 'epoch': 1, 'ready': False, 'connection_generation': None, 'reset_generation': None} != {'state': 'ready', 'epoch': 0, 'ready': True, 'connection_generation': None, 'reset_generation': None}
+E         Use -v to get more diff
+
+tests/test_chatter_lifecycle_grammar.py:120: AssertionError</failure></testcase><testcase classname="tests.test_chatter_lifecycle_grammar" name="test_user_text_preserves_legacy_lifecycle_phy_and_human_pending[log says rst:0x3 (SW_RESET),boot:0x8]" time="0.001"><failure message="AssertionError: assert ({'state': 'r...None, None, 1) == ({'state': 'r...5), (0, 1), 0)&#10;  &#10;  At index 0 diff: {'state': 'resetting', 'epoch': 1, 'ready': False, 'connection_generation': None, 'reset_generation': None} != {'state': 'ready', 'epoch': 0, 'ready': True, 'connection_generation': None, 'reset_generation': None}&#10;  Use -v to get more diff">line = 'log says rst:0x3 (SW_RESET),boot:0x8'
+
+    @pytest.mark.parametrize("line", USER_LINES)
+    def test_user_text_preserves_legacy_lifecycle_phy_and_human_pending(line):
+        adapter = ChatterBinaryUserAdapter(lambda text: None, radio_timing=True)
+        reader = adapter._radio_timing
+        reader.snapshot = reader.last_snapshot = RadioTiming(7, 500000)
+        reader.identity = (0, 1)
+        before = adapter.controller_status(), reader.snapshot, reader.identity, reader.revision
+        tracker = ChatterPresentation()
+        assert tracker.submit_payload("owned message")
+        tracker.mark_sent("owned message")
+        adapter.feed_line("chat", line)
+&gt;       assert (adapter.controller_status(), reader.snapshot, reader.identity, reader.revision) == before
+E       AssertionError: assert ({'state': 'r...None, None, 1) == ({'state': 'r...5), (0, 1), 0)
+E         
+E         At index 0 diff: {'state': 'resetting', 'epoch': 1, 'ready': False, 'connection_generation': None, 'reset_generation': None} != {'state': 'ready', 'epoch': 0, 'ready': True, 'connection_generation': None, 'reset_generation': None}
+E         Use -v to get more diff
+
+tests/test_chatter_lifecycle_grammar.py:120: AssertionError</failure></testcase><testcase classname="tests.test_chatter_lifecycle_grammar" name="test_user_text_preserves_legacy_lifecycle_phy_and_human_pending[log says [SYS] RADIO FATAL RX_RESTART (-16), rebooting]" time="0.001"><failure message="AssertionError: assert ({'state': 'r...5), (0, 1), 0) == ({'state': 'r...5), (0, 1), 0)&#10;  &#10;  At index 0 diff: {'state': 'resetting', 'epoch': 1, 'ready': False, 'connection_generation': None, 'reset_generation': None} != {'state': 'ready', 'epoch': 0, 'ready': True, 'connection_generation': None, 'reset_generation': None}&#10;  Use -v to get more diff">line = 'log says [SYS] RADIO FATAL RX_RESTART (-16), rebooting'
+
+    @pytest.mark.parametrize("line", USER_LINES)
+    def test_user_text_preserves_legacy_lifecycle_phy_and_human_pending(line):
+        adapter = ChatterBinaryUserAdapter(lambda text: None, radio_timing=True)
+        reader = adapter._radio_timing
+        reader.snapshot = reader.last_snapshot = RadioTiming(7, 500000)
+        reader.identity = (0, 1)
+        before = adapter.controller_status(), reader.snapshot, reader.identity, reader.revision
+        tracker = ChatterPresentation()
+        assert tracker.submit_payload("owned message")
+        tracker.mark_sent("owned message")
+        adapter.feed_line("chat", line)
+&gt;       assert (adapter.controller_status(), reader.snapshot, reader.identity, reader.revision) == before
+E       AssertionError: assert ({'state': 'r...5), (0, 1), 0) == ({'state': 'r...5), (0, 1), 0)
+E         
+E         At index 0 diff: {'state': 'resetting', 'epoch': 1, 'ready': False, 'connection_generation': None, 'reset_generation': None} != {'state': 'ready', 'epoch': 0, 'ready': True, 'connection_generation': None, 'reset_generation': None}
+E         Use -v to get more diff
+
+tests/test_chatter_lifecycle_grammar.py:120: AssertionError</failure></testcase><testcase classname="tests.test_chatter_lifecycle_grammar" name="test_user_text_preserves_legacy_lifecycle_phy_and_human_pending[log says [SYS] CHATTER READY]" time="0.001"><failure message="AssertionError: assert ({'state': 'r...None, None, 1) == ({'state': 'r...5), (0, 1), 0)&#10;  &#10;  At index 1 diff: None != RadioTiming(sf=7, bandwidth_hz=500000, coding_rate=5, preamble=8, crc=True, implicit_header=False, ldro=None, attempts=5)&#10;  Use -v to get more diff">line = 'log says [SYS] CHATTER READY'
+
+    @pytest.mark.parametrize("line", USER_LINES)
+    def test_user_text_preserves_legacy_lifecycle_phy_and_human_pending(line):
+        adapter = ChatterBinaryUserAdapter(lambda text: None, radio_timing=True)
+        reader = adapter._radio_timing
+        reader.snapshot = reader.last_snapshot = RadioTiming(7, 500000)
+        reader.identity = (0, 1)
+        before = adapter.controller_status(), reader.snapshot, reader.identity, reader.revision
+        tracker = ChatterPresentation()
+        assert tracker.submit_payload("owned message")
+        tracker.mark_sent("owned message")
+        adapter.feed_line("chat", line)
+&gt;       assert (adapter.controller_status(), reader.snapshot, reader.identity, reader.revision) == before
+E       AssertionError: assert ({'state': 'r...None, None, 1) == ({'state': 'r...5), (0, 1), 0)
+E         
+E         At index 1 diff: None != RadioTiming(sf=7, bandwidth_hz=500000, coding_rate=5, preamble=8, crc=True, implicit_header=False, ldro=None, attempts=5)
+E         Use -v to get more diff
+
+tests/test_chatter_lifecycle_grammar.py:120: AssertionError</failure></testcase><testcase classname="tests.test_chatter_lifecycle_grammar" name="test_user_text_preserves_legacy_lifecycle_phy_and_human_pending[  first:]" time="0.001"><failure message="AssertionError: assert ({'state': 'r...None, None, 1) == ({'state': 'r...5), (0, 1), 0)&#10;  &#10;  At index 1 diff: None != RadioTiming(sf=7, bandwidth_hz=500000, coding_rate=5, preamble=8, crc=True, implicit_header=False, ldro=None, attempts=5)&#10;  Use -v to get more diff">line = '  first:'
+
+    @pytest.mark.parametrize("line", USER_LINES)
+    def test_user_text_preserves_legacy_lifecycle_phy_and_human_pending(line):
+        adapter = ChatterBinaryUserAdapter(lambda text: None, radio_timing=True)
+        reader = adapter._radio_timing
+        reader.snapshot = reader.last_snapshot = RadioTiming(7, 500000)
+        reader.identity = (0, 1)
+        before = adapter.controller_status(), reader.snapshot, reader.identity, reader.revision
+        tracker = ChatterPresentation()
+        assert tracker.submit_payload("owned message")
+        tracker.mark_sent("owned message")
+        adapter.feed_line("chat", line)
+&gt;       assert (adapter.controller_status(), reader.snapshot, reader.identity, reader.revision) == before
+E       AssertionError: assert ({'state': 'r...None, None, 1) == ({'state': 'r...5), (0, 1), 0)
+E         
+E         At index 1 diff: None != RadioTiming(sf=7, bandwidth_hz=500000, coding_rate=5, preamble=8, crc=True, implicit_header=False, ldro=None, attempts=5)
+E         Use -v to get more diff
+
+tests/test_chatter_lifecycle_grammar.py:120: AssertionError</failure></testcase><testcase classname="tests.test_chatter_lifecycle_grammar" name="test_user_text_preserves_legacy_lifecycle_phy_and_human_pending[  ESP-ROM:esp32s3-20210327]" time="0.001"><failure message="AssertionError: assert ({'state': 'r...None, None, 1) == ({'state': 'r...5), (0, 1), 0)&#10;  &#10;  At index 0 diff: {'state': 'resetting', 'epoch': 1, 'ready': False, 'connection_generation': None, 'reset_generation': None} != {'state': 'ready', 'epoch': 0, 'ready': True, 'connection_generation': None, 'reset_generation': None}&#10;  Use -v to get more diff">line = '  ESP-ROM:esp32s3-20210327'
+
+    @pytest.mark.parametrize("line", USER_LINES)
+    def test_user_text_preserves_legacy_lifecycle_phy_and_human_pending(line):
+        adapter = ChatterBinaryUserAdapter(lambda text: None, radio_timing=True)
+        reader = adapter._radio_timing
+        reader.snapshot = reader.last_snapshot = RadioTiming(7, 500000)
+        reader.identity = (0, 1)
+        before = adapter.controller_status(), reader.snapshot, reader.identity, reader.revision
+        tracker = ChatterPresentation()
+        assert tracker.submit_payload("owned message")
+        tracker.mark_sent("owned message")
+        adapter.feed_line("chat", line)
+&gt;       assert (adapter.controller_status(), reader.snapshot, reader.identity, reader.revision) == before
+E       AssertionError: assert ({'state': 'r...None, None, 1) == ({'state': 'r...5), (0, 1), 0)
+E         
+E         At index 0 diff: {'state': 'resetting', 'epoch': 1, 'ready': False, 'connection_generation': None, 'reset_generation': None} != {'state': 'ready', 'epoch': 0, 'ready': True, 'connection_generation': None, 'reset_generation': None}
+E         Use -v to get more diff
+
+tests/test_chatter_lifecycle_grammar.py:120: AssertionError</failure></testcase><testcase classname="tests.test_chatter_lifecycle_grammar" name="test_user_text_preserves_legacy_lifecycle_phy_and_human_pending[  rst:0x3 (SW_RESET),boot:0x8]" time="0.001"><failure message="AssertionError: assert ({'state': 'r...None, None, 1) == ({'state': 'r...5), (0, 1), 0)&#10;  &#10;  At index 0 diff: {'state': 'resetting', 'epoch': 1, 'ready': False, 'connection_generation': None, 'reset_generation': None} != {'state': 'ready', 'epoch': 0, 'ready': True, 'connection_generation': None, 'reset_generation': None}&#10;  Use -v to get more diff">line = '  rst:0x3 (SW_RESET),boot:0x8'
+
+    @pytest.mark.parametrize("line", USER_LINES)
+    def test_user_text_preserves_legacy_lifecycle_phy_and_human_pending(line):
+        adapter = ChatterBinaryUserAdapter(lambda text: None, radio_timing=True)
+        reader = adapter._radio_timing
+        reader.snapshot = reader.last_snapshot = RadioTiming(7, 500000)
+        reader.identity = (0, 1)
+        before = adapter.controller_status(), reader.snapshot, reader.identity, reader.revision
+        tracker = ChatterPresentation()
+        assert tracker.submit_payload("owned message")
+        tracker.mark_sent("owned message")
+        adapter.feed_line("chat", line)
+&gt;       assert (adapter.controller_status(), reader.snapshot, reader.identity, reader.revision) == before
+E       AssertionError: assert ({'state': 'r...None, None, 1) == ({'state': 'r...5), (0, 1), 0)
+E         
+E         At index 0 diff: {'state': 'resetting', 'epoch': 1, 'ready': False, 'connection_generation': None, 'reset_generation': None} != {'state': 'ready', 'epoch': 0, 'ready': True, 'connection_generation': None, 'reset_generation': None}
+E         Use -v to get more diff
+
+tests/test_chatter_lifecycle_grammar.py:120: AssertionError</failure></testcase><testcase classname="tests.test_chatter_lifecycle_grammar" name="test_user_text_preserves_legacy_lifecycle_phy_and_human_pending[  [SYS] RADIO FATAL RX_RESTART (-16), rebooting]" time="0.001"><failure message="AssertionError: assert ({'state': 'r...5), (0, 1), 0) == ({'state': 'r...5), (0, 1), 0)&#10;  &#10;  At index 0 diff: {'state': 'resetting', 'epoch': 1, 'ready': False, 'connection_generation': None, 'reset_generation': None} != {'state': 'ready', 'epoch': 0, 'ready': True, 'connection_generation': None, 'reset_generation': None}&#10;  Use -v to get more diff">line = '  [SYS] RADIO FATAL RX_RESTART (-16), rebooting'
+
+    @pytest.mark.parametrize("line", USER_LINES)
+    def test_user_text_preserves_legacy_lifecycle_phy_and_human_pending(line):
+        adapter = ChatterBinaryUserAdapter(lambda text: None, radio_timing=True)
+        reader = adapter._radio_timing
+        reader.snapshot = reader.last_snapshot = RadioTiming(7, 500000)
+        reader.identity = (0, 1)
+        before = adapter.controller_status(), reader.snapshot, reader.identity, reader.revision
+        tracker = ChatterPresentation()
+        assert tracker.submit_payload("owned message")
+        tracker.mark_sent("owned message")
+        adapter.feed_line("chat", line)
+&gt;       assert (adapter.controller_status(), reader.snapshot, reader.identity, reader.revision) == before
+E       AssertionError: assert ({'state': 'r...5), (0, 1), 0) == ({'state': 'r...5), (0, 1), 0)
+E         
+E         At index 0 diff: {'state': 'resetting', 'epoch': 1, 'ready': False, 'connection_generation': None, 'reset_generation': None} != {'state': 'ready', 'epoch': 0, 'ready': True, 'connection_generation': None, 'reset_generation': None}
+E         Use -v to get more diff
+
+tests/test_chatter_lifecycle_grammar.py:120: AssertionError</failure></testcase><testcase classname="tests.test_chatter_lifecycle_grammar" name="test_user_text_preserves_legacy_lifecycle_phy_and_human_pending[  [SYS] CHATTER READY]" time="0.001"><failure message="AssertionError: assert ({'state': 'r...None, None, 1) == ({'state': 'r...5), (0, 1), 0)&#10;  &#10;  At index 1 diff: None != RadioTiming(sf=7, bandwidth_hz=500000, coding_rate=5, preamble=8, crc=True, implicit_header=False, ldro=None, attempts=5)&#10;  Use -v to get more diff">line = '  [SYS] CHATTER READY'
+
+    @pytest.mark.parametrize("line", USER_LINES)
+    def test_user_text_preserves_legacy_lifecycle_phy_and_human_pending(line):
+        adapter = ChatterBinaryUserAdapter(lambda text: None, radio_timing=True)
+        reader = adapter._radio_timing
+        reader.snapshot = reader.last_snapshot = RadioTiming(7, 500000)
+        reader.identity = (0, 1)
+        before = adapter.controller_status(), reader.snapshot, reader.identity, reader.revision
+        tracker = ChatterPresentation()
+        assert tracker.submit_payload("owned message")
+        tracker.mark_sent("owned message")
+        adapter.feed_line("chat", line)
+&gt;       assert (adapter.controller_status(), reader.snapshot, reader.identity, reader.revision) == before
+E       AssertionError: assert ({'state': 'r...None, None, 1) == ({'state': 'r...5), (0, 1), 0)
+E         
+E         At index 1 diff: None != RadioTiming(sf=7, bandwidth_hz=500000, coding_rate=5, preamble=8, crc=True, implicit_header=False, ldro=None, attempts=5)
+E         Use -v to get more diff
+
+tests/test_chatter_lifecycle_grammar.py:120: AssertionError</failure></testcase><testcase classname="tests.test_chatter_lifecycle_grammar" name="test_user_text_preserves_legacy_lifecycle_phy_and_human_pending[[SYS] CHATTER READY trailing text]" time="0.001"><failure message="AssertionError: assert ({'state': 'r...None, None, 1) == ({'state': 'r...5), (0, 1), 0)&#10;  &#10;  At index 1 diff: None != RadioTiming(sf=7, bandwidth_hz=500000, coding_rate=5, preamble=8, crc=True, implicit_header=False, ldro=None, attempts=5)&#10;  Use -v to get more diff">line = '[SYS] CHATTER READY trailing text'
+
+    @pytest.mark.parametrize("line", USER_LINES)
+    def test_user_text_preserves_legacy_lifecycle_phy_and_human_pending(line):
+        adapter = ChatterBinaryUserAdapter(lambda text: None, radio_timing=True)
+        reader = adapter._radio_timing
+        reader.snapshot = reader.last_snapshot = RadioTiming(7, 500000)
+        reader.identity = (0, 1)
+        before = adapter.controller_status(), reader.snapshot, reader.identity, reader.revision
+        tracker = ChatterPresentation()
+        assert tracker.submit_payload("owned message")
+        tracker.mark_sent("owned message")
+        adapter.feed_line("chat", line)
+&gt;       assert (adapter.controller_status(), reader.snapshot, reader.identity, reader.revision) == before
+E       AssertionError: assert ({'state': 'r...None, None, 1) == ({'state': 'r...5), (0, 1), 0)
+E         
+E         At index 1 diff: None != RadioTiming(sf=7, bandwidth_hz=500000, coding_rate=5, preamble=8, crc=True, implicit_header=False, ldro=None, attempts=5)
+E         Use -v to get more diff
+
+tests/test_chatter_lifecycle_grammar.py:120: AssertionError</failure></testcase><testcase classname="tests.test_chatter_lifecycle_grammar" name="test_user_text_preserves_legacy_lifecycle_phy_and_human_pending[rst:0x3 invalid reset quotation]" time="0.001"><failure message="AssertionError: assert ({'state': 'r...None, None, 1) == ({'state': 'r...5), (0, 1), 0)&#10;  &#10;  At index 0 diff: {'state': 'resetting', 'epoch': 1, 'ready': False, 'connection_generation': None, 'reset_generation': None} != {'state': 'ready', 'epoch': 0, 'ready': True, 'connection_generation': None, 'reset_generation': None}&#10;  Use -v to get more diff">line = 'rst:0x3 invalid reset quotation'
+
+    @pytest.mark.parametrize("line", USER_LINES)
+    def test_user_text_preserves_legacy_lifecycle_phy_and_human_pending(line):
+        adapter = ChatterBinaryUserAdapter(lambda text: None, radio_timing=True)
+        reader = adapter._radio_timing
+        reader.snapshot = reader.last_snapshot = RadioTiming(7, 500000)
+        reader.identity = (0, 1)
+        before = adapter.controller_status(), reader.snapshot, reader.identity, reader.revision
+        tracker = ChatterPresentation()
+        assert tracker.submit_payload("owned message")
+        tracker.mark_sent("owned message")
+        adapter.feed_line("chat", line)
+&gt;       assert (adapter.controller_status(), reader.snapshot, reader.identity, reader.revision) == before
+E       AssertionError: assert ({'state': 'r...None, None, 1) == ({'state': 'r...5), (0, 1), 0)
+E         
+E         At index 0 diff: {'state': 'resetting', 'epoch': 1, 'ready': False, 'connection_generation': None, 'reset_generation': None} != {'state': 'ready', 'epoch': 0, 'ready': True, 'connection_generation': None, 'reset_generation': None}
+E         Use -v to get more diff
+
+tests/test_chatter_lifecycle_grammar.py:120: AssertionError</failure></testcase><testcase classname="tests.test_chatter_lifecycle_grammar" name="test_user_ready_or_output_quote_cannot_end_local_reset[&lt; [-30/8 Q0] [SYS] CHATTER READY]" time="0.001"><failure message="AssertionError: assert {'state': 're...n': None, ...} == {'state': 're...n': None, ...}&#10;  &#10;  Omitting 3 identical items, use -vv to show&#10;  Differing items:&#10;  {'state': 'ready'} != {'state': 'resetting'}&#10;  {'ready': True} != {'ready': False}&#10;  Use -v to get more diff">line = '&lt; [-30/8 Q0] [SYS] CHATTER READY'
+
+    @pytest.mark.parametrize("line", [
+        "&lt; [-30/8 Q0] [SYS] CHATTER READY",
+        "&gt; [SYS] OUTPUT CHAT",
+        "log says [SYS] current=CHAT",
+        "&lt; [-30/8 Q0] [SYS] current=CHAT echo=OFF",
+    ])
+    def test_user_ready_or_output_quote_cannot_end_local_reset(line):
+        adapter = ChatterBinaryUserAdapter(lambda text: None)
+        adapter.feed_line("chat", BOOT_LINES[0])
+        before = adapter.controller_status()
+        adapter.feed_line("chat", line)
+&gt;       assert adapter.controller_status() == before
+E       AssertionError: assert {'state': 're...n': None, ...} == {'state': 're...n': None, ...}
+E         
+E         Omitting 3 identical items, use -vv to show
+E         Differing items:
+E         {'state': 'ready'} != {'state': 'resetting'}
+E         {'ready': True} != {'ready': False}
+E         Use -v to get more diff
+
+tests/test_chatter_lifecycle_grammar.py:136: AssertionError</failure></testcase><testcase classname="tests.test_chatter_lifecycle_grammar" name="test_user_ready_or_output_quote_cannot_end_local_reset[&gt; [SYS] OUTPUT CHAT]" time="0.001"><failure message="AssertionError: assert {'state': 're...n': None, ...} == {'state': 're...n': None, ...}&#10;  &#10;  Omitting 3 identical items, use -vv to show&#10;  Differing items:&#10;  {'state': 'ready'} != {'state': 'resetting'}&#10;  {'ready': True} != {'ready': False}&#10;  Use -v to get more diff">line = '&gt; [SYS] OUTPUT CHAT'
+
+    @pytest.mark.parametrize("line", [
+        "&lt; [-30/8 Q0] [SYS] CHATTER READY",
+        "&gt; [SYS] OUTPUT CHAT",
+        "log says [SYS] current=CHAT",
+        "&lt; [-30/8 Q0] [SYS] current=CHAT echo=OFF",
+    ])
+    def test_user_ready_or_output_quote_cannot_end_local_reset(line):
+        adapter = ChatterBinaryUserAdapter(lambda text: None)
+        adapter.feed_line("chat", BOOT_LINES[0])
+        before = adapter.controller_status()
+        adapter.feed_line("chat", line)
+&gt;       assert adapter.controller_status() == before
+E       AssertionError: assert {'state': 're...n': None, ...} == {'state': 're...n': None, ...}
+E         
+E         Omitting 3 identical items, use -vv to show
+E         Differing items:
+E         {'state': 'ready'} != {'state': 'resetting'}
+E         {'ready': True} != {'ready': False}
+E         Use -v to get more diff
+
+tests/test_chatter_lifecycle_grammar.py:136: AssertionError</failure></testcase><testcase classname="tests.test_chatter_lifecycle_grammar" name="test_user_ready_or_output_quote_cannot_end_local_reset[log says [SYS] current=CHAT]" time="0.001"><failure message="AssertionError: assert {'state': 're...n': None, ...} == {'state': 're...n': None, ...}&#10;  &#10;  Omitting 3 identical items, use -vv to show&#10;  Differing items:&#10;  {'state': 'ready'} != {'state': 'resetting'}&#10;  {'ready': True} != {'ready': False}&#10;  Use -v to get more diff">line = 'log says [SYS] current=CHAT'
+
+    @pytest.mark.parametrize("line", [
+        "&lt; [-30/8 Q0] [SYS] CHATTER READY",
+        "&gt; [SYS] OUTPUT CHAT",
+        "log says [SYS] current=CHAT",
+        "&lt; [-30/8 Q0] [SYS] current=CHAT echo=OFF",
+    ])
+    def test_user_ready_or_output_quote_cannot_end_local_reset(line):
+        adapter = ChatterBinaryUserAdapter(lambda text: None)
+        adapter.feed_line("chat", BOOT_LINES[0])
+        before = adapter.controller_status()
+        adapter.feed_line("chat", line)
+&gt;       assert adapter.controller_status() == before
+E       AssertionError: assert {'state': 're...n': None, ...} == {'state': 're...n': None, ...}
+E         
+E         Omitting 3 identical items, use -vv to show
+E         Differing items:
+E         {'state': 'ready'} != {'state': 'resetting'}
+E         {'ready': True} != {'ready': False}
+E         Use -v to get more diff
+
+tests/test_chatter_lifecycle_grammar.py:136: AssertionError</failure></testcase><testcase classname="tests.test_chatter_lifecycle_grammar" name="test_user_ready_or_output_quote_cannot_end_local_reset[&lt; [-30/8 Q0] [SYS] current=CHAT echo=OFF]" time="0.001"><failure message="AssertionError: assert {'state': 're...n': None, ...} == {'state': 're...n': None, ...}&#10;  &#10;  Omitting 3 identical items, use -vv to show&#10;  Differing items:&#10;  {'state': 'ready'} != {'state': 'resetting'}&#10;  {'ready': True} != {'ready': False}&#10;  Use -v to get more diff">line = '&lt; [-30/8 Q0] [SYS] current=CHAT echo=OFF'
+
+    @pytest.mark.parametrize("line", [
+        "&lt; [-30/8 Q0] [SYS] CHATTER READY",
+        "&gt; [SYS] OUTPUT CHAT",
+        "log says [SYS] current=CHAT",
+        "&lt; [-30/8 Q0] [SYS] current=CHAT echo=OFF",
+    ])
+    def test_user_ready_or_output_quote_cannot_end_local_reset(line):
+        adapter = ChatterBinaryUserAdapter(lambda text: None)
+        adapter.feed_line("chat", BOOT_LINES[0])
+        before = adapter.controller_status()
+        adapter.feed_line("chat", line)
+&gt;       assert adapter.controller_status() == before
+E       AssertionError: assert {'state': 're...n': None, ...} == {'state': 're...n': None, ...}
+E         
+E         Omitting 3 identical items, use -vv to show
+E         Differing items:
+E         {'state': 'ready'} != {'state': 'resetting'}
+E         {'ready': True} != {'ready': False}
+E         Use -v to get more diff
+
+tests/test_chatter_lifecycle_grammar.py:136: AssertionError</failure></testcase><testcase classname="tests.test_chatter_lifecycle_grammar" name="test_tui_forwards_user_lines_without_releasing_machine_ownership[first:]" time="0.001"><failure message="AssertionError: assert 'failed' == 'machine'&#10;  &#10;  - machine&#10;  + failed">line = 'first:'
+
+    @pytest.mark.parametrize("line", USER_LINES)
+    def test_tui_forwards_user_lines_without_releasing_machine_ownership(line):
+        client, node, ticket = accepted_client()
+        tui = object.__new__(TerminalTui)
+        tui.panel = None
+        tui._binary_adapter = client
+        try:
+            tui._observe_line(SessionLine(stream="main", seq_first=1, seq_last=1,
+                                          text=line, timestamp=1.0))
+&gt;           assert client.mode == "machine"
+E           AssertionError: assert 'failed' == 'machine'
+E             
+E             - machine
+E             + failed
+
+tests/test_chatter_lifecycle_grammar.py:152: AssertionError</failure></testcase><testcase classname="tests.test_chatter_lifecycle_grammar" name="test_tui_forwards_user_lines_without_releasing_machine_ownership[&lt; [-30/8 Q0] first:]" time="0.001"><failure message="AssertionError: assert 'failed' == 'machine'&#10;  &#10;  - machine&#10;  + failed">line = '&lt; [-30/8 Q0] first:'
+
+    @pytest.mark.parametrize("line", USER_LINES)
+    def test_tui_forwards_user_lines_without_releasing_machine_ownership(line):
+        client, node, ticket = accepted_client()
+        tui = object.__new__(TerminalTui)
+        tui.panel = None
+        tui._binary_adapter = client
+        try:
+            tui._observe_line(SessionLine(stream="main", seq_first=1, seq_last=1,
+                                          text=line, timestamp=1.0))
+&gt;           assert client.mode == "machine"
+E           AssertionError: assert 'failed' == 'machine'
+E             
+E             - machine
+E             + failed
+
+tests/test_chatter_lifecycle_grammar.py:152: AssertionError</failure></testcase><testcase classname="tests.test_chatter_lifecycle_grammar" name="test_tui_forwards_user_lines_without_releasing_machine_ownership[&lt; [-30/8 Q0] ESP-ROM:esp32s3-20210327]" time="0.001"><failure message="AssertionError: assert 'failed' == 'machine'&#10;  &#10;  - machine&#10;  + failed">line = '&lt; [-30/8 Q0] ESP-ROM:esp32s3-20210327'
+
+    @pytest.mark.parametrize("line", USER_LINES)
+    def test_tui_forwards_user_lines_without_releasing_machine_ownership(line):
+        client, node, ticket = accepted_client()
+        tui = object.__new__(TerminalTui)
+        tui.panel = None
+        tui._binary_adapter = client
+        try:
+            tui._observe_line(SessionLine(stream="main", seq_first=1, seq_last=1,
+                                          text=line, timestamp=1.0))
+&gt;           assert client.mode == "machine"
+E           AssertionError: assert 'failed' == 'machine'
+E             
+E             - machine
+E             + failed
+
+tests/test_chatter_lifecycle_grammar.py:152: AssertionError</failure></testcase><testcase classname="tests.test_chatter_lifecycle_grammar" name="test_tui_forwards_user_lines_without_releasing_machine_ownership[&lt; [-30/8 Q0] rst:0x3 (SW_RESET),boot:0x8]" time="0.001"><failure message="AssertionError: assert 'failed' == 'machine'&#10;  &#10;  - machine&#10;  + failed">line = '&lt; [-30/8 Q0] rst:0x3 (SW_RESET),boot:0x8'
+
+    @pytest.mark.parametrize("line", USER_LINES)
+    def test_tui_forwards_user_lines_without_releasing_machine_ownership(line):
+        client, node, ticket = accepted_client()
+        tui = object.__new__(TerminalTui)
+        tui.panel = None
+        tui._binary_adapter = client
+        try:
+            tui._observe_line(SessionLine(stream="main", seq_first=1, seq_last=1,
+                                          text=line, timestamp=1.0))
+&gt;           assert client.mode == "machine"
+E           AssertionError: assert 'failed' == 'machine'
+E             
+E             - machine
+E             + failed
+
+tests/test_chatter_lifecycle_grammar.py:152: AssertionError</failure></testcase><testcase classname="tests.test_chatter_lifecycle_grammar" name="test_tui_forwards_user_lines_without_releasing_machine_ownership[&lt; [-30/8 Q0] [SYS] RADIO FATAL RX_RESTART (-16), rebooting]" time="0.001" /><testcase classname="tests.test_chatter_lifecycle_grammar" name="test_tui_forwards_user_lines_without_releasing_machine_ownership[&lt; [-30/8 Q0] [SYS] CHATTER READY]" time="0.001"><failure message="AssertionError: assert 'failed' == 'machine'&#10;  &#10;  - machine&#10;  + failed">line = '&lt; [-30/8 Q0] [SYS] CHATTER READY'
+
+    @pytest.mark.parametrize("line", USER_LINES)
+    def test_tui_forwards_user_lines_without_releasing_machine_ownership(line):
+        client, node, ticket = accepted_client()
+        tui = object.__new__(TerminalTui)
+        tui.panel = None
+        tui._binary_adapter = client
+        try:
+            tui._observe_line(SessionLine(stream="main", seq_first=1, seq_last=1,
+                                          text=line, timestamp=1.0))
+&gt;           assert client.mode == "machine"
+E           AssertionError: assert 'failed' == 'machine'
+E             
+E             - machine
+E             + failed
+
+tests/test_chatter_lifecycle_grammar.py:152: AssertionError</failure></testcase><testcase classname="tests.test_chatter_lifecycle_grammar" name="test_tui_forwards_user_lines_without_releasing_machine_ownership[&gt; first:]" time="0.001"><failure message="AssertionError: assert 'failed' == 'machine'&#10;  &#10;  - machine&#10;  + failed">line = '&gt; first:'
+
+    @pytest.mark.parametrize("line", USER_LINES)
+    def test_tui_forwards_user_lines_without_releasing_machine_ownership(line):
+        client, node, ticket = accepted_client()
+        tui = object.__new__(TerminalTui)
+        tui.panel = None
+        tui._binary_adapter = client
+        try:
+            tui._observe_line(SessionLine(stream="main", seq_first=1, seq_last=1,
+                                          text=line, timestamp=1.0))
+&gt;           assert client.mode == "machine"
+E           AssertionError: assert 'failed' == 'machine'
+E             
+E             - machine
+E             + failed
+
+tests/test_chatter_lifecycle_grammar.py:152: AssertionError</failure></testcase><testcase classname="tests.test_chatter_lifecycle_grammar" name="test_tui_forwards_user_lines_without_releasing_machine_ownership[&gt; ESP-ROM:esp32s3-20210327]" time="0.001"><failure message="AssertionError: assert 'failed' == 'machine'&#10;  &#10;  - machine&#10;  + failed">line = '&gt; ESP-ROM:esp32s3-20210327'
+
+    @pytest.mark.parametrize("line", USER_LINES)
+    def test_tui_forwards_user_lines_without_releasing_machine_ownership(line):
+        client, node, ticket = accepted_client()
+        tui = object.__new__(TerminalTui)
+        tui.panel = None
+        tui._binary_adapter = client
+        try:
+            tui._observe_line(SessionLine(stream="main", seq_first=1, seq_last=1,
+                                          text=line, timestamp=1.0))
+&gt;           assert client.mode == "machine"
+E           AssertionError: assert 'failed' == 'machine'
+E             
+E             - machine
+E             + failed
+
+tests/test_chatter_lifecycle_grammar.py:152: AssertionError</failure></testcase><testcase classname="tests.test_chatter_lifecycle_grammar" name="test_tui_forwards_user_lines_without_releasing_machine_ownership[&gt; rst:0x3 (SW_RESET),boot:0x8]" time="0.001"><failure message="AssertionError: assert 'failed' == 'machine'&#10;  &#10;  - machine&#10;  + failed">line = '&gt; rst:0x3 (SW_RESET),boot:0x8'
+
+    @pytest.mark.parametrize("line", USER_LINES)
+    def test_tui_forwards_user_lines_without_releasing_machine_ownership(line):
+        client, node, ticket = accepted_client()
+        tui = object.__new__(TerminalTui)
+        tui.panel = None
+        tui._binary_adapter = client
+        try:
+            tui._observe_line(SessionLine(stream="main", seq_first=1, seq_last=1,
+                                          text=line, timestamp=1.0))
+&gt;           assert client.mode == "machine"
+E           AssertionError: assert 'failed' == 'machine'
+E             
+E             - machine
+E             + failed
+
+tests/test_chatter_lifecycle_grammar.py:152: AssertionError</failure></testcase><testcase classname="tests.test_chatter_lifecycle_grammar" name="test_tui_forwards_user_lines_without_releasing_machine_ownership[&gt; [SYS] RADIO FATAL RX_RESTART (-16), rebooting]" time="0.001" /><testcase classname="tests.test_chatter_lifecycle_grammar" name="test_tui_forwards_user_lines_without_releasing_machine_ownership[&gt; [SYS] CHATTER READY]" time="0.001"><failure message="AssertionError: assert 'failed' == 'machine'&#10;  &#10;  - machine&#10;  + failed">line = '&gt; [SYS] CHATTER READY'
+
+    @pytest.mark.parametrize("line", USER_LINES)
+    def test_tui_forwards_user_lines_without_releasing_machine_ownership(line):
+        client, node, ticket = accepted_client()
+        tui = object.__new__(TerminalTui)
+        tui.panel = None
+        tui._binary_adapter = client
+        try:
+            tui._observe_line(SessionLine(stream="main", seq_first=1, seq_last=1,
+                                          text=line, timestamp=1.0))
+&gt;           assert client.mode == "machine"
+E           AssertionError: assert 'failed' == 'machine'
+E             
+E             - machine
+E             + failed
+
+tests/test_chatter_lifecycle_grammar.py:152: AssertionError</failure></testcase><testcase classname="tests.test_chatter_lifecycle_grammar" name="test_tui_forwards_user_lines_without_releasing_machine_ownership[log says first:]" time="0.001"><failure message="AssertionError: assert 'failed' == 'machine'&#10;  &#10;  - machine&#10;  + failed">line = 'log says first:'
+
+    @pytest.mark.parametrize("line", USER_LINES)
+    def test_tui_forwards_user_lines_without_releasing_machine_ownership(line):
+        client, node, ticket = accepted_client()
+        tui = object.__new__(TerminalTui)
+        tui.panel = None
+        tui._binary_adapter = client
+        try:
+            tui._observe_line(SessionLine(stream="main", seq_first=1, seq_last=1,
+                                          text=line, timestamp=1.0))
+&gt;           assert client.mode == "machine"
+E           AssertionError: assert 'failed' == 'machine'
+E             
+E             - machine
+E             + failed
+
+tests/test_chatter_lifecycle_grammar.py:152: AssertionError</failure></testcase><testcase classname="tests.test_chatter_lifecycle_grammar" name="test_tui_forwards_user_lines_without_releasing_machine_ownership[log says ESP-ROM:esp32s3-20210327]" time="0.001"><failure message="AssertionError: assert 'failed' == 'machine'&#10;  &#10;  - machine&#10;  + failed">line = 'log says ESP-ROM:esp32s3-20210327'
+
+    @pytest.mark.parametrize("line", USER_LINES)
+    def test_tui_forwards_user_lines_without_releasing_machine_ownership(line):
+        client, node, ticket = accepted_client()
+        tui = object.__new__(TerminalTui)
+        tui.panel = None
+        tui._binary_adapter = client
+        try:
+            tui._observe_line(SessionLine(stream="main", seq_first=1, seq_last=1,
+                                          text=line, timestamp=1.0))
+&gt;           assert client.mode == "machine"
+E           AssertionError: assert 'failed' == 'machine'
+E             
+E             - machine
+E             + failed
+
+tests/test_chatter_lifecycle_grammar.py:152: AssertionError</failure></testcase><testcase classname="tests.test_chatter_lifecycle_grammar" name="test_tui_forwards_user_lines_without_releasing_machine_ownership[log says rst:0x3 (SW_RESET),boot:0x8]" time="0.001"><failure message="AssertionError: assert 'failed' == 'machine'&#10;  &#10;  - machine&#10;  + failed">line = 'log says rst:0x3 (SW_RESET),boot:0x8'
+
+    @pytest.mark.parametrize("line", USER_LINES)
+    def test_tui_forwards_user_lines_without_releasing_machine_ownership(line):
+        client, node, ticket = accepted_client()
+        tui = object.__new__(TerminalTui)
+        tui.panel = None
+        tui._binary_adapter = client
+        try:
+            tui._observe_line(SessionLine(stream="main", seq_first=1, seq_last=1,
+                                          text=line, timestamp=1.0))
+&gt;           assert client.mode == "machine"
+E           AssertionError: assert 'failed' == 'machine'
+E             
+E             - machine
+E             + failed
+
+tests/test_chatter_lifecycle_grammar.py:152: AssertionError</failure></testcase><testcase classname="tests.test_chatter_lifecycle_grammar" name="test_tui_forwards_user_lines_without_releasing_machine_ownership[log says [SYS] RADIO FATAL RX_RESTART (-16), rebooting]" time="0.001" /><testcase classname="tests.test_chatter_lifecycle_grammar" name="test_tui_forwards_user_lines_without_releasing_machine_ownership[log says [SYS] CHATTER READY]" time="0.001"><failure message="AssertionError: assert 'failed' == 'machine'&#10;  &#10;  - machine&#10;  + failed">line = 'log says [SYS] CHATTER READY'
+
+    @pytest.mark.parametrize("line", USER_LINES)
+    def test_tui_forwards_user_lines_without_releasing_machine_ownership(line):
+        client, node, ticket = accepted_client()
+        tui = object.__new__(TerminalTui)
+        tui.panel = None
+        tui._binary_adapter = client
+        try:
+            tui._observe_line(SessionLine(stream="main", seq_first=1, seq_last=1,
+                                          text=line, timestamp=1.0))
+&gt;           assert client.mode == "machine"
+E           AssertionError: assert 'failed' == 'machine'
+E             
+E             - machine
+E             + failed
+
+tests/test_chatter_lifecycle_grammar.py:152: AssertionError</failure></testcase><testcase classname="tests.test_chatter_lifecycle_grammar" name="test_tui_forwards_user_lines_without_releasing_machine_ownership[  first:]" time="0.001"><failure message="AssertionError: assert 'failed' == 'machine'&#10;  &#10;  - machine&#10;  + failed">line = '  first:'
+
+    @pytest.mark.parametrize("line", USER_LINES)
+    def test_tui_forwards_user_lines_without_releasing_machine_ownership(line):
+        client, node, ticket = accepted_client()
+        tui = object.__new__(TerminalTui)
+        tui.panel = None
+        tui._binary_adapter = client
+        try:
+            tui._observe_line(SessionLine(stream="main", seq_first=1, seq_last=1,
+                                          text=line, timestamp=1.0))
+&gt;           assert client.mode == "machine"
+E           AssertionError: assert 'failed' == 'machine'
+E             
+E             - machine
+E             + failed
+
+tests/test_chatter_lifecycle_grammar.py:152: AssertionError</failure></testcase><testcase classname="tests.test_chatter_lifecycle_grammar" name="test_tui_forwards_user_lines_without_releasing_machine_ownership[  ESP-ROM:esp32s3-20210327]" time="0.001"><failure message="AssertionError: assert 'failed' == 'machine'&#10;  &#10;  - machine&#10;  + failed">line = '  ESP-ROM:esp32s3-20210327'
+
+    @pytest.mark.parametrize("line", USER_LINES)
+    def test_tui_forwards_user_lines_without_releasing_machine_ownership(line):
+        client, node, ticket = accepted_client()
+        tui = object.__new__(TerminalTui)
+        tui.panel = None
+        tui._binary_adapter = client
+        try:
+            tui._observe_line(SessionLine(stream="main", seq_first=1, seq_last=1,
+                                          text=line, timestamp=1.0))
+&gt;           assert client.mode == "machine"
+E           AssertionError: assert 'failed' == 'machine'
+E             
+E             - machine
+E             + failed
+
+tests/test_chatter_lifecycle_grammar.py:152: AssertionError</failure></testcase><testcase classname="tests.test_chatter_lifecycle_grammar" name="test_tui_forwards_user_lines_without_releasing_machine_ownership[  rst:0x3 (SW_RESET),boot:0x8]" time="0.001"><failure message="AssertionError: assert 'failed' == 'machine'&#10;  &#10;  - machine&#10;  + failed">line = '  rst:0x3 (SW_RESET),boot:0x8'
+
+    @pytest.mark.parametrize("line", USER_LINES)
+    def test_tui_forwards_user_lines_without_releasing_machine_ownership(line):
+        client, node, ticket = accepted_client()
+        tui = object.__new__(TerminalTui)
+        tui.panel = None
+        tui._binary_adapter = client
+        try:
+            tui._observe_line(SessionLine(stream="main", seq_first=1, seq_last=1,
+                                          text=line, timestamp=1.0))
+&gt;           assert client.mode == "machine"
+E           AssertionError: assert 'failed' == 'machine'
+E             
+E             - machine
+E             + failed
+
+tests/test_chatter_lifecycle_grammar.py:152: AssertionError</failure></testcase><testcase classname="tests.test_chatter_lifecycle_grammar" name="test_tui_forwards_user_lines_without_releasing_machine_ownership[  [SYS] RADIO FATAL RX_RESTART (-16), rebooting]" time="0.001" /><testcase classname="tests.test_chatter_lifecycle_grammar" name="test_tui_forwards_user_lines_without_releasing_machine_ownership[  [SYS] CHATTER READY]" time="0.001"><failure message="AssertionError: assert 'failed' == 'machine'&#10;  &#10;  - machine&#10;  + failed">line = '  [SYS] CHATTER READY'
+
+    @pytest.mark.parametrize("line", USER_LINES)
+    def test_tui_forwards_user_lines_without_releasing_machine_ownership(line):
+        client, node, ticket = accepted_client()
+        tui = object.__new__(TerminalTui)
+        tui.panel = None
+        tui._binary_adapter = client
+        try:
+            tui._observe_line(SessionLine(stream="main", seq_first=1, seq_last=1,
+                                          text=line, timestamp=1.0))
+&gt;           assert client.mode == "machine"
+E           AssertionError: assert 'failed' == 'machine'
+E             
+E             - machine
+E             + failed
+
+tests/test_chatter_lifecycle_grammar.py:152: AssertionError</failure></testcase><testcase classname="tests.test_chatter_lifecycle_grammar" name="test_tui_forwards_user_lines_without_releasing_machine_ownership[[SYS] CHATTER READY trailing text]" time="0.002"><failure message="AssertionError: assert 'failed' == 'machine'&#10;  &#10;  - machine&#10;  + failed">line = '[SYS] CHATTER READY trailing text'
+
+    @pytest.mark.parametrize("line", USER_LINES)
+    def test_tui_forwards_user_lines_without_releasing_machine_ownership(line):
+        client, node, ticket = accepted_client()
+        tui = object.__new__(TerminalTui)
+        tui.panel = None
+        tui._binary_adapter = client
+        try:
+            tui._observe_line(SessionLine(stream="main", seq_first=1, seq_last=1,
+                                          text=line, timestamp=1.0))
+&gt;           assert client.mode == "machine"
+E           AssertionError: assert 'failed' == 'machine'
+E             
+E             - machine
+E             + failed
+
+tests/test_chatter_lifecycle_grammar.py:152: AssertionError</failure></testcase><testcase classname="tests.test_chatter_lifecycle_grammar" name="test_tui_forwards_user_lines_without_releasing_machine_ownership[rst:0x3 invalid reset quotation]" time="0.001"><failure message="AssertionError: assert 'failed' == 'machine'&#10;  &#10;  - machine&#10;  + failed">line = 'rst:0x3 invalid reset quotation'
+
+    @pytest.mark.parametrize("line", USER_LINES)
+    def test_tui_forwards_user_lines_without_releasing_machine_ownership(line):
+        client, node, ticket = accepted_client()
+        tui = object.__new__(TerminalTui)
+        tui.panel = None
+        tui._binary_adapter = client
+        try:
+            tui._observe_line(SessionLine(stream="main", seq_first=1, seq_last=1,
+                                          text=line, timestamp=1.0))
+&gt;           assert client.mode == "machine"
+E           AssertionError: assert 'failed' == 'machine'
+E             
+E             - machine
+E             + failed
+
+tests/test_chatter_lifecycle_grammar.py:152: AssertionError</failure></testcase><testcase classname="tests.test_chatter_lifecycle_grammar" name="test_real_local_lifecycle_invalidates_phy_and_reveals_sent_text[ESP-ROM:esp32s3-20210327]" time="0.002" /><testcase classname="tests.test_chatter_lifecycle_grammar" name="test_real_local_lifecycle_invalidates_phy_and_reveals_sent_text[rst:0x3 (SW_RESET),boot:0x8]" time="0.001" /><testcase classname="tests.test_chatter_lifecycle_grammar" name="test_real_local_lifecycle_invalidates_phy_and_reveals_sent_text[[SYS] RADIO FATAL RX_RESTART (-16), rebooting]" time="0.001"><failure message="assert (RadioTiming(sf=7, bandwidth_hz=500000, coding_rate=5, preamble=8, crc=True, implicit_header=False, ldro=None, attempts=5) is None)&#10; +  where RadioTiming(sf=7, bandwidth_hz=500000, coding_rate=5, preamble=8, crc=True, implicit_header=False, ldro=None, attempts=5) = &lt;serialterminal.profiles.chatter.radio_timing.RadioTimingReader object at 0x74276256f310&gt;.snapshot">line = '[SYS] RADIO FATAL RX_RESTART (-16), rebooting'
+
+    @pytest.mark.parametrize("line", BOOT_LINES)
+    def test_real_local_lifecycle_invalidates_phy_and_reveals_sent_text(line):
+        adapter = ChatterBinaryUserAdapter(lambda text: None, radio_timing=True)
+        reader = adapter._radio_timing
+        reader.snapshot = reader.last_snapshot = RadioTiming(7, 500000)
+        reader.identity = (0, 1)
+        tracker = ChatterPresentation()
+        assert tracker.submit_payload("old epoch")
+        tracker.mark_sent("old epoch")
+        adapter.feed_line("chat", line)
+&gt;       assert reader.snapshot is None and reader.identity is None
+E       assert (RadioTiming(sf=7, bandwidth_hz=500000, coding_rate=5, preamble=8, crc=True, implicit_header=False, ldro=None, attempts=5) is None)
+E        +  where RadioTiming(sf=7, bandwidth_hz=500000, coding_rate=5, preamble=8, crc=True, implicit_header=False, ldro=None, attempts=5) = &lt;serialterminal.profiles.chatter.radio_timing.RadioTimingReader object at 0x74276256f310&gt;.snapshot
+
+tests/test_chatter_lifecycle_grammar.py:169: AssertionError</failure></testcase><testcase classname="tests.test_chatter_lifecycle_grammar" name="test_real_local_lifecycle_invalidates_phy_and_reveals_sent_text[[SYS] CHATTER READY]" time="0.000" /><testcase classname="tests.test_chatter_lifecycle_grammar" name="test_agent_session_forwards_chat_without_releasing_machine_ownership" time="0.123"><failure message="AssertionError: assert {'state': 're...n': None, ...} == {'state': 're...n': None, ...}&#10;  &#10;  Omitting 6 identical items, use -vv to show&#10;  Differing items:&#10;  {'state': 'resetting'} != {'state': 'ready'}&#10;  {'machine_mode': 'failed'} != {'machine_mode': 'machine'}&#10;  {'ready': False} != {'ready': True}&#10;  {'epoch': 5} != {'epoch': 0}&#10;  Use -v to get more diff">monkeypatch = &lt;_pytest.monkeypatch.MonkeyPatch object at 0x7427624e4d00&gt;
+tmp_path = PosixPath('/tmp/pytest-of-dream/pytest-5/test_agent_session_forwards_ch0')
+
+    def test_agent_session_forwards_chat_without_releasing_machine_ownership(monkeypatch, tmp_path):
+        from types import SimpleNamespace
+        import threading
+        from serialterminal import agent_core
+        from serialterminal.transports.base import ReceivedChunk
+        from test_agent_console_log import _SelectorFactory
+    
+        client, node, ticket = accepted_client()
+        # Уже принятый ticket передаётся настоящему application holder. Background
+        # bootstrap здесь не нужен: проверяем RX notifier после законченного HELLO.
+        monkeypatch.setattr(client, "start", lambda: None)
+        profile = SimpleNamespace(name="chatter", connect_preamble=lambda: (),
+                                  human_console_streams=lambda: ("main", "chat"),
+                                  make_binary_user_transport=lambda *args, **kwargs: client)
+        monkeypatch.setattr(agent_core, "resolve_profile", lambda name: profile)
+        reached = threading.Event()
+        feed = client.feed_line
+    
+        def observe(stream, line):
+            feed(stream, line)
+            if line == "end of injected chat":
+                reached.set()
+    
+        monkeypatch.setattr(client, "feed_line", observe)
+        factory = _SelectorFactory()
+        manager = agent_core.SessionManager(selector_factory=factory, receive_dir=tmp_path,
+                                            reconnect_delay=.01)
+        try:
+            manager.discover()
+            opened = manager.open("ble:a", profile="chatter", wait_connected_ms=500)
+            before = client.controller_status()
+            transport = factory.transports["ble:a"]
+            for line in [*USER_LINES, "end of injected chat"]:
+                transport.reads.put(ReceivedChunk("chat", (line + "\n").encode()))
+            assert reached.wait(1)
+&gt;           assert client.controller_status() == before
+E           AssertionError: assert {'state': 're...n': None, ...} == {'state': 're...n': None, ...}
+E             
+E             Omitting 6 identical items, use -vv to show
+E             Differing items:
+E             {'state': 'resetting'} != {'state': 'ready'}
+E             {'machine_mode': 'failed'} != {'machine_mode': 'machine'}
+E             {'ready': False} != {'ready': True}
+E             {'epoch': 5} != {'epoch': 0}
+E             Use -v to get more diff
+
+tests/test_chatter_lifecycle_grammar.py:209: AssertionError</failure></testcase><testcase classname="tests.test_chatter_lifecycle_grammar" name="test_lifecycle_regressions_remain_in_full_local_and_workflow_collection" time="0.002" /></testsuite></testsuites>

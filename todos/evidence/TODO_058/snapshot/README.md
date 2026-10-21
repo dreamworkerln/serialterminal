@@ -1,0 +1,766 @@
+# serialterminal
+
+Обобщённый line-oriented терминал для USB Serial, Bluetooth LE / Nordic UART Service (NUS) и Classic Bluetooth SPP/RFCOMM.
+
+`serialterminal` редактирует строку локально и отправляет её устройству только после `Enter`. Исходящие строки переживают временный disconnect/reboot и отправляются после reconnect к тому же выбранному физическому устройству.
+
+Serial baud без `-b/--baud`: `generic` — 115200, `chatter` — 921600.
+Явное значение имеет приоритет. Политика одинакова для `serial`, unified `auto`
+и agent: в agent baud из `discover` является явным override, а при его отсутствии
+baud разрешается по профилю из `open`. При смене профиля неявный baud следует
+новому профилю; явный CLI/runtime выбор сохраняется.
+Общие immutable defaults определены в `src/serialterminal/settings.py`;
+профили выбирают свой Serial default, transports получают разрешённое значение.
+
+FT1 отрицательный RESULT (кроме явной peer-отмены `code="cancelled"`) прерывает cancellation-aware ожидания send/readiness и
+pipeline, сохраняя `remote_failed` и sender journal. Явный operator cancel остаётся
+отдельным действием. Неопределённый drain удерживает ownership до закрытия session.
+
+При штатном закрытии BLE session ST проверяет освобождение соединения. На
+Linux/BlueZ оставшееся соединение своего клиента адресно отключается и проверяется
+повторно; отказ или неизвестный итог сохраняются в логах. Agent `close` возвращает
+`transport_release`, а при EOF итог остаётся в логах. SIGKILL не выполняет cleanup.
+Generic discovery показывает все BLE scan results и подключённые устройства
+BlueZ, включая не рекламирующие себя: у последних жёлтый суффикс `(busy)`.
+В human chooser профиля `chatter` BLE-список ограничен NUS evidence:
+advertised NUS service UUID либо ранее подтверждённая NUS capability из cache.
+Это действует и для F2 после смены профиля; имя устройства и `(busy)` не дают допуск.
+Явный выбор busy-устройства в меню или agent `open` сначала отключает именно его
+и проверяет освобождение, затем выполняет обычный connect. При ошибке release
+подключение не начинается; остальные адреса не отключаются. Поиск сам ничего
+не отключает. PID registry и определение владельца соединения не используются.
+Подробности: [close и BLE release](AGENT_API.md#verified-ble-release-on-close).
+
+`chatter.reliable_user` deprecated и отключён: его legacy echo preflight
+несовместим с текущей firmware. Вызов получает `deprecated_sweep_adapter` до
+обращения к нодам. Новый USER-набор не должен использовать этот adapter.
+
+## Инженерные ревью
+
+Отчёты хранятся в [reviews/](reviews/README.md). Точки входа:
+[реестр и следующий REVIEW-ID](REVIEW_INVENTORY.md),
+[правила и шаблон](REVIEW_MANAGEMENT_POLICY.md),
+[контракт ревьюера](REVIEWER.md). Исправления ведутся в связанных TODO;
+повторная проверка получает новый REVIEW-ID и сохраняет историю предыдущих выводов.
+
+## Установка и запуск
+
+Рекомендуемая установка на новом host использует локальный `.venv` и зависимости из
+`pyproject.toml`:
+
+```bash
+python3 -m venv .venv
+source .venv/bin/activate
+python -m pip install --upgrade pip
+python -m pip install -e '.[ble]'
+```
+
+После этого доступна установленная команда:
+
+```bash
+serialterminal
+```
+
+Полная установка, generic-only вариант, системные Bluetooth prerequisites и
+development environment описаны в [INSTALL.md](INSTALL.md). Отдельный
+`requirements.txt` намеренно не поддерживается: authoritative dependency metadata
+находится в `pyproject.toml`.
+
+Обычный human terminal по умолчанию использует **generic** controller profile:
+
+```bash
+serialterminal
+# или без package entry point:
+python3 serialterminal.py
+```
+
+На интерактивном TTY human frontend по умолчанию запускается как curses TUI. Базовый
+`generic` режим остаётся обычным универсальным Serial/BLE/SPP terminal, а
+`chatter` добавляет profile-owned radio status panel. Профиль можно переключить
+прямо в TUI через `F3`; тот же physical target безопасно переоткрывается с новым
+profile, потому что BLE stream layout и controller preamble являются частью profile.
+
+Минимальные TUI keys:
+
+```text
+F2       device chooser
+F3       switch generic/chatter profile
+F4       clear chat and scrollback (same as /clear; logs are preserved)
+F5       open filesystem browser and send selected file
+Esc/F6   request file cancellation (confirmation required)
+F7       hide/show the active file progress window
+F8       toggle application mouse capture
+F9       help
+↑/↓      previous/next submitted command
+PgUp/Dn  page through output scrollback
+Wheel    scroll output by a few visual rows (mouse capture ON)
+End      return to FOLLOW / newest output
+Ctrl+Q   exit
+```
+
+Output scrollback имеет два режима. В FOLLOW окно держится на самом свежем выводе.
+После PgUp или wheel-up viewport фиксируется на выбранном месте; новый output не
+сдвигает читаемый текст, а status показывает количество новых строк. PgDn/wheel-down
+листают к хвосту, End сразу возвращает FOLLOW. Длинные logical lines visual-wrap'ятся
+по ширине окна вместо необратимого обрезания справа. Main output рисует собственный
+scrollbar справа; scrollbar terminal emulator-а не отражает curses viewport.
+
+TUI хранит до 500 последних непустых submitted lines в памяти текущего процесса.
+Стрелки ↑/↓ листают эту историю и после последней записи возвращают черновик, который
+был набран до входа в history.
+
+Mouse capture по умолчанию включён, чтобы Wheel и клик по внутреннему scrollbar
+управляли curses viewport. В terminal emulator-ах с application mouse reporting
+обычный selection/context menu может перехватываться приложением: F8 выключает
+mouse capture и возвращает обычное terminal mouse behavior. При включённом capture
+terminal-specific bypass через Shift+mouse остаётся доступен там, где его поддерживает
+сам emulator.
+
+F5 открывает однопанельный filesystem browser, начиная с текущего working directory.
+Папки идут перед файлами; `..` поднимает на уровень вверх. Enter на каталоге входит в
+него, Enter на любом обычном файле выбирает его для передачи, Esc отменяет. Доступны
+↑/↓, PgUp/PgDn, Home/End, ←/Backspace для parent, → для входа в каталог, `/` для
+фильтра и R для reload.
+
+Старый line-oriented human frontend пока сохранён как fallback:
+
+```bash
+serialterminal --classic
+serialterminal --profile chatter --classic
+```
+
+Generic profile не отправляет устройству controller-specific команды при connect/reconnect, не интерпретирует firmware output как Chatter и для BLE использует стандартный NUS layout `0002` write + `0003` receive (`main`).
+
+Для bundled LoRa-Chatter conveniences выбери профиль явно:
+
+```bash
+python3 serialterminal.py --profile chatter
+```
+
+Human `chatter` profile сохраняет Chatter-aware presentation/hotkeys и для USB Serial отправляет `/id` как connect/reconnect preamble. Для BLE актуальная Chatter firmware сама один раз на каждое соединение публикует canonical identity после подписки клиента на human-console characteristic `0003`; TUI не дублирует этот identity запросом `/id`.
+
+Если при USB-подключении TUI не получил canonical `CHATTER NODE`, профиль
+повторяет read-only `/id` раз в секунду, максимум 3 раза сверх connect preamble.
+После ответа повторы прекращаются; при исчерпании попыток ID остаётся неизвестным.
+Успешная запись в порт сама по себе не считается получением ID. При выборе через
+F2 transport seed панели устанавливается до возобновления RX, чтобы не стереть
+уже пришедший ответ. BLE, generic, classic frontend и JSONL agent не получают
+этот дополнительный TUI retry.
+
+По умолчанию каждый отдельный запуск human terminal создаёт связанную пару:
+
+```text
+logs/serialterminal-YYYYMMDD-HHMMSS-ffffff-pPID.log
+logs/serialterminal-YYYYMMDD-HHMMSS-ffffff-pPID.console.log
+```
+
+Основной human `.log` теперь является timestamped all-stream timeline: input помечается `[I]`, локальные сообщения `[LOCAL]`, а принятые logical lines — `[O <stream>]`, включая background Chatter telemetry. Старый untimestamped compatibility transcript больше не создаётся. Companion `.console.log` остаётся фильтрованным human-console view с offset-aware ISO timestamp, millisecond precision и process-local session token.
+
+Явный `--log <path>` выбирает путь основного файла; рядом автоматически создаются companions с тем же basename и суффиксами `.console.log`, `.fttiming.jsonl`, `.application.log`. Например, `--log /runs/test.log` сохраняет все четыре файла в `/runs/`. Полный общий logging contract описан в `LOGGING.md`.
+
+После запуска terminal показывает выбранный profile и предлагает локальный help:
+
+```text
+Press Ctrl+T ? for SerialTerminal help.
+```
+
+В generic profile `Ctrl+T ?` печатает только локальный help. В `chatter` profile тот же hotkey дополнительно ставит firmware `/help` в reconnect-safe TX queue.
+
+## Profiles
+
+Profile выбирает controller configuration и convenience behavior. Transport/session mechanics остаются в generic core, а семантикой controller-команд владеет firmware.
+
+Сейчас bundled два profile:
+
+```text
+generic
+    default для human CLI и agent open
+    no connect preamble
+    no controller-specific hotkeys/presentation
+    standard BLE NUS 0002 write + 0003 receive -> stream main
+
+chatter
+    explicit LoRa-Chatter profile
+    /id connect preamble for USB Serial
+    Chatter help/hotkeys/presentation
+    BLE 0003 -> chat + one controller-owned identity announcement per connection
+    optional BLE 0004 -> telemetry
+    BINARY USER + FT1 file-transfer capability
+```
+
+In the TUI, `/clear` + Enter is a local command equivalent to F4: it clears chat
+and scrollback, returns to FOLLOW and preserves log files. It is available during
+file transfer and terminal settlement, without sending anything to the controller.
+It appears in F9 help; `F4 Clear` is first in the bottom shortcut bar.
+
+File transfer controls appear only for profiles that advertise the binary-message
+capability; generic remains a normal controller-agnostic terminal. Chatter TUI uses
+`F5` to select/send a file and a wide centered internal progress window for TX/RX.
+`Esc`/`F6` opens a confirmation: «Нет» on the left, «Да» on the right, default «Да»;
+←/→ selects, Enter confirms, Esc continues. The transfer runs while choosing.
+Successful completion automatically closes the progress frame and compact header.
+F7 hides/shows only a running transfer; a terminal result cannot reopen its window.
+Boot/READY without an admitted FT1 operation never enables a file window. Actual
+recovery/resume returns the progress window to the center, including from background.
+Chatter recognizes controller lifecycle only from standalone local boot/reset/READY
+lines. Ordinary received text or outgoing echo containing `first:`, `ESP-ROM:`,
+`rst:0x…` or `[SYS] CHATTER READY` does not reset the controller state or release
+an unfinished file submission.
+Every ROOT completion independently writes one white chat line with TX/RX, filename
+and «успешно», «ошибка» with its reason, or «отменена пользователем/отправителем/получателем». This follows
+the terminal event, regardless of window visibility or closure; intermediate RESULT,
+100% progress and recursive service-file completion do not report success.
+Start, phase changes, recovery/resume and cancellation requests also appear in chat;
+chunk-level protocol traffic does not flood it. Confirming local cancellation closes
+the window immediately while manager cleanup retains ownership until settlement.
+On the peer, received cancellation stops the transfer but retains the progress window;
+Esc closes it directly without another confirmation. This is symmetric for TX/RX.
+Failed results remain visible until Esc; success closes the window automatically.
+A background outcome stays in chat and does not reopen the window. While a transfer
+is running, `F7` switches between the window and one compact line with direction,
+filename, DATA percent/rate or current recovery/verification phase, and an F7 hint.
+The background line has no second progress bar or chunk/byte counters. Confirmation
+is bound to a runtime attempt, so same-ID readmission cannot inherit an old cancel.
+The transfer and
+confirmation use a separate Dracula palette (ANSI-256 approximation), with light
+text on a dark background and purple borders. Both dialogs resize with the terminal;
+filenames wrap/shorten visually without altering the transmitted basename. F10 is
+reserved for the terminal emulator and has no ST action. Ordinary Enter and output selection
+(`/tele`, `/chat`, `/both` or Ctrl+T then 1/2/3) preserve the transfer and session.
+Radio mutations, reboot, diagnostic start, radio text and device/profile changes
+are rejected during transfer; status queries and local viewing controls remain usable.
+Profile presentation filters machine/BINARY lines independently of file activity;
+useful human output remains visible. UTF-8 basename length is checked before file
+preparation or FT1 admission: Chatter currently allows 162 bytes including extension.
+An overlong name prints «Имя файла слишком длинное» without starting or renaming it.
+FT1 does not change CHAT/TELEMETRY/BOTH and does not require DELIVERY telemetry; Chatter local backpressure uses exact `> [BINARY]`
+settlement (protected LINK_OK or explicit legacy first-TxDone presentation), while
+remote completion remains MISSING/RESULT based. DATA chunks
+with an incorrect length are discarded without losing the partial file; END/MISSING
+selectively repairs the missing indexes before final SHA-256 verification. Same-process
+temporary local reconnects can repair missing FT1 chunks
+selectively through one compact MISSING range message. Persistent resume after
+SerialTerminal process restart uses retained manifests and sender journals; see
+[FT1_RESUME.md](FT1_RESUME.md) for the current contract. Protocol/integrity failures
+retain a suspended or quarantined partial, while explicit cancellation removes it.
+Negative RESULT stops new DATA submissions. RESULT OK follows verified durable
+publication and the completed tombstone.
+
+Если у старой FT1-передачи сохранился корректный manifest, но отсутствует `.part`,
+повторный F5 на том же файле автоматически начинает приём с нулевого чанка под
+прежним ID. Получатель сначала сохраняет пустую карту received ranges и отвечает
+`RESUME 0`; TUI пишет, что сохранённые данные отсутствуют и приём идёт с начала.
+Ручная очистка journals для этого случая не нужна. Существующие partial, quarantine,
+publishing state и чужие активные owners защищены. Контракт: [FT1_RESUME.md](FT1_RESUME.md).
+
+Verified incoming files default to the `files` directory in the SerialTerminal
+source root (next to `pyproject.toml`) when running from a checkout/editable install;
+the directory is created on demand on Linux/Windows. Packaged installs without a
+source root fall back to `./files` in the launch directory. Use
+`--receive-dir <path>` to override it. Protocol, reconnect repair, hash/compression,
+atomic-save and completion semantics are documented in [FILE_TRANSFER.md](FILE_TRANSFER.md).
+
+Normal CLI передаёт выбранный profile явно в terminal/session factory. Прямые `TerminalSession` и `DeviceSelector` constructors тоже используют `generic` по умолчанию; Chatter behavior включается только явным `profile=CHATTER_PROFILE` или `--profile chatter`.
+
+
+Experimental local machine interface: the Chatter profile negotiates `/m1` with CRC,
+epoch/request identity and two outstanding tickets. Machine sends settle on the
+existing matching node ACK; remote file completion still requires verified RESULT.
+Human output mode does not disable the machine path. Explicit legacy compatibility
+retains the old presentation/mode limits. See [the shared contract](CHATTER_MACHINE_PROTOCOL_V1.md).
+
+## Что поддержано
+
+- USB Serial через `pyserial`;
+- BLE NUS через `bleak`;
+- Classic Bluetooth SPP/RFCOMM на Linux через BlueZ + Python Bluetooth sockets;
+- unified device chooser;
+- sticky reconnect по стабильной physical identity;
+- controller profiles (`generic`, `chatter`) поверх общего transport/session core;
+- общий headless `ManagedSession` для reconnect/RX/TX logic;
+- machine-facing `serialterminal agent` JSONL interface поверх той же session/transport logic;
+- несколько независимых agent sessions к разным устройствам и с разными profiles в одном процессе;
+- raw SessionEvent/chunk forensic receive view и session-level completed logical-line view через `observe`;
+- paired forensic + human-console agent run logs;
+- configurable BLE write/receive characteristic-to-stream layout;
+- локальные hotkeys `Ctrl+T ...`;
+- локальное line editing через `prompt_toolkit`, включая Backspace/Delete и Unicode;
+- capability cache для найденных NUS/SPP устройств;
+- Bluetooth scanner/prober;
+- timestamped all-stream human log с немедленным `flush()`;
+- base64 payloads в любых log-файлах по умолчанию заменяются на `<base64>`; raw persistence включается только `--log-base64`;
+- `LF`, `CRLF` или `CR` после `Enter`.
+
+Chatter-specific возможности — `/id`, `/help`, output/echo shortcuts, `chat`/`telemetry`, pending USER/ECHO presentation и optional BLE `0004` — принадлежат bundled `chatter` profile, а не generic default.
+
+
+Chatter BINARY USER presentation не выводит raw base64 в human TUI/classic screen:
+firmware `[BINARY] ...` lines скрыты из normal display, а локальный ручной
+`/bin ...` отображается как `/bin <base64>`. Флаг `--log-base64` этого не меняет —
+он разрешает raw base64 только в log-файлах.
+
+Входящие пустые/whitespace-only Chatter lines, в том числе разделители `/m1`,
+скрыты на human screen; исходные logical lines сохраняются в logs/observe.
+TUI показывает управляющие C0/C1 как видимые escapes (например `\x00`),
+чтобы NUL и другие control bytes не ломали curses и расчёт переносов.
+
+## Codex hardware-test workspace
+
+Physical-node Codex runs now start from the independent sibling clone
+serialterminal-observations on branch node_observations, not from this source
+workspace.
+
+That branch owns the lightweight hardware AGENTS.md, LoRa-Chatter hardware skill,
+evidence policy and operator setup. The source clone remains the read-only runtime
+provider for hardware execution.
+
+The previous extra writable_roots entry for the sibling observation clone is no
+longer needed when serialterminal-observations itself is the Codex working
+directory. Do not make this source repository writable to the hardware executor
+merely for convenience.
+
+See the short migration pointer in CODEX_HARDWARE_TEST_SETUP.md and the authoritative
+setup in the node_observations workspace.
+
+## Agent / Codex JSONL interface
+
+Agent mode запускается без TUI:
+
+```bash
+python3 serialterminal.py agent
+```
+
+stdin и stdout используются как request/response JSON Lines. Один request всегда даёт один machine-readable JSON response. `observe` может оставаться pending, пока agent принимает следующие команды, поэтому ответы сопоставляются по `id` и могут приходить не в порядке запросов.
+
+Основные операции:
+
+```text
+discover
+open
+status
+list_sessions
+send_line
+send_bytes
+observe
+close
+file_send_start
+file_transfer_observe
+file_transfer_cancel
+file_transfer_close
+```
+
+`events` и `wait_events` больше не являются machine API operations; receive/cursor workflow унифицирован через `observe`.
+
+### Generic/default open
+
+```json
+{"id":1,"op":"discover","scope":"auto"}
+{"id":2,"op":"open","device_key":"ble-address:..."}
+{"id":3,"op":"send_line","session":"s1","text":"status"}
+{"id":4,"op":"observe","cursors":{"s1":0},"timeout_ms":5000}
+{"id":5,"op":"close","session":"s1"}
+```
+
+`open` без `profile` эквивалентен:
+
+```json
+{"id":2,"op":"open","device_key":"...","profile":"generic"}
+```
+
+Generic agent session не отправляет controller-specific connect preamble. Для BLE используется standard NUS `0002` write + `0003` receive как stream `main`.
+
+### Chatter open
+
+Для LoRa-Chatter node workflow profile выбирается явно:
+
+```json
+{"id":2,"op":"open","device_key":"...","profile":"chatter"}
+```
+
+Chatter profile отправляет `/id` после каждого успешного transport connect/reconnect до публикации session как `connected` и задаёт BLE streams `chat` + optional `telemetry`.
+
+Profile выбирается отдельно для каждой session, поэтому один agent process может одновременно держать generic и controller-specific sessions. Connect preamble полностью принадлежит выбранному profile; отдельного identity/preamble toggle в machine API нет.
+
+Полный контракт profiles/open/error semantics находится в `AGENT_API.md`.
+
+Для Chatter file transfer агент использует high-level operations
+`file_send_start` / `file_transfer_observe` / `file_transfer_cancel` /
+`file_transfer_close`; вручную base64/chunk loop делать не требуется.
+
+### Observe
+
+Receive/observation использует один `cursors` object и retained raw event buffer. Формат одинаков для одной и нескольких sessions.
+
+`observe.result.events` сохраняет raw SessionEvent/chunk representation с transport stream tag, byte-accurate `data_b64` и incremental chunk-level UTF-8 `text`.
+
+`observe.result.lines` одновременно возвращает завершённые LF-terminated logical firmware lines с `seq_first/seq_last`; line assembly живёт на session layer и не меняет transport chunk boundaries.
+
+Один raw cursor управляет обеими views. Если logical line началась до входного cursor, а завершилась после него, следующий `observe` возвращает целую line, поэтому caller не обязан вручную хранить и склеивать RX fragments.
+
+`send_line` и `send_bytes` используют одну reconnect-safe ordered TX queue. `tx_state=written` означает только успешное завершение transport `write()`, а не application/protocol/peer delivery.
+
+Один agent process может держать несколько разных `device_key` одновременно. Повторный `open` того же `device_key` внутри одного manager возвращает structured `device_busy`.
+
+## Agent run logs
+
+Agent использует тот же companion `.console.log` contract, что и human frontend, но его основной `.log` имеет forensic/API/transport роль. Полная frontend-neutral спецификация находится в `LOGGING.md`.
+
+Каждый agent run создаёт связанную пару файлов с одним timestamp/PID prefix:
+
+```text
+logs/serialterminal-YYYYMMDD-HHMMSS-ffffff-pPID.log
+logs/serialterminal-YYYYMMDD-HHMMSS-ffffff-pPID.console.log
+```
+
+Основной `.log` — forensic/API/transport truth. В нём остаются точные chronological records:
+
+```text
+[RUN]
+[AGENT]
+[AGENT REQUEST]
+[AGENT RESPONSE]
+[STATE]
+[TX]
+[RX <stream>]
+[ERROR]
+```
+
+Logical lines являются first-class частью `ManagedSession`/`observe.result.lines`, а raw `[RX <stream>]` сохраняет transport chunk boundaries и `data_b64`.
+
+Companion `.console.log` — удобный человекочитаемый view одного run для всех sessions:
+
+```text
+2026-09-05T08:23:01.100+00:00 [s1] [I] status
+2026-09-05T08:23:01.420+00:00 [s1] [O] READY
+2026-09-05T08:23:05.100+00:00 [s2] [I] ping
+2026-09-05T08:23:05.250+00:00 [s2] [O] pong
+```
+
+`[I]` означает text, принятый через `send_line`; `[O]` — completed logical line из human-console receive stream выбранного profile. Generic BLE console stream называется `main`; Chatter BLE console stream — `chat`.
+
+Background profile streams, например Chatter `telemetry`, не пишутся в `.console.log` просто из-за подписки. Они остаются в forensic `.log` и `observe.result.events`.
+
+Companion log — presentation/audit view, а не evidence доставки. `send_bytes` в нём как обычный human input не изображается. Startup `[AGENT]` metadata в forensic log содержит оба пути: `log_path` и `console_log_path`.
+
+Полный контракт, raw/line cursor semantics, concurrent `observe`, out-of-order response rules, paired logging и ошибки: `AGENT_API.md`.
+
+Generic SerialTerminal API остаётся device-agnostic. Project-specific physical LoRa-Chatter executor guidance живёт в sibling `serialterminal-observations` на branch `node_observations`; firmware/protocol source authority остаётся в соответствующем source state `lora-sack-protocol`.
+
+### Historical live hardware/Codex smoke
+
+2026-09-03 наблюдался live smoke с двумя физическими BLE LoRa-Chatter нодами в одном `serialterminal agent` process: Codex открыл две независимые sessions, использовал multi-session receive long-poll, продолжал обычные команды при pending observation и выполнил TX с обеих sessions близко по времени.
+
+Это исторически подтверждает практическую работу multi-session agent workflow и независимых per-session TX paths. Сам по себе этот smoke не доказывает успешную peer-доставку обеих близких LoRa передач и не является physical validation текущего profile-refactor checkpoint.
+
+## Discovery и reconnect
+
+Обычный запуск не подключается подряд ко всем неизвестным Bluetooth-устройствам.
+В human chooser при `--profile chatter` попадают:
+
+- USB Serial;
+- BLE, рекламирующие NUS service UUID;
+- BLE с ранее подтверждённым scanner'ом NUS;
+- Classic Bluetooth устройства с ранее подтверждённым scanner'ом SPP.
+
+BLE advertised name не является capability signal и не добавляет устройство в chooser. Если ожидаемый BLE target не рекламирует NUS и ещё не находится в capability cache, используй Bluetooth scanner/prober для подтверждения NUS, затем повтори discovery.
+
+В профиле `generic` BLE chooser сохраняет все scan results и подключённые BlueZ
+устройства. Capability scanner/prober также исследует все устройства независимо
+от human profile. F2 использует известные targets и read-only BlueZ snapshot,
+без скрытого scan, GATT connect/probe или disconnect.
+
+Выбор:
+
+```text
+0 devices  -> scan/wait
+1 device   -> autoconnect + lock target
+2+ devices -> numbered menu
+```
+
+После выбора reconnect идёт только к той же physical identity. Сменить target можно через `Ctrl+T d`.
+
+BLE CLI positional `target` — это только exact advertised name filter. Short aliases и project-specific name normalization отсутствуют. Generic `BleNusTransport` также не содержит project-specific name filtering или alias API.
+
+## Human hotkeys
+
+Общие локальные hotkeys доступны в любом profile:
+
+```text
+Ctrl+C         quit immediately
+Ctrl+T d       device chooser
+Ctrl+T s       Bluetooth capability scanner
+Ctrl+T i       connection/status
+Ctrl+T ?       SerialTerminal help
+```
+
+В generic profile `Ctrl+T ?` остаётся только local help; controller-specific hotkeys отсутствуют.
+
+В `chatter` profile дополнительно доступны:
+
+```text
+Ctrl+T 1/c     Chatter human console: CHAT
+Ctrl+T 2/t     Chatter human console: TELEMETRY
+Ctrl+T 3/b     Chatter human console: BOTH
+Ctrl+T e       Chatter echo mode toggle
+Ctrl+T ?       local help + Chatter /help
+```
+
+Chatter shortcut actions `Ctrl+T 1/2/3/e` (и aliases `c/t/b`) используют `SendBytes` и отправляют exact two-byte raw ABI `14 31/32/33/65` без configured EOL. Human-readable `/chat`, `/tele`, `/both` и `/echo` остаются обычными line-oriented командами и отправляются после Enter с выбранным line ending.
+
+## Chatter profile
+
+Следующие разделы относятся к запуску с `--profile chatter` либо к agent session с `profile:"chatter"`.
+
+### Канонические Chatter-команды
+
+Human-readable команды отправляются контроллеру обычными строками:
+
+```text
+/help        show Chatter help
+/id          show canonical node identity
+/chat        human console CHAT
+/tele        human console TELEMETRY
+/both        human console BOTH
+/echo        toggle diagnostic echo mode
+/cancel      cancel reliable USER retry / one unsent queued USER
+/cancel all  stop current retry and clear queued USER messages
+/reboot      reboot ESP32 controller
+```
+
+Canonical identity Chatter имеет вид:
+
+```text
+[SYS] CHATTER NODE LoRa-Chatter-XXXX
+```
+
+Это controller-owned identity. `serialterminal` не строит собственный node ID.
+
+Human `chatter` profile после успешного `SerialTransport.connect()` отправляет `/id` до открытия reconnect-safe user TX gate. На BLE human identity не запрашивается второй раз: актуальная Chatter firmware сама публикует один `[SYS] CHATTER NODE ...` после подписки клиента на `0003`. Agent `profile:"chatter"` по-прежнему применяет profile preamble при transport connect/reconnect независимо от transport kind.
+
+При классификации Chatter-команды profile использует ту же boundary-normalization, что и актуальная firmware: ASCII control/space + DEL по краям игнорируются только для command matching. Если после такого trim строка не совпала с известной командой, обычный payload отправляется в исходном виде.
+
+`/help` в human Chatter profile дополнительно печатает local help и ставит canonical `/help` контроллеру. Остальные команды идут через обычную reconnect-safe очередь.
+
+### TX presentation: кто имеет право печатать `>`
+
+SerialTerminal не синтезирует RF marker:
+
+```text
+> hello
+> [ECHO TX] hello
+```
+
+Эти строки принадлежат Chatter firmware. В текущем Chatter contract они означают firmware-side TX outcome, но сами по себе не доказывают peer delivery.
+
+Interactive USER payload в Chatter human profile сначала хранится как pending presentation и записывается как timestamped input record, но не дублируется на экране. Firmware success line показывает payload один раз.
+
+Если firmware отвергает payload до успешного RF TX, terminal сначала показывает исходный submit как plain local line, затем оставляет firmware failure неизменённым, например:
+
+```text
+hello
+[SYS] RADIO UNAVAILABLE, message not sent
+```
+
+Plain `hello` означает только «это было отправлено пользователем в controller», а не RF success.
+
+Background BLE `0004` telemetry не участвует в human pending-presentation resolution. В human frontend completed telemetry lines сохраняются в timestamped primary `.log`; agent сохраняет raw transport events в forensic records.
+
+Если связь пропала после transport write, но до firmware outcome, sent-but-unresolved payload раскрывается как plain local line. Payload, который ещё не был физически записан в transport, остаётся pending и может быть отправлен обычным reconnect retry.
+
+### Очереди
+
+Есть разные уровни очередей, их нельзя смешивать:
+
+```text
+serialterminal outgoing transport queue
+    reconnect-safe
+    shared ManagedSession mechanism for human/agent line/raw TX
+
+serialterminal pending presentation queue
+    human Chatter presentation only
+
+Chatter firmware queues
+    controller/protocol-owned state
+```
+
+Host-side presentation state не является доказательством RF delivery. Для hardware executor-а актуальные operating/acceptance rules живут в sibling `serialterminal-observations`; protocol constants и implementation behavior проверяй по authoritative firmware/docs, а не выводи из SerialTerminal UI.
+
+### Android / Kai Morich
+
+В Android Serial Bluetooth Terminal можно использовать тот же controller command set, например:
+
+```text
+HELP       /help
+ID         /id
+CHAT       /chat       or HEX 14 31
+TELEMETRY  /tele       or HEX 14 32
+BOTH       /both       or HEX 14 33
+ECHO       /echo       or HEX 14 65
+REBOOT     /reboot
+```
+
+Raw controls не требуют newline. Text commands выполняются после Enter/newline.
+
+## BLE NUS layouts
+
+### Generic
+
+Generic/default profile использует стандартный Nordic UART Service layout:
+
+```text
+NUS service             6E400001-B5A3-F393-E0A9-E50E24DCCA9E
+INPUT / RX              6E400002-B5A3-F393-E0A9-E50E24DCCA9E
+OUTPUT / TX             6E400003-B5A3-F393-E0A9-E50E24DCCA9E -> stream main
+```
+
+`BleNusTransport` получает write characteristic и receive UUID/stream mapping как конфигурацию; transport runtime не требует Chatter `0004` semantics.
+
+### Chatter
+
+Chatter profile задаёт:
+
+```text
+NUS service             6E400001-B5A3-F393-E0A9-E50E24DCCA9E
+INPUT / RX              6E400002-B5A3-F393-E0A9-E50E24DCCA9E
+PRIMARY / human TX      6E400003-B5A3-F393-E0A9-E50E24DCCA9E -> stream chat
+MACHINE TELEMETRY       6E400004-B5A3-F393-E0A9-E50E24DCCA9E -> stream telemetry (optional)
+```
+
+Human console на `0003` следует режиму Chatter firmware. При первой notification-подписке на `0003` firmware публикует canonical `[SYS] CHATTER NODE ...` ровно один раз для текущего BLE connection epoch; повторная запись CCCD в том же соединении identity не дублирует. Если `0004` существует, profile подписывает transport на него best-effort как отдельный background stream. Отсутствие `0004` не делает BLE connection невалидным.
+
+Human terminal не показывает background `telemetry` stream в normal console только из-за подписки. Agent и forensic log сохраняют его отдельно.
+
+## Line editing и отправка
+
+Interactive input работает через `prompt_toolkit.PromptSession`.
+
+До Enter пользователь редактирует локальную Unicode-строку. Backspace/Delete не отправляются устройству как отдельные bytes. После Enter в transport уходит одна complete line:
+
+```text
+edited text + configured line ending
+```
+
+Это отличается от byte-stream terminal, где управляющие клавиши могут физически попасть в UART.
+
+## Reconnect и transport queue
+
+Input отделён от transport I/O. Полная строка попадает в TX queue только после `Enter`.
+
+Если target disconnect/reboot происходит во время отправки, текущий transport-queue element удерживается и повторяется после reconnect к тому же locked target.
+
+Reconnect-safe queue используется и human, и agent frontends. Profile connect preamble выполняется отдельно после transport connect и до публикации session как connected; queued user/agent TX не должен его обогнать.
+
+Human frontend выполняет profile preamble только для USB Serial. Agent frontend применяет выбранный profile preamble на каждом supported transport connect/reconnect.
+
+Controller state после reboot принадлежит самому устройству. SerialTerminal не обязан автоматически восстанавливать controller-specific mode, если profile явно этого не определяет.
+
+## Bluetooth scanner
+
+Запуск из human terminal:
+
+```text
+Ctrl+T s
+```
+
+Меню:
+
+```text
+Bluetooth scanner
+  1. Probe all BLE devices for NUS
+  2. Probe Classic Bluetooth devices for SPP
+  3. Probe all Bluetooth
+  Enter. Back to terminal
+```
+
+На время scanner текущий transport отключается и reconnect ставится на паузу. После выхода terminal снова пытается подключиться к тому же sticky target. Набранная, но ещё не отправленная строка сохраняется.
+
+BLE scanner активно подтверждает standard NUS capability: наличие RX `0002` и TX `0003`. Он не классифицирует Chatter `0004` и не хранит generic `CHAT`/`TELEMETRY` capabilities; optional `0004` остаётся runtime concern профиля `chatter` при реальном open.
+
+Classic scanner делает BR/EDR discovery через BlueZ (`bluetoothctl`, fallback `hcitool`), SDP browse через `sdptool` и ищет Serial Port Profile / UUID `0x1101` и RFCOMM channel.
+
+## Capability cache
+
+Scanner сохраняет результаты в:
+
+```text
+~/.cache/serialterminal/devices.json
+```
+
+или под `$XDG_CACHE_HOME`.
+
+Cache хранит NUS/SPP capability state, время probe, имя/address и RFCOMM channel. Обычный chooser использует подтверждённые capabilities.
+
+## Sticky identity
+
+USB priority:
+
+```text
+/dev/serial/by-id/...
+-> VID/PID + USB serial number
+-> VID/PID + USB location
+-> concrete tty path
+```
+
+Это transport identity, используемая для reconnect. Controller/application identity — отдельное понятие и не заменяет transport key.
+
+BLE target фиксируется по BLE address. SPP target — по Bluetooth address + подтверждённому RFCOMM channel.
+
+## ESP32 / DTR / RTS
+
+`SerialTransport` сохраняет best-effort no-reset последовательность:
+
+1. безопасное промежуточное DTR/RTS перед `open()`;
+2. deassert обеих линий после открытия;
+3. отключение `HUPCL` на Linux.
+
+USB Serial RX/TX остаются full-duplex: blocking read не держит общий mutex с write.
+
+## Tests / CI
+
+CI на каждый push/PR выполняет:
+
+```text
+python -m compileall -q src serialterminal.py tools
+ruff check src tests serialterminal.py tools
+lizard -l python -C 10 -L 80 -a 5 src serialterminal.py tools   # advisory
+pytest -q
+```
+
+Покрыты generic profile zero-preamble behavior, Chatter profile behavior, human profile selection, BLE injected receive layout, shared `ManagedSession` reconnect/order/stream events, multi-session agent manager, explicit per-session agent profiles, async `observe`, raw-event/logical-line correlation и paired forensic/console run logging.
+
+Не фиксируйте в README число тестов как постоянную характеристику: authoritative результат — exact CI run для конкретного commit SHA.
+
+## Зависимости
+
+Authoritative Python dependencies и optional extras находятся в `pyproject.toml`:
+
+```text
+base:  pyserial, prompt-toolkit
+ble:   bleak
+dev:   pytest, ruff, lizard
+```
+
+Для установки не требуется отдельный `requirements.txt`. Рекомендуемый
+`.venv` workflow и setup на чистом Linux host описаны в [INSTALL.md](INSTALL.md).
+
+Для Classic Bluetooth scanner/SPP системно нужен BlueZ.
+
+## Диагностика Bluetooth disconnect на Linux
+
+Для link-level причин полезен `btmon`:
+
+```bash
+sudo btmon \
+  | grep --line-buffered -Ei -A 6 \
+      'Disconnect Complete|Device Disconnected'
+```
+
+Например `Reason: Connection Timeout` означает HCI/link supervision timeout и сам по себе не доказывает, что disconnect инициировал Python/Bleak.
+
+При повторяющихся timeout на Debian/Ubuntu/Linux Mint:
+
+```bash
+sudo apt update
+sudo apt install --only-upgrade bluez linux-firmware
+sudo reboot
+```

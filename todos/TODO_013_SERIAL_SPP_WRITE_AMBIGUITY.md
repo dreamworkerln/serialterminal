@@ -39,3 +39,18 @@ This is a static semantic risk; no physical duplicate write is claimed by this f
 - [ ] ambiguous item is not automatically resent;
 - [ ] later queued item behavior remains documented and tested;
 - [ ] full repository CI PASS.
+
+## Imported REVIEW_004/F004 — 2026-10-21
+
+Повторно подтверждено в общем Chatter REVIEW_006/F004, client `a34631e861d1477c48f5ad2bc15dad15564f73f6`.
+[Ревью](../reviews/REVIEW_004_IMPORTED_FIRMWARE_CLIENT_2026-10-21.md),
+[production SPP/session repro](../../../c++/lora-sack/chatter/reviews/evidence/REVIEW_006/repro_spp_replay.py).
+При принятых 3 либо всех 8 bytes COMMAND перед исключением sendall session
+после reconnect повторяет все bytes и выдаёт written. Это software side-effect
+модель; физическое дублирование не измерялось. Status: OPEN; Serial scope сохранён.
+
+- [ ] Через production TX worker проверить partial и full-before-error: unknown
+  terminal и ноль replay после reconnect.
+- [ ] Доказанный pre-write failure retryable; later queue FIFO и однократный outcome.
+
+Локальный repro не перезапускался; inventory совпадает с exact committed bytes.

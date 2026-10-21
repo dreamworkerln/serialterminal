@@ -1,0 +1,1734 @@
+# File transfer / FT1 over Chatter BINARY USER
+
+This document is the maintained engineering contract for file transfer in SerialTerminal.
+It explains both sides of the boundary:
+
+- what the Chatter firmware actually guarantees;
+- what SerialTerminal/FT1 must implement above that firmware transport;
+- how normal delivery, firmware retry, host-side loss, reconnect repair and selective
+  chunk retransmission interact;
+- how to use the firmware BINARY USER API without depending on TELEMETRY.
+
+## Current protected local interface and legacy scope
+
+The experimental Chatter profile now uses CRC-protected `/m1` framing, local node
+`epoch/request`, two real outstanding machine slots and typed LINK_OK on the existing
+matching radio ACK. The exact local contract is
+[CHATTER_MACHINE_PROTOCOL_V1.md](CHATTER_MACHINE_PROTOCOL_V1.md); its codec/client
+live in `profiles/chatter/machine_codec.py` and `machine_client.py`.
+An idle receiver restores this channel after reconnect without a new file-send command.
+Pending old tickets are never reported successful by a new epoch; the old host writes
+must settle, and reset/new WELCOME epoch proof permits FT1's idempotent recovery.
+No controller reboot or RF SUBMIT replay is performed merely to obtain that proof.
+Lifecycle markers inside USER/echo text are not proof: the Chatter profile matches
+standalone local boot/reset/READY lines using its shared grammar. Such text cannot
+release a pending machine identity, invalidate verified PHY or authorize replay.
+
+The `/bin`, human BINARY-presentation and TELEMETRY-only limitations described below
+apply to **explicit legacy compatibility** after old-firmware rejection. They do not
+define protected machine settlement. Machine mode works independently of human output
+mode and waits for typed LINK_OK, never DELIVERY telemetry. Final file completion still
+requires verified remote RESULT, durable publication and the completed tombstone.
+The current recursive protocol uses FT1 version 3, expanded META/END and internal
+missing-list files. DATA capacity remains unchanged. Midstream repair and the
+FT1 FLOW/CAPS/QUERY extension remain deferred. Machine QUERY is local.
+
+A negative remote RESULT other than explicit `code:"cancelled"` also interrupts cancellation-aware binary send,
+controller-readiness and pipeline submit/settle waits. It does not set the operator
+cancel event: the outcome stays `remote_failed` and the sender journal is retained.
+Owned pipeline cleanup/drain still runs; an ambiguous drain retains the lease and
+a secondary cleanup error does not replace the original remote failure. A backend
+that ignores the supplied stop signal keeps its own blocking-call limitation.
+
+Concurrent final publications use a POSIX namespace lock and reserve names in
+durable publishing manifests. A second file receives a distinct name, e.g.
+`file (1).bin`; exclusive hard-link publication protects even an already occupied
+name. The publishing destination remains stable across restart.
+
+The current experimental implementation lives on `dev_tui_exp_recursive_missing`.
+The completed stage8 baseline remains on `dev_tui`. The authoritative firmware
+transport contract is maintained in:
+
+```text
+lora-sack-protocol
+branch: dev_chat_binary
+file:   chatter/ARCHITECTURE.md
+section: "Binary USER application and file-transfer boundary"
+```
+
+Exact FT1 byte encoding is implemented in:
+
+```text
+src/serialterminal/file_transfer/protocol.py
+```
+
+FT1 state has one coordinator and explicit core/recovery/storage/pipeline policies:
+
+```text
+src/serialterminal/file_transfer/coordinator.py
+src/serialterminal/file_transfer/core.py
+src/serialterminal/file_transfer/resumable.py
+src/serialterminal/file_transfer/manager.py
+src/serialterminal/file_transfer/pipeline_manager.py
+src/serialterminal/file_transfer/recursive.py
+src/serialterminal/file_transfer/outbox.py
+```
+
+The explicit legacy Chatter local `/bin` adapter is implemented in:
+
+```text
+src/serialterminal/profiles/chatter/binary_user.py
+```
+
+If maintained documentation and source ever disagree, do not invent a hybrid protocol:
+inspect the exact source checkpoint, resolve the mismatch and update this document.
+
+---
+
+## 1. The mental model
+
+A file is **not** a firmware protocol object.
+
+The firmware knows only how to transport one opaque reliable USER message. File transfer
+is an application protocol implemented by the two SerialTerminal processes above that
+transport.
+
+```text
+Host A / SerialTerminal A
+        |
+        | FT1: META / DATA / END / MISSING / RESULT
+        v
+BinaryUserTransport
+        |
+        | local text envelope: /bin <BASE64>
+        v
+Node A / Chatter firmware
+        |
+        | reliable BINARY USER
+        | USER ACK / retry / dedup
+        v
+      LoRa
+        |
+        v
+Node B / Chatter firmware
+        |
+        | local BINARY presentation
+        v
+BinaryUserTransport
+        |
+        | FT1 decode / chunk storage / repair
+        v
+Host B / SerialTerminal B
+```
+
+There are therefore **two separate reliability layers**:
+
+```text
+Layer 1: firmware reliable USER
+    one BINARY USER
+    -> RF ACK
+    -> bounded firmware retry if that USER was not ACKed
+
+Layer 2: FT1 file completeness
+    META
+    -> DATA chunks
+    -> END
+    -> MISSING if host-visible chunks are absent
+    -> selective DATA resend
+    -> END again
+    -> RESULT
+```
+
+Do not collapse these layers into one.
+
+---
+
+## 2. Responsibility boundary
+
+### Firmware owns
+
+The Chatter firmware owns only:
+
+```text
+opaque BINARY USER bytes
+12-byte Chatter RF header
+RF transmit/receive
+USER ACK matching
+bounded USER retry/backoff
+receiver USER deduplication
+/bin base64 decode on the local terminal boundary
+[BINARY] base64 presentation on the local terminal boundary
+```
+
+Firmware does **not** know:
+
+```text
+file
+filename
+transfer_id
+chunk_index
+META / DATA / END / MISSING / RESULT
+compression
+SHA-256
+missing chunks
+selective file repair
+filesystem paths
+file progress
+final file publication
+```
+
+An FT1 META/DATA/END/MISSING/RESULT message is just opaque BINARY USER payload bytes to
+the firmware.
+
+### SerialTerminal / FT1 owns
+
+SerialTerminal owns:
+
+```text
+transfer_id
+filename
+compression choice
+original and wire hashes
+chunk sizing
+chunk_index
+receiver random-access assembly
+duplicate DATA validation
+END completeness check
+MISSING range generation
+selective chunk resend
+control replay
+RESULT success/failure
+filesystem safety
+progress / TUI / agent API
+```
+
+The stable file-level identity is:
+
+```text
+transfer_id + chunk_index
+```
+
+It is deliberately independent of the firmware USER sequence number.
+
+---
+
+## 3. Chatter firmware local BINARY API
+
+The host-facing firmware API is line-oriented.
+
+### Send opaque bytes
+
+To submit 1..243 raw bytes to the local firmware:
+
+```text
+/bin <BASE64>
+```
+
+Example conceptually:
+
+```text
+raw FT1 bytes
+    -> base64(raw FT1 bytes)
+    -> "/bin " + base64 + newline
+```
+
+The base64 wrapper is **only** a local USB/BLE/SPP text-envelope encoding.
+
+It is not transmitted over LoRa.
+
+### Receive opaque bytes
+
+When the peer firmware receives a NEW BINARY USER, the local host sees a CHAT
+presentation shaped like:
+
+```text
+< [RSSI/SNR Q] [BINARY] <BASE64>
+```
+
+SerialTerminal decodes that base64 back to the original raw BINARY USER payload and
+then feeds those bytes to FT1.
+
+### Local TX presentation
+
+After the first successful physical TxDone for a locally submitted BINARY USER, the
+sender firmware emits:
+
+```text
+> [BINARY] <BASE64>
+```
+
+The current `ChatterBinaryUserAdapter.send_binary()` waits for the exact matching
+local presentation. This is a **controller-local submission/backpressure signal**.
+The wait is bounded independently from the much longer FT1 remote RESULT timeout.
+
+It means approximately:
+
+```text
+"this BINARY USER reached its first successful local RF TxDone"
+```
+
+It does **not** mean:
+
+```text
+peer firmware ACKed it
+peer SerialTerminal saw it
+peer wrote the chunk
+file is complete
+```
+
+That distinction is fundamental.
+
+---
+
+## 4. TELEMETRY is not the file-transfer control plane
+
+Firmware may emit diagnostic lines such as:
+
+```text
+DELIVERY WAIT_ACK ...
+DELIVERY ACK ...
+DELIVERY ACK TIMEOUT ...
+DELIVERY RETRY ...
+DELIVERY FAILED ...
+```
+
+These are useful diagnostics, but FT1 must not depend on them.
+
+File transfer must not:
+
+```text
+send /both before transfer
+send /chat or /tele to make transfer work
+reassert /both after reconnect
+restore a previous CHAT/TELEMETRY/BOTH mode after transfer
+wait for DELIVERY ACK before every FT1 DATA
+use DELIVERY telemetry as chunk truth
+```
+
+The operator-selected output mode belongs to the operator.
+
+Current Chatter BINARY presentation is on the CHAT human stream. Before the first
+BINARY send of a connection/controller epoch, an unknown mode is queried read-only
+through `/help` and its `[SYS] current=...` response. SerialTerminal never sends
+`/chat`, `/tele` or `/both` for this preflight. TELEMETRY-only mode therefore fails
+deterministically with `binary_presentation_unavailable` before `/bin` is submitted.
+
+A controller reboot is not assumed to imply a USB disconnect: common USB-UART bridges
+can stay connected while the ESP restarts. Chatter profile state therefore tracks a
+separate controller epoch. If a reset/fatal marker arrives while exact
+`> [BINARY]` settlement is pending, that submission becomes ambiguous; the adapter
+waits for a new `[SYS] CHATTER READY` and reports `local_controller_reset`. FT1 may
+then replay the exact same idempotent META/DATA/END message.
+
+The relevant implementation/design record is:
+
+```text
+todos/TODO_030_CHATTER_FT1_NO_TELEMETRY.md
+```
+
+---
+
+## 5. Chatter RF BINARY USER format
+
+Chatter protocol v3 uses a 12-byte common RF header:
+
+```text
+byte 0      version = 3
+byte 1      flags
+byte 2..3   session_id
+byte 4..5   tx_seq
+byte 6..7   report_seq
+byte 8..9   report_rssi
+byte 10     report_snr
+byte 11     report_quality
+```
+
+Relevant flags:
+
+```text
+0x01 HEARTBEAT
+0x02 REPORT_VALID
+0x04 ACK
+0x20 HEARTBEAT_PONG
+0x40 BINARY_USER
+```
+
+`BINARY_USER` is a modifier of an ordinary USER frame, not a separate RF service.
+
+A maximum BINARY USER is:
+
+```text
+12 bytes  Chatter RF header
+243 bytes raw BINARY USER application payload
+---------
+255 bytes total LoRa frame
+```
+
+The 243-byte limit is the capacity visible to FT1.
+
+An RF ACK is 14 bytes: the common 12-byte header plus a 2-byte target-session field.
+ACK correlation identifies the USER by:
+
+```text
+(sender_session_id, user_seq)
+```
+
+The ACK does not know or carry an FT1 `chunk_index`.
+
+---
+
+## 6. Firmware reliable USER retry
+
+The firmware implements bounded stop-and-wait reliability for every USER, including
+BINARY USER.
+
+Current firmware bounds:
+
+```text
+one active PendingReliableUser
+RELIABLE_USER_QUEUE_DEPTH = 8
+RELIABLE_USER_MAX_ATTEMPTS = 5
+```
+
+A retry reuses the **same logical USER**:
+
+```text
+same sender_session_id
+same user_seq
+same payload bytes
+same TEXT/BINARY modifier
+```
+
+The firmware is not "resending the last file chunk" in file-protocol terms. It is
+retrying the current pending reliable USER transaction. The fact that the opaque
+payload happens to contain an FT1 DATA chunk is invisible to firmware.
+
+### ACK timeout
+
+After TxDone the sender waits for an ACK response deadline based on:
+
+```text
+ACK time-on-air
++ bounded software response margin
+```
+
+The response margin covers implementation costs such as serial formatting, RX polling
+and main-loop quanta. It is a timeout tolerance, not a deliberate pre-ACK transmission
+delay.
+
+### Retry backoff
+
+After an ACK timeout, if attempts remain, firmware schedules a randomized ToA-based
+backoff.
+
+The current policy uses a multiplier capped at 1x / 2x / 4x and a delay of:
+
+```text
+minimum = 0.5 * USER_ToA * multiplier
+jitter  = 0 .. 1.0 * USER_ToA * multiplier
+```
+
+So successive retry windows are approximately:
+
+```text
+0.5 .. 1.5 USER ToA
+1.0 .. 3.0 USER ToA
+2.0 .. 6.0 USER ToA
+```
+
+with the 4x scale capped for later attempts.
+
+There is no file-specific retry timer in firmware.
+
+---
+
+## 7. What happens when an RF packet is lost
+
+Consider one FT1 DATA message embedded in one BINARY USER.
+
+### Case A: the LoRa USER itself is not received
+
+```text
+Sender ST
+  -> Sender firmware
+       -> USER attempt #1 --X--> Receiver firmware
+       <- no ACK
+       -> timeout/backoff
+       -> same USER attempt #2 ----> Receiver firmware
+                                      -> NEW USER
+                                      -> local [BINARY] presentation
+                                      -> ACK
+```
+
+The firmware handles this automatically.
+
+SerialTerminal does not need to request that chunk merely because one RF attempt was
+lost.
+
+The receiver host normally sees the BINARY USER once, when a retry finally arrives as
+a NEW USER.
+
+### Case B: receiver gets USER, but RF ACK is lost
+
+```text
+Sender firmware -> USER ----> Receiver firmware
+                               -> NEW
+                               -> presents BINARY to Receiver ST
+                               -> ACK --X-->
+
+Sender firmware times out
+Sender firmware -> same USER retry ----> Receiver firmware
+                                         -> DUPLICATE
+                                         -> do NOT present BINARY again
+                                         -> ACK again
+```
+
+Firmware receiver deduplication prevents a radio retry from becoming a duplicate
+application delivery.
+
+The duplicate is ACKed again because the previous ACK may have been lost.
+
+### Case C: all firmware attempts for one DATA fail
+
+After five unsuccessful physical attempts, firmware gives up that USER transaction.
+
+FT1 does **not** need DELIVERY telemetry to learn this immediately.
+
+Later DATA messages may still proceed. When the receiver eventually gets END, it sees
+the missing `chunk_index` and sends FT1 MISSING. The sender SerialTerminal then
+retransmits that exact DATA chunk as a **new** BINARY USER transaction.
+
+This is the transition from firmware-level recovery to file-level recovery.
+
+---
+
+## 8. Why firmware ACK does not prove file delivery
+
+A firmware ACK proves only:
+
+```text
+peer firmware received the USER
+```
+
+It does not prove:
+
+```text
+peer SerialTerminal was connected
+peer SerialTerminal received the local BINARY presentation
+peer SerialTerminal stored the DATA chunk
+the file is complete
+```
+
+The receive order is conceptually:
+
+```text
+LoRa USER received
+    |
+    v
+firmware dedup / receive policy
+    |
+    +--> create RF ACK obligation
+    |
+    +--> attempt local USB/BLE BINARY presentation
+    |
+    +--> service RF ACK
+```
+
+If BLE/USB disappears at the wrong moment, the receiver firmware can successfully ACK
+the USER while the receiver SerialTerminal never gets that BINARY presentation.
+
+Therefore:
+
+```text
+firmware USER ACK success != receiver-host file-chunk delivery
+```
+
+This is the primary reason FT1 needs stable chunk identity and MISSING repair.
+
+There is an additional subtle consequence: if the sender firmware later repeats the
+same USER because its ACK was lost, the receiver firmware recognizes that USER as a
+DUPLICATE and intentionally suppresses the second local presentation. Firmware retry
+cannot be used as host-side replay.
+
+Host-side repair must create a **new firmware USER transaction** carrying the same FT1
+`transfer_id + chunk_index`.
+
+---
+
+## 9. FT1 v3 common header
+
+Every FT1 message is raw bytes carried inside one BINARY USER payload.
+
+All integer fields use network/big-endian byte order.
+
+The common header is exactly 12 bytes:
+
+```text
+offset  size  field
+0       2     magic = ASCII "FT"
+2       1     version = 3
+3       1     message_type
+4       8     transfer_id (uint64)
+```
+
+Python struct:
+
+```text
+>2sBBQ
+```
+
+Message types:
+
+```text
+1  META
+2  DATA
+3  END
+4  RESULT
+5  MISSING (legacy codec only; rejected by the recursive coordinator)
+6  RESUME
+```
+
+A sender allocates a non-zero 64-bit `transfer_id` that is unique among retained
+transfers in that process.
+
+---
+
+## 10. META
+
+META establishes file identity and the wire representation.
+
+Layout after the 12-byte common header:
+
+```text
+original_size      uint64
+wire_size          uint64
+compression        uint8
+chunk_size         uint16
+original_sha256    32 bytes
+filename_len       uint8
+parent_transfer_id uint64 (0 for ROOT)
+depth              uint8 (ROOT=0; service=1..8)
+previous_repair_id  uint64 (ROOT=0; service answers parent END repair_id)
+filename           filename_len UTF-8 bytes
+```
+
+Compression values:
+
+```text
+0  NONE
+1  GZIP
+```
+
+With a 243-byte BINARY USER capacity, the maximum META filename payload is currently
+162 UTF-8 bytes.
+
+META is deliberately idempotent:
+
+- identical META for the same `transfer_id` is a replay, not a new transfer;
+- conflicting META for an existing `transfer_id` is rejected as `invalid_metadata` without changing the existing context.
+
+---
+
+A service META must match the parent's latest END repair_id through
+previous_repair_id. One latest child META provides replay acknowledgment; older
+children fail the link check and do not enqueue repair. Both ST endpoints use v3;
+v1/v2 wire frames are rejected, while ROOT byte identities and DATA capacity remain
+unchanged. MRF2 list format is unchanged.
+
+## 11. Compression and source preparation
+
+Before transmission, the sender streams the source file through deterministic gzip:
+
+```text
+gzip mtime = 0
+```
+
+while computing the original SHA-256.
+
+The sender then compares sizes:
+
+```text
+if gzip_size < original_size:
+    wire representation = gzip
+    compression = GZIP
+else:
+    wire representation = original file
+    compression = NONE
+```
+
+Compression is therefore opportunistic. Incompressible files are not made larger just
+to claim compression.
+
+The implementation does not load a large file wholly into RAM. It streams source
+preparation and hashing in blocks.
+
+Two hashes exist for different purposes:
+
+```text
+META.original_sha256
+    hash of the final original file
+
+END.wire_sha256
+    hash of the actual transmitted wire stream
+    (compressed stream when GZIP is used, otherwise original bytes)
+```
+
+The receiver verifies both.
+
+---
+
+## 12. DATA
+
+DATA layout:
+
+```text
+12 bytes  FT1 common header
+4 bytes   chunk_index uint32
+N bytes   chunk payload
+```
+
+With the current Chatter BINARY USER capacity:
+
+```text
+243 byte BINARY USER capacity
+-12 byte FT1 common header
+- 4 byte DATA chunk_index
+--------------------------------
+227 bytes maximum file/wire data per full DATA message
+```
+
+The DATA chunk size is negotiated in META and must not exceed the local
+`BinaryUserTransport` capacity.
+
+The receiver writes DATA by:
+
+```text
+offset = chunk_index * meta.chunk_size
+```
+
+so DATA may arrive out of order.
+
+### DATA duplicate rules
+
+If the receiver already has the same `chunk_index`:
+
+- same bytes: idempotent duplicate; keep one copy;
+- different bytes: fail with `invalid_chunk`.
+
+This makes deliberate FT1 replay safe while detecting corruption/protocol conflicts.
+
+---
+
+## 13. END
+
+END layout:
+
+```text
+12 bytes  FT1 common header
+4 bytes   chunk_count uint32
+32 bytes  wire_sha256
+8 bytes   repair_id uint64 (0 initially; latest verified list ID after repair)
+```
+
+Total current END payload size:
+
+```text
+56 bytes
+```
+
+END means:
+
+```text
+"the sender has finished the current DATA pass;
+ this is the expected chunk count and wire-stream hash"
+```
+
+END does **not** mean the receiver must already have every DATA message.
+
+END is the point where receiver-side completeness is evaluated.
+
+Repeated identical END is idempotent.
+
+---
+
+## 14. Receiver assembly and completeness
+
+After META, the receiver creates a hidden temporary wire file and tracks received
+chunk indexes. Incomplete incoming state also has a bounded inactivity lifetime:
+current META/DATA/END activity refreshes the deadline. With Chatter the inactivity
+budget is `(max_control_replays + 1) * control_budget + drain_budget`, derived from
+verified PHY and firmware ACK/retry timing. On expiry the receiver fails that transfer with `remote_sender_timeout`, removes
+the active runtime state and releases the one-transfer session lease. Usable partial
+bytes and durable received ranges remain eligible for explicit resume. Parent idle
+checks are paused while a child transfer is active.
+
+For each DATA:
+
+1. validate that `chunk_index` is within the META-derived chunk count;
+2. validate the exact expected length for that index; discard wrong-length DATA
+   with a `chunk_rejected` event, preserving the partial file and valid chunks;
+3. seek to the chunk offset;
+4. write bytes to the temporary wire file;
+5. record that index as present.
+
+The final chunk may be shorter than `meta.chunk_size`; all earlier chunks must have
+exactly `meta.chunk_size` bytes.
+
+When END arrives, the receiver computes:
+
+```text
+missing = every index in 0 .. chunk_count-1 that was not received
+```
+
+If `missing` is empty, verification begins.
+
+If `missing` is non-empty, FT1 enters selective repair.
+
+---
+
+## 15. Full missing lists as internal FT1 files
+
+After END, the receiving ST computes the complete missing set from its chunk bitmap.
+It sends that set back as an internal FT1 file, using ordinary META/DATA/END/RESULT.
+Firmware sees opaque BINARY USER bytes and has no file or recursion knowledge.
+There is no compact MISSING exchange in this coordinator; its codec is retained
+only for legacy low-level tests. No per-DATA file ACK or LoRa SACK is introduced.
+
+The uncompressed service-file content is big-endian:
+
+```text
+magic             4 bytes: MRF2
+parent_transfer_id uint64
+missing_total     uint32
+range_count       uint32
+range_count times:
+    start_chunk   uint32
+    count         uint32
+```
+
+Ranges are sorted, disjoint, nonadjacent and within the parent chunk count.
+Their counts must sum to missing_total. Exact length is 20+8*range_count bytes.
+Parent identity, length, bounds, counts and both ordinary FT1 hashes are validated
+before any repair starts. The entire list may span many DATA packets, without the
+old 28-range capacity ceiling. Service files use the same gzip selection as ROOT.
+
+Each fresh list has a new uint64 transfer ID, even if its bytes are unchanged.
+Retransmission preserves that ID. META carries the direct parent ID and depth.
+The receiving parent's processed-ID map prevents duplicate repair. END after a
+parent repair echoes the verified child's ID in repair_id. An old END cannot
+complete or increment the no-progress counter for a newer cycle.
+
+## 16. Recursive repair and limits
+
+```text
+ROOT A -> B, missing chunks
+LIST1 B -> A, full ROOT missing list
+LIST1 incomplete -> LIST2 A -> B, full LIST1 missing list
+verified LIST2 -> repair LIST1 -> verified LIST1 -> repair ROOT
+verified ROOT -> durable atomic publication -> RESULT OK
+```
+
+The original transfer ID/chunk indices are preserved for selective DATA repair.
+Only one leaf progresses at a time. ROOT retains the external session lease;
+children reuse the same engine, transport and outbox. Parent control-replay and
+idle waits are paused until the child settles. Internal service files are not
+published as ordinary downloads or counted as ROOT success.
+
+Policy defaults live in file_transfer/recursive.py and can be overridden through
+FileTransferManager constructor arguments (no new UI/JSONL settings added):
+
+* max_missing_percent=30, integer 0..100: ROOT fails when
+  100*missing_total > threshold*chunks_total. Exactly 30% is permitted;
+  gzip uses wire chunk count. Service files are exempt.
+* max_recursion_depth=8: ROOT depth0, service depths1..8. Needing depth9
+  fails the ROOT with recursion_depth_limit.
+* max_no_progress_cycles=3: each file has its own counter. Initial missing count
+  is the baseline. Each completed selective repair followed by its matching END
+  increments the counter if the missing count did not decrease. Any decrease
+  resets it. Three such cycles fail with repair_no_progress. Child progress or
+  duplicate control does not reset a parent's counter.
+
+The sender exposes missing_total after a verified list arrives; the receiver exposes
+it after END. Snapshots contain optional repair data; repair_progress events include
+missing_total and depth (receiver also no_progress).
+
+There is no fixed overall one-hour repair deadline and no fixed eight-cycle limit
+in this coordinator. Slow progress is allowed. Existing transport/recovery limits
+remain. With no active child, unanswered control waits use the profile roundtrip
+budget and maximum3 META+END replays. Receiver inactivity covers that whole cycle
+plus drain. An active child uses its own waits; budgets do not pace DATA or add RF retry.
+
+Failures terminate the operation and retain usable ROOT partial state under
+FT1_RESUME.md. Process restart does not reconstruct the recursive stack: explicit
+ROOT resume revalidates persistent identity and starts a fresh repair context.
+Drain/ownership ambiguity retains the lease and requires session closure.
+
+---
+
+## 17. Firmware retry vs FT1 repair: decision table
+
+| Failure/loss | Who repairs it? | Mechanism |
+| --- | --- | --- |
+| One LoRa USER attempt is not received | Sender firmware | Same reliable USER is retried automatically |
+| RF ACK is lost | Sender + receiver firmware | Sender retries same USER; receiver recognizes DUPLICATE, re-ACKs, suppresses duplicate host presentation |
+| All firmware attempts for one DATA fail | Receiver ST + sender ST | END exposes missing chunk; MISSING asks peer ST to resend that DATA |
+| Receiver firmware got USER but receiver host missed local USB/BLE presentation | Receiver ST + sender ST | Firmware ACK is insufficient; END/MISSING repairs the host-visible hole |
+| Sender local USB/BLE write becomes ambiguous/disconnects | Sender ST | Bounded replay of the same idempotent FT1 message |
+| META never reaches receiver host | Sender ST control replay | Re-send identical META + END; receiver reconstructs state and requests missing DATA |
+| END is lost | Sender ST control replay | Re-send identical META + END |
+| MISSING is lost | Sender ST control replay causes reevaluation | Receiver sees repeated END and sends MISSING again |
+| RESULT is lost | Sender ST control replay + completed receiver replay | Repeated META/END causes completed receiver to send RESULT again |
+| SerialTerminal process dies | Explicit ROOT resume | Revalidate journals/durable ranges; reuse ROOT ID; rebuild repair context |
+
+This table is the practical answer to "who resends what?"
+
+---
+
+## 18. Local ambiguous-send replay
+
+The generic `ManagedSession` must not blindly retry an ambiguous physical write.
+
+However, FT1 messages are designed to be idempotent where replay is required.
+
+The file layer currently allows bounded replay of the **same encoded FT1 message** when
+the Chatter binary adapter reports:
+
+```text
+local_tx_unknown
+local_disconnect
+```
+
+Current default:
+
+```text
+FILE_MAX_LOCAL_MESSAGE_REPLAYS = 4
+```
+
+This is not firmware RF retry.
+
+It is host-side recovery across the local Serial/BLE/SPP boundary.
+
+For DATA, replay remains safe because the receiver keys it by
+`transfer_id + chunk_index` and verifies duplicate bytes.
+
+---
+
+## 19. Control replay
+
+After all DATA and END are sent, the sender waits for either:
+
+```text
+RESULT
+or
+MISSING
+```
+
+There is intentionally no per-DATA FT1 ACK.
+
+If neither outcome arrives within the control replay interval, the sender replays:
+
+```text
+same META
+same END
+```
+
+Current defaults:
+
+```text
+control_replay_interval_s      = None (derive profile roundtrip budget)
+FILE_MAX_CONTROL_REPLAYS       = 3
+FILE_RESULT_TIMEOUT_S          = None (no implicit overall deadline)
+```
+
+Why replay both?
+
+### META was lost
+
+Receiver may have ignored DATA/END because no transfer existed. Replayed META creates
+the transfer, and replayed END immediately exposes all missing DATA through MISSING.
+
+### END was lost
+
+Receiver already has DATA; repeated END triggers verification or MISSING.
+
+### MISSING was lost
+
+Repeated END makes the incomplete receiver compute and send MISSING again.
+
+### RESULT was lost
+
+A receiver that already completed the transfer recognizes identical replayed META/END
+and can send RESULT OK again without rebuilding or duplicating the final file.
+
+This is why META and END must be idempotent.
+
+---
+
+## 20. RESULT
+
+RESULT is the application-level completion/failure message.
+
+Layout:
+
+```text
+12 bytes  FT1 common header
+1 byte    failed flag: 0=success, 1=failure
+1 byte    result code
+1 byte    reason_len
+N bytes   UTF-8 reason
+```
+
+At the current 243-byte capacity, the reason field can occupy at most 228 bytes.
+
+Known result codes include:
+
+```text
+ok
+busy
+invalid_metadata
+invalid_chunk
+missing_chunks
+wire_hash_mismatch
+decompression_failed
+original_hash_mismatch
+storage_failed
+cancelled
+protocol_error
+remote_failed
+repair_too_large
+```
+
+The sender is `completed` only after receiving remote:
+
+```text
+RESULT OK
+```
+
+Not after:
+
+```text
+local /bin write
+local > [BINARY] presentation
+firmware RF ACK
+last DATA
+END
+```
+
+Exactly 100% progress is reserved for verified application completion.
+
+---
+
+## 21. Final verification at the receiver
+
+When END finds no missing chunks, the receiver validates in this order:
+
+1. temporary wire-file size equals META `wire_size`;
+2. wire-file SHA-256 equals END `wire_sha256`;
+3. if compression is GZIP, stream-decompress to another temporary file;
+4. final original size equals META `original_size`;
+5. final original SHA-256 equals META `original_sha256`;
+6. atomically publish the final file;
+7. send RESULT OK.
+
+A failed, truncated or cancelled transfer must not appear as a valid final filename.
+
+---
+
+## 22. Receiver filesystem safety
+
+Default receive directory:
+
+```text
+./files
+```
+
+For a source checkout/editable install this is the repository `files` directory next
+to `pyproject.toml`. Packaged installs without that source root fall back to
+`./files` in the launch directory.
+
+The TUI/agent may override it with:
+
+```bash
+--receive-dir <directory>
+```
+
+Remote filenames are treated as basenames only.
+
+Rejected filename content includes unsafe path semantics such as:
+
+```text
+absolute paths
+path separators
+..
+drive/path syntax
+NUL/control characters
+```
+
+Incoming data is written to a hidden temporary file. Successful publication uses
+`os.replace()`. Existing final names are not overwritten; a unique
+`name (N).ext` destination is selected.
+
+---
+
+## 23. Normal transfer sequence
+
+The normal no-loss fast path is:
+
+```text
+Sender ST                         Receiver ST
+---------                         -----------
+
+prepare source
+compress if smaller
+compute hashes
+
+META ---------------------------> create RX state
+
+DATA chunk 0 -------------------> store chunk 0
+DATA chunk 1 -------------------> store chunk 1
+DATA chunk 2 -------------------> store chunk 2
+...
+DATA chunk N -------------------> store chunk N
+
+END ----------------------------> check completeness
+                                  verify wire hash
+                                  decompress if needed
+                                  verify original hash
+                                  publish file
+
+RESULT OK <----------------------
+
+sender completed
+```
+
+There is no FT1 ACK after every DATA.
+
+The underlying firmware still performs its own USER ACK/retry for each BINARY USER
+message transparently.
+
+---
+
+## 24. Transfer with a missing chunk
+
+Example where firmware-level delivery ultimately fails for DATA chunk 7:
+
+```text
+Sender ST                         Receiver ST
+---------                         -----------
+
+META ---------------------------> OK
+DATA 0 -------------------------> OK
+...
+DATA 6 -------------------------> OK
+
+DATA 7
+  firmware attempt 1 --X
+  firmware attempt 2 --X
+  firmware attempt 3 --X
+  firmware attempt 4 --X
+  firmware attempt 5 --X
+  firmware gives up
+
+DATA 8 -------------------------> OK
+DATA 9 -------------------------> OK
+...
+
+END ----------------------------> detects chunk 7 absent
+
+MISSING (7,1) <-----------------
+
+DATA 7 -------------------------> stored as FT1 chunk 7
+                                  but through a NEW firmware USER transaction
+
+END ----------------------------> complete + verify
+
+RESULT OK <---------------------
+```
+
+SerialTerminal did not need DELIVERY telemetry to make this work.
+
+---
+
+## 25. Transfer where firmware ACK succeeds but host loses the chunk
+
+This is the important cross-layer failure case.
+
+```text
+Sender ST
+   |
+Sender firmware
+   |
+   | DATA chunk 42 inside BINARY USER
+   v
+Receiver firmware
+   |
+   +----> creates/sends RF ACK successfully
+   |
+   +--X-> receiver host presentation lost because USB/BLE host is absent
+```
+
+From the firmware viewpoint, USER 42 was delivered successfully.
+
+From the file receiver viewpoint, FT1 chunk 42 is absent.
+
+Later:
+
+```text
+END
+ -> receiver ST sees hole
+ -> MISSING requests chunk 42
+ -> sender ST resends DATA chunk 42
+ -> new firmware USER transaction
+ -> receiver ST receives it
+ -> END
+ -> RESULT
+```
+
+This is why a firmware ACK cannot replace FT1 MISSING.
+
+---
+
+## 26. Queueing and backpressure
+
+Firmware permits one active reliable USER plus a bounded queue of accepted USERs.
+
+SerialTerminal's current Chatter adapter does not wait for DELIVERY ACK. It waits only
+for the exact local `> [BINARY]` first-TxDone presentation before considering one
+`send_binary()` submission locally settled.
+
+This gives bounded controller-local backpressure while allowing firmware reliability
+to continue independently.
+
+Consequences:
+
+- FT1 does not intentionally insert a second stop-and-wait ACK layer;
+- later file messages are not gated on TELEMETRY;
+- if a prior USER later exhausts firmware retries, file-level MISSING can repair the
+  resulting hole;
+- queue-full or controller rejection remains a local send error, not remote completion.
+
+---
+
+## 27. Base64 sizing and local UART cost
+
+Base64 is local framing overhead only.
+
+For a maximum 243-byte BINARY USER:
+
+```text
+raw bytes:      243
+base64 text:    324 ASCII bytes
+command prefix: 5 bytes  "/bin "
+line ending:    typically 1 byte
+```
+
+So the local command is roughly 330 UART bytes.
+
+At 115200 baud, 8N1, that local text envelope has a real transmission cost of roughly
+29 ms.
+
+On BLE, that logical ~330-byte command may exceed one ATT Write Command.
+`BleNusTransport` therefore segments the unchanged byte stream according to the
+selected characteristic's `max_write_without_response_size` (for example 244 bytes
+with ATT MTU 247, or 20 bytes when that is all the backend exposes). It inserts no
+newline, delimiter or artificial sleep between fragments. This transport segmentation
+does not reduce the 243-byte BINARY USER / 227-byte FT1 DATA capacities and does not
+change the LoRa payload.
+
+Do not confuse this with LoRa airtime and do not include base64 expansion in the
+on-air 243-byte application payload.
+
+The generic Serial RX path must also not add artificial batching latency. The
+historical `read(512)` + `timeout=0.20` issue is tracked/implemented under:
+
+```text
+todos/TODO_031_SERIAL_RX_LOW_LATENCY.md
+```
+
+---
+
+## 28. Preferred SerialTerminal APIs
+
+Most callers should **not** manually construct `/bin` commands or parse BINARY lines.
+
+Use the high-level file-transfer API.
+
+### TUI
+
+For the bundled Chatter profile:
+
+```text
+F5  choose/start file send
+Esc/F6  request cancellation; confirm Yes with Enter
+F7      hide/show active progress window
+```
+
+Incoming transfers use the same progress model.
+
+### Agent JSONL
+
+Start:
+
+```json
+{"id":60,"op":"file_send_start","session":"s1","path":"/tmp/demo.bin"}
+```
+
+Observe:
+
+```json
+{"id":61,"op":"file_transfer_observe","session":"s1","transfer_id":"2c0c98db8bfdd7d1","cursor":0,"window":100,"timeout_ms":30000}
+```
+
+Cancel:
+
+```json
+{"id":62,"op":"file_transfer_cancel","session":"s1","transfer_id":"2c0c98db8bfdd7d1"}
+```
+
+Release retained terminal state:
+
+```json
+{"id":63,"op":"file_transfer_close","session":"s1","transfer_id":"2c0c98db8bfdd7d1"}
+```
+
+The high-level API owns compression, chunking, base64 encapsulation, MISSING repair,
+hashing and completion.
+
+A caller must not manually base64/chunk the file in parallel with
+`file_send_start`.
+
+---
+
+## 29. Low-level integration contract
+
+If implementing or reviewing a new SerialTerminal frontend/profile adapter, use this
+boundary.
+
+### Send one FT1 message
+
+```text
+FT1 encoder
+    -> raw message bytes <= BinaryUserTransport.payload_capacity
+    -> BinaryUserTransport.send_binary(raw)
+    -> Chatter adapter base64 encodes raw
+    -> send_line("/bin <BASE64>")
+    -> wait for exact matching local > [BINARY] presentation
+```
+
+Do not wait for DELIVERY TELEMETRY.
+
+### Receive one FT1 message
+
+```text
+canonical received line
+    -> recognize:
+       < [..] [BINARY] <BASE64>
+    -> strict base64 decode
+    -> raw BINARY payload
+    -> FT1 decode_message(raw)
+    -> META/DATA/END/MISSING/RESULT state machine
+```
+
+Do not feed TELEMETRY into FT1.
+
+### Important correlation rule
+
+Never use firmware `user_seq` as the file chunk identifier.
+
+Use:
+
+```text
+transfer_id + chunk_index
+```
+
+A selective resend intentionally may carry the same FT1 chunk through a different
+firmware `user_seq`.
+
+---
+
+## 30. Progress semantics
+
+Core progress fields include:
+
+```text
+transfer_id
+direction
+filename
+state
+original_bytes
+wire_bytes
+chunks_total
+chunks_completed
+bytes_completed
+percentage
+final_path / failure
+```
+
+States include:
+
+```text
+preparing
+compressing
+sending
+receiving
+verifying
+waiting_result
+repair_requested
+repairing
+decompressing
+completed
+failed
+cancelled
+```
+
+Receiving/sending all DATA bytes is not 100%.
+
+`completed` and 100% require final application-level verification.
+
+---
+
+## 31. Reconnect boundary
+
+FT1 v1 supports temporary local Serial/BLE/SPP reconnect repair while the same
+SerialTerminal process and transfer state remain alive.
+
+It relies on stable application identity:
+
+```text
+transfer_id + chunk_index
+```
+
+and idempotent replay.
+
+Persistent resume after process restart is implemented with retained receiver
+manifests and sender journals. `file_send_start` explicitly revalidates an unchanged
+source and reuses the matching old transfer_id; ambiguous journals fail rather than
+being guessed. Receiver partials survive timeout/failure; completed tombstones replay
+RESULT without a second publication. Automatic background restart is not performed.
+On explicit same-ID resume, an exactly matching receiving/suspended manifest whose
+`.part` is absent recovers automatically: checkpoint zero received proof before
+creating an empty part, then send `RESUME 0`. Reset failures cannot restore the old
+map beside that empty file. Existing partials, quarantine/publishing state and
+unsafe paths are preserved; the reset is logged as `resume_state_reset`.
+Matching META received during receiver timeout settlement waits for ownership
+release and recursive cleanup through a coalesced replay; it does not become a
+terminal metadata conflict merely because the previous attempt is still settling.
+See [FT1_RESUME.md](FT1_RESUME.md) for authoritative storage/recovery details and
+separate physical acceptance limits.
+
+---
+
+## 32. Current limits and defaults
+
+Current implementation defaults relevant to file transfer:
+
+```text
+Chatter BINARY USER payload capacity     243 bytes
+FT1 full DATA file payload               227 bytes
+firmware reliable USER max attempts      5
+firmware reliable USER queue depth       8
+FT1 no-progress repair cycles            3 per file
+FT1 maximum service depth                8
+FT1 ROOT missing-percent threshold       30%; service files exempt
+FT1 local-message replays                4
+Chatter machine send deadline             2 * radio transaction + local guard
+Chatter output-mode query timeout         5 s
+Chatter controller READY timeout          15 s host startup + boot self-test ToA
+FT1 incoming inactivity timeout           4 * control budget + drain
+FT1 control replay interval              4 * radio transaction + local guard
+FT1 maximum control replays              3
+FT1 overall remote-result timeout        none in recursive coordinator
+FT1 missing list capacity                multi-DATA internal file, uint32 ranges
+simultaneous active FT1 transfers/session 1
+MISSING pagination                       none
+persistent process-restart resume        explicit file_send_start + journals/manifests
+LoRa SACK dependency                     none
+```
+
+Physical timing formulas and reviewed host-only limits are documented in
+[TIMING_AUDIT.md](TIMING_AUDIT.md). Generic opaque transports without the optional
+timing capability use explicit application fallback policy (30 s control, 1 s resume,
+10 s drain, 120 s idle); those numbers are not LoRa estimates.
+
+These values are current implementation defaults, not reasons to duplicate constants
+in unrelated UI code. Consume the existing interfaces/constants where possible.
+
+---
+
+## 33. Common implementation mistakes
+
+Do not implement file transfer as:
+
+```text
+DATA
+wait DELIVERY ACK telemetry
+DATA
+wait DELIVERY ACK telemetry
+...
+```
+
+That adds a host-level stop-and-wait dependency to a transport that already has
+firmware USER reliability.
+
+Do not implement:
+
+```text
+start transfer -> /both
+finish transfer -> restore /chat
+```
+
+Human output mode is not an FT1 transport primitive.
+
+Do not implement:
+
+```text
+missing chunk -> ask firmware to resend user_seq
+```
+
+Firmware has no file/chunk API.
+
+Correct repair is:
+
+```text
+receiver ST
+  -> FT1 MISSING(transfer_id, chunk ranges)
+  -> BINARY USER
+  -> sender ST
+  -> reread those chunks from prepared wire stream
+  -> FT1 DATA with same transfer_id/chunk_index
+  -> new BINARY USER transactions
+```
+
+Do not use:
+
+```text
+firmware ACK == file chunk persisted
+```
+
+It is false by architecture.
+
+Do not add a second per-DATA FT1 ACK. FT1 v1 uses END/MISSING/RESULT.
+
+---
+
+## 34. Review checklist for file-transfer code
+
+Before accepting a file-transfer implementation, verify all of the following:
+
+- [ ] firmware is treated as an opaque reliable BINARY USER transport;
+- [ ] no file semantics were added to generic Serial/BLE/SPP transport code;
+- [ ] no FT1 correctness dependency on TELEMETRY;
+- [ ] transfer sends no automatic `/both`, `/chat` or `/tele`;
+- [ ] local `> [BINARY]` is treated only as controller-local submission/backpressure;
+- [ ] controller reboot can invalidate a pending local presentation without a USB reconnect;
+- [ ] replay after controller reboot waits for a new `CHATTER READY`;
+- [ ] incomplete incoming transfer state expires after bounded inactivity;
+- [ ] remote completion requires FT1 RESULT OK;
+- [ ] BINARY payload capacity is taken from `BinaryUserTransport`, currently 243 bytes
+      for Chatter;
+- [ ] full current DATA capacity is 227 wire/file bytes;
+- [ ] base64 exists only on local host<->firmware text boundary;
+- [ ] firmware radio retry is allowed to remain transparent to FT1;
+- [ ] firmware retries reuse the same USER identity;
+- [ ] firmware DUPLICATE is re-ACKed but not re-presented to host;
+- [ ] receiver stores DATA by `transfer_id + chunk_index`;
+- [ ] identical DATA duplicate is idempotent;
+- [ ] conflicting DATA duplicate fails;
+- [ ] END computes exact missing indexes;
+- [ ] MISSING uses canonical ranges;
+- [ ] sender resends only requested chunks;
+- [ ] repair keeps FT1 identity but may use new firmware USER sequence numbers;
+- [ ] repaired DATA is followed by END again;
+- [ ] META and END are idempotent;
+- [ ] missing MISSING/RESULT can be recovered through bounded control replay;
+- [ ] MISSING pagination is not invented in FT1 v1;
+- [ ] `repair_too_large` is handled explicitly;
+- [ ] compressed wire stream is used only when smaller;
+- [ ] wire SHA-256 and final original SHA-256 are both verified;
+- [ ] final file publication is atomic;
+- [ ] process restart revalidates source and durable state before explicit same-ID resume;
+- [ ] no new per-DATA application ACK was added.
+
+---
+
+## 35. Short version
+
+The complete design can be summarized as:
+
+```text
+Firmware:
+    reliably move one opaque BINARY USER between nodes
+    with ACK/retry/dedup.
+
+SerialTerminal FT1:
+    reliably turn many opaque BINARY USER messages into one verified file.
+
+RF loss of one USER:
+    firmware retries automatically.
+
+Firmware finally gives up,
+or receiver host misses a firmware-delivered USER:
+    receiver FT1 discovers the missing chunk after END
+    and sends MISSING to peer SerialTerminal.
+
+Peer SerialTerminal:
+    resends exactly the requested DATA chunk(s)
+    with the same transfer_id/chunk_index,
+    but through new firmware USER transaction(s).
+
+Completion:
+    only RESULT OK after full hash/decompression/filesystem verification.
+```
+
+
+## 34. FT1 forensic logging
+
+Interactive and agent primary logs record payload-free FT1 lifecycle/send-stage entries.
+Typical records include `binary_send_start`, `binary_send_settled`,
+`binary_send_replay`, terminal state changes and repair/control events. DATA records carry
+`chunk_index`, but never raw FT1 payload or base64. This makes a stalled transfer
+distinguishable as META/DATA/END local settlement without enabling `--log-base64`.
+
+Human output filtering belongs to the selected profile and does not change during
+FT1. Machine delimiters/BINARY presentation stay hidden; useful controller output
+remains available, including during repair and reconnect.
+
+
+The existing negative `RESULT` with `code:"cancelled"` is an explicit peer abort,
+accepted symmetrically from TX or RX and mapped to the matching ROOT and descendants.
+It uses cooperative cancellation/cleanup, is idempotent and is not echoed back.
+Unknown or already-terminal transfers ignore it. Other negative RESULT codes retain
+`remote_failed` semantics and resumable sender journals. No new wire message or
+firmware command is required. A `transfer_cancelled` event includes optional
+`cancelled_by_peer:true|false`; process-local presentation carries the same origin
+for TUI wording. Local acceptance still does not prove peer receipt.
+
+## 35. Interactive file-transfer window
+
+The wide centered TUI overlay follows terminal resize and shows ROOT identity/name,
+DATA progress, wire rate, elapsed time and a DATA-only ETA when measurable. Recursive
+missing-list transfers do not replace the ROOT name or imply successful completion.
+Only verified RESULT establishes sender success. Success automatically closes the
+overlay and compact header. F7 hides/shows active transfers only and cannot reopen
+a terminal window. Independently, each ROOT attempt's terminal event writes one
+white chat line with direction, filename and success/failure/user-cancel outcome;
+failure includes the reason. The line is also recorded as LOCAL in the primary log.
+It is not triggered by closing/hiding the window, progress, intermediate RESULT
+or recursive service-file completion. Terminal compact headers are hidden.
+Start, phase changes, recovery/resume, cancellation requests and suspension are
+also summarized in human chat without per-chunk protocol noise. Confirming local
+cancellation closes the question and progress window immediately, with cleanup and
+ownership settlement continuing in the manager. Received peer cancellation stops
+work and dismisses any question while retaining stopped progress; Esc closes it
+directly. A stale Enter from that question is consumed. Both directions use this
+contract. Failed results remain visible until Esc; success closes automatically.
+A background result stays in chat without reopening the window. Retained manager
+history is preserved. If the cancellation notice is lost despite transport retries,
+the still-active peer can be cancelled manually through Esc/Yes.
+Success during confirmation leaves a visible terminal
+notice until Enter/Esc, preventing a stale Enter from reaching controller input.
+During a running transfer, F7 switches between the overlay and one compact line:
+direction, filename, DATA percent/rate or current phase, and an F7 details hint.
+There is no second progress bar or chunk/byte counter row in background.
+Runtime ownership and a per-attempt identity distinguish active ROOT work from
+suspended/retained history; neither history nor node boot/READY enables F7.
+Actual FT1 resume after reboot/reconnect automatically returns the window to the
+center, including from background. READINESS alone is not resumed DATA/FT1 activity.
+The UTF-8 basename
+wraps inside the window; visual shortening never changes the transmitted name.
+F10 has no ST binding (reserved for the terminal emulator); no replacement key is
+assigned. Transfer/confirmation use dedicated Dracula colors, separate from the rest
+of the TUI: dark background, light text, purple borders and highlighted selection.
+
+Esc/F6 opens «Отменить передачу файла?»: «Нет» left, «Да» right, default «Да».
+Arrows select; Enter on Yes requests cancellation of that exact ROOT; No or Esc
+continues. FT1 runs while the dialog is open. A late confirmation after completion
+or replacement cannot cancel another ROOT or a new attempt with the same transfer_id.
+The manager atomically checks the attempt when accepting UI cancellation, and
+queued RX cancellation cannot affect a later attempt. Ordinary Enter and profile output
+selection do not cancel/reconnect. During active/settling FT1, Chatter status queries
+and presentation controls are admitted; radio mutations, RF text and device/profile
+changes are rejected until the operation ends. Ctrl+C/Ctrl+Q retain process exit.
+Agent JSONL mutation ownership remains unchanged.
+
+TUI `/clear` + Enter and F4 share a local chat/scrollback clear and FOLLOW reset.
+They preserve logs and FT1 state/ownership, including active DATA/repair/RESULT and
+terminal settlement, and send nothing to the node. F9 help lists `/clear`; the bottom
+shortcut bar starts with `F4 Clear`. Clearing a terminal summary does not replay it.
+
+
+The manager checks the complete basename in UTF-8 before preparation, reservation,
+claim or sender-journal lookup. The limit derives from META and transport capacity
+(current Chatter: 162 bytes including extension). Oversize raises
+`filename_too_long`; TUI prints «Имя файла слишком длинное». No new operation,
+compression, journal or META is created; no silent truncation/rename occurs.
+
+## FT1 host metadata bounds
+
+Host metadata resource policy: received chunks are stored as canonical intervals,
+not one dictionary entry per chunk. Defaults are65,536 received intervals and4 MiB
+per JSON manifest; manager constructor overrides are `max_received_ranges` and
+`max_manifest_bytes`. A fragment that would exceed the interval limit fails with
+`storage_failed` before writing that DATA, preserving the useful partial and map.
+Large manifest reads are bounded and oversized documents are not accepted/written.
+LIST has at most `max_received_ranges + 1` ranges, validated before allocation;
+service META size is bounded by that representation before decompression. These
+limits do not cap sequential file size or the number of successful repair cycles.
+
+Within a live ROOT each creator allocates monotonic child IDs from a random seed;
+ROOT receiver uses odd IDs and ROOT sender even IDs. Durable IDs and live contexts
+are skipped, and creation is protected by namespace lock plus outgoing lease.
+This permits bounded replay history without reusing evicted child identities.
+
+## Live cyclic partial retention
+
+Cyclic retention runs on durable saves/checkpoints, admission and ownership release;
+partial growth checks the shared logical byte budget before writing. Defaults:
+7 days since state update,32 incoming,32 outgoing,64 completed tombstones and1 GiB
+of `.part` files per receive directory. Count/TTL eviction skips active leases,
+including another process and the pre-manifest window. Counts include live
+identities without a manifest; a new admission fails explicitly if all slots are live.
+Under byte-budget or filesystem-free-space pressure, the oldest inactive parts
+and their manifests are removed automatically. ENOSPC/EDQUOT during an idempotent
+write/checkpoint/publication is retried only after an actual eviction, so retry
+is finite. The namespace lock covers capacity checks and the write across processes.
+If nothing eligible remains, the transfer fails with storage_failed; it retains
+the last useful partial and received proof. Partial writes never advance that proof.
+Final downloaded files and user source files are never eviction candidates.
+No periodic cleanup timer or `/clean` command is added. Active data alone can
+exhaust the budget; the1 GiB storage budget still applies to growing wire files.
+
+## FT1 chunk-space admission
+
+META-derived chunk_count is computed with integer ceiling division and must fit
+0..0xffffffff, matching END.chunk_count and RESUME.next_chunk. Invalid wire_size
+or chunk_size is rejected before RX records, leases, part files or recursive frame
+admission with RESULT invalid_metadata. The sender checks its actual prepared
+wire stream before journal/META and reports invalid_metadata if unrepresentable.
+Exactly0xffffffff chunks is representable (last DATA index0xfffffffe); larger
+counts are rejected without allocating a chunk bitmap. No smaller protocol file
+limit or new wire layout is introduced; separate storage/RAM budgets still apply.
+
+## Outgoing peer binding
+
+Outgoing journals and leases are scoped by a stable `peer_key`, stored in each
+journal and represented by a SHA-256 filename prefix. Agent uses the selected
+`open.device_key`; TUI uses the selected transport's device_key. Generic layers
+pass an opaque identity string and do not recognize controller names or key
+prefixes. In the fixed two-radio topology this binds work to the local radio path;
+it does not discover or authenticate a remote RF peer. Changing remote topology
+requires a new binding rather than assuming this key proves remote identity.
+The same explicit key supports reconnect/process-restart resume; different keys,
+including USB/BLE paths with distinct keys, never merge automatically.
+
+Candidate selection, journal update and deletion verify the binding. Two peer
+keys can use the same source and transfer_id without sharing a journal or lease.
+Same-key concurrent owners of one identity are rejected until the lease releases.
+Global outgoing count/TTL still applies across namespaces and preserves live
+scoped leases. Old unbound journals are retained for normal retention/inspection
+but are not automatically assigned to a peer. Standalone managers without an
+explicit key get a per-instance volatile binding: same-instance retry works,
+but another instance cannot claim that anonymous sender journal for restart resume.
+A cancellation that cannot safely delete its bound journal reports
+local_ownership_unsettled and keeps admission until close rather than deleting
+foreign state. Incoming wire layout and firmware behavior are unchanged.

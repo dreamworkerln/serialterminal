@@ -216,6 +216,15 @@ profile-local BINARY settlement is invalidated by controller reset markers and r
 is held until a new `CHATTER READY`. Generic `ManagedSession` remains unaware of
 Chatter reboot syntax.
 
+`profiles/chatter/controller_lifecycle.py` owns the shared local-line grammar for
+machine, legacy, PHY-cache invalidation and human presentation. It matches complete
+boot/reset lines from column zero and the exact READY line, removing terminal CR/LF
+only. USER/echo prefixes, leading whitespace and quoted markers are never removed.
+Thus chat such as `first:` or a quoted `ESP-ROM:`/READY cannot release machine tickets,
+advance the controller epoch or invalidate the verified PHY cache. Output-mode
+responses used as readiness proof must also begin with their local `[SYS]` syntax.
+Generic session/transport and frontends only forward logical lines to the profile.
+
 FT1 owns metadata, chunk identity, compression, hashes, receiver storage, progress,
 MISSING repair and final RESULT semantics. In-process reconnect repair keeps the same
 transfer_id/chunk_index identities, retains incomplete receiver state, selectively

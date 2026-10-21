@@ -1,0 +1,30 @@
+[
+  {
+    "file": "src/serialterminal/profiles/chatter/binary_user.py",
+    "definitions_before": 36,
+    "definitions_after": 36,
+    "same_definition_inventory": true,
+    "removed_comments": []
+  },
+  {
+    "file": "src/serialterminal/profiles/chatter/machine_client.py",
+    "definitions_before": 23,
+    "definitions_after": 23,
+    "same_definition_inventory": true,
+    "removed_comments": []
+  },
+  {
+    "file": "src/serialterminal/profiles/chatter/presentation.py",
+    "definitions_before": 14,
+    "definitions_after": 14,
+    "same_definition_inventory": true,
+    "removed_comments": []
+  },
+  {
+    "file": "src/serialterminal/profiles/chatter/radio_timing.py",
+    "definitions_before": 10,
+    "definitions_after": 10,
+    "same_definition_inventory": true,
+    "removed_comments": []
+  }
+]

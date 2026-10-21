@@ -17,6 +17,7 @@ from ...file_transfer.transport import (
 )
 from ...log_redaction import redact_base64_text
 from ...timing import TimingSink
+from .controller_lifecycle import parse_controller_lifecycle_line
 
 
 BINARY_USER_MAX_BYTES = 243
@@ -24,12 +25,6 @@ BINARY_PRESENTATION_TIMEOUT_S = 30.0
 BINARY_MODE_QUERY_TIMEOUT_S = 5.0
 CONTROLLER_READY_TIMEOUT_S = 15.0
 _BINARY_MARKER = " [BINARY] "
-_CONTROLLER_READY_MARKER = "[SYS] CHATTER READY"
-_CONTROLLER_RESET_MARKERS = (
-    "[SYS] RADIO FATAL ",
-    "ESP-ROM:",
-    "rst:0x",
-)
 
 _OUTPUT_MODE_RE = re.compile(
     r"\[SYS\] OUTPUT (?P<mode>CHAT|TELEMETRY|BOTH)\b"
@@ -357,17 +352,20 @@ class ChatterBinaryUserAdapter:
         value = line.rstrip("\r\n")
         if self._radio_timing is not None:
             self._radio_timing.feed_line(value)
-        mode_match = _OUTPUT_MODE_RE.search(value) or _CURRENT_MODE_RE.search(value)
+        lifecycle = parse_controller_lifecycle_line(value)
+        # Только локальный ответ может восстановить readiness; цитата режима
+        # внутри принятого USER не является ответом контроллера на /help.
+        mode_match = _OUTPUT_MODE_RE.match(value) or _CURRENT_MODE_RE.match(value)
         reset_event: tuple[int, int | None] | None = None
         ready_event: tuple[int, int | None, str] | None = None
         with self._condition:
-            if any(marker in value for marker in _CONTROLLER_RESET_MARKERS):
+            if lifecycle == "reset":
                 # USB-UART может остаться физически подключённым во время reboot ESP.
                 # Поэтому controller epoch живёт отдельно от transport generation.
                 is_new, epoch, reset_generation = self._mark_controller_reset_locked()
                 if is_new:
                     reset_event = (epoch, reset_generation)
-            elif _CONTROLLER_READY_MARKER in value:
+            elif lifecycle == "ready":
                 changed, epoch, generation, reason = self._mark_controller_ready_locked(
                     reason="ready_marker"
                 )

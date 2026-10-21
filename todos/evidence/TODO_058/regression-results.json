@@ -1,0 +1,44 @@
+{
+  "base": "a34631e861d1477c48f5ad2bc15dad15564f73f6",
+  "test_sha256": "1d66295c28e9cdc97989926c4af80ed3927be82c149cf6ae7e2afd37b7f38815",
+  "results": [
+    {
+      "name": "baseline-complete",
+      "exit_code": 1,
+      "summary": [
+        "72 failed, 11 passed in 0.70s"
+      ],
+      "suites": [
+        {
+          "name": "pytest",
+          "errors": "0",
+          "failures": "72",
+          "skipped": "0",
+          "tests": "83",
+          "time": "0.690",
+          "timestamp": "2026-10-21T11:51:23.026067+03:00",
+          "hostname": "vostro"
+        }
+      ]
+    },
+    {
+      "name": "fixed-complete",
+      "exit_code": 0,
+      "summary": [
+        "83 passed in 0.63s"
+      ],
+      "suites": [
+        {
+          "name": "pytest",
+          "errors": "0",
+          "failures": "0",
+          "skipped": "0",
+          "tests": "83",
+          "time": "0.491",
+          "timestamp": "2026-10-21T11:51:24.012115+03:00",
+          "hostname": "vostro"
+        }
+      ]
+    }
+  ]
+}

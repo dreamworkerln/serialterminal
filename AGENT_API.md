@@ -510,6 +510,11 @@ Machine frames are hidden on the human screen and redacted in default logs;
 Remote completion remains FT1-level: stable transfer/chunk identity, MISSING repair and
 final `RESULT OK`. A controller reboot may occur without transport disconnect. The
 profile waits for a new `CHATTER READY` and FT1 can replay the same idempotent message.
+Only standalone local lifecycle lines recognized by the Chatter profile provide
+that proof. USER/echo text containing `first:`, `rst:0x…`, `ESP-ROM:` or
+`[SYS] CHATTER READY` does not change controller state, release pending machine
+tickets or invalidate verified PHY. A quoted output-mode response cannot restore
+controller readiness. Generic session mechanics do not parse these markers.
 The Chatter profile reads `/config` and actual `/radio read config` before deriving
 radio-dependent deadlines; cached PHY belongs to the controller epoch and connection
 generation. During a local reboot, the last verified PHY may estimate existing

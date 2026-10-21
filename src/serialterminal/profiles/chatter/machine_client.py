@@ -9,6 +9,7 @@ from typing import Any
 
 from ...file_transfer.transport import BinarySendReceipt, BinaryUserCancelled, BinaryUserError
 from .binary_pipeline import PipelinedChatterBinaryUserAdapter
+from .controller_lifecycle import parse_controller_lifecycle_line
 from .machine_codec import Frame, FrameError, Kind, decode, encode
 
 
@@ -290,7 +291,7 @@ class ChatterMachineClient:
         # Human BINARY presentation не является вторым machine RX consumer.
         if mode != "machine" or "[BINARY]" not in line:
             self.legacy.feed_line(stream,line)
-        if any(marker in line for marker in ("ESP-ROM:","rst:","[SYS] CHATTER READY")) and mode == "machine":
+        if parse_controller_lifecycle_line(line) is not None and mode == "machine":
             with self.condition:
                 self.error=BinaryUserError("local_controller_reset","controller reset invalidated machine epoch")
                 self.mode="failed"; self.condition.notify_all()

@@ -77,6 +77,19 @@ Current observable state includes the controller epoch and transport connection
 generation. Reset markers invalidate controller-owned cached assumptions; a later
 `[SYS] CHATTER READY` makes the new epoch usable.
 
+Lifecycle proof uses one shared Chatter profile grammar. Accepted local lines begin
+at column zero: `ESP-ROM:` with nonempty single-line banner details; a complete
+`rst:0xHEX (CAUSE),boot:0xHEX (MODE)` ROM line (parenthesized labels are optional);
+`[SYS] RADIO FATAL ` with nonempty single-line details; or exactly
+`[SYS] CHATTER READY`. Only terminal CR/LF is removed. Chat/echo prefixes and leading
+whitespace are not stripped, and marker substrings such as `rst:` inside `first:`
+are not lifecycle events. The same decision governs machine/legacy state,
+PHY-cache invalidation and human pending presentation. A quoted output-mode reply
+cannot restore readiness either: its local `[SYS]` prefix must start the line.
+Pending machine identity remains owned until its matching terminal outcome or
+recognized local reset/new protected-epoch proof; ordinary text cannot authorize
+pipeline discard or replay.
+
 The agent `status` result exposes a structured `controller` snapshot for Chatter
 sessions. The TUI exposes non-ready controller state instead of presenting an
 unexplained frozen operation.

@@ -2,6 +2,54 @@
 
 This file is the authoritative current-state index for engineering TODOs in this project.
 
+## REVIEW_004 imported client triage — 2026-10-21
+
+Общий Chatter REVIEW_006 зарегистрирован здесь как REVIEW_004 (тот же проход).
+Client snapshot соответствует committed `a34631e861d1477c48f5ad2bc15dad15564f73f6`:
+277/277 files. Verdict RED; supplied Windows results отделены от локальной
+SHA/source сверки. При импорте rerun/fixes не выполнялись; последующая реализация
+TODO_058 и её собственная software validation зафиксированы ниже.
+
+### [TODO_058 — Достоверный разбор локального lifecycle Chatter](todos/TODO_058_CHATTER_LOCAL_LIFECYCLE_GRAMMAR.md)
+
+Status: IMPLEMENTED / SOFTWARE VALIDATION PASS / INDEPENDENT RE-REVIEW OPEN; REVIEW_004/F001 = Chatter REVIEW_006/F001.
+Один profile-owned parser локальных boot/reset/READY строк используется machine,
+legacy, PHY cache и human presentation. USER/echo/quotes, включая first:, не
+освобождают pending; цитаты output-mode response не восстанавливают ready.
+Exact BASE+patch от `a34631e861d1477c48f5ad2bc15dad15564f73f6` сохранён в TODO.
+83 regression cases PASS (BASE: 72 FAIL / 11 PASS); все software check-команды
+workflow локально: compile/Ruff PASS, полный pytest 1374 PASS без skip; Lizard
+advisory WARNING, новых threshold violations нет. New collection guard включён
+в общий pytest. Independent re-review OPEN; hardware/commit/push не выполнялись.
+TODO_051 остаётся отдельным инфраструктурным scope, старые FT1 hardware gates OPEN.
+
+### [TODO_059 — Ownership queued TX при смене устройства](todos/TODO_059_TX_QUEUE_TARGET_OWNERSHIP.md)
+
+Status: OPEN / P1; REVIEW_004/F003 = Chatter REVIEW_006/F003.
+Queued item сохраняет ownership физической цели. Switch безопасно завершает/отменяет старую очередь либо ждёт разрешения операций. Уже начатая запись учитывается отдельно; команда A не уходит B.
+Implementation/acceptance OPEN; validation gates перечислены в задаче.
+
+### [TODO_060 — Неоднозначный первый BLE write без replay](todos/TODO_060_BLE_FIRST_WRITE_AMBIGUITY.md)
+
+Status: OPEN / P1; REVIEW_004/F005 = Chatter REVIEW_006/F005.
+Ошибка после потенциального submission первого chunk даёт TransportWriteOutcomeUnknown; session не replay логическую запись. Retryable остаются только доказанные pre-write failures.
+Implementation/acceptance OPEN; validation gates перечислены в задаче.
+
+### [TODO_061 — Платформенный расчёт ширины TUI](todos/TODO_061_WINDOWS_TUI_DISPLAY_WIDTH.md)
+
+Status: OPEN / P2; REVIEW_004/F007 = Chatter REVIEW_006/F007.
+Импорт и штатный запуск Windows TUI работают; Linux и ASCII/combining/wide/Unicode width сохраняют semantics соответствующего terminal backend.
+Implementation/acceptance OPEN; validation gates перечислены в задаче.
+
+### [TODO_062 — Освобождение ресурсов при failed open](todos/TODO_062_AGENT_OPEN_EXCEPTION_SAFE_OWNERSHIP.md)
+
+Status: OPEN / P2; REVIEW_004/F008 = Chatter REVIEW_006/F008.
+Все ресурсы имеют exception-safe owner от создания до передачи зарегистрированной session. Partial open освобождает свои ресурсы; конкурентный loser не закрывает winner.
+Implementation/acceptance OPEN; validation gates перечислены в задаче.
+
+SPP F004 дополняет OPEN TODO_013. Windows FT1 F006 дополняет TODO_049;
+DEFERRED по решению оператора сохранён. Next new thematic TODO ID: `TODO_063`.
+
 ## Active
 
 ### TODO_057 — [todos/TODO_057_NODE_RUNTIME_STATUS.md](todos/TODO_057_NODE_RUNTIME_STATUS.md)
@@ -138,7 +186,7 @@ Status: OPEN
 
 Goal: prevent reconnect-safe automatic retry from blindly repeating Serial/SPP writes whose side effects may already have partially occurred.
 
-Finding checkpoint: `dev@159f7a1ab52fb8f615af33b175545f13e04dd989`; static semantic risk, no physical duplicate claimed.
+Finding checkpoint: `dev@159f7a1ab52fb8f615af33b175545f13e04dd989`; REVIEW_004/F004 добавил supplied partial/full-before-error SPP replay software repro на `a34631e861d1477c48f5ad2bc15dad15564f73f6`. Physical duplicate не заявляется.
 
 ### TODO_014 — `todos/TODO_014_TERMINAL_CANONICAL_LINE_ASSEMBLY.md`
 
@@ -244,7 +292,20 @@ Remaining work: align the primary `NODE_OBSERVATION_RECORDING_POLICY.md` and nod
 
 TODO_026 logging-contract investigation is also OPEN and may be scheduled independently when log-format work is selected.
 
-Current operator order (2026-10-16): TODO_056 missing-part recovery has completed
+Current operator order (2026-10-21): реализовать ST TODO_058. Implementation
+и software checks завершены; independent re-review exact checkpoint остаётся OPEN.
+Рекомендуемый порядок при следующем выборе implementation:
+
+1. TODO_058: independent re-review и acceptance; TODO_059 target ownership
+   остаётся OPEN. Firmware cancellation ведётся отдельно в Chatter TODO_032.
+2. TODO_013 SPP, TODO_060 BLE ambiguity и TODO_062 partial-open cleanup.
+3. TODO_061 Windows TUI; TODO_049 не возобновлять без отдельного решения.
+4. На exact fix checkpoint — общий CI, regressions и independent re-review;
+   затем прежние физические acceptance gates по отдельному заданию.
+
+Текущий TODO_058 fix не выполняет commit/push или hardware runs.
+
+Previous operator order (2026-10-16, historical): TODO_056 missing-part recovery has completed
 software validation; next physical acceptance is the operator's paired ST file retry
 without journal cleanup. TODO_055 USB startup identity fix has completed software
 validation; physical startup/reconnect revalidation remains open. TODO_053
@@ -787,7 +848,7 @@ Status: DEFERRED / severity BLOCKER
 
 Deferred by operator decision on 2026-10-15; resume only on a separate operator instruction.
 
-Source: REVIEW_002/F001 at `6fdeb00c220b3e27219fb6b5bb34f078f3bb717a`.
+Source: REVIEW_002/F001 at `6fdeb00c220b3e27219fb6b5bb34f078f3bb717a`; REVIEW_004/F006 добавил supplied Windows CPython 3.12 reproduction. DEFERRED сохранён.
 Goal: preserve documented non-POSIX single-process best-effort FT1 admission and
 cleanup without mandatory `fcntl`, retaining POSIX cross-process ownership and
 publication guarantees. Backend/fallback design is not yet selected.

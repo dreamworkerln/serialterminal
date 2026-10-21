@@ -4,6 +4,8 @@ from collections import deque
 from dataclasses import dataclass
 import threading
 
+from .controller_lifecycle import parse_controller_lifecycle_line
+
 
 CHATTER_TEXT_COMMANDS = frozenset(
     {
@@ -55,13 +57,6 @@ _EXACT_FAILURE_LINES = frozenset(
         "[ECHO] REQUEST PENDING, message not sent",
     }
 )
-_CONTROLLER_RESET_PREFIXES = (
-    "[SYS] RADIO FATAL ",
-    "ESP-ROM:",
-    "rst:0x",
-)
-_CONTROLLER_READY_LINE = "[SYS] CHATTER READY"
-
 _FAILURE_PREFIXES = (
     "[SYS] INPUT TOO LONG:",
     "[SYS] SEND QUEUE FULL:",
@@ -158,10 +153,7 @@ class ChatterPresentation:
 
     @staticmethod
     def _is_controller_epoch_boundary(line: str) -> bool:
-        value = line.rstrip("\r\n")
-        if value == _CONTROLLER_READY_LINE:
-            return True
-        return any(value.startswith(prefix) for prefix in _CONTROLLER_RESET_PREFIXES)
+        return parse_controller_lifecycle_line(line) is not None
 
     def _consume_all_sent_locked(self) -> list[str]:
         reveal = [pending.text for pending in self._pending if pending.sent]
