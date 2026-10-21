@@ -327,3 +327,15 @@ def test_device_selector_fast_menu_reads_confirmed_ble_cache(tmp_path, monkeypat
     assert candidates[0].kind == "ble"
     assert candidates[0].label == "BLE  Cached NUS"
     assert candidates[0].detail == "AA:BB:CC:DD:EE:01"
+
+
+def test_human_parsers_accept_voice_paths_but_agent_schema_does_not():
+    args = cli_module._serial_parser("serialterminal serial").parse_args(
+        ["--codec2-sdk-dir", "/opt/codec2-sdk", "--voice-temp-dir", "/tmp/voice"]
+    )
+    assert args.codec2_sdk_dir == "/opt/codec2-sdk"
+    assert args.voice_temp_dir == "/tmp/voice"
+
+    agent = cli_module._agent_parser("serialterminal agent")
+    assert "codec2_sdk_dir" not in vars(agent.parse_args([]))
+    assert "voice_temp_dir" not in vars(agent.parse_args([]))

@@ -18,6 +18,7 @@ from .profiles.base import SendLine
 from .tui_file_transfer import FileTransferWindow, file_transfer_status_line, init_file_transfer_colors, live_transfer, transfer_phase
 from .tui_text import screen_safe_text as _screen_safe_text, fit_cells, middle_ellipsis
 from .transports.base import Transport, TransportError
+from .voice_service import VoiceMessageService
 
 
 @dataclass(frozen=True)
@@ -285,6 +286,8 @@ class TerminalTui:
         profile: TerminalProfile,
         receive_dir: str | None = None,
         log_base64: bool = False,
+        codec2_sdk_dir: str | None = None,
+        voice_temp_dir: str | None = None,
     ) -> None:
         self.transport = transport
         self.log_path = log_path
@@ -294,6 +297,8 @@ class TerminalTui:
         self.profile = profile
         self.receive_dir = receive_dir
         self.log_base64 = bool(log_base64)
+        self.codec2_sdk_dir = codec2_sdk_dir
+        self.voice_temp_dir = voice_temp_dir
         self.output = TuiOutputBuffer()
         self.scrollback = TuiScrollback(self.output)
         self.input_text = ""
@@ -309,6 +314,14 @@ class TerminalTui:
         self._was_connected = False
         self._binary_adapter = None
         self._file_transfer: FileTransferManager | None = None
+        self._voice_service: VoiceMessageService | None = (
+            VoiceMessageService(
+                codec2_sdk_dir=codec2_sdk_dir,
+                temp_dir=voice_temp_dir,
+            )
+            if codec2_sdk_dir is not None
+            else None
+        )
         self._transfer_window = FileTransferWindow()
         self._profile_prefix_pending = False
         self._file_rate_transfer_id: tuple[str, str | None] | None = None
@@ -357,7 +370,7 @@ class TerminalTui:
                 release_transfer=self._release_file_transfer,
                 event_sink=(
                     lambda event, bound_session=session:
-                        self._log_file_transfer_event(
+                        self._dispatch_file_transfer_event(
                             event,
                             session=bound_session,
                             manager=manager,
@@ -368,6 +381,26 @@ class TerminalTui:
             else None
         )
         self._file_transfer = manager
+        if self._voice_service is not None:
+            self._voice_service.bind_manager(manager)
+
+    def _dispatch_file_transfer_event(
+        self,
+        event: dict,
+        *,
+        session: TerminalSession,
+        manager: FileTransferManager | None,
+    ) -> None:
+        try:
+            self._log_file_transfer_event(event, session=session, manager=manager)
+        except Exception as exc:
+            report_exception(exc, "TUI FT1 event logging")
+        service = getattr(self, "_voice_service", None)
+        if service is not None and manager is not None:
+            try:
+                service.on_ft1_event(event, manager)
+            except Exception as exc:
+                report_exception(exc, "TUI voice FT1 event dispatch")
 
     def _log_file_transfer_event(
         self,
@@ -462,6 +495,25 @@ class TerminalTui:
     def _file_transfer_active(self) -> bool:
         snapshot = self._file_snapshot()
         return bool(getattr(getattr(self, "_file_transfer", None), "busy", False)) or live_transfer(snapshot)
+
+    def _voice_local_active(self) -> bool:
+        service = getattr(self, "_voice_service", None)
+        return bool(service is not None and service.local_operation_active())
+
+    def _voice_available(self) -> bool:
+        service = getattr(self, "_voice_service", None)
+        if service is None:
+            return False
+        available, _reason = service.availability()
+        return available
+
+    def _poll_voice_notifications(self) -> None:
+        service = getattr(self, "_voice_service", None)
+        if service is None:
+            return
+        for message in service.drain_notifications():
+            self.status = message
+            self.session.write_output("\n[VOICE] " + message + "\n")
 
     def _file_window(self) -> FileTransferWindow:
         if not hasattr(self, "_transfer_window"):
@@ -793,11 +845,17 @@ class TerminalTui:
             "F8 Mouse | F9 Help | Ctrl+Q Quit"
         )
         if self._file_transfer is not None:
+            voice_key = " | F12 Voice" if self._voice_available() else ""
             default_status = (
                 "F4 Clear | PgUp/PgDn/Wheel scroll | ↑↓ history | F2 Device | F3 Profile | "
-                "F5 Send | Esc/F6 Cancel? | F7 File | F8 Mouse | F9 Help | Ctrl+Q Quit"
+                "F5 Send | Esc/F6 Cancel? | F7 File | F8 Mouse | F9 Help"
+                + voice_key + " | Ctrl+Q Quit"
             )
         status = self.status or default_status
+        service = getattr(self, "_voice_service", None)
+        voice_status = None if service is None else service.status_line()
+        if voice_status is not None:
+            status = voice_status if not self.status else f"{voice_status} | {self.status}"
         if not self.scrollback.follow_tail:
             rows_above = self.scrollback.rows_above_bottom(
                 width=self._output_width(width),
@@ -849,6 +907,9 @@ class TerminalTui:
     def _close_file_transfer_manager(self) -> None:
         manager = self._file_transfer
         self._file_transfer = None
+        service = getattr(self, "_voice_service", None)
+        if service is not None:
+            service.detach_manager(manager)
         report_event("TUI file manager close begin")
         try:
             # Уже принятые M1 tickets и CLOSE завершаются через feed_line.
@@ -912,15 +973,21 @@ class TerminalTui:
             self.status = "Запрошена отмена передачи файла"
 
     def _allow_human_action(self, action) -> bool:
+        classifier = getattr(self.profile, "human_action_is_non_disruptive", None)
+        if self._voice_local_active():
+            if callable(classifier) and classifier(action):
+                return True
+            self.status = "Запись голоса завершается: disruptive действие временно недоступно"
+            return False
         if not self._file_transfer_active():
             return True
-        classifier = getattr(self.profile, "human_action_is_non_disruptive", None)
         if callable(classifier) and classifier(action):
             return True
         self.status = "Передача файла продолжается: это действие доступно после её завершения"
         return False
 
     def _run_connected_actions(self) -> None:
+        self._poll_voice_notifications()
         connected = self.session.connected_event.is_set()
         if connected and not self._was_connected and self.panel is not None:
             for action in self.panel.connected_actions():
@@ -965,13 +1032,21 @@ class TerminalTui:
 
     def _show_tui_help(self) -> None:
         self.session._show_full_help()
+        voice_help = (
+            "  F12          start voice recording / stop and send through FT1\n"
+            if self._voice_available() else ""
+        )
         self.session.write_output(
             "\n[SerialTerminal TUI local commands]\n"
             "  /clear / F4  clear chat and scrollback; logs preserved\n"
-            "               available during file transfer\n\n"
+            "               available during file transfer\n"
+            + voice_help + "\n"
         )
 
     def _choose_device(self, stdscr) -> None:
+        if self._voice_local_active():
+            self.status = "Voice recording/finalization is active: device change is blocked"
+            return
         if self._file_transfer_active():
             self.status = "Передача файла продолжается: смена устройства доступна после завершения"
             return
@@ -985,6 +1060,9 @@ class TerminalTui:
             stdscr.refresh()
 
     def _switch_profile(self) -> None:
+        if self._voice_local_active():
+            self.status = "Voice recording/finalization is active: profile change is blocked"
+            return
         if self._file_transfer_active():
             self.status = "Передача файла продолжается: смена профиля доступна после завершения"
             return
@@ -1012,6 +1090,9 @@ class TerminalTui:
         self.status = f"Profile switched to {next_name}; reconnecting same target"
 
     def _choose_file(self, stdscr) -> None:
+        if self._voice_local_active():
+            self.status = "Voice recording/finalization is active: F5 send is blocked"
+            return
         manager = self._file_transfer
         if manager is None:
             self.status = "Selected profile does not support file transfer"
@@ -1034,6 +1115,22 @@ class TerminalTui:
             f"File transfer {result['transfer_id']} started: "
             f"{result['filename']}"
         )
+
+    def _toggle_voice(self) -> None:
+        service = getattr(self, "_voice_service", None)
+        if service is None:
+            self.status = "Voice unavailable: configure --codec2-sdk-dir PATH"
+            return
+        if service.toggle_recording():
+            self.status = service.status_line() or "Voice action accepted"
+        else:
+            notifications = service.drain_notifications()
+            if notifications:
+                self.status = notifications[-1]
+                for message in notifications:
+                    self.session.write_output("\n[VOICE] " + message + "\n")
+            else:
+                self.status = service.status_line() or "Voice action is unavailable"
 
     def _cancel_file(self) -> None:
         snapshot = self._file_snapshot()
@@ -1161,6 +1258,8 @@ class TerminalTui:
         elif key == curses.KEY_F9:
             self._show_tui_help()
             self.status = "Help added to terminal output"
+        elif key == curses.KEY_F12:
+            self._toggle_voice()
         elif key == curses.KEY_PPAGE:
             self.scrollback.scroll_up(
                 max(1, body_rows),
@@ -1272,8 +1371,12 @@ class TerminalTui:
             # Каждый cleanup выполняется даже после отказа предыдущего.
             # Стектрейсы остаются в app log, curses восстанавливает терминал.
             actions = [self.session._reveal_sent_presentations]
-            if self._file_transfer is not None:
-                actions.append(self._file_transfer.close)
+            voice_service = getattr(self, "_voice_service", None)
+            if voice_service is not None:
+                actions.append(voice_service.close)
+            file_transfer = getattr(self, "_file_transfer", None)
+            if file_transfer is not None:
+                actions.append(file_transfer.close)
             actions.extend([self.session.stop, self.session.close_logs])
             for action in actions:
                 try:
@@ -1292,6 +1395,8 @@ def run_terminal_tui(
     profile: TerminalProfile,
     receive_dir: str | None = None,
     log_base64: bool = False,
+    codec2_sdk_dir: str | None = None,
+    voice_temp_dir: str | None = None,
 ) -> int:
     tui = TerminalTui(
         transport=transport,
@@ -1302,6 +1407,8 @@ def run_terminal_tui(
         profile=profile,
         receive_dir=receive_dir,
         log_base64=log_base64,
+        codec2_sdk_dir=codec2_sdk_dir,
+        voice_temp_dir=voice_temp_dir,
     )
     curses.wrapper(tui.run)
     return 0

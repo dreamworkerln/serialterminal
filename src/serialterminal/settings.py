@@ -32,11 +32,21 @@ class BleCleanupDefaults:
 
 
 @dataclass(frozen=True)
+class VoiceDefaults:
+    event_queue_size: int = 64
+    playback_queue_size: int = 4
+    process_stop_timeout_s: float = 2.0
+    process_kill_timeout_s: float = 1.0
+    playback_finish_timeout_s: float = 5.0
+
+
+@dataclass(frozen=True)
 class TerminalDefaults:
     serial: SerialDefaults = SerialDefaults()
     discovery: DiscoveryDefaults = DiscoveryDefaults()
     session: SessionDefaults = SessionDefaults()
     ble_cleanup: BleCleanupDefaults = BleCleanupDefaults()
+    voice: VoiceDefaults = VoiceDefaults()
 
 
 DEFAULTS = TerminalDefaults()

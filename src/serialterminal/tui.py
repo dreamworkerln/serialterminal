@@ -60,6 +60,8 @@ def run_terminal_tui(
     profile: _core.TerminalProfile,
     receive_dir: str | None = None,
     log_base64: bool = False,
+    codec2_sdk_dir: str | None = None,
+    voice_temp_dir: str | None = None,
 ) -> int:
     tui = TerminalTui(
         transport=transport,
@@ -70,6 +72,8 @@ def run_terminal_tui(
         profile=profile,
         receive_dir=receive_dir,
         log_base64=log_base64,
+        codec2_sdk_dir=codec2_sdk_dir,
+        voice_temp_dir=voice_temp_dir,
     )
     _core.curses.wrapper(tui.run)
     return 0

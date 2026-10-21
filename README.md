@@ -91,6 +91,7 @@ Esc/F6   request file cancellation (confirmation required)
 F7       hide/show the active file progress window
 F8       toggle application mouse capture
 F9       help
+F12      start voice recording / stop and send (when Codec2 voice is configured)
 ↑/↓      previous/next submitted command
 PgUp/Dn  page through output scrollback
 Wheel    scroll output by a few visual rows (mouse capture ON)
@@ -121,6 +122,53 @@ F5 открывает однопанельный filesystem browser, начин�
 него, Enter на любом обычном файле выбирает его для передачи, Esc отменяет. Доступны
 ↑/↓, PgUp/PgDn, Home/End, ←/Backspace для parent, → для входа в каталог, `/` для
 фильтра и R для reload.
+
+### Codec2 voice messages over FT1
+
+The human TUI can record store-and-forward voice messages when an explicit portable
+`codec2-sdk` tree and the Linux ALSA tools are available. This is an application layer
+on top of the existing FT1 file transfer; it does not add a new radio, BINARY, or FT1
+wire protocol. Build the pinned `codec2-sdk`, then start SerialTerminal with its built
+SDK directory, for example:
+
+```bash
+serialterminal --profile chatter \
+  --codec2-sdk-dir ../codec2-sdk/dist/linux-x86_64
+```
+
+`F12` starts microphone capture. A second `F12` stops capture, finalizes a standard
+Codec2 3200 `*.stvoice.c2` file, and admits that completed file to the existing FT1
+manager. The first version deliberately has no SerialTerminal-imposed recording
+duration/encoded-byte cap and no timed auto-send: recording ends only on the second
+`F12` (or an error/shutdown), while PCM is encoded streaming instead of accumulated in
+memory. If FT1 cannot accept the finalized file, the path is retained and shown as
+`VOICE READY`; use normal `F5` to select that same file after FT1 becomes available.
+Successful voice-owned TX removes its generated temporary source; failed/cancelled or
+refused admission retains it.
+
+On RX, autoplay is considered only after verified durable ROOT FT1 completion. The wire
+filename must end in `.stvoice.c2`, the standard `.c2` header/body must validate, and
+the published `final_path` must be the direct FT1 receive file. Recursive service files,
+failed/cancelled transfers, invalid/unsupported Codec2 files and ordinary `.c2` files do
+not autoplay. Playback and microphone capture never overlap; a voice received while
+recording waits until capture/finalization releases the audio device, while `F12` during
+playback is rejected without interrupting playback. Received files are retained after
+playback success or failure.
+
+The Linux backend launches `arecord`/`aplay` directly as raw S16_LE, mono, 8 kHz and
+therefore uses the host's current ALSA default capture/playback route (including a
+Bluetooth route only when the OS has made it the ALSA default). SerialTerminal does not
+select or reconfigure a Bluetooth audio profile. For manual replay, decode the retained
+file with the same pinned SDK and play the raw PCM, for example:
+
+```bash
+../codec2-sdk/dist/linux-x86_64/bin/c2dec ignored files/voice.stvoice.c2 /tmp/voice.raw
+aplay -q -t raw -f S16_LE -r 8000 -c 1 /tmp/voice.raw
+```
+
+Voice is TUI-only in this first stage. `--classic` and the agent JSONL API retain their
+existing behavior/schema. See [INSTALL.md](INSTALL.md) for host prerequisites and
+[ARCHITECTURE.md](ARCHITECTURE.md) for ownership boundaries.
 
 Старый line-oriented human frontend пока сохранён как fallback:
 

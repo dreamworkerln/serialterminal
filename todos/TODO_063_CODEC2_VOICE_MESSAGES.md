@@ -1,11 +1,12 @@
 # Codec2 voice messages поверх существующего FT1
 
 TODO-ID: TODO_063
-Status: OPEN
+Status: IMPLEMENTED / LOCAL SOFTWARE VALIDATION PASS / CLEAN-ENV CI REQUIRED / REAL INTEGRATION OPEN
 Priority: P2
 Created: 2026-10-21
 Planning checkpoint: `dev_tui_exp_recursive_missing@184fabfb8088b5b3568a26883c0a71159468864e`.
-Plan revision: 2026-10-21 по [REVIEW_005](../reviews/REVIEW_005_CODEC2_VOICE_FILE_INTEGRATION.md), findings F001–F003; implementation и validation остаются OPEN.
+Plan revision: 2026-10-21 по [REVIEW_005](../reviews/REVIEW_005_CODEC2_VOICE_FILE_INTEGRATION.md), findings F001–F003.
+Implementation checkpoint base: `dev_tui_exp_recursive_missing@989118042f2c4030bcde8bc328540ac67e14faed`; source implementation complete, clean-environment CI and real audio/radio validation remain separate gates.
 Codec2 SDK dependency checkpoint: `codec2-sdk/dev@5ef71a1a0aee504752090015a114d9f24f52ef53`, pinned upstream Codec2 `310777b1c6f1af0bc7c72f5b32f80f6fd9136962` (Codec2 1.2.0).
 
 ## Purpose
@@ -366,54 +367,56 @@ META/END tombstone replay новым audio event. При crash между пуб
 
 ### Phase 1 — codec/file primitives
 
-- [ ] Добавить isolated Codec2 ctypes wrapper и standard `.c2` reader/writer.
-- [ ] Добавить explicit SDK-tree configuration/provenance validation без system-lib fallback.
-- [ ] Зафиксировать Codec2 3200 frame geometry через runtime ABI, не размножать размеры по TUI.
-- [ ] Добавить deterministic final PCM-frame padding и strict encoded-frame validation.
+- [x] Добавить isolated Codec2 ctypes wrapper и standard `.c2` reader/writer.
+- [x] Добавить explicit SDK-tree configuration/provenance validation без system-lib fallback.
+- [x] Зафиксировать Codec2 3200 frame geometry через runtime ABI, не размножать размеры по TUI.
+- [x] Добавить deterministic final PCM-frame padding и strict encoded-frame validation.
 
 ### Phase 2 — local audio backend
 
-- [ ] Определить `AudioBackend` protocol и Linux `arecord`/`aplay` implementation.
-- [ ] Сделать capture/playback streaming и bounded process/thread shutdown.
-- [ ] Отделить backend errors от FT1 correctness; не писать raw audio в logs.
+- [x] Определить `AudioBackend` protocol и Linux `arecord`/`aplay` implementation.
+- [x] Сделать capture/playback streaming и bounded process/thread shutdown.
+- [x] Отделить backend errors от FT1 correctness; не писать raw audio в logs.
 
 ### Phase 3 — VoiceMessageService
 
-- [ ] Реализовать capture/finalize/admission с явным READY_FILE при отказе старта FT1;
+- [x] Реализовать capture/finalize/admission с явным READY_FILE при отказе старта FT1;
   сохранить finalized path и обычный F5 retry без отдельной delivery state machine.
-- [ ] Генерировать collision-resistant short `*.stvoice.c2` filename и temp lifecycle.
-- [ ] Зарегистрировать pending source до admission; связать local job/manager lifetime
+- [x] Генерировать collision-resistant short `*.stvoice.c2` filename и temp lifecycle.
+- [x] Зарегистрировать pending source до admission; связать local job/manager lifetime
   с TX-ID, учесть ранний terminal и returned terminal snapshot ровно один раз.
-- [ ] Выполнять blocking admission вне TUI; оградить shutdown и late manager results.
-- [ ] Сохранить failed/cancelled/READY_FILE/resumable source; success cleanup только
+- [x] Выполнять blocking admission вне TUI; оградить shutdown и late manager results.
+- [x] Сохранить failed/cancelled/READY_FILE/resumable source; success cleanup только
   для соответствующей local attempt, без удаления файла другого owner.
-- [ ] Реализовать RX terminal-event recognition, session-scoped deduplication,
+- [x] Реализовать RX terminal-event recognition, session-scoped deduplication,
   bounded playback queue и reject-new autoplay overflow с сохранением файла.
-- [ ] Сериализовать audio owner: playback ждёт capture/finalize; F12 во время playback
+- [x] Сериализовать audio owner: playback ждёт capture/finalize; F12 во время playback
   сообщает busy; входящий FT1 продолжает обычную файловую доставку.
-- [ ] Сделать close/shutdown idempotent и безопасным при recording/playback/finalizing.
+- [x] Сделать close/shutdown idempotent и безопасным при recording/playback/finalizing.
 
 ### Phase 4 — TUI integration
 
-- [ ] Добавить F12 toggle через canonical TUI action, без concrete-profile branch.
-- [ ] Добавить recording/finalizing/admitting guard для F2/F3/F5 и disruptive human actions.
-- [ ] Показать READY_FILE path/reason и возможность обычного ручного F5 retry.
-- [ ] Сохранить existing F4/F6/F7/F8/F9/F10/Ctrl+C/Ctrl+Q semantics.
-- [ ] Добавить capability-aware footer/help/status; не создавать второй transfer progress UI.
-- [ ] Разделить FT1 event dispatch и logging с независимыми exception boundaries;
+- [x] Добавить F12 toggle через canonical TUI action, без concrete-profile branch.
+- [x] Добавить recording/finalizing/admitting guard для F2/F3/F5 и disruptive human actions.
+- [x] Показать READY_FILE path/reason и возможность обычного ручного F5 retry.
+- [x] Сохранить existing F4/F6/F7/F8/F9/F10/Ctrl+C/Ctrl+Q semantics.
+- [x] Добавить capability-aware footer/help/status; не создавать второй transfer progress UI.
+- [x] Разделить FT1 event dispatch и logging с независимыми exception boundaries;
   callback только enqueue, playback не живёт в log function; terminal outcome
   не теряется молча при bounded dispatch overflow.
 
 ### Phase 5 — configuration/docs
 
-- [ ] Протянуть explicit codec2 SDK directory через human CLI -> TUI; classic/agent APIs не менять без отдельного решения.
-- [ ] При необходимости добавить configurable voice temp directory через centralized settings/CLI ownership, без mutable globals.
-- [ ] До реализации согласовать числовую duration/bytes policy для записи и playback
-  и поведение при лимите; bounded queue и streaming не заменяют этого решения.
-- [ ] Документировать retained paths, default/Bluetooth audio route и ручной local
+- [x] Протянуть explicit codec2 SDK directory через human CLI -> TUI; classic/agent APIs не менять без отдельного решения.
+- [x] При необходимости добавить configurable voice temp directory через centralized settings/CLI ownership, без mutable globals.
+- [x] Duration/bytes policy первого этапа: SerialTerminal не вводит произвольный
+  числовой recording/playback cap и не делает timer/size auto-send. Запись заканчивается
+  вторым F12 (либо error/shutdown); PCM и playback остаются streaming, а внутренние
+  очереди/process cleanup имеют отдельные bounded resource/time limits.
+- [x] Документировать retained paths, default/Bluetooth audio route и ручной local
   replay без повторной отправки файла; не обещать durable autoplay через restart.
-- [ ] Обновить README/INSTALL/ARCHITECTURE и коротко FILE_TRANSFER: voice является application consumer verified FT1 completion, не новым FT1 protocol.
-- [ ] По AGENTS.md отдельно проверить AGENT_API и `.agents/skills/serialterminal-agent/SKILL.md`; ожидаемое решение — JSONL schema не меняется в первом этапе.
+- [x] Обновить README/INSTALL/ARCHITECTURE и коротко FILE_TRANSFER: voice является application consumer verified FT1 completion, не новым FT1 protocol.
+- [x] По AGENTS.md отдельно проверить AGENT_API и `.agents/skills/serialterminal-agent/SKILL.md`; ожидаемое решение — JSONL schema не меняется в первом этапе.
 
 ## Validation / acceptance
 
@@ -512,9 +515,21 @@ Durable inbox/realtime не заведены в работу и не получ�
 RED verdict ревью сохраняется; изменение плана само по себе не является re-review или
 доказательством исправленной runtime реализации.
 
-## Planning result
+## Implementation result — 2026-10-21
 
-Plan revised по REVIEW_005, implementation не начата; duration/bytes policy требует
-явного решения до реализации. Все implementation, host audio и paired radio gates OPEN.
-Plan only. No SerialTerminal source, tests, runtime behavior, firmware, hardware,
-Codec2 SDK or FT1 wire changes are implemented by this TODO creation checkpoint.
+Store-and-forward voice implemented from base
+`989118042f2c4030bcde8bc328540ac67e14faed` without firmware, FT1 wire or agent JSONL
+schema changes. Runtime pieces are `voice_codec.py`, `voice_audio.py` and
+`voice_service.py`; human CLI/TUI owns the explicit SDK/temp configuration and F12 UI.
+REVIEW_005/F001–F003 are represented in runtime state/retention/admission/audio-owner
+logic and regression tests. `AGENT_API.md` and the SerialTerminal agent skill were
+reviewed: no machine API operation or schema change is required for this TUI-only layer.
+
+Local isolated voice validation passes 15 tests covering codec/container, ALSA process
+cleanup, admission retention/early terminal, capture/playback exclusion, stale-manager
+protection, shutdown during blocked admission, invalid/recursive RX and autoplay dedup.
+`python3 -m compileall -q src serialterminal.py tools` passes. The broader TUI/CLI suite
+cannot be collected in this stripped local checkout because `pyserial` is not installed;
+clean-environment GDI CI remains required and is not replaced by that local limitation.
+Exact built-SDK interoperability and real `arecord`/`aplay` smoke remain OPEN, therefore
+this TODO is IMPLEMENTED but not CLOSED. Paired radio validation remains OPEN separately.

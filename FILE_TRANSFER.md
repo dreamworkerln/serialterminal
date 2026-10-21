@@ -1265,6 +1265,18 @@ F7      hide/show active progress window
 
 Incoming transfers use the same progress model.
 
+### Voice-message application consumer
+
+The optional human-TUI Codec2 voice feature does not extend FT1. Outgoing voice is a
+fully finalized standard `*.stvoice.c2` file before ordinary `start_send()` admission.
+Incoming autoplay is considered only from verified durable ROOT `transfer_completed`
+with its published `final_path`; DATA percentage, recursive service-file completion or
+any failed/cancelled transfer is insufficient. Voice playback/capture policy therefore
+sits above this document's FT1 correctness and cannot change RESULT, repair, resume,
+file publication or cancellation semantics. If voice admission is refused/busy, the
+finalized source remains a normal local file for later F5 selection. Agent JSONL file
+operations and schemas are unchanged.
+
 ### Agent JSONL
 
 Start:

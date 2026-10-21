@@ -69,6 +69,36 @@ python -m pip install -e .
 The base dependencies are declared in `pyproject.toml` and currently include
 `pyserial` and `prompt-toolkit`.
 
+## Optional Codec2 voice-message prerequisites
+
+Store-and-forward voice messages are optional and are not Python package dependencies.
+On Debian/Ubuntu/Linux Mint install the ALSA command-line tools:
+
+```bash
+sudo apt install alsa-utils
+which arecord
+which aplay
+```
+
+Build the separate pinned `codec2-sdk` project and pass the produced portable SDK tree
+explicitly to the human TUI; SerialTerminal never falls back to a system `libcodec2`:
+
+```bash
+serialterminal --profile chatter \
+  --codec2-sdk-dir ../codec2-sdk/dist/linux-x86_64
+```
+
+The selected directory must contain `manifest.json` and `lib/libcodec2.so*` from the
+pinned Codec2 1.2.0 build. The library is loaded lazily only when voice is used, so a
+missing/mismatched SDK does not prevent ordinary terminal startup. `arecord` and `aplay`
+use the host ALSA default device; choose/configure USB/Bluetooth routing at the OS/ALSA
+layer. An optional `--voice-temp-dir PATH` changes only the outgoing finalized voice
+file scratch directory.
+
+The first voice implementation has no automatic recording duration/size cutoff: `F12`
+starts capture and the next `F12` finalizes/sends it. Capture is streaming, and normal
+filesystem/process errors abort safely rather than silently sending a partial file.
+
 ## Development installation
 
 For source development with BLE and the repository test/lint tools:

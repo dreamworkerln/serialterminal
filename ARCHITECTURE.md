@@ -458,6 +458,62 @@ tombstone. RESULT OK follows the durable commit; generic transport/session code
 does not interpret this file-storage evidence. [FT1_RESUME.md](FT1_RESUME.md) owns
 the ordering, filesystem limitations and restart contract.
 
+## Codec2 voice-message application layer
+
+Store-and-forward voice is intentionally above FT1 rather than inside the controller
+profile or transport stack:
+
+```text
+TerminalTui
+    |
+    +-- FileTransferManager / FT1 ----------------------> BINARY USER transport
+    |             ^
+    |             | completed finalized .stvoice.c2 / verified ROOT RX completion
+    |             |
+    +-- VoiceMessageService
+          |
+          +-- Codec2Library -> Codec2Codec -> pinned portable libcodec2.so
+          +-- AudioBackend -> arecord / aplay (Linux first implementation)
+```
+
+`VoiceMessageService` owns microphone/playback admission, the standard `.c2` file
+lifecycle, the pending local voice-to-FT1 admission and autoplay policy. It never owns
+FT1 metadata/chunks/hash/repair/resume/RESULT semantics. The generic TUI still obtains
+file-transfer capability from the selected profile; there is no `profile.name ==
+"chatter"` voice branch. Voice is enabled only when the runtime has an FT1 manager, an
+explicit SDK tree and the local audio backend capability. The Codec2 shared library is
+loaded lazily and must resolve inside that SDK tree with pinned provenance.
+
+TX capture encodes S16_LE mono 8 kHz PCM directly into standard Codec2 mode 3200 frames
+and writes the seven-byte `.c2` header immediately. A partial PCM frame is zero padded
+once, only after capture has stopped and stdout has drained. Header-only/invalid output
+is never admitted to FT1. Admission calls `FileTransferManager.start_send()` outside the
+curses thread. The local voice attempt is registered before that call so a terminal FT1
+event that races the return value can be reconciled exactly once. If admission is
+refused, the completed source is retained as `READY_FILE`; normal F5 is the manual retry
+path rather than a second voice delivery state machine.
+
+RX autoplay is a consumer of the existing verified durable ROOT `transfer_completed`
+event. The event's wire filename decides whether it is a voice message while
+`progress.final_path` is only the already-published content location. Recursive child
+files and nonterminal/failed/cancelled results never become audio events. Event logging
+and voice dispatch have independent exception boundaries; playback does not run from
+the logger or FT1 callback. A bounded queue serializes playback and rejects new autoplay
+requests on overflow while preserving the received file and successful FT1 result.
+
+One condition-protected audio owner prevents simultaneous capture and playback. RX may
+continue through FT1 while capture is active, but its playback waits. F12 never aborts
+active playback. During capture/finalization/admission the TUI blocks device/profile/F5
+and disruptive human actions while preserving non-disruptive profile controls and
+normal process exit. Process cleanup, event queues and playback queues are bounded; the
+recording itself intentionally has no arbitrary duration/encoded-byte timer in this
+first stage and ends on the second F12. Shutdown never implicitly sends an unfinished
+recording, and late admission/terminal results are retention-only once service shutdown
+has begun.
+
+The first implementation is human-TUI only. It adds no agent JSONL operation/schema,
+no firmware/wire behavior and no realtime voice transport.
+
 ## FT1 persistent sender ownership
 
 Frontends pass the selected generic device_key as an opaque peer_key to the file

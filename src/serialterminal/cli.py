@@ -634,6 +634,16 @@ def _add_profile_argument(parser: argparse.ArgumentParser) -> None:
         action="store_true",
         help="include raw base64 payloads in log files (default: redact)",
     )
+    parser.add_argument(
+        "--codec2-sdk-dir",
+        default=None,
+        help="portable codec2-sdk tree for TUI voice messages (contains manifest.json and lib/)",
+    )
+    parser.add_argument(
+        "--voice-temp-dir",
+        default=None,
+        help="optional scratch directory for outgoing TUI voice messages",
+    )
 
 
 def _add_baud_argument(parser: argparse.ArgumentParser) -> None:
@@ -827,6 +837,8 @@ def _run_session(
     classic: bool = False,
     receive_dir: str | None = None,
     log_base64: bool = False,
+    codec2_sdk_dir: str | None = None,
+    voice_temp_dir: str | None = None,
 ) -> int:
     actual_log_path = str(default_log_path()) if log_path is None else log_path
     print(f"Locked target: {transport.description}")
@@ -847,6 +859,8 @@ def _run_session(
             profile=profile,
             receive_dir=receive_dir,
             log_base64=log_base64,
+            codec2_sdk_dir=codec2_sdk_dir,
+            voice_temp_dir=voice_temp_dir,
         )
 
     TerminalSession(
@@ -892,6 +906,8 @@ def _run_serial(argv: list[str], prog: str) -> int:
         classic=args.classic,
         receive_dir=args.receive_dir,
         log_base64=args.log_base64,
+        codec2_sdk_dir=args.codec2_sdk_dir,
+        voice_temp_dir=args.voice_temp_dir,
     )
 
 
@@ -921,6 +937,8 @@ def _run_ble(argv: list[str], prog: str) -> int:
         classic=args.classic,
         receive_dir=args.receive_dir,
         log_base64=args.log_base64,
+        codec2_sdk_dir=args.codec2_sdk_dir,
+        voice_temp_dir=args.voice_temp_dir,
     )
 
 
@@ -950,6 +968,8 @@ def _run_spp(argv: list[str], prog: str) -> int:
         classic=args.classic,
         receive_dir=args.receive_dir,
         log_base64=args.log_base64,
+        codec2_sdk_dir=args.codec2_sdk_dir,
+        voice_temp_dir=args.voice_temp_dir,
     )
 
 
@@ -1032,6 +1052,8 @@ def _run_auto(argv: list[str], prog: str) -> int:
             classic=args.classic,
             receive_dir=args.receive_dir,
             log_base64=args.log_base64,
+            codec2_sdk_dir=args.codec2_sdk_dir,
+            voice_temp_dir=args.voice_temp_dir,
         )
 
     selector = DeviceSelector(
@@ -1059,6 +1081,8 @@ def _run_auto(argv: list[str], prog: str) -> int:
         classic=args.classic,
         receive_dir=args.receive_dir,
         log_base64=args.log_base64,
+        codec2_sdk_dir=args.codec2_sdk_dir,
+        voice_temp_dir=args.voice_temp_dir,
     )
 
 
