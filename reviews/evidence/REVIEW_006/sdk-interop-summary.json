@@ -1,0 +1,10 @@
+{
+  "name": "sdk-interop",
+  "command": [
+    "/home/dream/coding/journal_of_experiments/20261021T214130Z_st_codec2_review006/qa-env/bin/python",
+    "/home/dream/coding/journal_of_experiments/20261021T214130Z_st_codec2_review006/sdk_interop_probe.py"
+  ],
+  "exit_code": 0,
+  "seconds": 0.115,
+  "summary": []
+}

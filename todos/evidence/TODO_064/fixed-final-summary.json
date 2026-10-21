@@ -1,0 +1,10 @@
+{
+  "same_test_sha256": "fd261ac6e8a0b6b8070fe51c4fed208a7f9bd2cd61db62140dfe6a185acc9671",
+  "same_pytest_wrapper_and_arguments": true,
+  "source_root": "/home/dream/coding/python/serialterminal/src",
+  "exit_code": 0,
+  "seconds": 4.332,
+  "summary": [
+    "20 passed in 4.08s"
+  ]
+}

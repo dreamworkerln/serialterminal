@@ -1,0 +1,51 @@
+{
+  "workflow": ".github/workflows/ci.yml",
+  "workflow_sha256": "7e9eca857253c2be0c115a8b0a49884200e485ba8f675189e45599c19bf35b11",
+  "local_execution": true,
+  "steps": [
+    {
+      "step": "QA install",
+      "command": "/home/dream/coding/journal_of_experiments/20261021T214130Z_st_codec2_review006/qa-env/bin/python -m pip install --disable-pip-version-check -e '.[dev]'",
+      "exit_code": 0,
+      "advisory": false,
+      "seconds": 2.758,
+      "summary": []
+    },
+    {
+      "step": "Compile",
+      "command": "python -m compileall -q src serialterminal.py usb_timing_logger.py tools scripts",
+      "exit_code": 0,
+      "advisory": false,
+      "seconds": 0.225,
+      "summary": []
+    },
+    {
+      "step": "Static analysis",
+      "command": "ruff check src tests serialterminal.py usb_timing_logger.py tools scripts",
+      "exit_code": 0,
+      "advisory": false,
+      "seconds": 0.012,
+      "summary": [
+        "All checks passed!"
+      ]
+    },
+    {
+      "step": "Complexity",
+      "command": "lizard -l python -C 10 -L 80 -a 5 src serialterminal.py usb_timing_logger.py tools scripts",
+      "exit_code": 1,
+      "advisory": true,
+      "seconds": 0.471,
+      "summary": []
+    },
+    {
+      "step": "Tests",
+      "command": "pytest -q",
+      "exit_code": 0,
+      "advisory": false,
+      "seconds": 123.942,
+      "summary": [
+        "1415 passed, 7 warnings in 123.52s (0:02:03)"
+      ]
+    }
+  ]
+}

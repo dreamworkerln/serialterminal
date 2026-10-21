@@ -1,0 +1,17 @@
+{
+  "before-test_voice_lifecycle_regressions.py": "fd261ac6e8a0b6b8070fe51c4fed208a7f9bd2cd61db62140dfe6a185acc9671",
+  "before-voice_audio.py": "e4d1fb12e3b701bc95c75069603198ca0b16e7c4aae39c83ca36bef34a09dc58",
+  "current-source-fix.patch": "42c19419136e0f36acb469e4a68803a6df1d61b12baa48beb3e7a94d08500679",
+  "diagnosis.json": "60dcf3c3591d21f58eb6c9ac57f5b80a3c3c543f8f643b653bca3b8757b1f3e9",
+  "null-probe-before.json": "12c7d88003f5c4b130088259667b0a3e6c7765a28f2ef25ad659ead6b70f583a",
+  "null-probe-results.json": "3581142d42e7ba1c951326b18bac826b26fdf84a4391f696975fe9a6f34d50f2",
+  "null_capture_probe.py": "1b7b9463fc1aeca01fb16f49e986229e006e6de669e4b454360a24edd01f8f77",
+  "plan.json": "e544b70582476d8ff40c7cd2e960a902edb1b676cf7817b868a55fc013010bb9",
+  "regression-after.txt": "4e8a6197b7cf5ee1a4f3088e92dbe2f7c3a452645e123c322fb52ae6d5453a94",
+  "regression-before.txt": "7203ac822f5308c52ba139a74a74daefb1572cd2dd6e151fc4ecae2aa983fe5c",
+  "report.md": "77677cd29f526a1bab092a23b9013a966d0e2f0faca33fe4aac9d74fce9ee943",
+  "status1-correction.patch": "84238bed3dc93b75c45bfd3a6bd89cbb9c50ab746535ec8cf255a234f711b02f",
+  "validated-source-sha256.json": "5a4ba0adf2dd656cf72503cf8bd7b1efad8c646a619982e45f3216fcf05b2bc3",
+  "validation.json": "aca7e827e3f965ebbedfe064440a2b5be8e29a046959f6cb8813b7e603896228",
+  "workflow-validation-summary.json": "2e9cf9b13cacd74a13cfebee3282cb2f287b76b50009b4e53eb34a0a975e2e2c"
+}

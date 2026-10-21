@@ -48,9 +48,19 @@ Status: OPEN / P2; REVIEW_004/F008 = Chatter REVIEW_006/F008.
 Implementation/acceptance OPEN; validation gates перечислены в задаче.
 
 SPP F004 дополняет OPEN TODO_013. Windows FT1 F006 дополняет TODO_049;
-DEFERRED по решению оператора сохранён. Next new thematic TODO ID: `TODO_064`.
+DEFERRED по решению оператора сохранён. Next new thematic TODO ID: `TODO_065`.
 
 ## Active
+
+### TODO_064 — [todos/TODO_064_CODEC2_VOICE_LIFECYCLE_FIXES.md](todos/TODO_064_CODEC2_VOICE_LIFECYCLE_FIXES.md)
+
+Status: IMPLEMENTED / SOFTWARE PASS / OPERATOR RETEST OPEN / P1.
+REVIEW_006/F001–F005 fixes plus correction for normal arecord 1.2.6 SIGINT status 1.
+The new production-classifier regression fails before correction; voice subset 39 PASS,
+full pytest 1419 PASS / 124.20 s, compile/Ruff PASS, Lizard advisory WARNING.
+Current BASE+patch and separate correction evidence are linked in TODO_064; initial
+old/new differential evidence is preserved. Restart both ST before operator F12
+microphone retest. TODO_063 full audio/radio gates remain OPEN. No commit/push/GitHub CI.
 
 ### TODO_063 — [todos/TODO_063_CODEC2_VOICE_MESSAGES.md](todos/TODO_063_CODEC2_VOICE_MESSAGES.md)
 
@@ -64,7 +74,8 @@ completion uses the original wire filename plus validated `.c2` content and dura
 no concrete-profile branch, firmware change, FT1 wire change or realtime voice is in
 this TODO. Planning checkpoint `184fabfb8088b5b3568a26883c0a71159468864e`;
 implementation is now present from base `989118042f2c4030bcde8bc328540ac67e14faed`.
-REVIEW_005/F001–F003 are implemented as retained READY_FILE + normal F5 retry,
+REVIEW_006/F001–F005 tracked by TODO_064 (F003 corrected in software, operator F12 retest open); real audio/radio
+gates below remain open. REVIEW_005/F001–F003 are implemented as retained READY_FILE + normal F5 retry,
 worker-side admission with early-terminal/lifetime handling, and mutually exclusive
 local capture/playback with deferred autoplay/F12 busy. The first version intentionally
 has no arbitrary recording duration/byte cap or auto-send; second F12 finalizes. Agent
@@ -311,7 +322,11 @@ Remaining work: align the primary `NODE_OBSERVATION_RECORDING_POLICY.md` and nod
 
 TODO_026 logging-contract investigation is also OPEN and may be scheduled independently when log-format work is selected.
 
-Current operator order (2026-10-21): реализовать ST TODO_058. Implementation
+Current operator order (2026-10-22): TODO_064 software fixes по REVIEW_006/F001–F005
+реализованы; исправлена также F003-регрессия штатного arecord stop по F12, software PASS. Операторский retest после перезапуска ST OPEN. Исторические результаты и BASE+patch evidence сохранены. Gates полной voice feature
+TODO_063 остаются OPEN; аппаратный запуск и следующая implementation задача не назначены.
+
+Previous operator order (2026-10-21): реализовать ST TODO_058. Implementation
 и software checks завершены; independent re-review exact checkpoint остаётся OPEN.
 Рекомендуемый порядок при следующем выборе implementation:
 

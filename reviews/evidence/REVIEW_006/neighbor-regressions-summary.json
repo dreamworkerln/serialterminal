@@ -1,0 +1,22 @@
+{
+  "name": "neighbor-regressions",
+  "command": [
+    "/home/dream/coding/journal_of_experiments/20261021T214130Z_st_codec2_review006/qa-env/bin/python",
+    "-m",
+    "pytest",
+    "-q",
+    "-p",
+    "no:cacheprovider",
+    "tests/test_file_transfer_core.py",
+    "tests/test_tui_file_transfer_window.py",
+    "tests/test_tui_transfer_lifecycle.py",
+    "tests/test_tui_keyboard_pty.py",
+    "tests/test_tui_transfer_pty.py",
+    "tests/test_generic_profile.py"
+  ],
+  "exit_code": 0,
+  "seconds": 17.316,
+  "summary": [
+    "220 passed in 16.96s"
+  ]
+}

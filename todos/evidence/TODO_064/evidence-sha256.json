@@ -1,0 +1,12 @@
+{
+  "fixed-final-summary.json": "01d8068bcdc9d038988eb9ebc56ddad8b53b8b8ceeea6002aa529f998ed0aab0",
+  "baseline-summary.json": "9280a25c5c64f81528598f3256abf856dae74f2c7bbbe4fa2eac8c259b73bafc",
+  "warnings-summary.json": "cfe0e11b475a7cfb2659bff668e6bb193ca4750616732595e2e6c5a27dfa7c57",
+  "source-fix.patch": "7ec9511595a158136152eb513c66daab3e83a515fd8e51e8511b7fe4943d654a",
+  "workflow-validation-summary.json": "2d2341ae25692308eba0faeb46c172a629794d077324892c3d8a795fed6c409e",
+  "fix-targeted-summary.json": "559116662e6c75fc74b74926dbe184ec906f010fab88c3ca44d67e8c02932042",
+  "changed-complexity.json": "1692285c1fb1a0ce5345319fd6f7b4c77d3b68d49926ea2c5e99e606dd484605",
+  "baseline-final-summary.json": "0745c60a14e147241f65992977ea6b54c6a3645476b24195b657195bcd479a39",
+  "validated-source-sha256.json": "c89b2cc0341260de8a7753c61e056adfe5273f65e9fee82c9cb571459abbfbcc",
+  "validation.json": "412c95ae9ba72242dc3c18684a4f8be684e0aaffa992edb47685e32e88ccd548"
+}

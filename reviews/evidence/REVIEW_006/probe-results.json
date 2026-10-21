@@ -1,0 +1,36 @@
+{
+  "stale_tx_clobbers_recording": {
+    "real_FT1_sender_completed": true,
+    "real_FT1_receiver_completed": true,
+    "state_before_old_terminal": "RECORDING",
+    "state_after_old_terminal": "IDLE",
+    "capture_still_open": true,
+    "record_stop_requested": false,
+    "F12_can_stop_capture": false,
+    "defect_reproduced": true
+  },
+  "playback_during_starting": {
+    "playback_started_in_state": "STARTING",
+    "state_after_capture_start": "RECORDING",
+    "playback_still_running": true,
+    "capture_open": true,
+    "defect_reproduced": true
+  },
+  "forced_kill_is_auto_sent": {
+    "capture_returncode": -9,
+    "FT1_send_started": true,
+    "terminal_state": "IDLE",
+    "defect_reproduced": true
+  },
+  "stale_rx_after_manager_replacement": {
+    "current_manager_replaced": true,
+    "old_RX_playbacks": 1,
+    "defect_reproduced": true
+  },
+  "playback_child_survives_decoder_failure": {
+    "child_alive_after_decode_error": true,
+    "child_alive_after_stop_playback": true,
+    "backend_lost_process_handle": true,
+    "defect_reproduced": true
+  }
+}

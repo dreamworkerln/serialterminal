@@ -1,0 +1,56 @@
+--- a/src/serialterminal/voice_audio.py
++++ b/src/serialterminal/voice_audio.py
+@@ -54,8 +54,11 @@
+ 
+     @property
+     def graceful_stop(self) -> bool:
++        # arecord -q может завершить штатный SIGINT кодом 1 (alsa-utils 1.2.6).
++        # Такой исход допустим лишь после нашего stop, без fallback и диагностики.
+         return (self.requested_stop and not self.forced_stop
+-                and self.returncode in (0, -signal.SIGINT))
++                and (self.returncode in (0, -signal.SIGINT)
++                     or (self.returncode == 1 and not self.stderr.strip())))
+ 
+ 
+ _EOF = object()
+--- a/tests/test_voice_lifecycle_regressions.py
++++ b/tests/test_voice_lifecycle_regressions.py
+@@ -2,7 +2,6 @@
+ import subprocess
+ import sys
+ import threading
+-from types import SimpleNamespace
+ 
+ import pytest
+ 
+@@ -170,15 +169,23 @@
+         service.close()
+ 
+ 
+-@pytest.mark.parametrize("code,forced,send", [(0, False, True), (-signal.SIGINT, False, True),
+-                                              (-signal.SIGKILL, False, False), (1, False, False),
+-                                              (2, False, False), (0, True, False)])
+-def test_capture_stop_outcome_controls_auto_send(tmp_path, code, forced, send):
++@pytest.mark.parametrize("code,forced,requested,stderr,send", [
++    (0, False, True, "", True),
++    (-signal.SIGINT, False, True, "", True),
++    (1, False, True, "", True),
++    (1, False, True, "audio read error", False),
++    (1, False, False, "", False),
++    (1, True, True, "", False),
++    (-signal.SIGKILL, False, True, "", False),
++    (2, False, True, "", False),
++    (0, True, True, "", False),
++    (0, False, False, "", False),
++])
++def test_capture_stop_outcome_controls_auto_send(tmp_path, code, forced, requested, stderr, send):
+     class ResultCapture(FakeCapture):
+         def finish(self):
+-            return SimpleNamespace(returncode=code, requested_stop=self.stop, stderr="capture outcome",
+-                                   forced_stop=forced, graceful_stop=self.stop and not forced
+-                                   and code in (0, -signal.SIGINT))
++            return CaptureResult(returncode=code, requested_stop=self.stop and requested,
++                                 stderr=stderr, forced_stop=forced)
+ 
+     class ResultAudio(FakeAudio):
+         def start_capture(self):

@@ -5,9 +5,11 @@ import queue
 import shutil
 import signal
 import subprocess
+import sys
 import threading
 from typing import Iterable, Protocol
 
+from .application_log import report_exception
 from .settings import DEFAULTS
 
 
@@ -48,6 +50,15 @@ class CaptureResult:
     returncode: int
     requested_stop: bool
     stderr: str
+    forced_stop: bool = False
+
+    @property
+    def graceful_stop(self) -> bool:
+        # arecord -q может завершить штатный SIGINT кодом 1 (alsa-utils 1.2.6).
+        # Такой исход допустим лишь после нашего stop, без fallback и диагностики.
+        return (self.requested_stop and not self.forced_stop
+                and (self.returncode in (0, -signal.SIGINT)
+                     or (self.returncode == 1 and not self.stderr.strip())))
 
 
 _EOF = object()
@@ -84,6 +95,7 @@ class _AlsaCapture:
         self._chunks: queue.Queue[bytes | object] = queue.Queue(maxsize=32)
         self._drop = threading.Event()
         self._requested_stop = False
+        self._forced_stop = False
         self._stop_lock = threading.Lock()
         self._stderr = _StderrDrain(process.stderr)
         self._reader = threading.Thread(
@@ -130,10 +142,10 @@ class _AlsaCapture:
         with self._stop_lock:
             if self._requested_stop:
                 return
-            self._requested_stop = True
             if self.process.poll() is None:
                 try:
                     self.process.send_signal(signal.SIGINT)
+                    self._requested_stop = True
                 except ProcessLookupError:
                     pass
 
@@ -141,6 +153,7 @@ class _AlsaCapture:
         try:
             return self.process.wait(timeout=self.stop_timeout)
         except subprocess.TimeoutExpired:
+            self._forced_stop = True
             try:
                 self.process.terminate()
             except ProcessLookupError:
@@ -159,6 +172,7 @@ class _AlsaCapture:
             returncode=self._wait_bounded(),
             requested_stop=self._requested_stop,
             stderr=self._stderr.text(),
+            forced_stop=self._forced_stop,
         )
 
     def close(self) -> None:
@@ -220,11 +234,12 @@ class AlsaAudioBackend:
             stderr=subprocess.PIPE,
             bufsize=0,
         )
-        stderr = _StderrDrain(process.stderr)
         with self._playback_lock:
             self._playback_process = process
         cancelled = False
+        stderr = None
         try:
+            stderr = _StderrDrain(process.stderr)
             if process.stdin is None:
                 raise VoiceAudioError("aplay stdin is unavailable")
             for chunk in chunks:
@@ -251,20 +266,33 @@ class AlsaAudioBackend:
                         f"aplay exited with status {returncode}" + (f": {detail}" if detail else "")
                     )
         except (BrokenPipeError, OSError) as exc:
-            detail = stderr.text()
+            detail = "" if stderr is None else stderr.text()
             raise VoiceAudioError(
                 f"aplay stream failed: {exc}" + (f": {detail}" if detail else "")
             ) from exc
         finally:
-            with self._playback_lock:
-                if self._playback_process is process:
-                    self._playback_process = None
-            for stream in (process.stdin, process.stderr):
-                try:
-                    if stream is not None and not stream.closed:
-                        stream.close()
-                except OSError:
-                    pass
+            # Decoder/iterator тоже может завершиться с ошибкой после Popen.
+            # Ownership сохраняется до bounded stop/reap; cleanup не скрывает
+            # первоначальную ошибку stream/decode.
+            original_error = sys.exc_info()[1]
+            reaped = False
+            try:
+                self._terminate_playback(process)
+                reaped = True
+            except Exception as cleanup:
+                if original_error is None:
+                    raise
+                report_exception(cleanup, "voice playback cleanup")
+            finally:
+                with self._playback_lock:
+                    if self._playback_process is process and reaped:
+                        self._playback_process = None
+                for stream in (process.stdin, process.stderr):
+                    try:
+                        if stream is not None and not stream.closed:
+                            stream.close()
+                    except OSError:
+                        pass
 
     def _terminate_playback(self, process: subprocess.Popen) -> None:
         if process.poll() is None:

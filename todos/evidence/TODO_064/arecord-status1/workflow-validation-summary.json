@@ -1,0 +1,34 @@
+{
+  "workflow_sha256": "7e9eca857253c2be0c115a8b0a49884200e485ba8f675189e45599c19bf35b11",
+  "checks": [
+    {
+      "name": "Compile",
+      "command": "python -m compileall -q src serialterminal.py usb_timing_logger.py tools scripts",
+      "returncode": 0,
+      "advisory": false,
+      "seconds": 0.06
+    },
+    {
+      "name": "Static analysis",
+      "command": "ruff check src tests serialterminal.py usb_timing_logger.py tools scripts",
+      "returncode": 0,
+      "advisory": false,
+      "seconds": 0.06
+    },
+    {
+      "name": "Complexity",
+      "command": "lizard -l python -C 10 -L 80 -a 5 src serialterminal.py usb_timing_logger.py tools scripts",
+      "returncode": 1,
+      "advisory": true,
+      "seconds": 0.52
+    },
+    {
+      "name": "Tests",
+      "command": "pytest -q",
+      "returncode": 0,
+      "advisory": false,
+      "seconds": 124.61
+    }
+  ],
+  "source_unchanged": true
+}

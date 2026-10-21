@@ -104,7 +104,7 @@ class VoiceMessageService:
         self._capture_stream = None
         self._audio_mode: str | None = None
         self._playback_cancel = threading.Event()
-        self._tx_attempt: _TxAttempt | None = None
+        self._tx_attempts: dict[str, _TxAttempt] = {}
         self._manager: FileTransferManager | None = None
         self._manager_generation = 0
         self._overflow_manager: FileTransferManager | None = None
@@ -256,6 +256,8 @@ class VoiceMessageService:
             if self._state not in {"IDLE", "READY_FILE"} or self._audio_mode is not None:
                 return False
             self._state = "STARTING"
+            # Audio owner резервируется до загрузки SDK и открытия микрофона.
+            self._audio_mode = "capture"
             self._record_stop = threading.Event()
             job_id = secrets.token_hex(8)
             self._capture_job_id = job_id
@@ -341,8 +343,11 @@ class VoiceMessageService:
                         break
                 if process_result is None:
                     process_result = capture.finish()
-                if not process_result.requested_stop:
-                    raise VoiceAudioError("audio capture did not terminate through requested stop")
+                if not process_result.graceful_stop:
+                    raise VoiceAudioError(
+                        f"audio capture did not stop gracefully (status {process_result.returncode})"
+                        + (f": {process_result.stderr}" if process_result.stderr else "")
+                    )
                 with self._lock:
                     shutting_down = self._closing
                 if shutting_down:
@@ -426,13 +431,13 @@ class VoiceMessageService:
                 self._notifications.append(f"Voice retained (no FT1 manager): {path}")
                 return
             attempt = _TxAttempt(job_id, path, manager, generation)
-            self._tx_attempt = attempt
+            self._tx_attempts[job_id] = attempt
         try:
             result = manager.start_send(path)
         except FileTransferError as exc:
             with self._condition:
-                if self._tx_attempt is attempt:
-                    self._tx_attempt = None
+                if self._tx_attempts.get(job_id) is attempt:
+                    self._tx_attempts.pop(job_id)
                 self._retained_paths.add(path)
                 self._capture_job_id = None
                 if not self._closing:
@@ -443,8 +448,8 @@ class VoiceMessageService:
         except Exception as exc:
             report_exception(exc, "voice FT1 admission")
             with self._condition:
-                if self._tx_attempt is attempt:
-                    self._tx_attempt = None
+                if self._tx_attempts.get(job_id) is attempt:
+                    self._tx_attempts.pop(job_id)
                 self._retained_paths.add(path)
                 self._capture_job_id = None
                 if not self._closing:
@@ -456,14 +461,14 @@ class VoiceMessageService:
         tx_id = str(result.get("transfer_id", ""))
         with self._condition:
             if self._closing:
-                if self._tx_attempt is attempt:
-                    self._tx_attempt = None
+                if self._tx_attempts.get(job_id) is attempt:
+                    self._tx_attempts.pop(job_id)
                 self._retained_paths.add(path)
                 self._capture_job_id = None
                 self._state = "CLOSED"
                 self._condition.notify_all()
                 return
-            if self._tx_attempt is not attempt:
+            if self._tx_attempts.get(job_id) is not attempt:
                 self._retained_paths.add(path)
                 return
             attempt.tx_id = tx_id
@@ -526,23 +531,28 @@ class VoiceMessageService:
             return
         if event.get("direction") == "TX":
             with self._condition:
-                attempt = self._tx_attempt
-                if attempt is None or attempt.manager is not envelope.manager:
-                    return
-                if attempt.manager_generation != envelope.manager_generation:
-                    return
-                if attempt.tx_id is None:
-                    attempt.early_terminal.append(event)
-                    return
-                if event.get("transfer_id") == attempt.tx_id:
-                    self._apply_tx_terminal_locked(attempt, event)
-                    self._condition.notify_all()
+                # FT1 уже может освободиться для следующей записи, пока observer
+                # ещё обрабатывает terminal предыдущей attempt.
+                for attempt in list(self._tx_attempts.values()):
+                    if attempt.manager is not envelope.manager:
+                        continue
+                    if attempt.manager_generation != envelope.manager_generation:
+                        continue
+                    if attempt.tx_id is None:
+                        attempt.early_terminal.append(event)
+                    elif event.get("transfer_id") == attempt.tx_id:
+                        self._apply_tx_terminal_locked(attempt, event)
+                self._condition.notify_all()
             return
         if event.get("direction") == "RX" and kind == "transfer_completed" and envelope.is_root:
+            with self._lock:
+                if (self._closing or envelope.manager is not self._manager
+                        or envelope.manager_generation != self._manager_generation):
+                    return
             self._handle_rx_completed(envelope)
 
     def _apply_tx_terminal_locked(self, attempt: _TxAttempt, event: dict[str, Any]) -> None:
-        if attempt.terminal_applied or self._tx_attempt is not attempt:
+        if attempt.terminal_applied or self._tx_attempts.get(attempt.job_id) is not attempt:
             return
         attempt.terminal_applied = True
         kind = str(event.get("kind", ""))
@@ -550,7 +560,7 @@ class VoiceMessageService:
         if self._closing:
             self._retained_paths.add(path)
             self._notifications.append(f"Voice terminal arrived during shutdown; retained: {path}")
-            self._tx_attempt = None
+            self._tx_attempts.pop(attempt.job_id)
             self._capture_job_id = None
             self._state = "CLOSED"
             return
@@ -566,10 +576,12 @@ class VoiceMessageService:
         else:
             self._retained_paths.add(path)
             self._notifications.append(f"Voice transfer {kind.removeprefix('transfer_')}; retained: {path}")
-        self._tx_attempt = None
-        self._capture_job_id = None
-        if not self._closing:
-            self._state = "READY_FILE" if path in self._retained_paths else "IDLE"
+        self._tx_attempts.pop(attempt.job_id)
+        # Результат старого TX освобождает свой файл, но не owner новой записи.
+        if self._capture_job_id in (None, attempt.job_id):
+            self._capture_job_id = None
+            if not self._closing:
+                self._state = "READY_FILE" if path in self._retained_paths else "IDLE"
 
     def _reconcile_overflow(self) -> None:
         with self._lock:
@@ -583,16 +595,30 @@ class VoiceMessageService:
         except Exception as exc:
             report_exception(exc, "voice FT1 overflow reconciliation")
             return
-        if snapshot is None or snapshot.get("state") not in {"completed", "failed", "cancelled"}:
-            return
-        event = {
-            "transfer_id": snapshot.get("transfer_id"),
-            "direction": snapshot.get("direction"),
-            "filename": snapshot.get("filename"),
-            "kind": "transfer_" + str(snapshot.get("state")),
-            "progress": dict(snapshot),
-        }
-        self._handle_ft1_event(_FtEnvelope(manager, generation, True, event))
+        snapshots = [] if snapshot is None else [snapshot]
+        # display_snapshot уже может показывать более новый ROOT. Старые TX
+        # восстанавливаем по public retained snapshots, а RX children не допускаем.
+        retained = getattr(manager, "snapshots", None)
+        if callable(retained):
+            with self._lock:
+                tx_ids = {attempt.tx_id for attempt in self._tx_attempts.values()
+                          if attempt.manager is manager and attempt.manager_generation == generation}
+            try:
+                snapshots.extend(value for value in retained()
+                                 if value.get("direction") == "TX" and value.get("transfer_id") in tx_ids)
+            except Exception as exc:
+                report_exception(exc, "voice TX overflow reconciliation")
+        for value in snapshots:
+            if value.get("state") not in {"completed", "failed", "cancelled"}:
+                continue
+            event = {
+                "transfer_id": value.get("transfer_id"),
+                "direction": value.get("direction"),
+                "filename": value.get("filename"),
+                "kind": "transfer_" + str(value["state"]),
+                "progress": dict(value),
+            }
+            self._handle_ft1_event(_FtEnvelope(manager, generation, value is snapshot, event))
 
     def _handle_rx_completed(self, envelope: _FtEnvelope) -> None:
         event = envelope.event
@@ -623,6 +649,10 @@ class VoiceMessageService:
             return
         identity = (envelope.manager_generation, str(event.get("transfer_id")), "RX")
         with self._condition:
+            # Файловая проверка шла без lock: за это время session могла смениться.
+            if (self._closing or envelope.manager is not self._manager
+                    or envelope.manager_generation != self._manager_generation):
+                return
             if identity in self._autoplay_seen:
                 return
             self._autoplay_seen.add(identity)
@@ -636,10 +666,11 @@ class VoiceMessageService:
     def _playback_loop(self) -> None:
         while not self._worker_stop.is_set():
             with self._condition:
-                self._condition.wait_for(
+                ready = self._condition.wait_for(
                     lambda: self._worker_stop.is_set()
                     or (
-                        self._playback_queue
+                        not self._closing
+                        and self._playback_queue
                         and self._audio_mode is None
                         and self._state not in {"STARTING", "RECORDING", "FINALIZING"}
                     ),
@@ -647,7 +678,7 @@ class VoiceMessageService:
                 )
                 if self._worker_stop.is_set():
                     return
-                if not self._playback_queue or self._audio_mode is not None:
+                if not ready:
                     continue
                 request = self._playback_queue.popleft()
                 self._audio_mode = "playback"
@@ -703,9 +734,9 @@ class VoiceMessageService:
                     )
                 )
         with self._condition:
-            attempt = self._tx_attempt
-            if attempt is not None and attempt.path.exists():
-                self._retained_paths.add(attempt.path)
+            for attempt in self._tx_attempts.values():
+                if attempt.path.exists():
+                    self._retained_paths.add(attempt.path)
             self._state = "CLOSED"
             self._condition.notify_all()
         self._worker_stop.set()

@@ -1,0 +1,45 @@
+{
+  "base": "8a9d91dc03630dec88c67ca0282a12dcff9ae89b",
+  "python": "3.12.15",
+  "before": "1 failed, 9 passed, 14 deselected in 1.80s",
+  "after_subset": "39 passed in 5.81s",
+  "full_suite": "1419 passed, 7 DeprecationWarning in 124.20s",
+  "workflow": {
+    "workflow_sha256": "7e9eca857253c2be0c115a8b0a49884200e485ba8f675189e45599c19bf35b11",
+    "checks": [
+      {
+        "name": "Compile",
+        "command": "python -m compileall -q src serialterminal.py usb_timing_logger.py tools scripts",
+        "returncode": 0,
+        "advisory": false,
+        "seconds": 0.06
+      },
+      {
+        "name": "Static analysis",
+        "command": "ruff check src tests serialterminal.py usb_timing_logger.py tools scripts",
+        "returncode": 0,
+        "advisory": false,
+        "seconds": 0.06
+      },
+      {
+        "name": "Complexity",
+        "command": "lizard -l python -C 10 -L 80 -a 5 src serialterminal.py usb_timing_logger.py tools scripts",
+        "returncode": 1,
+        "advisory": true,
+        "seconds": 0.52
+      },
+      {
+        "name": "Tests",
+        "command": "pytest -q",
+        "returncode": 0,
+        "advisory": false,
+        "seconds": 124.61
+      }
+    ],
+    "source_unchanged": true
+  },
+  "real_microphone_retest": "OPEN; operator must restart ST",
+  "git_commit_push": "NOT RUN",
+  "audio_probe": "Installed arecord, ALSA -D null only, quiet requested SIGINT code 1; graceful false before / true after",
+  "source_patch_sha256": "42c19419136e0f36acb469e4a68803a6df1d61b12baa48beb3e7a94d08500679"
+}

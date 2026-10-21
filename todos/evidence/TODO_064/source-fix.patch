@@ -1,0 +1,696 @@
+diff --git a/src/serialterminal/voice_audio.py b/src/serialterminal/voice_audio.py
+index c39facf..3446ae1 100644
+--- a/src/serialterminal/voice_audio.py
++++ b/src/serialterminal/voice_audio.py
+@@ -5,9 +5,11 @@ import queue
+ import shutil
+ import signal
+ import subprocess
++import sys
+ import threading
+ from typing import Iterable, Protocol
+ 
++from .application_log import report_exception
+ from .settings import DEFAULTS
+ 
+ 
+@@ -48,6 +50,12 @@ class CaptureResult:
+     returncode: int
+     requested_stop: bool
+     stderr: str
++    forced_stop: bool = False
++
++    @property
++    def graceful_stop(self) -> bool:
++        return (self.requested_stop and not self.forced_stop
++                and self.returncode in (0, -signal.SIGINT))
+ 
+ 
+ _EOF = object()
+@@ -84,6 +92,7 @@ class _AlsaCapture:
+         self._chunks: queue.Queue[bytes | object] = queue.Queue(maxsize=32)
+         self._drop = threading.Event()
+         self._requested_stop = False
++        self._forced_stop = False
+         self._stop_lock = threading.Lock()
+         self._stderr = _StderrDrain(process.stderr)
+         self._reader = threading.Thread(
+@@ -130,10 +139,10 @@ class _AlsaCapture:
+         with self._stop_lock:
+             if self._requested_stop:
+                 return
+-            self._requested_stop = True
+             if self.process.poll() is None:
+                 try:
+                     self.process.send_signal(signal.SIGINT)
++                    self._requested_stop = True
+                 except ProcessLookupError:
+                     pass
+ 
+@@ -141,6 +150,7 @@ class _AlsaCapture:
+         try:
+             return self.process.wait(timeout=self.stop_timeout)
+         except subprocess.TimeoutExpired:
++            self._forced_stop = True
+             try:
+                 self.process.terminate()
+             except ProcessLookupError:
+@@ -159,6 +169,7 @@ class _AlsaCapture:
+             returncode=self._wait_bounded(),
+             requested_stop=self._requested_stop,
+             stderr=self._stderr.text(),
++            forced_stop=self._forced_stop,
+         )
+ 
+     def close(self) -> None:
+@@ -220,11 +231,12 @@ class AlsaAudioBackend:
+             stderr=subprocess.PIPE,
+             bufsize=0,
+         )
+-        stderr = _StderrDrain(process.stderr)
+         with self._playback_lock:
+             self._playback_process = process
+         cancelled = False
++        stderr = None
+         try:
++            stderr = _StderrDrain(process.stderr)
+             if process.stdin is None:
+                 raise VoiceAudioError("aplay stdin is unavailable")
+             for chunk in chunks:
+@@ -251,20 +263,33 @@ class AlsaAudioBackend:
+                         f"aplay exited with status {returncode}" + (f": {detail}" if detail else "")
+                     )
+         except (BrokenPipeError, OSError) as exc:
+-            detail = stderr.text()
++            detail = "" if stderr is None else stderr.text()
+             raise VoiceAudioError(
+                 f"aplay stream failed: {exc}" + (f": {detail}" if detail else "")
+             ) from exc
+         finally:
+-            with self._playback_lock:
+-                if self._playback_process is process:
+-                    self._playback_process = None
+-            for stream in (process.stdin, process.stderr):
+-                try:
+-                    if stream is not None and not stream.closed:
+-                        stream.close()
+-                except OSError:
+-                    pass
++            # Decoder/iterator тоже может завершиться с ошибкой после Popen.
++            # Ownership сохраняется до bounded stop/reap; cleanup не скрывает
++            # первоначальную ошибку stream/decode.
++            original_error = sys.exc_info()[1]
++            reaped = False
++            try:
++                self._terminate_playback(process)
++                reaped = True
++            except Exception as cleanup:
++                if original_error is None:
++                    raise
++                report_exception(cleanup, "voice playback cleanup")
++            finally:
++                with self._playback_lock:
++                    if self._playback_process is process and reaped:
++                        self._playback_process = None
++                for stream in (process.stdin, process.stderr):
++                    try:
++                        if stream is not None and not stream.closed:
++                            stream.close()
++                    except OSError:
++                        pass
+ 
+     def _terminate_playback(self, process: subprocess.Popen) -> None:
+         if process.poll() is None:
+diff --git a/src/serialterminal/voice_service.py b/src/serialterminal/voice_service.py
+index 05aa151..de74102 100644
+--- a/src/serialterminal/voice_service.py
++++ b/src/serialterminal/voice_service.py
+@@ -104,7 +104,7 @@ class VoiceMessageService:
+         self._capture_stream = None
+         self._audio_mode: str | None = None
+         self._playback_cancel = threading.Event()
+-        self._tx_attempt: _TxAttempt | None = None
++        self._tx_attempts: dict[str, _TxAttempt] = {}
+         self._manager: FileTransferManager | None = None
+         self._manager_generation = 0
+         self._overflow_manager: FileTransferManager | None = None
+@@ -256,6 +256,8 @@ class VoiceMessageService:
+             if self._state not in {"IDLE", "READY_FILE"} or self._audio_mode is not None:
+                 return False
+             self._state = "STARTING"
++            # Audio owner резервируется до загрузки SDK и открытия микрофона.
++            self._audio_mode = "capture"
+             self._record_stop = threading.Event()
+             job_id = secrets.token_hex(8)
+             self._capture_job_id = job_id
+@@ -341,8 +343,11 @@ class VoiceMessageService:
+                         break
+                 if process_result is None:
+                     process_result = capture.finish()
+-                if not process_result.requested_stop:
+-                    raise VoiceAudioError("audio capture did not terminate through requested stop")
++                if not process_result.graceful_stop:
++                    raise VoiceAudioError(
++                        f"audio capture did not stop gracefully (status {process_result.returncode})"
++                        + (f": {process_result.stderr}" if process_result.stderr else "")
++                    )
+                 with self._lock:
+                     shutting_down = self._closing
+                 if shutting_down:
+@@ -426,13 +431,13 @@ class VoiceMessageService:
+                 self._notifications.append(f"Voice retained (no FT1 manager): {path}")
+                 return
+             attempt = _TxAttempt(job_id, path, manager, generation)
+-            self._tx_attempt = attempt
++            self._tx_attempts[job_id] = attempt
+         try:
+             result = manager.start_send(path)
+         except FileTransferError as exc:
+             with self._condition:
+-                if self._tx_attempt is attempt:
+-                    self._tx_attempt = None
++                if self._tx_attempts.get(job_id) is attempt:
++                    self._tx_attempts.pop(job_id)
+                 self._retained_paths.add(path)
+                 self._capture_job_id = None
+                 if not self._closing:
+@@ -443,8 +448,8 @@ class VoiceMessageService:
+         except Exception as exc:
+             report_exception(exc, "voice FT1 admission")
+             with self._condition:
+-                if self._tx_attempt is attempt:
+-                    self._tx_attempt = None
++                if self._tx_attempts.get(job_id) is attempt:
++                    self._tx_attempts.pop(job_id)
+                 self._retained_paths.add(path)
+                 self._capture_job_id = None
+                 if not self._closing:
+@@ -456,14 +461,14 @@ class VoiceMessageService:
+         tx_id = str(result.get("transfer_id", ""))
+         with self._condition:
+             if self._closing:
+-                if self._tx_attempt is attempt:
+-                    self._tx_attempt = None
++                if self._tx_attempts.get(job_id) is attempt:
++                    self._tx_attempts.pop(job_id)
+                 self._retained_paths.add(path)
+                 self._capture_job_id = None
+                 self._state = "CLOSED"
+                 self._condition.notify_all()
+                 return
+-            if self._tx_attempt is not attempt:
++            if self._tx_attempts.get(job_id) is not attempt:
+                 self._retained_paths.add(path)
+                 return
+             attempt.tx_id = tx_id
+@@ -526,23 +531,28 @@ class VoiceMessageService:
+             return
+         if event.get("direction") == "TX":
+             with self._condition:
+-                attempt = self._tx_attempt
+-                if attempt is None or attempt.manager is not envelope.manager:
+-                    return
+-                if attempt.manager_generation != envelope.manager_generation:
+-                    return
+-                if attempt.tx_id is None:
+-                    attempt.early_terminal.append(event)
+-                    return
+-                if event.get("transfer_id") == attempt.tx_id:
+-                    self._apply_tx_terminal_locked(attempt, event)
+-                    self._condition.notify_all()
++                # FT1 уже может освободиться для следующей записи, пока observer
++                # ещё обрабатывает terminal предыдущей attempt.
++                for attempt in list(self._tx_attempts.values()):
++                    if attempt.manager is not envelope.manager:
++                        continue
++                    if attempt.manager_generation != envelope.manager_generation:
++                        continue
++                    if attempt.tx_id is None:
++                        attempt.early_terminal.append(event)
++                    elif event.get("transfer_id") == attempt.tx_id:
++                        self._apply_tx_terminal_locked(attempt, event)
++                self._condition.notify_all()
+             return
+         if event.get("direction") == "RX" and kind == "transfer_completed" and envelope.is_root:
++            with self._lock:
++                if (self._closing or envelope.manager is not self._manager
++                        or envelope.manager_generation != self._manager_generation):
++                    return
+             self._handle_rx_completed(envelope)
+ 
+     def _apply_tx_terminal_locked(self, attempt: _TxAttempt, event: dict[str, Any]) -> None:
+-        if attempt.terminal_applied or self._tx_attempt is not attempt:
++        if attempt.terminal_applied or self._tx_attempts.get(attempt.job_id) is not attempt:
+             return
+         attempt.terminal_applied = True
+         kind = str(event.get("kind", ""))
+@@ -550,7 +560,7 @@ class VoiceMessageService:
+         if self._closing:
+             self._retained_paths.add(path)
+             self._notifications.append(f"Voice terminal arrived during shutdown; retained: {path}")
+-            self._tx_attempt = None
++            self._tx_attempts.pop(attempt.job_id)
+             self._capture_job_id = None
+             self._state = "CLOSED"
+             return
+@@ -566,10 +576,12 @@ class VoiceMessageService:
+         else:
+             self._retained_paths.add(path)
+             self._notifications.append(f"Voice transfer {kind.removeprefix('transfer_')}; retained: {path}")
+-        self._tx_attempt = None
+-        self._capture_job_id = None
+-        if not self._closing:
+-            self._state = "READY_FILE" if path in self._retained_paths else "IDLE"
++        self._tx_attempts.pop(attempt.job_id)
++        # Результат старого TX освобождает свой файл, но не owner новой записи.
++        if self._capture_job_id in (None, attempt.job_id):
++            self._capture_job_id = None
++            if not self._closing:
++                self._state = "READY_FILE" if path in self._retained_paths else "IDLE"
+ 
+     def _reconcile_overflow(self) -> None:
+         with self._lock:
+@@ -583,16 +595,30 @@ class VoiceMessageService:
+         except Exception as exc:
+             report_exception(exc, "voice FT1 overflow reconciliation")
+             return
+-        if snapshot is None or snapshot.get("state") not in {"completed", "failed", "cancelled"}:
+-            return
+-        event = {
+-            "transfer_id": snapshot.get("transfer_id"),
+-            "direction": snapshot.get("direction"),
+-            "filename": snapshot.get("filename"),
+-            "kind": "transfer_" + str(snapshot.get("state")),
+-            "progress": dict(snapshot),
+-        }
+-        self._handle_ft1_event(_FtEnvelope(manager, generation, True, event))
++        snapshots = [] if snapshot is None else [snapshot]
++        # display_snapshot уже может показывать более новый ROOT. Старые TX
++        # восстанавливаем по public retained snapshots, а RX children не допускаем.
++        retained = getattr(manager, "snapshots", None)
++        if callable(retained):
++            with self._lock:
++                tx_ids = {attempt.tx_id for attempt in self._tx_attempts.values()
++                          if attempt.manager is manager and attempt.manager_generation == generation}
++            try:
++                snapshots.extend(value for value in retained()
++                                 if value.get("direction") == "TX" and value.get("transfer_id") in tx_ids)
++            except Exception as exc:
++                report_exception(exc, "voice TX overflow reconciliation")
++        for value in snapshots:
++            if value.get("state") not in {"completed", "failed", "cancelled"}:
++                continue
++            event = {
++                "transfer_id": value.get("transfer_id"),
++                "direction": value.get("direction"),
++                "filename": value.get("filename"),
++                "kind": "transfer_" + str(value["state"]),
++                "progress": dict(value),
++            }
++            self._handle_ft1_event(_FtEnvelope(manager, generation, value is snapshot, event))
+ 
+     def _handle_rx_completed(self, envelope: _FtEnvelope) -> None:
+         event = envelope.event
+@@ -623,6 +649,10 @@ class VoiceMessageService:
+             return
+         identity = (envelope.manager_generation, str(event.get("transfer_id")), "RX")
+         with self._condition:
++            # Файловая проверка шла без lock: за это время session могла смениться.
++            if (self._closing or envelope.manager is not self._manager
++                    or envelope.manager_generation != self._manager_generation):
++                return
+             if identity in self._autoplay_seen:
+                 return
+             self._autoplay_seen.add(identity)
+@@ -636,10 +666,11 @@ class VoiceMessageService:
+     def _playback_loop(self) -> None:
+         while not self._worker_stop.is_set():
+             with self._condition:
+-                self._condition.wait_for(
++                ready = self._condition.wait_for(
+                     lambda: self._worker_stop.is_set()
+                     or (
+-                        self._playback_queue
++                        not self._closing
++                        and self._playback_queue
+                         and self._audio_mode is None
+                         and self._state not in {"STARTING", "RECORDING", "FINALIZING"}
+                     ),
+@@ -647,7 +678,7 @@ class VoiceMessageService:
+                 )
+                 if self._worker_stop.is_set():
+                     return
+-                if not self._playback_queue or self._audio_mode is not None:
++                if not ready:
+                     continue
+                 request = self._playback_queue.popleft()
+                 self._audio_mode = "playback"
+@@ -703,9 +734,9 @@ class VoiceMessageService:
+                     )
+                 )
+         with self._condition:
+-            attempt = self._tx_attempt
+-            if attempt is not None and attempt.path.exists():
+-                self._retained_paths.add(attempt.path)
++            for attempt in self._tx_attempts.values():
++                if attempt.path.exists():
++                    self._retained_paths.add(attempt.path)
+             self._state = "CLOSED"
+             self._condition.notify_all()
+         self._worker_stop.set()
+diff --git a/tests/test_voice_lifecycle_regressions.py b/tests/test_voice_lifecycle_regressions.py
+new file mode 100644
+index 0000000..d71bbcc
+--- /dev/null
++++ b/tests/test_voice_lifecycle_regressions.py
+@@ -0,0 +1,330 @@
++import signal
++import subprocess
++import sys
++import threading
++from types import SimpleNamespace
++
++import pytest
++
++from serialterminal.file_transfer import FileTransferManager
++from serialterminal.voice_audio import AlsaAudioBackend, CaptureResult, VoiceAudioError, _AlsaCapture
++from serialterminal.voice_codec import VoiceCodecError
++from test_file_transfer_core import _PairBinaryTransport
++from test_voice_audio import _FakeCaptureProcess
++from test_voice_service import FakeAudio, FakeCapture, FakeManager, make_service, record_and_stop, wait_for
++
++
++def received_voice(manager, transfer_id="00000000000000bb"):
++    path = manager.receive_dir / "incoming.stvoice.c2"
++    path.write_bytes(bytes.fromhex("c0dec201020000") + b"\x09" * 8)
++    progress = {"transfer_id": transfer_id, "direction": "RX", "filename": path.name,
++                "state": "completed", "final_path": str(path)}
++    manager.snapshot = progress
++    return {"transfer_id": transfer_id, "direction": "RX", "filename": path.name,
++            "kind": "transfer_completed", "progress": dict(progress)}
++
++
++@pytest.mark.parametrize("second_stage", ["recording", "admitting"])
++def test_old_real_ft1_terminal_preserves_new_capture_owner(tmp_path, monkeypatch, second_stage):
++    left, right = _PairBinaryTransport(), _PairBinaryTransport()
++    left.peer, right.peer = right, left
++    first_send, terminal_entered = threading.Event(), threading.Event()
++    release_terminal, terminal_applied = threading.Event(), threading.Event()
++    second_admit, release_admit = threading.Event(), threading.Event()
++    service = None
++
++    def sink(event):
++        if event.get("direction") == "TX" and event.get("kind") == "binary_send_start":
++            assert first_send.wait(3)
++        if service is not None:
++            service.on_ft1_event(event, tx)
++
++    tx = FileTransferManager(left, receive_dir=tmp_path / "left-rx", event_sink=sink)
++    rx = FileTransferManager(right, receive_dir=tmp_path / "right-rx")
++    service = make_service(tmp_path, tx)
++    handle = service._handle_ft1_event
++    send = tx.start_send
++    calls = 0
++
++    def gated_handle(envelope):
++        if envelope.event.get("direction") == "TX" and envelope.event.get("kind") == "transfer_completed":
++            terminal_entered.set()
++            assert release_terminal.wait(3)
++            handle(envelope)
++            terminal_applied.set()
++        else:
++            handle(envelope)
++
++    def gated_admission(path):
++        nonlocal calls
++        calls += 1
++        if calls == 2 and second_stage == "admitting":
++            second_admit.set()
++            assert release_admit.wait(3)
++        return send(path)
++
++    monkeypatch.setattr(service, "_handle_ft1_event", gated_handle)
++    monkeypatch.setattr(tx, "start_send", gated_admission)
++    try:
++        record_and_stop(service)
++        wait_for(lambda: service.snapshot().state == "IDLE")
++        first_source = next((tmp_path / "voice-temp").glob("*.stvoice.c2"))
++        first_send.set()
++        assert terminal_entered.wait(3)
++        wait_for(lambda: not tx.busy)
++        assert rx.display_snapshot()["state"] == "completed"
++        assert service.toggle_recording()
++        wait_for(lambda: service.snapshot().state == "RECORDING")
++        if second_stage == "admitting":
++            assert service.toggle_recording()
++            assert second_admit.wait(3)
++        expected = "ADMITTING" if second_stage == "admitting" else "RECORDING"
++        assert service.snapshot().state == expected
++        release_terminal.set()
++        assert terminal_applied.wait(3)
++        assert service.snapshot().state == expected
++        assert service.local_operation_active()
++        assert not first_source.exists()
++        if second_stage == "recording":
++            assert service.toggle_recording()
++        else:
++            release_admit.set()
++        wait_for(lambda: len(list(rx.receive_dir.glob("*.stvoice.c2"))) == 2)
++        wait_for(lambda: service.snapshot().state == "IDLE" and not tx.busy)
++        wait_for(lambda: not list((tmp_path / "voice-temp").glob("*.stvoice.c2")))
++    finally:
++        first_send.set()
++        release_terminal.set()
++        release_admit.set()
++        service.close()
++        tx.close()
++        rx.close()
++
++
++@pytest.mark.parametrize("overflow", [False, True])
++def test_two_admitted_attempts_keep_independent_cleanup(tmp_path, overflow):
++    class SequentialManager(FakeManager):
++        def start_send(self, path):
++            result = super().start_send(path)
++            result["transfer_id"] = f"{len(sources) + 1:016x}"
++            self.snapshot = result
++            sources.append((path, dict(result)))
++            return result
++
++    sources = []
++    manager = SequentialManager(tmp_path / "rx")
++    service = make_service(tmp_path, manager)
++    try:
++        for count in (1, 2):
++            record_and_stop(service)
++            wait_for(lambda: len(sources) == count and service.snapshot().state == "IDLE")
++        if overflow:
++            manager.snapshot = {**sources[-1][1], "state": "completed"}
++            manager.snapshots = lambda: [{**result, "state": "completed"} for _, result in sources]
++            service._overflow_manager = manager
++            service._reconcile_overflow()
++        else:
++            for path, result in sources:
++                service.on_ft1_event({**result, "kind": "transfer_completed",
++                                      "progress": {**result, "state": "completed"}}, manager)
++        wait_for(lambda: all(not path.exists() for path, _ in sources))
++    finally:
++        service.close()
++
++
++@pytest.mark.parametrize("startup_fails", [False, True])
++def test_rx_playback_waits_through_startup_timeout(tmp_path, startup_fails):
++    class DelayedAudio(FakeAudio):
++        def __init__(self):
++            super().__init__()
++            self.entered, self.release = threading.Event(), threading.Event()
++            self.block_playback = True
++
++        def start_capture(self):
++            self.entered.set()
++            assert self.release.wait(3)
++            if startup_fails:
++                raise VoiceAudioError("capture startup failed")
++            return super().start_capture()
++
++    audio = DelayedAudio()
++    manager = FakeManager(tmp_path / "rx", mode="busy")
++    service = make_service(tmp_path, manager, audio=audio)
++    try:
++        assert service.toggle_recording() and audio.entered.wait(3)
++        service.on_ft1_event(received_voice(manager), manager)
++        assert not audio.play_started.wait(0.35)
++        assert service.snapshot().state == "STARTING"
++        audio.release.set()
++        if not startup_fails:
++            wait_for(lambda: service.snapshot().state == "RECORDING")
++            assert not audio.play_started.is_set()
++            assert service.toggle_recording()
++        assert audio.play_started.wait(3)
++        assert service.toggle_recording() is False
++        audio.play_release.set()
++        wait_for(lambda: len(audio.played) == 1)
++    finally:
++        audio.release.set()
++        audio.play_release.set()
++        service.close()
++
++
++@pytest.mark.parametrize("code,forced,send", [(0, False, True), (-signal.SIGINT, False, True),
++                                              (-signal.SIGKILL, False, False), (1, False, False),
++                                              (2, False, False), (0, True, False)])
++def test_capture_stop_outcome_controls_auto_send(tmp_path, code, forced, send):
++    class ResultCapture(FakeCapture):
++        def finish(self):
++            return SimpleNamespace(returncode=code, requested_stop=self.stop, stderr="capture outcome",
++                                   forced_stop=forced, graceful_stop=self.stop and not forced
++                                   and code in (0, -signal.SIGINT))
++
++    class ResultAudio(FakeAudio):
++        def start_capture(self):
++            return ResultCapture(self.chunks)
++
++    manager = FakeManager(tmp_path / "rx")
++    service = make_service(tmp_path, manager, audio=ResultAudio())
++    try:
++        record_and_stop(service)
++        wait_for(lambda: service.snapshot().state in {"IDLE", "READY_FILE"})
++        assert manager.started.is_set() is send
++        if not send:
++            assert not list((tmp_path / "voice-temp").glob("*.stvoice.c2"))
++            assert not list((tmp_path / "voice-temp").glob("*.partial"))
++            assert any("failed" in line for line in service.drain_notifications())
++    finally:
++        service.close()
++
++
++def test_capture_backend_records_forced_fallback_even_if_exit_zero():
++    process = _FakeCaptureProcess(wait_results=["timeout", 0, 0])
++    capture = _AlsaCapture(process, stop_timeout=0.01, kill_timeout=0.01)
++    try:
++        capture.request_stop()
++        result = capture.finish()
++        assert result.returncode == 0
++        assert getattr(result, "forced_stop", False)
++        assert not getattr(result, "graceful_stop", True)
++    finally:
++        capture.close()
++
++
++@pytest.mark.parametrize("replace_during_validation", [False, True])
++def test_obsolete_rx_is_not_admitted_after_manager_replacement(tmp_path, monkeypatch, replace_during_validation):
++    old, new = FakeManager(tmp_path / "old"), FakeManager(tmp_path / "new")
++    audio = FakeAudio()
++    service = make_service(tmp_path, old, audio=audio)
++    event = received_voice(old)
++    entered, release = threading.Event(), threading.Event()
++    import serialterminal.voice_service as voice_module
++    validate = voice_module.validate_c2_file
++
++    def delayed_validate(path, **kwargs):
++        entered.set()
++        assert release.wait(3)
++        return validate(path, **kwargs)
++
++    try:
++        if replace_during_validation:
++            monkeypatch.setattr(voice_module, "validate_c2_file", delayed_validate)
++            service.on_ft1_event(event, old)
++            assert entered.wait(3)
++        service.detach_manager(old)
++        service.bind_manager(new)
++        if not replace_during_validation:
++            service.on_ft1_event(event, old)
++        release.set()
++        assert not audio.play_started.wait(0.35)
++        assert (old.receive_dir / "incoming.stvoice.c2").exists()
++        monkeypatch.setattr(voice_module, "validate_c2_file", validate)
++        service.on_ft1_event(received_voice(new, "00000000000000cc"), new)
++        wait_for(lambda: len(audio.played) == 1)
++    finally:
++        release.set()
++        service.close()
++
++
++@pytest.mark.parametrize("failure", ["decode", "write"])
++def test_playback_error_reaps_real_child(tmp_path, monkeypatch, failure):
++    processes = []
++
++    def spawn(_argv, **kwargs):
++        process = subprocess.Popen([sys.executable, "-c", "import time; time.sleep(30)"], **kwargs)
++        processes.append(process)
++        if failure == "write":
++            class BrokenInput:
++                closed = False
++
++                def write(self, _data):
++                    raise BrokenPipeError("injected pipe failure")
++
++                def close(self):
++                    self.closed = True
++            original = process.stdin
++            process.stdin = BrokenInput()
++            process.original_stdin = original
++        return process
++
++    def chunks():
++        if failure == "decode":
++            raise VoiceCodecError("decode failed")
++        yield b"\x00\x00" * 160
++
++    backend = AlsaAudioBackend(popen_factory=spawn)
++    monkeypatch.setattr(backend, "availability", lambda: (True, ""))
++    expected = VoiceCodecError if failure == "decode" else VoiceAudioError
++    try:
++        with pytest.raises(expected):
++            backend.play_pcm(chunks(), threading.Event())
++        assert processes[0].poll() is not None
++        backend.stop_playback()
++    finally:
++        for process in processes:
++            if process.poll() is None:
++                process.terminate()
++            process.wait(timeout=3)
++            if hasattr(process, "original_stdin"):
++                process.original_stdin.close()
++
++
++def test_graceful_capture_result_accepts_requested_sigint():
++    result = CaptureResult(-signal.SIGINT, True, "")
++    assert getattr(result, "graceful_stop", False)
++
++
++def test_capture_that_exited_before_stop_is_not_a_requested_completion():
++    process = _FakeCaptureProcess(wait_results=[0, 0])
++    process.poll = lambda: 0
++    capture = _AlsaCapture(process, stop_timeout=0.01, kill_timeout=0.01)
++    try:
++        capture.request_stop()
++        result = capture.finish()
++        assert result.requested_stop is False
++        assert not result.graceful_stop
++        assert process.signals == []
++    finally:
++        capture.close()
++
++
++def test_playback_cancellation_reaps_child(monkeypatch):
++    processes = []
++
++    def spawn(_argv, **kwargs):
++        process = subprocess.Popen([sys.executable, "-c", "import time; time.sleep(30)"], **kwargs)
++        processes.append(process)
++        return process
++
++    backend = AlsaAudioBackend(popen_factory=spawn)
++    monkeypatch.setattr(backend, "availability", lambda: (True, ""))
++    cancel = threading.Event()
++    cancel.set()
++    try:
++        backend.play_pcm([b"\0\0" * 160], cancel)
++        assert processes[0].poll() is not None
++    finally:
++        for process in processes:
++            if process.poll() is None:
++                process.terminate()
++            process.wait(timeout=3)

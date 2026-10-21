@@ -1,0 +1,104 @@
+{
+  "logs_are_live_snapshots": true,
+  "runs": [
+    {
+      "pid": 447426,
+      "snapshots": {
+        "serialterminal.log": {
+          "source": "/home/dream/coding/python/serialterminal/logs/serialterminal-20261022-013443-965670-p447426.log",
+          "bytes": 1226,
+          "sha256": "17592e0cdb22abfc1bcab659713d077ed2cffa53238d06caf401d465869beae6"
+        },
+        "serialterminal.console.log": {
+          "source": "/home/dream/coding/python/serialterminal/logs/serialterminal-20261022-013443-965670-p447426.console.log",
+          "bytes": 663,
+          "sha256": "f79541d3ab7b035b5836fedc90f8e7d611c93f29bace06c00a0d931972d45096"
+        },
+        "serialterminal.fttiming.jsonl": {
+          "source": "/home/dream/coding/python/serialterminal/logs/serialterminal-20261022-013443-965670-p447426.fttiming.jsonl",
+          "bytes": 0,
+          "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+        },
+        "serialterminal.application.log": {
+          "source": "/home/dream/coding/python/serialterminal/logs/serialterminal-application-20261022-013435-584812-p447426.log",
+          "bytes": 689,
+          "sha256": "c03f873162d5319531d064e9acef6bfc75929a85eaf6a36f1c1b7292e6458df4"
+        }
+      },
+      "voice_start_mentions": 2,
+      "capture_failures": [
+        {
+          "file": "/home/dream/coding/journal_of_experiments/20261021T223654Z_st_arecord_status1/pid-447426/serialterminal.application.log",
+          "line": 3,
+          "time": "2026-10-22T01:34:55.735+03:00",
+          "capture_status": 1,
+          "backend_stderr_present": false
+        },
+        {
+          "file": "/home/dream/coding/journal_of_experiments/20261021T223654Z_st_arecord_status1/pid-447426/serialterminal.application.log",
+          "line": 7,
+          "time": "serialterminal.voice_audio.VoiceAudioError:",
+          "capture_status": 1,
+          "backend_stderr_present": false
+        },
+        {
+          "file": "/home/dream/coding/journal_of_experiments/20261021T223654Z_st_arecord_status1/pid-447426/serialterminal.application.log",
+          "line": 8,
+          "time": "2026-10-22T01:34:55.739+03:00",
+          "capture_status": 1,
+          "backend_stderr_present": false
+        },
+        {
+          "file": "/home/dream/coding/journal_of_experiments/20261021T223654Z_st_arecord_status1/pid-447426/serialterminal.log",
+          "line": 15,
+          "time": "2026-10-22T01:34:55.799+03:00",
+          "capture_status": 1,
+          "backend_stderr_present": false
+        }
+      ],
+      "application_errors": {
+        "errors": 1,
+        "started": true,
+        "stopped": false
+      },
+      "FT1_event_counts": {}
+    },
+    {
+      "pid": 447430,
+      "snapshots": {
+        "serialterminal.log": {
+          "source": "/home/dream/coding/python/serialterminal/logs/serialterminal-20261022-013447-648282-p447430.log",
+          "bytes": 989,
+          "sha256": "9833704df0c2ef69be662859a0dd76a655ed51b0fcce2e87f71dffc8635a107a"
+        },
+        "serialterminal.console.log": {
+          "source": "/home/dream/coding/python/serialterminal/logs/serialterminal-20261022-013447-648282-p447430.console.log",
+          "bytes": 663,
+          "sha256": "d34a07e7a8b11988a3633a7c9ab0ae911f042747fc5f074e9b090d1a4dfc548a"
+        },
+        "serialterminal.fttiming.jsonl": {
+          "source": "/home/dream/coding/python/serialterminal/logs/serialterminal-20261022-013447-648282-p447430.fttiming.jsonl",
+          "bytes": 0,
+          "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+        },
+        "serialterminal.application.log": {
+          "source": "/home/dream/coding/python/serialterminal/logs/serialterminal-application-20261022-013439-617506-p447430.log",
+          "bytes": 69,
+          "sha256": "ed1897634cc7cdd315fdfc8237c788225d0437fca4d9491d76d13126c3e68905"
+        }
+      },
+      "voice_start_mentions": 0,
+      "capture_failures": [],
+      "application_errors": {
+        "errors": 0,
+        "started": true,
+        "stopped": false
+      },
+      "FT1_event_counts": {}
+    }
+  ],
+  "source_sha256": {
+    "src/serialterminal/voice_audio.py": "e4d1fb12e3b701bc95c75069603198ca0b16e7c4aae39c83ca36bef34a09dc58",
+    "src/serialterminal/voice_service.py": "2b77884ad65da6707a16c039195f43463229cd2dc71101499a9dabd92a0ebc5a"
+  }
+}

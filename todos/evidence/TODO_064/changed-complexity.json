@@ -1,0 +1,146 @@
+{
+  "src/serialterminal/voice_audio.py": {
+    "finish( self )": {
+      "before": {
+        "cc": 1,
+        "nloc": 6,
+        "params": 1
+      },
+      "after": {
+        "cc": 1,
+        "nloc": 7,
+        "params": 1
+      }
+    },
+    "play_pcm( self , chunks : Iterable [ bytes ] , cancel_event : threading . Event )": {
+      "before": {
+        "cc": 20,
+        "nloc": 56,
+        "params": 3
+      },
+      "after": {
+        "cc": 25,
+        "nloc": 67,
+        "params": 3
+      }
+    },
+    "graceful_stop( self )": {
+      "before": null,
+      "after": {
+        "cc": 3,
+        "nloc": 3,
+        "params": 1
+      }
+    },
+    "__init__( self , process : subprocess . Popen , * , stop_timeout : float , kill_timeout : float )": {
+      "before": {
+        "cc": 1,
+        "nloc": 15,
+        "params": 4
+      },
+      "after": {
+        "cc": 1,
+        "nloc": 16,
+        "params": 4
+      }
+    },
+    "_wait_bounded( self )": {
+      "before": {
+        "cc": 5,
+        "nloc": 16,
+        "params": 1
+      },
+      "after": {
+        "cc": 5,
+        "nloc": 17,
+        "params": 1
+      }
+    }
+  },
+  "src/serialterminal/voice_service.py": {
+    "toggle_recording( self )": {
+      "before": {
+        "cc": 10,
+        "nloc": 43,
+        "params": 1
+      },
+      "after": {
+        "cc": 10,
+        "nloc": 44,
+        "params": 1
+      }
+    },
+    "_capture_worker( self , job_id : str )": {
+      "before": {
+        "cc": 34,
+        "nloc": 125,
+        "params": 2
+      },
+      "after": {
+        "cc": 35,
+        "nloc": 128,
+        "params": 2
+      }
+    },
+    "_handle_ft1_event( self , envelope : _FtEnvelope )": {
+      "before": {
+        "cc": 11,
+        "nloc": 21,
+        "params": 2
+      },
+      "after": {
+        "cc": 14,
+        "nloc": 24,
+        "params": 2
+      }
+    },
+    "_apply_tx_terminal_locked( self , attempt : _TxAttempt , event : dict [ str , Any ] )": {
+      "before": {
+        "cc": 8,
+        "nloc": 29,
+        "params": 3
+      },
+      "after": {
+        "cc": 9,
+        "nloc": 30,
+        "params": 3
+      }
+    },
+    "_reconcile_overflow( self )": {
+      "before": {
+        "cc": 7,
+        "nloc": 22,
+        "params": 1
+      },
+      "after": {
+        "cc": 16,
+        "nloc": 34,
+        "params": 1
+      }
+    },
+    "_handle_rx_completed( self , envelope : _FtEnvelope )": {
+      "before": {
+        "cc": 10,
+        "nloc": 38,
+        "params": 2
+      },
+      "after": {
+        "cc": 13,
+        "nloc": 41,
+        "params": 2
+      }
+    },
+    "_playback_loop( self )": {
+      "before": {
+        "cc": 11,
+        "nloc": 35,
+        "params": 1
+      },
+      "after": {
+        "cc": 11,
+        "nloc": 36,
+        "params": 1
+      }
+    }
+  }
+}

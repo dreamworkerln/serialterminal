@@ -1,0 +1,44 @@
+..F.......                                                               [100%]
+=================================== FAILURES ===================================
+_______ test_capture_stop_outcome_controls_auto_send[1-False-True--True] _______
+
+tmp_path = PosixPath('/tmp/pytest-of-dream/pytest-15/test_capture_stop_outcome_cont2')
+code = 1, forced = False, requested = True, stderr = '', send = True
+
+    @pytest.mark.parametrize("code,forced,requested,stderr,send", [
+        (0, False, True, "", True),
+        (-signal.SIGINT, False, True, "", True),
+        (1, False, True, "", True),
+        (1, False, True, "audio read error", False),
+        (1, False, False, "", False),
+        (1, True, True, "", False),
+        (-signal.SIGKILL, False, True, "", False),
+        (2, False, True, "", False),
+        (0, True, True, "", False),
+        (0, False, False, "", False),
+    ])
+    def test_capture_stop_outcome_controls_auto_send(tmp_path, code, forced, requested, stderr, send):
+        class ResultCapture(FakeCapture):
+            def finish(self):
+                return CaptureResult(returncode=code, requested_stop=self.stop and requested,
+                                     stderr=stderr, forced_stop=forced)
+    
+        class ResultAudio(FakeAudio):
+            def start_capture(self):
+                return ResultCapture(self.chunks)
+    
+        manager = FakeManager(tmp_path / "rx")
+        service = make_service(tmp_path, manager, audio=ResultAudio())
+        try:
+            record_and_stop(service)
+            wait_for(lambda: service.snapshot().state in {"IDLE", "READY_FILE"})
+>           assert manager.started.is_set() is send
+E           assert False is True
+E            +  where False = is_set()
+E            +    where is_set = <threading.Event at 0x7f41608749b0: unset>.is_set
+E            +      where <threading.Event at 0x7f41608749b0: unset> = <test_voice_service.FakeManager object at 0x7f4160874ad0>.started
+
+tests/test_voice_lifecycle_regressions.py:200: AssertionError
+=========================== short test summary info ============================
+FAILED tests/test_voice_lifecycle_regressions.py::test_capture_stop_outcome_controls_auto_send[1-False-True--True]
+1 failed, 9 passed, 14 deselected in 1.80s

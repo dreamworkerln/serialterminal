@@ -1,0 +1,12 @@
+{
+  "warning_test_ids": [
+    "tests/test_file_transfer_publication.py::test_two_processes_publish_same_basename_without_overwrite_or_dual_path",
+    "tests/test_file_transfer_publication.py::test_two_processes_publish_same_basename_without_overwrite_or_dual_path",
+    "tests/test_ft1_durable_ownership.py::test_process_lease_protects_expired_over_budget_state_and_crash_releases_it",
+    "tests/test_ft1_live_retention.py::test_growth_cannot_evict_live_partial_of_other_process",
+    "tests/test_ft1_peer_journals.py::test_processes_can_own_same_id_for_different_peers",
+    "tests/test_timing.py::test_two_process_timing_writers_keep_segments_and_lines_distinct",
+    "tests/test_timing.py::test_two_process_timing_writers_keep_segments_and_lines_distinct"
+  ],
+  "warning_type": "Python 3.12 multiprocessing fork DeprecationWarning"
+}

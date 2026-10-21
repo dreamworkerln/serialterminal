@@ -144,13 +144,15 @@ duration/encoded-byte cap and no timed auto-send: recording ends only on the sec
 memory. If FT1 cannot accept the finalized file, the path is retained and shown as
 `VOICE READY`; use normal `F5` to select that same file after FT1 becomes available.
 Successful voice-owned TX removes its generated temporary source; failed/cancelled or
-refused admission retains it.
+refused admission retains it. A forced or failed microphone stop aborts the recording
+without automatically sending it.
 
 On RX, autoplay is considered only after verified durable ROOT FT1 completion. The wire
 filename must end in `.stvoice.c2`, the standard `.c2` header/body must validate, and
 the published `final_path` must be the direct FT1 receive file. Recursive service files,
 failed/cancelled transfers, invalid/unsupported Codec2 files and ordinary `.c2` files do
-not autoplay. Playback and microphone capture never overlap; a voice received while
+not autoplay. Late completions from a replaced session do not start new autoplay.
+Playback and microphone capture never overlap, including microphone startup; a voice received while
 recording waits until capture/finalization releases the audio device, while `F12` during
 playback is rejected without interrupting playback. Received files are retained after
 playback success or failure.

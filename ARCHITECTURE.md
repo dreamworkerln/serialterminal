@@ -491,7 +491,10 @@ is never admitted to FT1. Admission calls `FileTransferManager.start_send()` out
 curses thread. The local voice attempt is registered before that call so a terminal FT1
 event that races the return value can be reconciled exactly once. If admission is
 refused, the completed source is retained as `READY_FILE`; normal F5 is the manual retry
-path rather than a second voice delivery state machine.
+path rather than a second voice delivery state machine. Capture jobs and unsettled TX
+attempts have separate ownership: an older terminal can clean up its source without
+changing a newer recording/admission. Each pending TX retains its job identity until
+settlement; overflow reconciliation uses public retained snapshots for older TXs.
 
 RX autoplay is a consumer of the existing verified durable ROOT `transfer_completed`
 event. The event's wire filename decides whether it is a voice message while
@@ -500,16 +503,26 @@ files and nonterminal/failed/cancelled results never become audio events. Event 
 and voice dispatch have independent exception boundaries; playback does not run from
 the logger or FT1 callback. A bounded queue serializes playback and rejects new autoplay
 requests on overflow while preserving the received file and successful FT1 result.
+RX manager/generation is checked both before file validation and before enqueue, so
+late events from a replaced session cannot create a new autoplay admission.
 
 One condition-protected audio owner prevents simultaneous capture and playback. RX may
-continue through FT1 while capture is active, but its playback waits. F12 never aborts
+continue through FT1 while capture is active, but its playback waits. The owner is
+reserved in STARTING before SDK loading and microphone startup; a timed-out wait cannot
+admit playback. F12 never aborts
 active playback. During capture/finalization/admission the TUI blocks device/profile/F5
 and disruptive human actions while preserving non-disruptive profile controls and
 normal process exit. Process cleanup, event queues and playback queues are bounded; the
 recording itself intentionally has no arbitrary duration/encoded-byte timer in this
 first stage and ends on the second F12. Shutdown never implicitly sends an unfinished
 recording, and late admission/terminal results are retention-only once service shutdown
-has begun.
+has begun. Capture outcomes distinguish a requested graceful stop from forced
+terminate/kill and unexpected exit; forced or failed capture is never auto-sent.
+The quiet arecord backend may return status 1 on normal SIGINT (alsa-utils 1.2.6);
+that result is accepted only after our requested stop, without forced fallback or
+stderr diagnostic. An unsolicited exit or status 1 with diagnostic remains a failure.
+Every spawned playback child is stopped/reaped on decoder/iterator/pipe failure as
+well as cancellation, before releasing its process ownership.
 
 The first implementation is human-TUI only. It adds no agent JSONL operation/schema,
 no firmware/wire behavior and no realtime voice transport.

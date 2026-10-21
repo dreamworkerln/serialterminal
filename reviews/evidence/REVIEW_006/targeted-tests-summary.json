@@ -1,0 +1,23 @@
+{
+  "command": [
+    "/home/dream/coding/journal_of_experiments/20261021T214130Z_st_codec2_review006/qa-env/bin/python",
+    "-m",
+    "pytest",
+    "-q",
+    "-p",
+    "no:cacheprovider",
+    "tests/test_voice_codec.py",
+    "tests/test_voice_audio.py",
+    "tests/test_voice_service.py",
+    "tests/test_tui_voice.py",
+    "tests/test_tui.py",
+    "tests/test_cli.py"
+  ],
+  "python": "Python 3.12.15",
+  "exit_code": 0,
+  "seconds": 2.275,
+  "summary": [
+    "74 passed in 2.00s"
+  ],
+  "scope": "targeted subset, not full suite"
+}

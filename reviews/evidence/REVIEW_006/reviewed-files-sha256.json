@@ -1,0 +1,20 @@
+{
+  "ARCHITECTURE.md": "3f9fd439f379236d03c2387f99d9fe0f7e84355fc38a3bdd89efe0dd8ab45a24",
+  "FILE_TRANSFER.md": "2bea1088779fc67d2bf248538372f54206d40749dc0ab9298b176796b6e73a59",
+  "INSTALL.md": "17d823105c99d469957ecb0de393faef1d583214216729c16b704f3ce12a6040",
+  "README.md": "a8e3fb67a5022b8dbefcd67a5923a1fa57320d9551b92fbf9fa936dda32366a5",
+  "TODO_INVENTORY.md": "210838a1381ca3ae4db87ec0817920bb7763d6963898c80a4b96afe6df51e97a",
+  "src/serialterminal/cli.py": "245fe1963226bece64d52fcf91668dd50fa3d28a2bb7e12be9b88bbbccf4164a",
+  "src/serialterminal/settings.py": "65c2e1c9dbc0933fecce57707dc05b7f81818ef3412e5f00fc5105d1926385f4",
+  "src/serialterminal/tui.py": "b714ca6e5bd522e0fcca8930f864162e50fbd0a4ffd9ee9cb4b67c7fc56a91a9",
+  "src/serialterminal/tui_core.py": "61821c6237871e913a741e96fb7e7a89dd7d005c60410741c2d8a74b8f82337c",
+  "src/serialterminal/voice_audio.py": "56bb67ece8cb7abbdcf06b0f40bd0823d7caa837556ce4ed42728ab36aa3c179",
+  "src/serialterminal/voice_codec.py": "2c0d82adcaeca7b1b912c465ec3fd5534b4c7ff58c6d1c0deb4d75e2d2c83266",
+  "src/serialterminal/voice_service.py": "6d6550a7b81ceca7bed1636d3f22b83db32c8889a0557e05bd2da7073d499b90",
+  "tests/test_cli.py": "bf707df097b2cd2217635609e4295cac31d6938ffc0d63960a19b67c2c977c93",
+  "tests/test_tui_voice.py": "a0e0a0387ab5c36d15540c69217216179db6d4588023405fb833b8f4c2448982",
+  "tests/test_voice_audio.py": "ef3868eceb80d5d2e555ef868269e741de0b48d8fdf72af0e8712fe3373a09c8",
+  "tests/test_voice_codec.py": "6402bcad851cd637faf77c827aed2318aa1326a5ad9197425482a5776222f72b",
+  "tests/test_voice_service.py": "e658daae31a0a3ef82e179f21bcd7bf4e3cd939ccafb43c78e84c588c3d94f1e",
+  "todos/TODO_063_CODEC2_VOICE_MESSAGES.md": "209452cd0f096c112b30ffe7790b68c9c8ed4ec30480907ec8fc21a19de0d522"
+}

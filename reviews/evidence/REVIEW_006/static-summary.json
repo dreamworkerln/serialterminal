@@ -1,0 +1,49 @@
+{
+  "compile_no_bytecode_files": 12,
+  "function_inventory": {
+    "src/serialterminal/cli.py": {
+      "removed_functions": [],
+      "added_functions": []
+    },
+    "src/serialterminal/settings.py": {
+      "removed_functions": [],
+      "added_functions": []
+    },
+    "src/serialterminal/tui.py": {
+      "removed_functions": [],
+      "added_functions": []
+    },
+    "src/serialterminal/tui_core.py": {
+      "removed_functions": [],
+      "added_functions": [
+        "_dispatch_file_transfer_event",
+        "_poll_voice_notifications",
+        "_toggle_voice",
+        "_voice_available",
+        "_voice_local_active"
+      ]
+    }
+  },
+  "ruff_exit_code": 0,
+  "ruff_command": [
+    "/home/dream/coding/journal_of_experiments/20261021T214130Z_st_codec2_review006/qa-env/bin/python",
+    "-m",
+    "ruff",
+    "check",
+    "--no-cache",
+    "src/serialterminal/cli.py",
+    "src/serialterminal/settings.py",
+    "src/serialterminal/tui.py",
+    "src/serialterminal/tui_core.py",
+    "src/serialterminal/voice_audio.py",
+    "src/serialterminal/voice_codec.py",
+    "src/serialterminal/voice_service.py",
+    "tests/test_cli.py",
+    "tests/test_tui_voice.py",
+    "tests/test_voice_audio.py",
+    "tests/test_voice_codec.py",
+    "tests/test_voice_service.py"
+  ],
+  "ruff_summary": "All checks passed!",
+  "compile_interpreter": "3.12.15"
+}

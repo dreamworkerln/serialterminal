@@ -1,0 +1,16 @@
+{
+  "sdk_path": "/home/dream/coding/python/codec2-sdk/dist/linux-x86_64",
+  "sdk_manifest_sha256": "17cbe59b3d5c8fa37e10fd73684d4ff283f28add95145995ba91dc3bf11e7ff1",
+  "sdk_upstream": {
+    "codec2_version": "1.2.0",
+    "commit": "310777b1c6f1af0bc7c72f5b32f80f6fd9136962",
+    "repository": "https://github.com/drowe67/codec2.git"
+  },
+  "ST_frames": 50,
+  "ST_encoded_bytes": 407,
+  "SDK_decoded_ST_bytes": 16000,
+  "ST_decoded_SDK_bytes": 16000,
+  "encoded_payload_identical": true,
+  "library_sha256": "4b2389d69871215379bfc3d25332345acda0760ddbdbac0bb50b884b5a6e95cd",
+  "outcome": "PASS"
+}

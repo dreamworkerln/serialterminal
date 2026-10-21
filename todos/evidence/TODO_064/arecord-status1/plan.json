@@ -1,0 +1,13 @@
+{
+  "scope": "F12 requested quiet arecord status-1 regression; software only",
+  "forbidden_devices": "No microphone, speaker, serial, BLE or radio opened; only ALSA -D null",
+  "failure": "Operator observed status 1 after requested F12 stop; previous classifier accepted only 0/-SIGINT",
+  "acceptance": [
+    "Requested quiet status 1 with no diagnostic and no fallback accepted",
+    "Forced stop, status 1 with diagnostic, unsolicited exit and status 2 rejected",
+    "Same new test fails before fix and passes after fix",
+    "Full existing workflow software commands pass (complexity advisory as configured)"
+  ],
+  "operator_retest": "OPEN: restart both ST processes then record/F12/send with real microphone",
+  "base": "8a9d91dc03630dec88c67ca0282a12dcff9ae89b"
+}

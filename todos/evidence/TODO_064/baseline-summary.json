@@ -1,0 +1,36 @@
+{
+  "base": "8a9d91dc03630dec88c67ca0282a12dcff9ae89b",
+  "command": [
+    "/home/dream/coding/journal_of_experiments/20261021T214130Z_st_codec2_review006/qa-env/bin/python",
+    "-m",
+    "pytest",
+    "-q",
+    "-p",
+    "no:cacheprovider",
+    "tests/test_voice_lifecycle_regressions.py"
+  ],
+  "exit_code": 1,
+  "seconds": 6.695,
+  "summary": [
+    "                    raise VoiceAudioError(\"capture startup failed\")",
+    "                    raise VoiceAudioError(\"capture startup failed\")",
+    "                raise VoiceCodecError(\"decode failed\")",
+    "                raise VoiceCodecError(\"decode failed\")",
+    "FAILED tests/test_voice_lifecycle_regressions.py::test_old_real_ft1_terminal_preserves_new_capture_owner[recording]",
+    "FAILED tests/test_voice_lifecycle_regressions.py::test_old_real_ft1_terminal_preserves_new_capture_owner[admitting]",
+    "FAILED tests/test_voice_lifecycle_regressions.py::test_two_admitted_attempts_keep_independent_cleanup",
+    "FAILED tests/test_voice_lifecycle_regressions.py::test_rx_playback_waits_through_startup_timeout[False]",
+    "FAILED tests/test_voice_lifecycle_regressions.py::test_rx_playback_waits_through_startup_timeout[True]",
+    "FAILED tests/test_voice_lifecycle_regressions.py::test_capture_stop_outcome_controls_auto_send[-9-False-False]",
+    "FAILED tests/test_voice_lifecycle_regressions.py::test_capture_stop_outcome_controls_auto_send[1-False-False]",
+    "FAILED tests/test_voice_lifecycle_regressions.py::test_capture_stop_outcome_controls_auto_send[2-False-False]",
+    "FAILED tests/test_voice_lifecycle_regressions.py::test_capture_stop_outcome_controls_auto_send[0-True-False]",
+    "FAILED tests/test_voice_lifecycle_regressions.py::test_capture_backend_records_forced_fallback_even_if_exit_zero",
+    "FAILED tests/test_voice_lifecycle_regressions.py::test_obsolete_rx_is_not_admitted_after_manager_replacement[False]",
+    "FAILED tests/test_voice_lifecycle_regressions.py::test_obsolete_rx_is_not_admitted_after_manager_replacement[True]",
+    "FAILED tests/test_voice_lifecycle_regressions.py::test_playback_error_reaps_real_child[decode]",
+    "FAILED tests/test_voice_lifecycle_regressions.py::test_playback_error_reaps_real_child[write]",
+    "FAILED tests/test_voice_lifecycle_regressions.py::test_graceful_capture_result_accepts_requested_sigint",
+    "15 failed, 2 passed in 6.43s"
+  ]
+}

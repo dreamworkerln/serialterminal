@@ -3,6 +3,7 @@
 TODO-ID: TODO_063
 Status: IMPLEMENTED / LOCAL SOFTWARE VALIDATION PASS / CLEAN-ENV CI REQUIRED / REAL INTEGRATION OPEN
 Priority: P2
+Corrective task: [TODO_064](TODO_064_CODEC2_VOICE_LIFECYCLE_FIXES.md) tracks REVIEW_006/F001–F005; F003 stop correction awaits operator retest; full real-audio/radio acceptance remains here.
 Created: 2026-10-21
 Planning checkpoint: `dev_tui_exp_recursive_missing@184fabfb8088b5b3568a26883c0a71159468864e`.
 Plan revision: 2026-10-21 по [REVIEW_005](../reviews/REVIEW_005_CODEC2_VOICE_FILE_INTEGRATION.md), findings F001–F003.
@@ -533,3 +534,29 @@ cannot be collected in this stripped local checkout because `pyserial` is not in
 clean-environment GDI CI remains required and is not replaced by that local limitation.
 Exact built-SDK interoperability and real `arecord`/`aplay` smoke remain OPEN, therefore
 this TODO is IMPLEMENTED but not CLOSED. Paired radio validation remains OPEN separately.
+
+## Corrective lifecycle validation — 2026-10-22
+
+[REVIEW_006](../reviews/REVIEW_006_CODEC2_VOICE_IMPLEMENTATION.md) found five defects
+at 8a9d91d. Operator requested a separate corrective TODO and fixes:
+[TODO_064](TODO_064_CODEC2_VOICE_LIFECYCLE_FIXES.md). Its initial software validation
+(before the host arecord status-1 regression) used BASE 8a9d91d + saved patch:
+independent capture/TX ownership, startup audio
+exclusion, stop classification, RX generation barrier and child cleanup.
+The same 20 regression cases: old snapshot 17 FAIL / 3 PASS, fixed source 20 PASS;
+full local pytest 1415 PASS, compile/Ruff PASS. Review verdict stays historical RED.
+Actual SDK interoperability was confirmed by REVIEW_006 on unchanged voice_codec;
+real microphone/speaker and paired-radio acceptance, server CI and release remain
+separate OPEN gates. TODO_063 is not CLOSED by these software results.
+
+### Host F12 stop correction
+
+TODO_064 was reopened after the operator reported normal F12 stop returning arecord
+status 1. This was reproduced with installed alsa-utils 1.2.6 on virtual ALSA null.
+Classification now accepts requested quiet status 1 without fallback/diagnostic;
+forced stop and diagnosed errors remain rejected. Expanded regression tests use
+the production CaptureResult classifier. Current correction evidence and validation
+are in TODO_064; operator microphone retest and full audio/radio gates remain OPEN.
+
+After the stop correction: full local pytest 1419 PASS, compile/Ruff PASS;
+operator real-microphone F12 retest remains OPEN.

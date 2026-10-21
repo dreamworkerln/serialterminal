@@ -1,0 +1,20 @@
+{
+  "command": [
+    "/home/dream/coding/journal_of_experiments/20261021T214130Z_st_codec2_review006/qa-env/bin/python",
+    "-m",
+    "pytest",
+    "-q",
+    "-p",
+    "no:cacheprovider",
+    "tests/test_voice_lifecycle_regressions.py",
+    "tests/test_voice_codec.py",
+    "tests/test_voice_audio.py",
+    "tests/test_voice_service.py",
+    "tests/test_tui_voice.py"
+  ],
+  "exit_code": 0,
+  "seconds": 5.74,
+  "summary": [
+    "37 passed in 5.47s"
+  ]
+}

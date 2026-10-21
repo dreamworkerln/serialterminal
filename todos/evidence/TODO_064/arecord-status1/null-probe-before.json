@@ -1,0 +1,49 @@
+[
+  {
+    "argv": [
+      "arecord",
+      "-D",
+      "null",
+      "-q",
+      "-t",
+      "raw",
+      "-f",
+      "S16_LE",
+      "-r",
+      "8000",
+      "-c",
+      "1"
+    ],
+    "pcm_bytes": 202000,
+    "outcome": {
+      "returncode": 1,
+      "requested_stop": true,
+      "stderr": "",
+      "forced_stop": false
+    },
+    "graceful_stop": false
+  },
+  {
+    "argv": [
+      "arecord",
+      "-D",
+      "null",
+      "-t",
+      "raw",
+      "-f",
+      "S16_LE",
+      "-r",
+      "8000",
+      "-c",
+      "1"
+    ],
+    "pcm_bytes": 74000,
+    "outcome": {
+      "returncode": 1,
+      "requested_stop": true,
+      "stderr": "Запись Сырые данные 'stdin' : Signed 16 bit Little Endian, Частота 8000 Гц, Моно\nПрервано сигналом Прерывание...",
+      "forced_stop": false
+    },
+    "graceful_stop": false
+  }
+]

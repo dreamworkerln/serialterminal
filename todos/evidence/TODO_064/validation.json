@@ -1,0 +1,36 @@
+{
+  "base": "8a9d91dc03630dec88c67ca0282a12dcff9ae89b",
+  "source_patch_sha256": "7ec9511595a158136152eb513c66daab3e83a515fd8e51e8511b7fe4943d654a",
+  "source_and_test_sha256": {
+    "src/serialterminal/voice_audio.py": "e4d1fb12e3b701bc95c75069603198ca0b16e7c4aae39c83ca36bef34a09dc58",
+    "src/serialterminal/voice_service.py": "2b77884ad65da6707a16c039195f43463229cd2dc71101499a9dabd92a0ebc5a",
+    "tests/test_voice_lifecycle_regressions.py": "fd261ac6e8a0b6b8070fe51c4fed208a7f9bd2cd61db62140dfe6a185acc9671"
+  },
+  "source_files_unchanged_after_full_validation": 156,
+  "removed_source_comments": {
+    "src/serialterminal/voice_audio.py": [],
+    "src/serialterminal/voice_service.py": []
+  },
+  "old_code_archive": "/home/dream/coding/journal_of_experiments/20261021T220835Z_st_todo064_voice_fixes/baseline-8a9d91d.tar",
+  "old_code_archive_sha256": "28a22b7d5c28e9cd649d1f63c17fe6f710667d33289711791bc5962a21ba9ebe",
+  "baseline_final": {
+    "failed": 17,
+    "passed": 3
+  },
+  "fixed_final": {
+    "failed": 0,
+    "passed": 20
+  },
+  "full_pytest": {
+    "passed": 1415,
+    "warnings": 7,
+    "seconds": 123.52,
+    "skipped": 0
+  },
+  "compile": "PASS",
+  "ruff": "PASS",
+  "lizard": "WARNING advisory",
+  "API_skill_consistency": "reviewed; unchanged machine JSONL semantics",
+  "hardware": "NOT RUN; TODO_063 gates OPEN",
+  "commit_push": "NOT RUN"
+}

@@ -4,12 +4,13 @@
 Методика проверки: [REVIEWER.md](REVIEWER.md).
 Задачи по исправлениям: [TODO_INVENTORY.md](TODO_INVENTORY.md).
 
-Next new review ID: `REVIEW_006`.
+Next new review ID: `REVIEW_007`.
 
 ## Review registry
 
 | REVIEW-ID / report | Date UTC | Scope | Reviewed commit | Base | Status | Verdict | TODO / previous / follow-up |
 | --- | --- | --- | --- | --- | --- | --- | --- |
+| [REVIEW_006](reviews/REVIEW_006_CODEC2_VOICE_IMPLEMENTATION.md) | 2026-10-21 | Agent Codec2 implementation: voice/audio lifecycle, SDK interop, FT1/TUI regression subsets | [8a9d91dc03630dec88c67ca0282a12dcff9ae89b](https://github.com/dreamworkerln/serialterminal/commit/8a9d91dc03630dec88c67ca0282a12dcff9ae89b) | `989118042f2c4030bcde8bc328540ac67e14faed` | COMPLETE | RED (voice lifecycle) | F001–F005 reproduced, 2 HIGH / 3 MEDIUM; related TODO_063; previous REVIEW_005; 294 tests + real SDK interop PASS, full CI/audio/radio NOT RUN; разобрано в TODO_064; TODO_064 software PASS incl. arecord status-1 correction; operator retest OPEN, historical review RED preserved |
 | [REVIEW_005](reviews/REVIEW_005_CODEC2_VOICE_FILE_INTEGRATION.md) | 2026-10-21 | TODO_063 store-and-forward design: voice is a normal FT1 file; admission/ownership and audio lifecycle | [957032f3a9019e69dcbcda0821b965fcb2ffc939](https://github.com/dreamworkerln/serialterminal/commit/957032f3a9019e69dcbcda0821b965fcb2ffc939) | `184fabfb8088b5b3568a26883c0a71159468864e` | COMPLETE | RED (plan completeness only) | Разобрано в TODO_063: F001–F003 incorporated into plan 2026-10-21; no new TODO; historical RED preserved; duration policy OPEN; contract probes PASS, voice implementation/audio/radio NOT RUN |
 | [REVIEW_003](reviews/REVIEW_003_TUI_TRANSFER_WINDOW_LIFECYCLE.md) | 2026-10-16 | TUI file-window lifecycle, F7/history eligibility, same-ID confirmation and recovery; original snapshot before fixes | [`f70f1a8efff02f4b29e77782f50c18941596f890`](https://github.com/dreamworkerln/serialterminal/commit/f70f1a8efff02f4b29e77782f50c18941596f890) | N/A — snapshot | COMPLETE | RED | F001–F004 → TODO_053; initial investigation, fixes/current validation tracked in TODO_053; no physical causal verdict |
 | [REVIEW_001](reviews/REVIEW_001_DEV_TUI_EXP_RECURSIVE_MISSING.md) | 2026-10-13 | Current `dev_tui_exp_recursive_missing` software snapshot; FT1 recursive/core/recovery/persistence + adjacent agent/session lifecycle; 2026-10-14 regression-attribution addendum | [`db740af94c700c7c4e6d96abef7e809dadfcaf1c`](https://github.com/dreamworkerln/serialterminal/commit/db740af94c700c7c4e6d96abef7e809dadfcaf1c) | `8cf689e0edd286ac9e48df9ab3c6990fc1bf0f79` + snapshot; regression baseline `fd94bde` | COMPLETE | RED | `TODO_043` (F001–F014), `TODO_044` (F015), `TODO_045` (F016), `TODO_046` (F017), `TODO_047` (F018); разобрано в TODO 2026-10-14; previous numbered review: none |
