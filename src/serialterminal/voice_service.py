@@ -19,6 +19,11 @@ from .settings import DEFAULTS
 from .voice_audio import AlsaAudioBackend, AudioBackend, VoiceAudioError
 from .voice_codec import (
     C2FileEncoder,
+    C2_HEADER_SIZE,
+    CODEC2_3200_BYTES_PER_FRAME,
+    CODEC2_3200_SAMPLES_PER_FRAME,
+    CODEC2_SAMPLE_RATE,
+    CODEC2_SAMPLE_BYTES,
     CODEC2_MODE_3200,
     Codec2Library,
     UnsupportedVoiceMode,
@@ -40,6 +45,9 @@ class VoiceSnapshot:
     ready_path: str | None
     playback_active: bool
     retained_paths: tuple[str, ...]
+    playback_seconds: float = 0.0
+    playback_total_seconds: float = 0.0
+    playback_cancelled: bool = False
 
 
 @dataclass
@@ -59,6 +67,7 @@ class _FtEnvelope:
     manager_generation: int
     is_root: bool
     event: dict[str, Any]
+    autoplay_epoch: int = 0
 
 
 @dataclass(frozen=True)
@@ -66,6 +75,7 @@ class _PlaybackRequest:
     identity: tuple[int, str, str]
     path: Path
     wire_filename: str
+    duration_seconds: float
 
 
 class VoiceMessageService:
@@ -104,10 +114,15 @@ class VoiceMessageService:
         self._capture_stream = None
         self._audio_mode: str | None = None
         self._playback_cancel = threading.Event()
+        self._playback_epoch = 0
+        self._playback_started: float | None = None
+        self._playback_decoded_seconds = 0.0
+        self._playback_total_seconds = 0.0
         self._tx_attempts: dict[str, _TxAttempt] = {}
         self._manager: FileTransferManager | None = None
         self._manager_generation = 0
         self._overflow_manager: FileTransferManager | None = None
+        self._overflow_autoplay_epoch = 0
         self._closing = False
         self._worker_stop = threading.Event()
         self._event_worker = threading.Thread(
@@ -160,6 +175,10 @@ class VoiceMessageService:
             seconds = 0.0
             if self._record_started is not None and self._state in {"RECORDING", "FINALIZING"}:
                 seconds = max(0.0, time.monotonic() - self._record_started)
+            playback_seconds = 0.0
+            if self._playback_started is not None:
+                playback_seconds = min(max(0.0, time.monotonic() - self._playback_started),
+                                       self._playback_decoded_seconds, self._playback_total_seconds)
             ready = self._latest_retained_locked()
             return VoiceSnapshot(
                 state=self._state,
@@ -167,6 +186,9 @@ class VoiceMessageService:
                 ready_path=None if ready is None else str(ready),
                 playback_active=self._audio_mode == "playback",
                 retained_paths=tuple(sorted(str(path) for path in self._retained_paths)),
+                playback_seconds=playback_seconds,
+                playback_total_seconds=self._playback_total_seconds,
+                playback_cancelled=self._playback_cancel.is_set(),
             )
 
     def local_operation_active(self) -> bool:
@@ -184,10 +206,22 @@ class VoiceMessageService:
         if snap.state == "ADMITTING":
             return "VOICE ADMITTING TO FT1"
         if snap.playback_active:
-            return "VOICE PLAYBACK · F12 waits"
+            return "VOICE STOPPING" if snap.playback_cancelled else "VOICE PLAYBACK · Esc stop"
         if snap.state == "READY_FILE" and snap.ready_path:
             return f"VOICE READY {Path(snap.ready_path).name} · F5 retry"
         return None
+
+    def cancel_playback(self) -> bool:
+        with self._condition:
+            if self._audio_mode != "playback" or self._playback_cancel.is_set():
+                return False
+            # Fence отменяет также уже полученные RX, ещё ожидающие validation/dispatch.
+            self._playback_epoch += 1
+            self._playback_cancel.set()
+            self._playback_queue.clear()
+            self._condition.notify_all()
+        self._notify("Voice playback cancelled; queued autoplay cleared; received files retained")
+        return True
 
     def drain_notifications(self) -> list[str]:
         with self._lock:
@@ -501,12 +535,14 @@ class VoiceMessageService:
             is_root = False
         with self._lock:
             generation = self._manager_generation if manager is self._manager else -1
-        envelope = _FtEnvelope(manager, generation, is_root, copy.deepcopy(event))
+            autoplay_epoch = self._playback_epoch
+        envelope = _FtEnvelope(manager, generation, is_root, copy.deepcopy(event), autoplay_epoch)
         try:
             self._event_queue.put_nowait(envelope)
         except queue.Full:
             with self._lock:
                 self._overflow_manager = manager
+                self._overflow_autoplay_epoch = autoplay_epoch
                 self._notifications.append("Voice FT1 event queue overflow; reconciling from manager snapshot")
             report_event("VOICE FT1 event queue overflow")
 
@@ -587,6 +623,7 @@ class VoiceMessageService:
         with self._lock:
             manager = self._overflow_manager
             self._overflow_manager = None
+            autoplay_epoch = self._overflow_autoplay_epoch
             generation = self._manager_generation if manager is self._manager else -1
         if manager is None or generation < 0:
             return
@@ -618,7 +655,7 @@ class VoiceMessageService:
                 "kind": "transfer_" + str(value["state"]),
                 "progress": dict(value),
             }
-            self._handle_ft1_event(_FtEnvelope(manager, generation, value is snapshot, event))
+            self._handle_ft1_event(_FtEnvelope(manager, generation, value is snapshot, event, autoplay_epoch))
 
     def _handle_rx_completed(self, envelope: _FtEnvelope) -> None:
         event = envelope.event
@@ -641,6 +678,8 @@ class VoiceMessageService:
             if resolved.parent != receive_root:
                 raise VoiceFormatError("voice final_path is outside direct FT1 publication directory")
             validate_c2_file(resolved)
+            frames = (resolved.stat().st_size - C2_HEADER_SIZE) // CODEC2_3200_BYTES_PER_FRAME
+            duration_seconds = frames * CODEC2_3200_SAMPLES_PER_FRAME / CODEC2_SAMPLE_RATE
         except UnsupportedVoiceMode as exc:
             self._notify(f"Voice file retained but mode is unsupported: {exc} | {path}")
             return
@@ -653,13 +692,16 @@ class VoiceMessageService:
             if (self._closing or envelope.manager is not self._manager
                     or envelope.manager_generation != self._manager_generation):
                 return
+            if envelope.autoplay_epoch != self._playback_epoch:
+                self._autoplay_seen.add(identity)
+                return
             if identity in self._autoplay_seen:
                 return
             self._autoplay_seen.add(identity)
             if len(self._playback_queue) >= self._playback_limit:
                 self._notifications.append(f"Voice autoplay queue full; retained for manual replay: {resolved}")
                 return
-            self._playback_queue.append(_PlaybackRequest(identity, resolved, filename))
+            self._playback_queue.append(_PlaybackRequest(identity, resolved, filename, duration_seconds))
             self._condition.notify_all()
         self._notify(f"Voice received and queued for playback: {resolved}")
 
@@ -683,22 +725,42 @@ class VoiceMessageService:
                 request = self._playback_queue.popleft()
                 self._audio_mode = "playback"
                 self._playback_cancel = threading.Event()
+                self._playback_started = None
+                self._playback_decoded_seconds = 0.0
+                self._playback_total_seconds = request.duration_seconds
             try:
                 library = self._library()
                 codec = library.create(CODEC2_MODE_3200)
                 try:
-                    chunks = iter_decoded_pcm(request.path, codec)
-                    self.audio_backend.play_pcm(chunks, self._playback_cancel)
+                    chunks = self._playback_chunks(request.path, codec)
+                    if not self._playback_cancel.is_set():
+                        self.audio_backend.play_pcm(chunks, self._playback_cancel)
                 finally:
                     codec.close()
-                self._notify(f"Voice playback completed: {request.path}")
+                if not self._playback_cancel.is_set():
+                    self._notify(f"Voice playback completed: {request.path}")
             except Exception as exc:
                 report_exception(exc, "voice playback")
                 self._notify(f"Voice playback failed; file retained: {exc} | {request.path}")
             finally:
                 with self._condition:
                     self._audio_mode = None
+                    self._playback_started = None
+                    self._playback_total_seconds = 0.0
+                    self._playback_decoded_seconds = 0.0
                     self._condition.notify_all()
+
+    def _playback_chunks(self, path, codec):
+        for chunk in iter_decoded_pcm(path, codec):
+            with self._lock:
+                if self._playback_cancel.is_set():
+                    return
+                if self._playback_started is None:
+                    self._playback_started = time.monotonic()
+                # Это оценка времени, не число уже сыгранных hardware samples:
+                # декодер/pipe могут обгонять динамики на глубину буфера ALSA.
+                self._playback_decoded_seconds += len(chunk) / (CODEC2_SAMPLE_RATE * CODEC2_SAMPLE_BYTES)
+            yield chunk
 
     def close(self) -> None:
         with self._condition:

@@ -218,7 +218,7 @@ class FileTransferWindow:
         return False, None
 
     @staticmethod
-    def _box(stdscr, draw, height: int, width: int, content: list[str], title: str, attr: int, border: int):
+    def draw_box(stdscr, draw, height: int, width: int, content: list[str], title: str, attr: int, border: int):
         rows, columns = stdscr.getmaxyx()
         width = min(width, columns - 2)
         height = min(height, rows - 5)
@@ -245,7 +245,7 @@ class FileTransferWindow:
         width = columns - 4
         if snapshot is None:
             # Исчезнувшая session не оставляет невидимый modal-перехват клавиш.
-            self._box(stdscr, draw, 5, width,
+            self.draw_box(stdscr, draw, 5, width,
                       ["Операция завершилась или изменилась.", "", "Enter/Esc: закрыть диалог"],
                       "Подтверждение", attr, border)
             return
@@ -298,13 +298,13 @@ class FileTransferWindow:
             # остальные показатели возвращаются при увеличении окна.
             content = [middle_ellipsis(name, inner), state_label(state), progress, footer][:available]
         if self.visible:
-            self._box(stdscr, draw, len(content) + 2, width, content, "Передача файла", attr, border)
+            self.draw_box(stdscr, draw, len(content) + 2, width, content, "Передача файла", attr, border)
         if self.confirmation_id is not None:
             active = self._confirmation_active(snapshot)
             content = ["Отменить передачу файла?", "", "←/→: выбор | Enter: подтвердить | Esc: продолжить"]
             if not active:
                 content = ["Операция завершилась или изменилась.", "", "Enter/Esc: закрыть диалог"]
-            top, left, _, _ = self._box(stdscr, draw, 5, width, content, "Подтверждение", attr, border)
+            top, left, _, _ = self.draw_box(stdscr, draw, 5, width, content, "Подтверждение", attr, border)
             if active:
                 no, yes = "[ Нет ]", "[ Да ]"
                 x = left + max(2, (width - 20) // 2)

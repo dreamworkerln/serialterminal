@@ -560,3 +560,27 @@ are in TODO_064; operator microphone retest and full audio/radio gates remain OP
 
 After the stop correction: full local pytest 1419 PASS, compile/Ruff PASS;
 operator real-microphone F12 retest remains OPEN.
+
+### Recording panel — 2026-10-22
+
+Operator requested a large persistent red recording panel in the existing FT1 window
+area. Implemented in the human TUI: RECORDING has a solid red background, bold white
+text, elapsed timer and F12 stop/send hint; STARTING/FINALIZING/ADMITTING use a neutral
+preparation panel. The existing FT1 window resumes after admission. Scrolling and F7
+do not hide the recording indicator; compact mode survives terminal resize. A hidden
+old FT1 confirmation cannot intercept F12 while local voice work is active.
+
+This is presentation only: capture, Codec2, FT1 lifecycle/wire, profiles, agent JSONL
+and firmware remain unchanged. No streaming or concurrent voice mode was added.
+Software validation/evidence for this panel is recorded separately below. Real audio
+and paired-radio acceptance for the complete feature remain OPEN.
+
+Panel software validation: selected TUI/voice/file-window/PTY subset **173 PASS**;
+full workflow software commands: compile/Ruff PASS, pytest **1432 PASS**, 7 existing
+DeprecationWarning, 121.33 s. Lizard advisory WARNING remains non-blocking per workflow.
+A real ncurses/PTY probe confirmed white-on-red recording at 80×24, 60×12 and 35×8,
+neutral finalization/admission and handoff to ordinary FT1. No physical devices opened.
+Checkpoint: `a1fe052` + saved change.patch/source SHA manifest in
+`/home/dream/coding/journal_of_experiments/20261021T225707Z_st_voice_panel/`.
+API/skill consistency and comment-preserving diff reviewed; no machine API change.
+Operator visual/microphone retest after ST restart remains OPEN; no new commit/push.

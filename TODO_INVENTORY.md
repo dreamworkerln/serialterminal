@@ -48,9 +48,17 @@ Status: OPEN / P2; REVIEW_004/F008 = Chatter REVIEW_006/F008.
 Implementation/acceptance OPEN; validation gates перечислены в задаче.
 
 SPP F004 дополняет OPEN TODO_013. Windows FT1 F006 дополняет TODO_049;
-DEFERRED по решению оператора сохранён. Next new thematic TODO ID: `TODO_065`.
+DEFERRED по решению оператора сохранён. Next new thematic TODO ID: `TODO_066`.
 
 ## Active
+
+### TODO_065 — [todos/TODO_065_TUI_CONCURRENT_OPERATIONS.md](todos/TODO_065_TUI_CONCURRENT_OPERATIONS.md)
+
+Status: OPEN / P2. Отдельно разобрать совместные операции TUI: playback + F5/file
+browser + FT1, приоритет окон, background indicators и адресацию Esc/Enter/Cancel.
+Сохранять разрешённые сочетания; не заменять координацию blanket-запретом.
+Implementation/validation NOT STARTED; оператор отложил эту работу до проверки
+текущих voice panels. Новая панель/Cancel не закрывают этот TODO.
 
 ### TODO_064 — [todos/TODO_064_CODEC2_VOICE_LIFECYCLE_FIXES.md](todos/TODO_064_CODEC2_VOICE_LIFECYCLE_FIXES.md)
 
@@ -67,7 +75,8 @@ microphone retest. TODO_063 full audio/radio gates remain OPEN. No commit/push/G
 Status: IMPLEMENTED / LOCAL SOFTWARE VALIDATION PASS / CLEAN-ENV CI REQUIRED / REAL INTEGRATION OPEN
 
 Operator-selected next integration: store-and-forward Codec2 voice messages in the
-human TUI. F12 toggle records 8 kHz mono PCM directly into standard Codec2 3200
+human TUI. The requested red recording panel and neutral preparation-to-FT1 handoff
+are implemented; full local pytest 1432 PASS, operator visual/audio retest OPEN. F12 toggle records 8 kHz mono PCM directly into standard Codec2 3200
 `*.stvoice.c2`; the finalized file is sent by the existing FT1 manager. Verified RX
 completion uses the original wire filename plus validated `.c2` content and durable
 `final_path` before asynchronous playback. Codec/audio stay in an application layer;
@@ -324,7 +333,7 @@ TODO_026 logging-contract investigation is also OPEN and may be scheduled indepe
 
 Current operator order (2026-10-22): TODO_064 software fixes по REVIEW_006/F001–F005
 реализованы; исправлена также F003-регрессия штатного arecord stop по F12, software PASS. Операторский retest после перезапуска ST OPEN. Исторические результаты и BASE+patch evidence сохранены. Gates полной voice feature
-TODO_063 остаются OPEN; аппаратный запуск и следующая implementation задача не назначены.
+TODO_063 остаются OPEN. Красная панель записи реализована по следующему поручению; software PASS, визуальная проверка оператора OPEN. Аппаратный запуск не выполнялся.
 
 Previous operator order (2026-10-21): реализовать ST TODO_058. Implementation
 и software checks завершены; independent re-review exact checkpoint остаётся OPEN.

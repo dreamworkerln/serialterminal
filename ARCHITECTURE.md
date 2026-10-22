@@ -524,6 +524,23 @@ stderr diagnostic. An unsolicited exit or status 1 with diagnostic remains a fai
 Every spawned playback child is stopped/reaped on decoder/iterator/pipe failure as
 well as cancellation, before releasing its process ownership.
 
+The TUI draws the voice startup/recording/finalization/admission snapshot in the
+same overlay area as the FT1 window. Only RECORDING uses a solid red background,
+white bold text, elapsed timer and F12 stop/send hint. Preparation is neutral;
+FT1 presentation resumes when local voice work settles. The panel cannot be hidden
+by F7/scrollback, does not own capture or FT1 lifecycle, and does not create a modal
+input handler. Small terminals retain a compact recording indicator. RX playback uses a muted blue-violet
+panel with estimated elapsed/total time, progress and a centered Cancel button.
+Progress uses the monotonic clock after the first decoded PCM frame and is bounded by
+decoded duration and validated file duration; it is not hardware sample position and
+stays below 100% until the backend finishes. Enter/Esc/click Cancel closes the panel,
+signals cancellation without blocking TUI and clears pending autoplay. A cancellation
+epoch also excludes already-received RX events still in dispatch/validation; files
+remain published. Future messages can autoplay. The backend cancellation watcher owns
+the exact child and interrupts pipe writes/drain, then cleanup reaps it before audio
+ownership is released. F5 remains available; general window/focus coordination belongs
+to TODO_065 rather than introducing broad action prohibitions here.
+
 The first implementation is human-TUI only. It adds no agent JSONL operation/schema,
 no firmware/wire behavior and no realtime voice transport.
 

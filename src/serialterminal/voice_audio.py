@@ -224,6 +224,8 @@ class AlsaAudioBackend:
         )
 
     def play_pcm(self, chunks: Iterable[bytes], cancel_event: threading.Event) -> None:
+        if cancel_event.is_set():
+            return
         available, reason = self.availability()
         if not available:
             raise VoiceAudioError(reason)
@@ -238,7 +240,14 @@ class AlsaAudioBackend:
             self._playback_process = process
         cancelled = False
         stderr = None
+        finished = threading.Event()
+        watcher = threading.Thread(target=self._watch_playback_cancel,
+                                   args=(process, cancel_event, finished),
+                                   name="serialterminal-voice-playback-cancel", daemon=True)
+        watcher_started = False
         try:
+            watcher.start()
+            watcher_started = True
             stderr = _StderrDrain(process.stderr)
             if process.stdin is None:
                 raise VoiceAudioError("aplay stdin is unavailable")
@@ -246,7 +255,12 @@ class AlsaAudioBackend:
                 if cancel_event.is_set():
                     cancelled = True
                     break
-                process.stdin.write(chunk)
+                remaining = memoryview(chunk)
+                while remaining and not cancel_event.is_set():
+                    written = process.stdin.write(remaining)
+                    if not written:
+                        raise VoiceAudioError("aplay stdin stopped accepting PCM")
+                    remaining = remaining[written:]
             try:
                 process.stdin.close()
             except (BrokenPipeError, OSError):
@@ -260,12 +274,14 @@ class AlsaAudioBackend:
                 except subprocess.TimeoutExpired as exc:
                     self._terminate_playback(process)
                     raise VoiceAudioError("aplay did not finish within bounded playback timeout") from exc
-                if returncode != 0:
+                if returncode != 0 and not cancel_event.is_set():
                     detail = stderr.text()
                     raise VoiceAudioError(
                         f"aplay exited with status {returncode}" + (f": {detail}" if detail else "")
                     )
         except (BrokenPipeError, OSError) as exc:
+            if cancel_event.is_set():
+                return
             detail = "" if stderr is None else stderr.text()
             raise VoiceAudioError(
                 f"aplay stream failed: {exc}" + (f": {detail}" if detail else "")
@@ -275,6 +291,10 @@ class AlsaAudioBackend:
             # Ownership сохраняется до bounded stop/reap; cleanup не скрывает
             # первоначальную ошибку stream/decode.
             original_error = sys.exc_info()[1]
+            finished.set()
+            if watcher_started:
+                watcher.join(timeout=DEFAULTS.voice.process_stop_timeout_s
+                             + DEFAULTS.voice.process_kill_timeout_s + 0.2)
             reaped = False
             try:
                 self._terminate_playback(process)
@@ -293,6 +313,17 @@ class AlsaAudioBackend:
                             stream.close()
                     except OSError:
                         pass
+
+    def _watch_playback_cancel(self, process, cancel_event, finished) -> None:
+        # stdin.write() и финальный drain могут блокироваться. Отдельный watcher
+        # прерывает именно этот child; TUI только выставляет event и не ждёт ALSA.
+        while not finished.wait(0.02):
+            if cancel_event.is_set():
+                try:
+                    self._terminate_playback(process)
+                except Exception as exc:
+                    report_exception(exc, "voice playback cancellation")
+                return
 
     def _terminate_playback(self, process: subprocess.Popen) -> None:
         if process.poll() is None:

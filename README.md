@@ -136,7 +136,10 @@ serialterminal --profile chatter \
   --codec2-sdk-dir ../codec2-sdk/dist/linux-x86_64
 ```
 
-`F12` starts microphone capture. A second `F12` stops capture, finalizes a standard
+`F12` starts microphone capture. A large red panel with a recording timer and the
+F12 hint occupies the file-transfer window area and stays visible while scrolling.
+Startup/finalization use a neutral preparation panel; once the file is admitted,
+the ordinary FT1 progress window takes its place. A second `F12` stops capture, finalizes a standard
 Codec2 3200 `*.stvoice.c2` file, and admits that completed file to the existing FT1
 manager. The first version deliberately has no SerialTerminal-imposed recording
 duration/encoded-byte cap and no timed auto-send: recording ends only on the second
@@ -155,7 +158,11 @@ not autoplay. Late completions from a replaced session do not start new autoplay
 Playback and microphone capture never overlap, including microphone startup; a voice received while
 recording waits until capture/finalization releases the audio device, while `F12` during
 playback is rejected without interrupting playback. Received files are retained after
-playback success or failure.
+playback success or failure. During playback a muted blue-violet panel shows estimated
+elapsed/total time and progress. Its centered Cancel button (Enter, Esc or mouse)
+stops the current audio and clears pending autoplay; received files are kept. Later
+new voice messages autoplay normally. F5 and other existing actions remain available;
+coordination of concurrent windows/focus is tracked separately in TODO_065.
 
 The Linux backend launches `arecord`/`aplay` directly as raw S16_LE, mono, 8 kHz and
 therefore uses the host's current ALSA default capture/playback route (including a

@@ -17,6 +17,8 @@ from .terminal import TerminalSession
 from .profiles.base import SendLine
 from .tui_file_transfer import FileTransferWindow, file_transfer_status_line, init_file_transfer_colors, live_transfer, transfer_phase
 from .tui_text import screen_safe_text as _screen_safe_text, fit_cells, middle_ellipsis
+from .tui_voice import (draw_voice_panel, draw_playback_panel, init_voice_colors,
+                        playback_panel_visible, playback_button_rect)
 from .transports.base import Transport, TransportError
 from .voice_service import VoiceMessageService
 
@@ -715,8 +717,10 @@ class TerminalTui:
             "error": curses.color_pair(5) | curses.A_BOLD,
             "input": curses.color_pair(6),
             "error_badge": curses.color_pair(7) | curses.A_BOLD,
+            "voice_recording": curses.color_pair(7) | curses.A_BOLD,
             "dim": curses.color_pair(1) | curses.A_DIM,
             **getattr(self, "_file_colors", {}),
+            **getattr(self, "_voice_colors", {}),
         }
 
     def _line_attr(self, line: str, colors: dict[str, int]) -> int:
@@ -740,8 +744,17 @@ class TerminalTui:
         stdscr.erase()
         height, width = stdscr.getmaxyx()
         colors = self._colors()
+        service = getattr(self, "_voice_service", None)
+        voice_snapshot = None if service is None else service.snapshot()
+        voice_style = dict(recording_attr=colors.get("voice_recording", colors["error_badge"]),
+                           attr=colors.get("file", colors["panel"]),
+                           border=colors.get("file_border", colors["panel"]))
 
         if height < 12 or width < 60:
+            if (draw_voice_panel(stdscr, self._safe_addstr, voice_snapshot, **voice_style)
+                    or draw_playback_panel(stdscr, self._safe_addstr, voice_snapshot, colors)):
+                stdscr.refresh()
+                return 1
             self._safe_addstr(
                 stdscr, 0, 0,
                 "Terminal is too small; resize to at least 60x12.",
@@ -887,18 +900,22 @@ class TerminalTui:
         )
         cursor_x = len(prompt) + self.input_cursor - input_start
         window = self._file_window()
-        window.draw(
-            stdscr, self._safe_addstr, snapshot, bar=self.render_progress_bar,
-            state_label=self.file_state_label,
-            rate=self._file_wire_rate_kbit_s(snapshot) if snapshot is not None else 0.0,
-            attr=colors.get("file", colors["panel"]),
-            selected=colors.get("file_selected", colors["header"]),
-            border=colors.get("file_border", colors["panel"]),
-        )
+        playback_visible = playback_panel_visible(voice_snapshot)
+        voice_visible = (draw_voice_panel(stdscr, self._safe_addstr, voice_snapshot, **voice_style)
+                         or draw_playback_panel(stdscr, self._safe_addstr, voice_snapshot, colors))
+        if not voice_visible:
+            window.draw(
+                stdscr, self._safe_addstr, snapshot, bar=self.render_progress_bar,
+                state_label=self.file_state_label,
+                rate=self._file_wire_rate_kbit_s(snapshot) if snapshot is not None else 0.0,
+                attr=colors.get("file", colors["panel"]),
+                selected=colors.get("file_selected", colors["header"]),
+                border=colors.get("file_border", colors["panel"]),
+            )
         # Overlay меняет curses cursor; ввод остаётся в command line, а modal
         # показывает выбор атрибутом кнопки без ложного фокуса в command line.
         try:
-            curses.curs_set(0 if window.confirmation_id is not None else 1)
+            curses.curs_set(0 if playback_visible or (not voice_visible and window.confirmation_id is not None) else 1)
             stdscr.move(input_sep_y + 1, min(width - 2, max(0, cursor_x)))
         except curses.error:
             pass
@@ -1162,6 +1179,14 @@ class TerminalTui:
             return
 
         height, width = stdscr.getmaxyx()
+        service = getattr(self, "_voice_service", None)
+        button = playback_button_rect(height, width)
+        left_click = button_state & (getattr(curses, "BUTTON1_PRESSED", 0)
+                                     | getattr(curses, "BUTTON1_CLICKED", 0))
+        if (service is not None and playback_panel_visible(service.snapshot()) and button is not None
+                and left_click and y == button[0] and button[1] <= _x < button[1] + button[2]):
+            service.cancel_playback()
+            return
         panel_rows = len(self.panel.status_lines()) if self.panel else 0
         file_rows = len(self._file_header_lines(width))
         body_top = 2 + panel_rows + file_rows
@@ -1213,18 +1238,25 @@ class TerminalTui:
         if key in ("\x11", "\x03"):
             self.running = False
             return
+        service = getattr(self, "_voice_service", None)
+        playing = service is not None and playback_panel_visible(service.snapshot())
+        if playing and key in ("\x1b", "\n", "\r", curses.KEY_ENTER):
+            service.cancel_playback()
+            return
         window = self._file_window()
         snapshot = self._file_snapshot()
-        if window.confirmation_id is not None and stdscr is not None:
-            height, width = stdscr.getmaxyx()
-            if (height < 12 or width < 60) and key != "\x1b":
+        # Панель записи не является modal: скрытый FT1 dialog не перехватывает F12.
+        if not self._voice_local_active() and not playing:
+            if window.confirmation_id is not None and stdscr is not None:
+                height, width = stdscr.getmaxyx()
+                if (height < 12 or width < 60) and key != "\x1b":
+                    return
+            consumed, cancelled = window.handle_key(key, snapshot)
+            if consumed:
+                if cancelled is not None:
+                    target = window.confirmation_attempt
+                    self._cancel_confirmed_file(cancelled, expected_attempt=target[1] if target else None)
                 return
-        consumed, cancelled = window.handle_key(key, snapshot)
-        if consumed:
-            if cancelled is not None:
-                target = window.confirmation_attempt
-                self._cancel_confirmed_file(cancelled, expected_attempt=target[1] if target else None)
-            return
         if getattr(self, "_profile_prefix_pending", False):
             self._profile_prefix_pending = False
             action_name = dict(self.profile.human_hotkeys()).get(key)
@@ -1343,6 +1375,7 @@ class TerminalTui:
             curses.init_pair(6, curses.COLOR_GREEN, -1)
             curses.init_pair(7, curses.COLOR_WHITE, curses.COLOR_RED)
             self._file_colors = init_file_transfer_colors()
+            self._voice_colors = init_voice_colors()
 
         try:
             self.session.start()

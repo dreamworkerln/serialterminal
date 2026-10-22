@@ -4,6 +4,7 @@ import curses
 from serialterminal.profiles.base import SendLine
 from serialterminal.tui import TerminalTui, TuiOutputBuffer, TuiScrollback
 from serialterminal.tui_file_transfer import FileTransferWindow
+from serialterminal.voice_service import VoiceSnapshot
 
 
 class FakeVoice:
@@ -15,6 +16,9 @@ class FakeVoice:
         self.toggle_calls = 0
         self.events = []
         self.notifications = []
+
+    def snapshot(self):
+        return VoiceSnapshot("RECORDING" if self.active else "IDLE", 1.0, None, self.playback, ())
 
     def local_operation_active(self):
         return self.active

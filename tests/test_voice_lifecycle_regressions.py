@@ -315,7 +315,7 @@ def test_capture_that_exited_before_stop_is_not_a_requested_completion():
         capture.close()
 
 
-def test_playback_cancellation_reaps_child(monkeypatch):
+def test_pre_cancelled_playback_does_not_spawn_child(monkeypatch):
     processes = []
 
     def spawn(_argv, **kwargs):
@@ -329,7 +329,7 @@ def test_playback_cancellation_reaps_child(monkeypatch):
     cancel.set()
     try:
         backend.play_pcm([b"\0\0" * 160], cancel)
-        assert processes[0].poll() is not None
+        assert processes == []
     finally:
         for process in processes:
             if process.poll() is None:
